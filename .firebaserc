@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "integra360-94704"
+  },
+  "targets": {
+    "integra360-94704": {
+      "hosting": {
+        "integra360": [
+          "integra360"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

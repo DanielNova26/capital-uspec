@@ -1,0 +1,162 @@
+// lib/main.dart
+// Arranque de la app + Firebase + App Check + FCM + notificaciones locales.
+
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import 'firebase_options.dart';
+import 'login/login_screen.dart';
+
+/// ===== Handler de mensajes en segundo plano (Android) =====
+/// ¡NO lo muevas dentro de una clase!
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // Aquí podrías registrar logs o preprocesar 'message.data'
+}
+
+/// ===== Servicio mínimo para notificaciones locales (foreground) =====
+class NotificationService {
+  NotificationService._();
+  static final instance = NotificationService._();
+
+  final _plugin = FlutterLocalNotificationsPlugin();
+
+  Future<void> init() async {
+    // Android: usa el ícono por defecto
+    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const init = InitializationSettings(android: android);
+
+    await _plugin.initialize(
+      init,
+      onDidReceiveNotificationResponse: (resp) {
+        // Si envías un payload (p.ej. taskId) al crear la notificación,
+        // lo recibes aquí en resp.payload para navegar a detalle de tarea.
+      },
+    );
+
+    // Crea/asegura el canal (debe coincidir con tu Manifest)
+    const channel = AndroidNotificationChannel(
+      'tasks_high',
+      'Tareas',
+      description: 'Notificaciones de tareas',
+      importance: Importance.high,
+    );
+
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
+    // Opcional: mostrar alertas en foreground con el sistema (iOS/Android13+)
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+  }
+
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'tasks_high',
+        'Tareas',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+    );
+    await _plugin.show(id, title, body, details, payload: payload);
+  }
+}
+
+Future<void> _initFirebaseAndPushCore() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Firebase base
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // App Check (en desarrollo usa debug; en producción configura Play Integrity)
+  await FirebaseAppCheck.instance.activate(
+   androidProvider: AndroidProvider.debug, // <-- para dev. Cambia a .playIntegrity en prod
+    appleProvider: AppleProvider.debug,
+  );
+
+  // Notificaciones locales
+  await NotificationService.instance.init();
+
+  // FCM: handler en background
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+  // (Opcional) auto-init de FCM
+  await FirebaseMessaging.instance.setAutoInitEnabled(true);
+
+  // Permiso (Android 13+ / iOS): puedes pedirlo aquí o luego del login.
+  await FirebaseMessaging.instance.requestPermission();
+
+  // Foreground: si llega un push, mostramos notificación local
+  FirebaseMessaging.onMessage.listen((RemoteMessage m) {
+    final isSilent = (m.data['silent'] ?? '0') == '1';
+    if (isSilent) {
+      // Silencioso: no mostrar notificación local.
+      return;
+    }
+    final title = m.notification?.title ?? (m.data['title'] ?? 'Notificación');
+    final body  = m.notification?.body  ?? (m.data['body']  ?? '');
+    final payload = m.data['taskId'];
+
+    NotificationService.instance.show(
+      id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title: title,
+      body: body,
+      payload: payload,
+    );
+  });
+
+  // Cuando la app se abre por tocar una notificación (background → foreground)
+  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage m) {
+    // Aquí puedes leer m.data['taskId'] y navegar con un navigatorKey global,
+    // o delegarlo a tu HomeScreen.
+  });
+
+  // Si la app se lanzó desde terminada por una notificación:
+  // final initial = await FirebaseMessaging.instance.getInitialMessage();
+  // if (initial != null) { ... }
+}
+
+Future<void> main() async {
+  await _initFirebaseAndPushCore();
+  runApp(const CapitalUspecApp());
+}
+
+class CapitalUspecApp extends StatelessWidget {
+  const CapitalUspecApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Capital Uspec',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFFC28942),
+        scaffoldBackgroundColor: const Color(0xFFF7FBF7),
+      ),
+      home: const LoginScreen(),
+    );
+  }
+}
+
+/// Alias para tests viejos que referencian `MyApp`
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  @override
+  Widget build(BuildContext context) => const CapitalUspecApp();
+}

@@ -1,0 +1,59 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "integra360-94704",
+          "appId": "1:379551786878:android:5ff74c61ef72e7ad84352f",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "integra360-94704",
+          "configurations": {
+            "android": "1:379551786878:android:5ff74c61ef72e7ad84352f",
+            "ios": "1:379551786878:ios:b2f6d4777de370c884352f",
+            "macos": "1:379551786878:ios:b2f6d4777de370c884352f",
+            "web": "1:379551786878:web:bfdce56a6b9454b984352f",
+            "windows": "1:379551786878:web:54070bc61d206bb284352f"
+          }
+        }
+      }
+    }
+  },
+  "hosting": [
+    {
+      "site": "integra360",
+      "public": "build/web",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint",
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
+  ]
+}

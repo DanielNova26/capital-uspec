@@ -1,0 +1,285 @@
+// lib/services/notifications_service.dart
+//
+// Servicio de notificaciones para:
+// 1) Registrar y refrescar el token FCM por cédula (vía callable registerDeviceToken)
+// 2) Manejar permisos y handlers de Firebase Messaging
+// 3) Mostrar notificaciones locales en foreground con sonido (canal tasks_high)
+// 4) Ofrecer un stream de la bandeja in-app (si usas doc por cédula con array 'notifications')
+//
+// Requisitos en pubspec.yaml (según tu versión):
+//   firebase_messaging: ^15.2.7
+//   flutter_local_notifications: ^17.2.4
+//   cloud_functions: ^5.1.3
+//   firebase_core, cloud_firestore, firebase_auth (ya los tienes)
+//
+// AndroidManifest.xml: ya declaraste POST_NOTIFICATIONS y el default channel id 'tasks_high'
+
+import 'dart:async';
+import 'dart:io';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+typedef CedulaProvider = FutureOr<String?> Function();
+
+/// Handler de mensajes en background.
+/// IMPORTANTE: No intentes mostrar notificación local aquí.
+/// En background, FCM con payload 'notification' ya muestra sistema.
+/// Solo dejamos el init para asegurar el isolate.
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    await Firebase.initializeApp();
+    if (kDebugMode) {
+      print('[BG] FCM received: ${message.messageId}');
+    }
+    // No mostrar locales aquí; FCM ya levanta push del sistema en background.
+  } catch (_) {}
+}
+
+class NotificationsService {
+  NotificationsService._();
+
+  static final FlutterLocalNotificationsPlugin _fln =
+  FlutterLocalNotificationsPlugin();
+
+  static bool _initialized = false;
+  static CedulaProvider? _cedulaProvider;
+
+  /// Inicializa todo: canales, permisos, handlers y registro de token.
+  ///
+  /// [cedulaProvider]: función que devuelva la cédula del usuario actual.
+  /// Si no la proporcionas, intentará buscarla en TBL_USUARIOS por `uid` del auth.
+  ///
+  /// [useCustomSound]: si deseas usar un sonido raw llamado 'task_ping'
+  /// ubicado en android/app/src/main/res/raw/task_ping.(mp3|wav).
+  static Future<void> init({
+    CedulaProvider? cedulaProvider,
+    bool useCustomSound = false,
+  }) async {
+    if (_initialized) return;
+    _initialized = true;
+
+    _cedulaProvider = cedulaProvider;
+
+    // 0) Background handler
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+    // 1) Init de notificaciones locales
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosInit = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    const initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
+
+    await _fln.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (resp) async {
+        final payload = resp.payload;
+        if (kDebugMode) print('[LOCAL TAP] payload=$payload');
+        // TODO: navegar a detalle de tarea usando deepLink o taskId
+      },
+    );
+
+    // 2) Crear canal Android con máxima importancia (coincide con AndroidManifest)
+    final android = _fln.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (android != null && Platform.isAndroid) {
+      final channel = AndroidNotificationChannel(
+        'tasks_high',
+        'Tareas',
+        description: 'Asignaciones y avances',
+        importance: Importance.max,
+        playSound: true,
+        sound: useCustomSound
+            ? const RawResourceAndroidNotificationSound('task_ping')
+            : null, // default
+      );
+      await android.createNotificationChannel(channel);
+    }
+
+    // 3) Pedir permisos FCM + mostrar notificaciones en foreground (iOS)
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      announcement: false,
+      badge: true,
+      carPlay: false,
+      criticalAlert: false,
+      provisional: false,
+      sound: true,
+    );
+    if (kDebugMode) print('[FCM] Permission: ${settings.authorizationStatus}');
+
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    // 4) Handlers de mensajes (foreground + tap desde terminated/background)
+    FirebaseMessaging.onMessage.listen(_onMessageForeground);
+    FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
+
+    // 5) Obtener y registrar token actual
+    final token = await FirebaseMessaging.instance.getToken();
+    if (kDebugMode) print('[FCM] Token: $token');
+    if (token != null) {
+      await _registerTokenWithCedula(token);
+    }
+
+    // 6) Suscribirse a refresh de token
+    FirebaseMessaging.instance.onTokenRefresh.listen((t) async {
+      if (kDebugMode) print('[FCM] Token refresh: $t');
+      await _registerTokenWithCedula(t);
+    });
+  }
+
+  /// Muestra notificación local cuando el app está en foreground.
+  static Future<void> _onMessageForeground(RemoteMessage m) async {
+    final n = m.notification;
+    final data = m.data;
+
+    final title = n?.title ?? data['title'] ?? 'Nueva tarea';
+    final body = n?.body ?? data['body'] ?? 'Tienes una notificación';
+    final payload = data['deepLink'] ?? data['taskId'];
+
+    await _fln.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'tasks_high',
+          'Tareas',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          // Si creaste sonido custom en el canal, no necesitas especificarlo aquí.
+          // Si quieres forzar uno aquí, descomenta:
+          // sound: RawResourceAndroidNotificationSound('task_ping'),
+        ),
+        iOS: const DarwinNotificationDetails(presentSound: true),
+      ),
+      payload: payload,
+    );
+  }
+
+  static Future<void> _onMessageOpenedApp(RemoteMessage m) async {
+    final data = m.data;
+    if (kDebugMode) print('[FCM TAP] data=$data');
+    // TODO: navegar a detalle con data['taskId'] o data['deepLink']
+  }
+
+  /// Intenta resolver la cédula:
+  /// 1) Usa el provider si existe.
+  /// 2) Busca en TBL_USUARIOS por uid == FirebaseAuth.currentUser?.uid y toma el campo 'cedula'.
+  static Future<String?> _resolveCedula() async {
+    if (_cedulaProvider != null) {
+      final v = await _cedulaProvider!.call();
+      if (v != null && v.trim().isNotEmpty) return v.trim();
+    }
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return null;
+
+    final q = await FirebaseFirestore.instance
+        .collection('TBL_USUARIOS')
+        .where('uid', isEqualTo: uid)
+        .limit(1)
+        .get();
+
+    if (q.docs.isNotEmpty) {
+      final ced = q.docs.first.data()['cedula'];
+      if (ced is String && ced.trim().isNotEmpty) {
+        return ced.trim();
+      }
+    }
+    return null;
+  }
+
+  /// Registra el token en la función registerDeviceToken (doc por cédula).
+  static Future<void> _registerTokenWithCedula(String token) async {
+    try {
+      final cedula = await _resolveCedula();
+      if (cedula == null) {
+        if (kDebugMode) {
+          print('[FCM] No se pudo resolver cédula. Token no registrado.');
+        }
+        return;
+      }
+      final callable =
+      FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
+      await callable.call(<String, dynamic>{
+        'cedula': cedula,
+        'token': token,
+      });
+      if (kDebugMode) {
+        print('[FCM] Token registrado para cédula: $cedula');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[FCM] Error registrando token: $e');
+      }
+    }
+  }
+
+  /// Stream de la bandeja in-app (si usas doc por cédula y array 'notifications')
+  /// Estructura esperada:
+  /// TBL_NOTIFICACIONES/<cedula> { notifications: [ {title, description, taskId, createdAt, read}, ... ] }
+  static Stream<List<Map<String, dynamic>>> userNotificationsStream({
+    required String cedula,
+  }) {
+    final ref = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(cedula);
+
+    return ref.snapshots().map((snap) {
+      final data = snap.data();
+      if (data == null) return <Map<String, dynamic>>[];
+
+      final List list = (data['notifications'] ?? []) as List;
+      // Ordena por createdAt desc si existe
+      list.sort((a, b) {
+        final tsA = (a['createdAt'] as Timestamp?)?.toDate();
+        final tsB = (b['createdAt'] as Timestamp?)?.toDate();
+        final tA = tsA?.millisecondsSinceEpoch ?? 0;
+        final tB = tsB?.millisecondsSinceEpoch ?? 0;
+        return tB.compareTo(tA);
+      });
+
+      return list.cast<Map<String, dynamic>>();
+    });
+  }
+
+  /// Marca “read: true” una notificación dentro del array en TBL_NOTIFICACIONES/<cedula>.
+  /// Como es un array de mapas, se recomienda reescribir el array con el objeto actualizado.
+  static Future<void> markAsRead({
+    required String cedula,
+    required int indexInArray,
+  }) async {
+    final docRef = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(cedula);
+
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(docRef);
+      final data = snap.data() ?? {};
+      final List notifs = (data['notifications'] ?? []) as List;
+
+      if (indexInArray < 0 || indexInArray >= notifs.length) return;
+
+      final item = Map<String, dynamic>.from(notifs[indexInArray] as Map);
+      item['read'] = true;
+      notifs[indexInArray] = item;
+
+      tx.set(docRef, {'notifications': notifs}, SetOptions(merge: true));
+    });
+  }
+}

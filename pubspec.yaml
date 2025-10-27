@@ -1,0 +1,76 @@
+name: capital_uspec
+description: "Aplicaicon principal de Capital Uspec"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI / Iconos
+  cupertino_icons: ^1.0.8
+
+  # Firebase (línea 3.x que ya resolvió)
+  firebase_core: ^3.14.0
+  cloud_firestore: ^5.6.8
+  firebase_auth: ^5.5.4
+  firebase_storage: ^12.4.6
+  firebase_app_check: ^0.3.2+7
+  cloud_functions: ^5.1.3
+
+  # Mensajería y notificaciones
+  firebase_messaging: ^15.2.7
+  flutter_local_notifications: ^17.2.4
+  android_alarm_manager_plus: ^4.0.8
+
+  # Mapas y geoubicación
+  google_maps_flutter: ^2.13.1
+  geolocator: ^14.0.2
+  geocoding: ^3.0.0
+
+  # Archivos / Imágenes
+  file_picker: ^10.3.3
+  image_picker: ^1.2.0
+  image: ^4.3.0
+  file_saver: ^0.3.1
+  open_filex: ^4.6.0
+  share_plus: ^12.0.0
+  excel: ^4.0.6
+  path_provider: ^2.1.5
+
+  # Utilidades
+  url_launcher: ^6.3.2
+  intl: ^0.20.2
+  permission_handler: ^12.0.1
+  table_calendar: ^3.2.0
+
+  # 🔙 Volvemos a la API antigua que tu código usa
+  flutter_typeahead: ^4.8.0
+
+  http: ^1.5.0
+
+  # Localización
+  flutter_localizations:
+    sdk: flutter
+
+dependency_overrides:
+  flutter_keyboard_visibility: ^6.0.0
+  # Si llegara a chocar 'archive', descomenta:
+  # archive: ^3.6.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/arial.ttf
+    - assets/logo.png
+    - assets/admin_icon.png
+    - assets/seeds/catalogos_base.xlsx
