@@ -28,8 +28,13 @@ class NotificationService {
   Future<void> init() async {
     // Android: usa el ícono por defecto
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const init = InitializationSettings(android: android);
-
+    const ios = DarwinInitializationSettings();
+    const macos = DarwinInitializationSettings();
+    const init = InitializationSettings(
+      android: android,
+      iOS: ios,
+      macOS: macos,
+    );
     await _plugin.initialize(
       init,
       onDidReceiveNotificationResponse: (resp) {

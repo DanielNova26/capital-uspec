@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Capital Uspec</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIMainStoryboardFile</key>
+    <string>Main</string>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+
+    <!-- 📷 Permisos requeridos por Apple -->
+    <key>NSCameraUsageDescription</key>
+    <string>Esta aplicación requiere acceso a la cámara para capturar fotografías y evidencia visual.</string>
+
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Esta aplicación requiere acceso a la galería para seleccionar y subir imágenes.</string>
+
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Esta aplicación puede usar el micrófono para grabar audio en ciertos módulos.</string>
+
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Esta aplicación utiliza tu ubicación para mejorar la trazabilidad y gestión logística.</string>
+
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Se requiere acceso a tu ubicación incluso en segundo plano para registrar desplazamientos del personal.</string>
+
+    <key>NSUserTrackingUsageDescription</key>
+    <string>Esta aplicación puede recopilar información de uso para mejorar la experiencia y desempeño del sistema.</string>
+
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Esta aplicación necesita acceder a tus archivos para cargar y guardar documentos internos.</string>
+</dict>
+</plist>
+
