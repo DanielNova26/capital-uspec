@@ -206,7 +206,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 32),
                 Text(
-                  'Derechos reservados a Capital USPEC 2025',
+                  'Derechos reservados',
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 11,

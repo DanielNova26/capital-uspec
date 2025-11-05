@@ -77,6 +77,8 @@ class NotificationService {
         importance: Importance.high,
         priority: Priority.high,
       ),
+      iOS: DarwinNotificationDetails(),
+      macOS: DarwinNotificationDetails(),
     );
     await _plugin.show(id, title, body, details, payload: payload);
   }
@@ -138,21 +140,26 @@ Future<void> _initFirebaseAndPushCore() async {
 
 Future<void> main() async {
   await _initFirebaseAndPushCore();
-  runApp(const CapitalUspecApp());
+  runApp(const ToDoApp());
 }
 
-class CapitalUspecApp extends StatelessWidget {
-  const CapitalUspecApp({super.key});
+class ToDoApp extends StatelessWidget {
+  const ToDoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Capital Uspec',
+      title: 'ToDo',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: const Color(0xFFC28942),
-        scaffoldBackgroundColor: const Color(0xFFF7FBF7),
+        brightness: Brightness.light,
+        colorSchemeSeed: const Color(0xFF0078D7), // azul del logo
+        scaffoldBackgroundColor: const Color(0xFFFFFFFF), // fondo blanco
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF0078D7),
+          foregroundColor: Colors.white,
+        ),
       ),
       home: const LoginScreen(),
     );
@@ -163,5 +170,5 @@ class CapitalUspecApp extends StatelessWidget {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
-  Widget build(BuildContext context) => const CapitalUspecApp();
+  Widget build(BuildContext context) => const ToDoApp();
 }

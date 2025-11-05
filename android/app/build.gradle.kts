@@ -8,7 +8,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.capital_uspec"
+    namespace = "ToDo"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "27.0.12077973"
 
@@ -23,7 +23,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.capital_uspec"
+        applicationId = "ToDo"
         minSdkVersion(23)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

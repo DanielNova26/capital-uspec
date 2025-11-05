@@ -1,5 +1,5 @@
-name: capital_uspec
-description: "Aplicaicon principal de Capital Uspec"
+name: ToDo
+description: "Aplicación de Gestión Empresarial"
 publish_to: 'none'
 
 version: 1.0.0+1
