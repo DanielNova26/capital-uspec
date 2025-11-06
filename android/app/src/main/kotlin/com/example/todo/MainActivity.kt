@@ -1,4 +1,4 @@
-package com.example.capital_uspec
+package com.example.todo
 
 import io.flutter.embedding.android.FlutterActivity
 

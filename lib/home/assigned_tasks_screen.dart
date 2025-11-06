@@ -20,7 +20,7 @@ import 'notify_avances_screen.dart' as avances_screen;
 import 'notify_novedades_screen.dart' as novedades_screen;
 import 'complete_task_screen.dart' as complete_screen;
 
-const Color kMarronOscuro = Color(0xffc28942);
+const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
 class AssignedTasksScreen extends StatefulWidget {
@@ -362,7 +362,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             final alt = (m['primerNombre'] ?? '') + ' ' + (m['primerApellido'] ?? '');
             final showName = nombre.isNotEmpty ? nombre : alt.trim();
             final uid = (m['uid'] ?? d.id).toString();
-            personas.add({'uid': uid, 'nombre': showName.isEmpty ? uid : showName, 'dept': deptIdOrName});
+            personas.add({'uid': uid, 'nombre': showName.isNotEmpty ? showName : uid, 'dept': deptIdOrName});
           }
           return;
         }
@@ -379,7 +379,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           final alt = (m['primerNombre'] ?? '') + ' ' + (m['primerApellido'] ?? '');
           final showName = nombre.isNotEmpty ? nombre : alt.trim();
           final uid = (m['uid'] ?? d.id).toString();
-          personas.add({'uid': uid, 'nombre': showName.isEmpty ? uid : showName, 'dept': deptIdOrName});
+          personas.add({'uid': uid, 'nombre': showName.isNotEmpty ? showName : uid, 'dept': deptIdOrName});
         }
       } catch (_) {}
     }

@@ -7,6 +7,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 // Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart';
@@ -15,10 +16,7 @@ import '../talento_humano/talento_humano_dashboard_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart';
 
-const Color kMarronOscuro = Color(0xffc28942);
-const Color kMarronClaro  = Color(0xffe19e4c);
-const Color kGris         = Color(0xff8a8a8a);
-const String kArial       = 'Arial';
+const String kArial = 'Arial';
 
 class HomeScreen extends StatefulWidget {
   final String username; // cédula o username (docId en TBL_USUARIOS)
@@ -79,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _focusedDay  = DateTime.now();
+    _focusedDay = DateTime.now();
     _selectedDay = DateTime.now();
   }
 
@@ -117,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
           debugPrint('[FCM] registerDeviceToken error: $e');
         }
 
-        // 2) Respaldo directo (por si el callable falló por permisos/App Check)
+        // 2) Respaldo directo
         try {
           await FirebaseFirestore.instance
               .collection('TBL_USUARIOS')
@@ -128,11 +126,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
-      // Guarda cada refresh del token también en ambos lados
       _tokenSub ??= FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-        debugPrint('[FCM] onTokenRefresh: $newToken');
         if (newToken.isEmpty) return;
-
         try {
           final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
           await fun.call({'cedula': userId, 'token': newToken});
@@ -168,19 +163,20 @@ class _HomeScreenState extends State<HomeScreen> {
           .collection('TBL_NOTIFICACIONES')
           .doc(cedula)
           .set({'notifications': upd}, SetOptions(merge: true));
-    } catch (_) {
-      // no-op
-    }
+    } catch (_) {}
   }
 
   Future<void> _showNotificationsSheet({
     required String cedula,
     required List<Map<String, dynamic>> notifications,
   }) async {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: scheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -195,15 +191,12 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text('Notificaciones',
-                      style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                  SizedBox(height: 16),
+                children: [
+                  const Text('Notificaciones',
+                      style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
                   Text('No tienes notificaciones todavía.',
-                      style: TextStyle(fontFamily: kArial, color: kGris)),
+                      style: TextStyle(fontFamily: kArial, color: scheme.onSurfaceVariant)),
                 ],
               ),
             );
@@ -216,16 +209,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 38,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.black12,
+                  color: scheme.onSurface.withOpacity(.12),
                   borderRadius: BorderRadius.circular(100),
                 ),
               ),
               const SizedBox(height: 12),
               const Text('Notificaciones',
-                  style: TextStyle(
-                      fontFamily: kArial,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Expanded(
                 child: ListView.separated(
@@ -234,66 +224,53 @@ class _HomeScreenState extends State<HomeScreen> {
                   itemCount: notifications.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
-                    final n     = notifications[i];
+                    final n = notifications[i];
                     final title = (n['title'] ?? '') as String;
-                    final body  = (n['description'] ?? '') as String;
-
-                    final dt   = _toDate(n['createdAt']);
-                    final when = dt == null ? '' : DateFormat('dd/MM/yyyy HH:mm').format(dt);
-
+                    final body = (n['description'] ?? '') as String;
+                    final dt = _toDate(n['createdAt']);
+                    final when = dt == null ? '' : DateFormat('dd/MM/yyyy HH:mm', 'es').format(dt);
                     final unread = !(n['read'] as bool? ?? false);
 
                     return ListTile(
-                      dense: false,
                       leading: Stack(
                         alignment: Alignment.center,
                         children: [
-                          const CircleAvatar(
-                            backgroundColor: kMarronClaro,
-                            child: Icon(Icons.notifications, color: Colors.white),
+                          CircleAvatar(
+                            backgroundColor: scheme.primary,
+                            child: const Icon(Icons.notifications, color: Colors.white),
                           ),
                           if (unread)
                             const Positioned(
-                              right: -1,
-                              top: -1,
-                              child: CircleAvatar(
-                                radius: 6,
-                                backgroundColor: Colors.red,
-                              ),
+                              right: -1, top: -1,
+                              child: CircleAvatar(radius: 6, backgroundColor: Colors.red),
                             ),
                         ],
                       ),
-                      title: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontFamily: kArial),
-                      ),
+                      title: Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: kArial)),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            body,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontFamily: kArial),
-                          ),
+                          Text(body,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontFamily: kArial)),
                           const SizedBox(height: 4),
-                          Text(
-                            when,
-                            style: const TextStyle(
-                                fontFamily: kArial, color: kGris, fontSize: 12),
-                          ),
+                          Text(when,
+                              style: TextStyle(
+                                  fontFamily: kArial,
+                                  color: scheme.onSurfaceVariant,
+                                  fontSize: 12)),
                         ],
                       ),
                       onTap: () {
                         showDialog(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title: Text(title,
-                                style: const TextStyle(fontFamily: kArial)),
-                            content: Text(body,
-                                style: const TextStyle(fontFamily: kArial)),
+                            title: Text(title, style: const TextStyle(fontFamily: kArial)),
+                            content: Text(body, style: const TextStyle(fontFamily: kArial)),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(context),
@@ -313,7 +290,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    // Al cerrar el modal, marcamos todas como leídas.
     await _markAllAsRead(cedula: cedula, notifications: notifications);
   }
 
@@ -324,8 +300,11 @@ class _HomeScreenState extends State<HomeScreen> {
     required List<String> assignedApps,
     required String cedula,
   }) {
-    final assignedLower =
-    assignedApps.map((e) => e.trim().toLowerCase()).where((e) => e.isNotEmpty).toSet();
+    final scheme = Theme.of(context).colorScheme;
+    final assignedLower = assignedApps
+        .map((e) => e.trim().toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toSet();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -394,11 +373,9 @@ class _HomeScreenState extends State<HomeScreen> {
         }).toList();
 
         if (tiles.isEmpty) {
-          return const Center(
-            child: Text(
-              'No tienes apps disponibles.',
-              style: TextStyle(fontFamily: kArial, fontSize: 16, color: kGris),
-            ),
+          return Text(
+            'No tienes apps disponibles.',
+            style: TextStyle(fontFamily: kArial, fontSize: 16, color: scheme.onSurfaceVariant),
           );
         }
 
@@ -416,7 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     CircleAvatar(
                       radius: 30,
-                      backgroundColor: kMarronClaro,
+                      backgroundColor: scheme.primary,
                       child: a.iconBuilder(),
                     ),
                     const SizedBox(height: 6),
@@ -446,9 +423,10 @@ class _HomeScreenState extends State<HomeScreen> {
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> iCreated,
     required String myId,
   }) {
+    final scheme = Theme.of(context).colorScheme;
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
-    final end   = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
     final cards = <Map<String, dynamic>>[];
 
@@ -459,11 +437,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (due == null) continue;
       if (due.isBefore(start) || due.isAfter(end)) continue;
       cards.add({
-        'type'      : 'yo',
-        'title'     : _titleOf(m),
-        'due'       : due,
-        'to'        : _creatorNameOf(m),
-        'estado'    : _estadoOf(m),
+        'type': 'yo',
+        'title': _titleOf(m),
+        'due': due,
+        'to': _creatorNameOf(m),
+        'estado': _estadoOf(m),
       });
     }
 
@@ -474,11 +452,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (due == null) continue;
       if (due.isBefore(start) || due.isAfter(end)) continue;
       cards.add({
-        'type'      : 'otros',
-        'title'     : _titleOf(m),
-        'due'       : due,
-        'from'      : _assignedNameOf(m),
-        'estado'    : _estadoOf(m),
+        'type': 'otros',
+        'title': _titleOf(m),
+        'due': due,
+        'from': _assignedNameOf(m),
+        'estado': _estadoOf(m),
       });
     }
 
@@ -494,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
     cards.sort((a, b) => (a['due'] as DateTime).compareTo(b['due'] as DateTime));
 
     return SizedBox(
-      height: 150,
+      height: 160,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: cards.length,
@@ -504,23 +482,46 @@ class _HomeScreenState extends State<HomeScreen> {
           final due = c['due'] as DateTime;
           final type = c['type'] as String;
           final estado = (c['estado'] as String?) ?? '';
-          final badge = type == 'yo'
-              ? const _Badge(text: 'Yo entrego',  color: Color(0xff1565c0))
-              : _Badge(text: 'Me entregan${(c['from'] ?? '') != '' ? '' : ''}', color: Color(0xff00897b));
+
+          // colores/estilo según “Yo entrego” vs “Me entregan”
+          final bool yoEntrego = type == 'yo';
+          final Color bg = yoEntrego
+              ? scheme.primaryContainer
+              : scheme.tertiaryContainer;
+          final Color fg = yoEntrego
+              ? scheme.onPrimaryContainer
+              : scheme.onTertiaryContainer;
+          final IconData ico = yoEntrego ? Icons.upload : Icons.download;
 
           return Container(
-            width: 260,
-            padding: const EdgeInsets.all(10),
+            width: 280,
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: kMarronClaro.withOpacity(0.18),
+              color: bg,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.black12),
+              border: Border.all(color: fg.withOpacity(.25)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                badge,
-                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(ico, size: 18, color: fg),
+                    const SizedBox(width: 6),
+                    Text(
+                      yoEntrego ? 'Yo entrego' : 'Me entregan',
+                      style: TextStyle(
+                        color: fg,
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const Spacer(),
+                    _chipEstado(estado, scheme),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
                   (c['title'] as String?) ?? '(Sin título)',
                   maxLines: 2,
@@ -536,12 +537,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   spacing: 8,
                   runSpacing: 6,
                   children: [
-                    _pill('Vence: ${DateFormat('HH:mm').format(due)}'),
-                    if (type == 'yo' && (c['to'] ?? '').toString().isNotEmpty)
-                      _pill('Para: ${c['to']}'),
-                    if (type != 'yo' && (c['from'] ?? '').toString().isNotEmpty)
-                      _pill('Entrega: ${c['from']}'),
-                    if (estado.isNotEmpty) _chipEstado(estado),
+                    _pill('Vence: ${DateFormat('HH:mm').format(due)}', scheme),
+                    if (yoEntrego && (c['to'] ?? '').toString().isNotEmpty)
+                      _pill('Para: ${c['to']}', scheme),
+                    if (!yoEntrego && (c['from'] ?? '').toString().isNotEmpty)
+                      _pill('Entrega: ${c['from']}', scheme),
                   ],
                 ),
               ],
@@ -552,43 +552,47 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Chip _chipEstado(String estado) => Chip(
-    labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
-    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    label: Text(
-      estado,
-      style: const TextStyle(color: Colors.white, fontFamily: kArial, fontSize: 11),
-    ),
-    backgroundColor: _statusColor(estado),
-  );
-
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'pendiente':
-        return Colors.orange.shade700;
-      case 'en_progreso':
-        return Colors.blue.shade700;
-      case 'completada':
-        return Colors.green.shade700;
-      case 'devuelta':
-        return Colors.purple.shade700;
-      default:
-        return Colors.grey.shade600;
-    }
-  }
-
-  Widget _pill(String text) => Chip(
+  Widget _pill(String text, ColorScheme scheme) => Chip(
     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
     labelPadding: const EdgeInsets.symmetric(horizontal: 6),
     label: Text(text, style: const TextStyle(fontFamily: kArial, fontSize: 11)),
-    backgroundColor: Colors.white,
-    side: const BorderSide(color: Colors.black12),
+    backgroundColor: scheme.surface,
+    side: BorderSide(color: scheme.outlineVariant),
   );
+
+  Widget _chipEstado(String estado, ColorScheme scheme) {
+    Color color;
+    switch (estado) {
+      case 'pendiente':
+        color = Colors.orange.shade700;
+        break;
+      case 'en_progreso':
+        color = Colors.blue.shade700;
+        break;
+      case 'completada':
+        color = Colors.green.shade700;
+        break;
+      case 'devuelta':
+        color = Colors.purple.shade700;
+        break;
+      default:
+        color = scheme.outline;
+    }
+    return Chip(
+      labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+      visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      label: Text(estado.isEmpty ? '—' : estado,
+          style: const TextStyle(color: Colors.white, fontFamily: kArial, fontSize: 11)),
+      backgroundColor: color,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
@@ -601,7 +605,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!userSnap.hasData || !userSnap.data!.exists) {
           return Scaffold(
             appBar: AppBar(
-              backgroundColor: kMarronOscuro,
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
               title: const Text('Usuario no encontrado', style: TextStyle(fontFamily: kArial)),
             ),
             body: const Center(
@@ -614,22 +619,24 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        final userData  = userSnap.data!.data()!;
+        final userData = userSnap.data!.data()!;
         final cedula = (userData['cedula'] as String?)?.trim() ?? '';
         final effectiveId = cedula.isNotEmpty ? cedula : widget.username.trim();
-        final pNombre   = (userData['nombres'] as String?) ?? (userData['primerNombre'] as String? ?? '');
-        final pApellido = (userData['apellidos'] as String?) ?? (userData['primerApellido'] as String? ?? '');
-        final role      = (userData['role'] as String?)?.trim().toLowerCase() ?? 'usuario';
+        final pNombre =
+            (userData['nombres'] as String?) ?? (userData['primerNombre'] as String? ?? '');
+        final pApellido =
+            (userData['apellidos'] as String?) ?? (userData['primerApellido'] as String? ?? '');
+        final role = (userData['role'] as String?)?.trim().toLowerCase() ?? 'usuario';
         final assignedApps =
             (userData['apps'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
         final empresaId = (userData['empresaId'] as String?)?.trim() ?? '';
-        final saludo    = '$pNombre${(pApellido.isNotEmpty ? ' $pApellido' : '')}';
+        final saludo = '$pNombre${(pApellido.isNotEmpty ? ' $pApellido' : '')}';
 
         // 🔔 Registrar FCM automáticamente (una sola vez)
         if (!_didRegisterToken && effectiveId.isNotEmpty) {
           _didRegisterToken = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _ensureFcmRegistered(effectiveId); // usa el ID efectivo
+            _ensureFcmRegistered(effectiveId);
           });
         }
 
@@ -643,7 +650,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));
             }
 
-            // ----- Parseo notificaciones (solo para campana; el calendario ahora usa TAREAS) -----
+            // Notificaciones
             final List<Map<String, dynamic>> notifications = [];
             if (notifSnap.hasData && notifSnap.data!.exists) {
               final raw = notifSnap.data!.data()!['notifications'] as List<dynamic>? ?? [];
@@ -656,13 +663,14 @@ class _HomeScreenState extends State<HomeScreen> {
               final bd = _toDate(b['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
               return bd.compareTo(ad);
             });
-            final unreadCount = notifications.where((n) => !(n['read'] as bool? ?? false)).length;
+            final unreadCount =
+                notifications.where((n) => !(n['read'] as bool? ?? false)).length;
 
-            // ======= Streams de tareas: (1) asignadas a mí, (2) yo asigné =======
+            // Tareas streams
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('TBL_TAREAS')
-                  .where('asignado_uid', isEqualTo: effectiveId) // alias: assignedTo
+                  .where('asignado_uid', isEqualTo: effectiveId)
                   .snapshots(),
               builder: (context, assignedSnap) {
                 if (assignedSnap.connectionState == ConnectionState.waiting) {
@@ -673,7 +681,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
                       .collection('TBL_TAREAS')
-                      .where('creador_id', isEqualTo: effectiveId) // alias: creatorId
+                      .where('creador_id', isEqualTo: effectiveId)
                       .snapshots(),
                   builder: (context, createdSnap) {
                     if (createdSnap.connectionState == ConnectionState.waiting) {
@@ -681,7 +689,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                     final createdDocs = createdSnap.data?.docs ?? [];
 
-                    // Construir el mapa de eventos del calendario desde tareas (ambos tipos)
+                    // Construir eventos del calendario a partir de tareas
                     final map = <String, List<Map<String, dynamic>>>{};
                     void addEvt(DateTime d, String title, String desc) {
                       final k = DateFormat('yyyy-MM-dd').format(d);
@@ -710,13 +718,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         );
                       }
                     }
-                    // Asignamos al estado (el builder ya va a reconstruir)
                     _events = map;
 
                     return Scaffold(
                       drawer: AppDrawer(userId: effectiveId),
                       appBar: AppBar(
-                        backgroundColor: kMarronOscuro,
+                        backgroundColor: scheme.primary,
+                        foregroundColor: scheme.onPrimary,
                         leading: Builder(
                           builder: (ctx) => IconButton(
                             icon: const Icon(Icons.menu),
@@ -728,7 +736,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 fontFamily: kArial, fontSize: 20, fontWeight: FontWeight.w600)),
                         centerTitle: true,
                         actions: [
-                          // ============ Campana con badge ============
                           IconButton(
                             tooltip: 'Notificaciones',
                             onPressed: () => _showNotificationsSheet(
@@ -772,6 +779,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Mis Apps
                             const Text('Mis Apps',
                                 style: TextStyle(
                                     fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -784,7 +792,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // ======= NUEVO: Tareas del día (slider) =======
+                            // Tareas del día (SIEMPRE visible)
                             const Text('Tareas del día',
                                 style: TextStyle(
                                     fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
@@ -796,66 +804,60 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // ======= Calendario (eventos a partir de tareas) =======
-                            ExpansionTile(
-                              tilePadding: EdgeInsets.zero,
-                              childrenPadding: const EdgeInsets.only(top: 8),
-                              title: const Text('Calendario',
+                            // Calendario (SIEMPRE visible)
+                            const Text('Calendario',
+                                style: TextStyle(
+                                    fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            TableCalendar(
+                              locale: 'es_CO', // o 'es'
+                              startingDayOfWeek: StartingDayOfWeek.monday,
+                              firstDay: DateTime(2000),
+                              lastDay: DateTime.now().add(const Duration(days: 365)),
+                              focusedDay: _focusedDay,
+                              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                              onDaySelected: (selected, focused) {
+                                setState(() {
+                                  _selectedDay = selected;
+                                  _focusedDay = focused;
+                                });
+                              },
+                              eventLoader: _getEventsForDay,
+                              calendarStyle: CalendarStyle(
+                                markersMaxCount: 1,
+                                markerDecoration: BoxDecoration(
+                                  color: scheme.primary,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Actividades (${DateFormat('dd/MM/yyyy', 'es').format(_selectedDay)})',
+                              style: const TextStyle(
+                                  fontFamily: kArial,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            if (_getEventsForDay(_selectedDay).isEmpty)
+                              Text('No tienes actividades para esta fecha.',
                                   style: TextStyle(
                                       fontFamily: kArial,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold)),
-                              children: [
-                                TableCalendar(
-                                  firstDay: DateTime(2000),
-                                  lastDay: DateTime.now().add(const Duration(days: 365)),
-                                  focusedDay: _focusedDay,
-                                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                                  onDaySelected: (selected, focused) {
-                                    setState(() {
-                                      _selectedDay = selected;
-                                      _focusedDay = focused;
-                                    });
-                                  },
-                                  eventLoader: _getEventsForDay,
-                                  calendarStyle: const CalendarStyle(
-                                    markersMaxCount: 1,
-                                    markerDecoration: BoxDecoration(
-                                      color: kMarronOscuro,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
+                                      fontSize: 14,
+                                      color: scheme.onSurfaceVariant))
+                            else
+                              ..._getEventsForDay(_selectedDay).map(
+                                    (evt) => ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(Icons.event, color: scheme.primary),
+                                  title: Text(evt['title'] as String? ?? '',
+                                      style: const TextStyle(fontFamily: kArial)),
+                                  subtitle: Text(evt['description'] as String? ?? '',
+                                      style: const TextStyle(fontFamily: kArial)),
                                 ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Actividades (${DateFormat('dd/MM/yyyy').format(_selectedDay)})',
-                                  style: const TextStyle(
-                                      fontFamily: kArial,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 8),
-                                if (_getEventsForDay(_selectedDay).isEmpty)
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 8),
-                                    child: Text('No tienes actividades para esta fecha.',
-                                        style: TextStyle(
-                                            fontFamily: kArial, fontSize: 14, color: kGris)),
-                                  )
-                                else
-                                  ..._getEventsForDay(_selectedDay).map(
-                                        (evt) => ListTile(
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: const Icon(Icons.event, color: kMarronOscuro),
-                                      title: Text(evt['title'] as String? ?? '',
-                                          style: const TextStyle(fontFamily: kArial)),
-                                      subtitle: Text(evt['description'] as String? ?? '',
-                                          style: const TextStyle(fontFamily: kArial)),
-                                    ),
-                                  ),
-                              ],
-                            ),
+                              ),
                           ],
                         ),
                       ),
@@ -867,32 +869,6 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         );
       },
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  final String text;
-  final Color color;
-  const _Badge({required this.text, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontFamily: kArial,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
     );
   }
 }

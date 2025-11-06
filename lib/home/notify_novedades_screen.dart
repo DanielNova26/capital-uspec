@@ -39,6 +39,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
   final _descCtrl = TextEditingController();
   bool _busy = false;
   String? _error;
+  bool _takingPhoto = false;
 
   // --- Task data ---
   Map<String, dynamic>? _task;
@@ -53,6 +54,10 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
   // --- Geo ---
   Position? _pos;
   String? _coordsStr; // "lat, lng"
+
+  // Config de carga
+  static const int _maxFileBytes = 25 * 1024 * 1024; // 25MB por archivo
+  static const int _maxDescLen = 3000;
 
   @override
   void initState() {
@@ -83,8 +88,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         _task = m;
         _taskTitle = (m['titulo'] ?? m['title'] ?? 'Tarea').toString();
         _creatorId = (m['creador_id'] ?? m['creatorId'] ?? '').toString().trim();
-        _bossId =
-            (m['jefe_uid'] ?? m['jefeId'] ?? m['delegatedTo'] ?? '').toString().trim();
+        _bossId = (m['jefe_uid'] ?? m['jefeId'] ?? m['delegatedTo'] ?? '').toString().trim();
       });
     } catch (_) {
       // sin romper UI
@@ -101,17 +105,20 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         perm = await Geolocator.requestPermission();
       }
       if (perm == LocationPermission.deniedForever) {
-        await Geolocator.openAppSettings();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ubicación deshabilitada. Se enviará sin geolocalización.'),
+            ),
+          );
+        }
         return;
       }
-      _pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      _coordsStr =
-      '${_pos!.latitude.toStringAsFixed(5)}, ${_pos!.longitude.toStringAsFixed(5)}';
-      setState(() {});
+      _pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      _coordsStr = '${_pos!.latitude.toStringAsFixed(5)}, ${_pos!.longitude.toStringAsFixed(5)}';
+      if (mounted) setState(() {});
     } catch (_) {
-      // no es fatal
+      // seguimos sin coords
     }
   }
 
@@ -120,6 +127,15 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       return DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
     }
     return '—';
+  }
+
+  // =========================================================
+  // UTILS
+  // =========================================================
+
+  String _safeName(String name) {
+    final base = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return base.isEmpty ? 'archivo' : base;
   }
 
   // =========================================================
@@ -132,56 +148,69 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       withData: true,
       type: FileType.custom,
       allowedExtensions: const [
-        'pdf',
-        'doc',
-        'docx',
-        'xls',
-        'xlsx',
-        'ppt',
-        'pptx',
-        'zip',
-        'jpg',
-        'jpeg',
-        'png',
+        'pdf','doc','docx','xls','xlsx','ppt','pptx','zip','jpg','jpeg','png',
       ],
     );
     if (res != null && res.files.isNotEmpty) {
-      setState(() => _picked.addAll(res.files));
+      final tooBig = <String>[];
+      final accepted = <PlatformFile>[];
+      final existing = _picked.map((e) => e.name).toSet();
+
+      for (final f in res.files) {
+        if (existing.contains(f.name)) continue; // evita duplicados por nombre
+        final size = f.size;
+        if (size > _maxFileBytes) {
+          tooBig.add('${f.name} (${(size / 1024 / 1024).toStringAsFixed(1)} MB)');
+          continue;
+        }
+        accepted.add(f);
+      }
+      setState(() => _picked.addAll(accepted));
+      if (tooBig.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Se omitieron por tamaño: ${tooBig.join(', ')}')),
+        );
+      }
     }
   }
 
   Future<void> _takePhoto() async {
-    final x = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 88,
-    );
-    if (x == null) return;
+    if (_takingPhoto) return;
+    setState(() => _takingPhoto = true);
+    try {
+      final x = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 88,
+      );
+      if (x == null) return;
 
-    final raw = await File(x.path).readAsBytes();
-    final img = await _decodeUiImage(raw);
+      final raw = await File(x.path).readAsBytes();
+      final img = await _decodeUiImage(raw);
 
-    final wm = await _buildWatermarkedBytes(
-      base: img,
-      logoAsset: 'assets/logo.png',
-      header: 'Novedad',
-      title: _taskTitle ?? 'Tarea',
-      who: (_task?['asignado_nombre'] ?? '—').toString(),
-      coords: _coordsStr,
-      deadline: _task?['fecha_limite'],
-    );
-    if (wm == null) return;
+      final wm = await _buildWatermarkedBytes(
+        base: img,
+        logoAsset: 'assets/logo.png',
+        header: 'Novedad',
+        title: _taskTitle ?? 'Tarea',
+        who: (_task?['asignado_nombre'] ?? '—').toString(),
+        coords: _coordsStr,
+        deadline: _task?['fecha_limite'],
+      );
+      if (wm == null) return;
 
-    final name = 'nvd_${DateTime.now().millisecondsSinceEpoch}.png';
-    final file = File('${Directory.systemTemp.path}/$name')
-      ..writeAsBytesSync(wm);
-    setState(() {
-      _picked.add(PlatformFile(
-        name: name,
-        path: file.path,
-        size: file.lengthSync(),
-        bytes: wm,
-      ));
-    });
+      final name = 'nvd_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File('${Directory.systemTemp.path}/$name')..writeAsBytesSync(wm);
+      setState(() {
+        _picked.add(PlatformFile(
+          name: name,
+          path: file.path,
+          size: file.lengthSync(),
+          bytes: wm,
+        ));
+      });
+    } finally {
+      if (mounted) setState(() => _takingPhoto = false);
+    }
   }
 
   Future<ui.Image> _decodeUiImage(Uint8List bytes) async {
@@ -231,8 +260,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
     } catch (_) {}
 
     final rec = ui.PictureRecorder();
-    final c = Canvas(rec,
-        Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()));
+    final c = Canvas(rec, Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()));
 
     // Base
     c.drawImage(
@@ -243,8 +271,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
     // Overlay
     final overlayH = (base.height * 0.24).clamp(150.0, 300.0);
-    final overlay =
-    Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
+    final overlay = Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
     c.drawRect(overlay, Paint()..color = const Color(0xCC000000));
 
     const pad = 16.0;
@@ -285,9 +312,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         logo,
         Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
         dst,
-        Paint()
-          ..colorFilter =
-          const ui.ColorFilter.mode(Colors.white, ui.BlendMode.modulate),
+        Paint()..colorFilter = const ui.ColorFilter.mode(Colors.white, ui.BlendMode.modulate),
       );
     }
 
@@ -300,11 +325,8 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(deadline.toDate())}',
       if (coords != null) 'Ubicación: $coords',
     ];
-    final pb = ui.ParagraphBuilder(
-      ui.ParagraphStyle(maxLines: 8, ellipsis: '…'),
-    )..pushStyle(
-      ui.TextStyle(color: Colors.white.withOpacity(0.96), fontSize: 24),
-    );
+    final pb = ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
+      ..pushStyle(ui.TextStyle(color: Colors.white.withOpacity(0.96), fontSize: 24));
     pb.addText(lines.join('\n'));
     final p = pb.build()..layout(ui.ParagraphConstraints(width: rText.width));
     c.drawParagraph(p, Offset(rText.left, rText.top));
@@ -317,8 +339,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       c.clipPath(path);
       c.drawImageRect(
         staticMap,
-        Rect.fromLTWH(
-            0, 0, staticMap.width.toDouble(), staticMap.height.toDouble()),
+        Rect.fromLTWH(0, 0, staticMap.width.toDouble(), staticMap.height.toDouble()),
         rMap,
         Paint()..filterQuality = ui.FilterQuality.high,
       );
@@ -342,11 +363,16 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
   // SUBMIT
   // =========================================================
 
-  bool get _canSend => _descCtrl.text.trim().isNotEmpty;
+  bool get _canSend {
+    final txt = _descCtrl.text.trim();
+    return txt.isNotEmpty && txt.length <= _maxDescLen;
+  }
 
   Future<void> _submit() async {
     if (!_canSend) {
-      setState(() => _error = 'Describe la novedad');
+      setState(() => _error = _descCtrl.text.trim().isEmpty
+          ? 'Describe la novedad'
+          : 'La descripción supera el límite de ${_maxDescLen} caracteres');
       return;
     }
     setState(() {
@@ -363,14 +389,22 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
       final List<Map<String, dynamic>> adjuntos = [];
       for (final f in _picked) {
-        final name = f.name;
-        final bytes = f.bytes ??
-            (f.path != null ? await File(f.path!).readAsBytes() : null);
+        final name = _safeName(f.name);
+        final bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
         if (bytes == null) continue;
 
+        if (bytes.length > _maxFileBytes) {
+          // extra guard por si llega por path (no filtrado en _pickFiles)
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Se omitió por tamaño: $name')),
+            );
+          }
+          continue;
+        }
+
         final mime = lookupMimeType(name) ?? 'application/octet-stream';
-        final path =
-            'tareas/$y/$m/$d/nvd_${DateTime.now().millisecondsSinceEpoch}_$name';
+        final path = 'tareas/$y/$m/$d/nvd_${DateTime.now().millisecondsSinceEpoch}_$name';
 
         final ref = FirebaseStorage.instance.ref(path);
         await ref.putData(bytes, SettableMetadata(contentType: mime));
@@ -394,31 +428,42 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
           .collection('novedades');
       final doc = col.doc();
 
+      // Carga task si no estaba lista (red lenta)
+      if (_taskTitle == null) {
+        await _loadTask();
+      }
+
       await doc.set({
         'id': doc.id,
         'by': widget.currentUserId,
         'message': _descCtrl.text.trim(),
         'attachments': adjuntos, // array limpio
         'createdAt': FieldValue.serverTimestamp(), // top-level OK
-        if (_pos != null)
-          'geoloc': {'lat': _pos!.latitude, 'lng': _pos!.longitude},
+        if (_pos != null) 'geoloc': {'lat': _pos!.latitude, 'lng': _pos!.longitude},
       });
 
-      // 3) Marcar actualización en la tarea
+      // 3) Marcar actualización en la tarea (espejo de campos)
       await FirebaseFirestore.instance
           .collection('TBL_TAREAS')
           .doc(widget.taskId)
-          .update({'updatedAt': FieldValue.serverTimestamp()});
-
-      // 4) Notificar (callable → guarda campana + push)
-      final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
-      await fn.call(<String, dynamic>{
-        'taskId': widget.taskId,
-        'creatorId': _creatorId ?? '',
-        'bossId': _bossId ?? '',
-        'title': 'Novedad en tarea',
-        'body': _descCtrl.text.trim(),
+          .update({
+        'updatedAt': FieldValue.serverTimestamp(),
+        'actualizada_en': FieldValue.serverTimestamp(),
       });
+
+      // 4) Notificar (callable → guarda campana + push) sin romper UX si falla
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
+        await fn.call(<String, dynamic>{
+          'taskId': widget.taskId,
+          'creatorId': _creatorId ?? '',
+          'bossId': _bossId ?? '',
+          'title': 'Novedad en tarea',
+          'body': _descCtrl.text.trim(),
+        });
+      } catch (e) {
+        debugPrint('[notifyTaskNews] fallo opcional: $e');
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -446,8 +491,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       backgroundColor: const Color(0xFFF7FBF7),
       appBar: AppBar(
         backgroundColor: kMarronOscuro,
-        title: const Text('Notificar novedades',
-            style: TextStyle(fontFamily: kArial)),
+        title: const Text('Notificar novedades', style: TextStyle(fontFamily: kArial)),
       ),
       body: SafeArea(
         child: Column(
@@ -460,19 +504,14 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: const [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 10,
-                      offset: Offset(0, 4),
-                    )
+                    BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
                   ],
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Row(
                     children: [
-                      const Icon(Icons.report_problem_outlined,
-                          size: 28, color: Colors.black87),
+                      const Icon(Icons.report_problem_outlined, size: 28, color: Colors.black87),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -494,10 +533,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                                 Chip(
                                   label: Text(
                                     estado.isEmpty ? 'pendiente' : estado,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontFamily: kArial,
-                                    ),
+                                    style: const TextStyle(color: Colors.white, fontFamily: kArial),
                                   ),
                                   backgroundColor: estado == 'completada'
                                       ? Colors.green.shade600
@@ -508,8 +544,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                                 Chip(
                                   label: Text(
                                     'Vence: ${_fmtDueDate(due)}',
-                                    style: const TextStyle(
-                                        color: Colors.white, fontFamily: kArial),
+                                    style: const TextStyle(color: Colors.white, fontFamily: kArial),
                                   ),
                                   backgroundColor: Colors.blue.shade600,
                                 ),
@@ -531,13 +566,12 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                 controller: _descCtrl,
                 minLines: 3,
                 maxLines: 6,
+                maxLength: _maxDescLen,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   labelText: 'Descripción de la novedad',
                   hintText: '¿Qué ocurrió?',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onChanged: (_) => setState(() {}),
               ),
@@ -558,9 +592,9 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: _ActionButton(
-                      icon: Icons.camera_alt,
-                      label: 'Tomar foto',
-                      onTap: _busy ? null : _takePhoto,
+                      icon: _takingPhoto ? Icons.hourglass_top : Icons.camera_alt,
+                      label: _takingPhoto ? 'Procesando...' : 'Tomar foto',
+                      onTap: _busy || _takingPhoto ? null : _takePhoto,
                     ),
                   ),
                 ],
@@ -587,24 +621,12 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                           border: Border.all(color: Colors.grey.shade300),
                         ),
                         child: ListTile(
-                          leading: Icon(
-                            isImg
-                                ? Icons.image
-                                : Icons.insert_drive_file_outlined,
-                            color: Colors.black87,
-                          ),
-                          title: Text(
-                            f.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                              '${(f.size / 1024).toStringAsFixed(1)} KB'),
+                          leading: Icon(isImg ? Icons.image : Icons.insert_drive_file_outlined, color: Colors.black87),
+                          title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text('${(f.size / 1024).toStringAsFixed(1)} KB'),
                           trailing: IconButton(
                             icon: const Icon(Icons.close),
-                            onPressed: _busy
-                                ? null
-                                : () => setState(() => _picked.removeAt(i)),
+                            onPressed: _busy ? null : () => setState(() => _picked.removeAt(i)),
                           ),
                         ),
                       );
@@ -638,22 +660,12 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                     backgroundColor: kMarronOscuro,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     elevation: 4,
                   ),
                   child: _busy
-                      ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                      : const Text('Enviar novedad',
-                      style: TextStyle(fontFamily: kArial)),
+                      ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Text('Enviar novedad', style: TextStyle(fontFamily: kArial)),
                 ),
               ),
             ),
@@ -669,11 +681,7 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
 
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    this.onTap,
-  });
+  const _ActionButton({required this.icon, required this.label, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -691,12 +699,7 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, color: Colors.white),
               const SizedBox(width: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style:
-                const TextStyle(color: Colors.white, fontFamily: kArial),
-              ),
+              Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
             ],
           ),
         ),

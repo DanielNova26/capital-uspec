@@ -15,10 +15,7 @@ import '../home/home_screen.dart';
 import '../admin/seed_admin_screen.dart';
 import '../widgets/hidden_admin_unlocker.dart';
 
-// Constantes globales. Si prefieres, muévelas a un archivo de constantes.
-const Color kMarronOscuro = Color(0xffc28942);
-const Color kMarronClaro = Color(0xffe19e4c);
-const Color kGris = Color(0xff8a8a8a);
+// Solo mantenemos la fuente como constante
 const String kArial = 'Arial';
 
 class LoginScreen extends StatefulWidget {
@@ -41,8 +38,11 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      // Deja que el tema ponga el fondo (scaffoldBackgroundColor)
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -71,15 +71,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 Text(
                   'INICIAR SESIÓN',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontFamily: kArial,
-                    color: kMarronOscuro,
+                    color: scheme.primary,
                     fontSize: 18,
                     letterSpacing: 2,
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Divider(height: 24, thickness: 1, color: Color(0xFFEEEEEE)),
+                Divider(height: 24, thickness: 1, color: theme.dividerColor),
+
                 Form(
                   key: _formKey,
                   child: Column(
@@ -90,12 +91,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Usuario o Cédula',
                           labelStyle: TextStyle(
-                            color: kMarronOscuro.withOpacity(0.8),
+                            color: scheme.primary.withOpacity(0.8),
                             fontFamily: kArial,
                           ),
                           border: const OutlineInputBorder(),
-                          contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
                         ),
                         onChanged: (value) => usuarioInput = value.trim(),
                         validator: (v) =>
@@ -103,6 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         textInputAction: TextInputAction.next,
                       ),
                       const SizedBox(height: 20),
+
                       // Contraseña
                       TextFormField(
                         style: const TextStyle(fontFamily: kArial, fontSize: 14),
@@ -110,16 +114,19 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Contraseña',
                           labelStyle: TextStyle(
-                            color: kMarronOscuro.withOpacity(0.8),
+                            color: scheme.primary.withOpacity(0.8),
                             fontFamily: kArial,
                           ),
                           border: const OutlineInputBorder(),
-                          contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
                         ),
                         onChanged: (value) => passwordInput = value.trim(),
-                        validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Ingrese su contraseña' : null,
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Ingrese su contraseña'
+                            : null,
                         textInputAction: TextInputAction.done,
                         onFieldSubmitted: (_) => _submitLogin(),
                       ),
@@ -130,10 +137,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: double.infinity,
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: kMarronOscuro,
-                            foregroundColor: Colors.white,
+                            backgroundColor: scheme.primary,
+                            foregroundColor: scheme.onPrimary,
                             textStyle: const TextStyle(
-                                fontFamily: kArial, fontWeight: FontWeight.bold),
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.bold,
+                            ),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
@@ -141,11 +150,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           onPressed: _isLoading ? null : _submitLogin,
                           child: _isLoading
-                              ? const SizedBox(
+                              ? SizedBox(
                             width: 18,
                             height: 18,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white),
+                              strokeWidth: 2,
+                              valueColor:
+                              AlwaysStoppedAnimation<Color>(scheme.onPrimary),
+                            ),
                           )
                               : const Text('Iniciar sesión'),
                         ),
@@ -156,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (_errorMessage != null) ...[
                         Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Colors.red, fontFamily: kArial),
+                          style: TextStyle(color: scheme.error, fontFamily: kArial),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 8),
@@ -174,7 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           'Primera vez ingresa aquí',
                           style: TextStyle(
                             fontFamily: kArial,
-                            color: kGris,
+                            color: scheme.onSurfaceVariant,
                             fontSize: 13,
                             decoration: TextDecoration.underline,
                           ),
@@ -188,14 +200,15 @@ class _LoginScreenState extends State<LoginScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => const ForgotPasswordScreen()),
+                              builder: (_) => const ForgotPasswordScreen(),
+                            ),
                           );
                         },
                         child: Text(
                           '¿Olvidaste tu contraseña?',
                           style: TextStyle(
                             fontFamily: kArial,
-                            color: kGris,
+                            color: scheme.onSurfaceVariant,
                             fontSize: 13,
                             decoration: TextDecoration.underline,
                           ),
@@ -210,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 11,
-                    color: kGris,
+                    color: scheme.onSurfaceVariant,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0.7,
                   ),
@@ -242,7 +255,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final pass = passwordInput;
 
     try {
-      final collectionRef = FirebaseFirestore.instance.collection('TBL_USUARIOS');
+      final collectionRef =
+      FirebaseFirestore.instance.collection('TBL_USUARIOS');
       DocumentSnapshot<Map<String, dynamic>> docSnapshot;
 
       // 1) Intentamos leer por ID (username)

@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'firebase_options.dart';
 import 'login/login_screen.dart';
@@ -151,6 +152,16 @@ class ToDoApp extends StatelessWidget {
     return MaterialApp(
       title: 'ToDo',
       debugShowCheckedModeBanner: false,
+
+      // 👇 Localización en español
+      locale: const Locale('es', 'CO'), // o solo: const Locale('es')
+      supportedLocales: const [
+        Locale('es', 'CO'),
+        Locale('es'),     // fallback
+        Locale('en'),     // opcional
+      ],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
@@ -161,6 +172,14 @@ class ToDoApp extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
       ),
+
+      // (Opcional) darkTheme si quieres que se adapte al sistema
+      // darkTheme: ThemeData(
+      //   useMaterial3: true,
+      //   brightness: Brightness.dark,
+      //   colorSchemeSeed: const Color(0xFF0078D7),
+      // ),
+
       home: const LoginScreen(),
     );
   }

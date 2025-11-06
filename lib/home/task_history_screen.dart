@@ -8,7 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
-const Color kMarronOscuro = Color(0xffc28942);
+const Color kBrand = Color(0xFF1E3A8A); // Indigo 800
 const String kArial = 'Arial';
 
 DateTime? _toDate(dynamic v) {
@@ -409,13 +409,13 @@ class _AttachmentsScreen extends StatelessWidget {
   Color _tabCardColor(String k) {
     switch (k) {
       case 'Novedades':
-        return const Color(0xFFFFF4D6); // amber soft
+        return const Color(0xFFE8EEFF); // light indigo
       case 'Avances':
-        return const Color(0xFFEAF4FF); // blue soft
+        return const Color(0xFFEFF4FF); // even lighter indigo
       case 'Finalización':
-        return const Color(0xFFE8F6EA); // green soft
+        return const Color(0xFFE3F2FD); // light blue
       default:
-        return const Color(0xFFFFF3E9); // peach
+        return const Color(0xFFF0F5FF); // default soft blue
     }
   }
 
@@ -431,9 +431,9 @@ class _AttachmentsScreen extends StatelessWidget {
       length: keys.length,
       initialIndex: initIndex,
       child: Scaffold(
-        backgroundColor: const Color(0xFFFAFAF8),
+        backgroundColor: const Color(0xFFF5F7FF),
         appBar: AppBar(
-          backgroundColor: kMarronOscuro,
+          backgroundColor: kBrand,
           title: const Text('Adjuntos de la tarea',
               style: TextStyle(fontFamily: kArial)),
           bottom: TabBar(
@@ -451,16 +451,16 @@ class _AttachmentsScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF2CC),
+                    color: const Color(0xFFEAF2FF),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFFFE08A)),
+                    border: Border.all(color: const Color(0xFFBFD3FF)),
                   ),
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Icon(Icons.campaign,
-                          size: 20, color: Color(0xFF9C6A00)),
+                          size: 20, color: Color(0xFF1E3A8A)),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -470,7 +470,7 @@ class _AttachmentsScreen extends StatelessWidget {
                                 style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 13,
-                                    color: Color(0xFF9C6A00))),
+                                    color: Color(0xFF102A63))),
                             const SizedBox(height: 4),
                             Text(
                               lastNovedad!['msg']!,
@@ -669,7 +669,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          backgroundColor: kMarronOscuro,
+          backgroundColor: kBrand,
           title: const Text('Historial de tareas',
               style: TextStyle(fontFamily: kArial)),
           bottom: const TabBar(
@@ -679,10 +679,10 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
             ],
           ),
         ),
-        body: TabBarView(
+        body: const TabBarView(
           children: [
-            _AssignedToMeTab(userId: widget.currentUserId),
-            _ICreatedTab(userId: widget.currentUserId),
+            _AssignedToMeTab(userId: ''),
+            _ICreatedTab(userId: ''),
           ],
         ),
       ),
@@ -743,10 +743,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
     } catch (_) {}
   }
 
-  Query<Map<String, dynamic>> _query() {
+  Query<Map<String, dynamic>> _query(String userId) {
     return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
-        .where('asignado_uid', isEqualTo: widget.userId);
+        .where('asignado_uid', isEqualTo: userId);
   }
 
   Future<void> _pickDateRange() async {
@@ -768,7 +768,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _query().snapshots(),
+      stream: _query(widget.userId).snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -1018,7 +1018,7 @@ class _AssignedTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                const Icon(Icons.campaign, color: Colors.amber),
+                const Icon(Icons.campaign, color: Color(0xFF1E3A8A)),
                 const SizedBox(width: 8),
                 const Text('Novedad',
                     style:
@@ -1033,9 +1033,9 @@ class _AssignedTile extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7DE),
+                  color: const Color(0xFFEAF2FF),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFFFE08A)),
+                  border: Border.all(color: const Color(0xFFBFD3FF)),
                 ),
                 child: Text(
                   msg.isEmpty ? 'Sin descripción' : msg,
@@ -1059,7 +1059,7 @@ class _AssignedTile extends StatelessWidget {
                     _iconAndLabelFor(a['name'] ?? 'archivo');
                     return ListTile(
                       dense: true,
-                      tileColor: const Color(0xFFFFF4D6),
+                      tileColor: const Color(0xFFEFF4FF),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -1086,6 +1086,7 @@ class _AssignedTile extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: FilledButton.icon(
+                  style: FilledButton.styleFrom(backgroundColor: kBrand),
                   icon: const Icon(Icons.folder_open),
                   label: const Text('Ver adjuntos'),
                   onPressed: () {
@@ -1171,7 +1172,7 @@ class _AssignedTile extends StatelessWidget {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: doc.reference
           .collection('novedades')
-          .orderBy('createdAt', descending: true) // <-- ahora ordenado
+          .orderBy('createdAt', descending: true)
           .limit(1)
           .get(),
       builder: (ctx, snap) {
@@ -1191,12 +1192,11 @@ class _AssignedTile extends StatelessWidget {
 
         return Card(
           elevation: 1,
-          color: const Color(0xFFFFF6EF),
+          color: const Color(0xFFF0F5FF),
           shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            // Tap: si hay novedad, abrir detalle; si no, adjuntos
             onTap: () {
               if (lastNovedad != null) {
                 _showNovedadDialog(context,
@@ -1615,7 +1615,7 @@ class _CreatedTile extends StatelessWidget {
 
         return Card(
           elevation: hasNovedad ? 2 : 1,
-          color: const Color(0xFFFFF6EF),
+          color: const Color(0xFFF0F5FF),
           shape:
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ListTile(
@@ -1995,8 +1995,8 @@ class _CreatedTile extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEAF4FF),
-                      border: Border.all(color: const Color(0xFFB7D7FF)),
+                      color: const Color(0xFFEAF2FF),
+                      border: Border.all(color: const Color(0xFFBFD3FF)),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(

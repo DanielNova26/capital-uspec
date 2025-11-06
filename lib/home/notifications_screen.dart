@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import 'assigned_tasks_screen.dart'; // Ajusta ruta si es diferente
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
-const Color kMarronOscuro = Color(0xffc28942);
+const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
 class NotificationsScreen extends StatelessWidget {

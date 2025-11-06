@@ -2,13 +2,12 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'login_screen.dart'; // Ajusta la ruta si tu LoginScreen está en otra carpeta
+import 'login_screen.dart'; // Ajusta si tu LoginScreen está en otra carpeta
 
-const Color kMarronOscuro = Color(0xffc28942);
 const String kArial = 'Arial';
 
 class ChangePasswordScreen extends StatefulWidget {
-  final String usuario;
+  final String usuario; // ID del doc (antes mostrabas esto)
   const ChangePasswordScreen({Key? key, required this.usuario}) : super(key: key);
 
   @override
@@ -18,19 +17,22 @@ class ChangePasswordScreen extends StatefulWidget {
 class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  // Controladores para la nueva contraseña
+  // Controladores nueva contraseña
   final _newPassCtrl = TextEditingController();
   final _confirmPassCtrl = TextEditingController();
 
-  // Controladores para las respuestas de seguridad
+  // Controladores respuestas
   final _answer1Ctrl = TextEditingController();
   final _answer2Ctrl = TextEditingController();
 
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Lista de 10 preguntas de seguridad
-  final List<String> _preguntas = [
+  // Nombre del usuario (leído de Firestore -> campo "nombres")
+  String? _nombre;
+
+  // 10 preguntas
+  final List<String> _preguntas = const [
     '¿Cuál es el nombre de tu primera mascota?',
     '¿Cuál era tu libro favorito de niño?',
     '¿Cuál es el nombre de tu escuela primaria?',
@@ -43,9 +45,32 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     '¿Cuál es el nombre de tu abuelo paterno?'
   ];
 
-  // Preguntas seleccionadas por el usuario
   String? _selectedQuestion1;
   String? _selectedQuestion2;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarNombre();
+  }
+
+  Future<void> _cargarNombre() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(widget.usuario)
+          .get();
+
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        setState(() {
+          _nombre = (data['nombres'] as String?)?.trim();
+        });
+      }
+    } catch (_) {
+      // Si falla, dejamos la cédula como fallback
+    }
+  }
 
   @override
   void dispose() {
@@ -65,8 +90,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     });
 
     try {
-      // 1) Actualizar Firestore: contraseña y preguntas/respuestas de seguridad, y needsPasswordChange = false
-      final docRef = FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(widget.usuario);
+      final docRef = FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(widget.usuario);
 
       await docRef.update({
         'password': _newPassCtrl.text.trim(),
@@ -79,27 +105,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
       setState(() => _isLoading = false);
 
-      // 2) Mostrar diálogo de éxito
       await showDialog(
         context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('¡Contraseña y seguridad actualizadas!'),
-          content: const Text(
+        builder: (_) => const AlertDialog(
+          title: Text('¡Contraseña y seguridad actualizadas!'),
+          content: Text(
             'Tu contraseña y preguntas de seguridad han sido guardadas correctamente.\n'
                 'Ahora podrás iniciar sesión con tu nueva contraseña.',
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context); // Cierra el diálogo
-              },
-              child: const Text('OK'),
-            ),
-          ],
         ),
       );
 
-      // 3) Regresar al LoginScreen, borrando toda la pila
+      // ignore: use_build_context_synchronously
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -113,25 +130,32 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
   }
 
+  // ────────────────────────── UI ──────────────────────────
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Cambiar Contraseña'),
-        backgroundColor: kMarronOscuro,
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
       ),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: SingleChildScrollView(
           child: Column(
             children: [
+              // Saludo con el nombre (o cédula como fallback mientras carga)
               Text(
-                'Hola, ${widget.usuario}',
-                style: const TextStyle(
+                'Hola, ${_nombre?.isNotEmpty == true ? _nombre : widget.usuario}',
+                style: TextStyle(
                   fontFamily: kArial,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: kMarronOscuro,
+                  color: scheme.primary,
                 ),
               ),
               const SizedBox(height: 16),
@@ -147,48 +171,57 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Desplegable Pregunta 1 con contraste y expansión
+                    // Pregunta 1
                     DropdownButtonFormField<String>(
                       isExpanded: true,
+                      menuMaxHeight: 360,
                       decoration: const InputDecoration(
                         labelText: 'Pregunta de seguridad 1',
                         border: OutlineInputBorder(),
+                        contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                       ),
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        color: Colors.black,
-                      ),
-                      dropdownColor: Colors.white,
-                      iconEnabledColor: kMarronOscuro,
-                      items: _preguntas.map((pregunta) {
-                        return DropdownMenuItem(
-                          value: pregunta,
-                          child: Text(
-                            pregunta,
-                            style: const TextStyle(fontFamily: kArial, color: Colors.black),
-                          ),
-                        );
-                      }).toList(),
+                      iconEnabledColor: scheme.primary,
+                      dropdownColor: theme.brightness == Brightness.dark
+                          ? scheme.surface
+                          : Colors.white,
                       value: _selectedQuestion1,
+                      items: _preguntas
+                          .map((p) => DropdownMenuItem(
+                        value: p,
+                        child: Text(
+                          p,
+                          maxLines: 3,
+                          overflow: TextOverflow.visible,
+                          style: const TextStyle(
+                              fontFamily: kArial, color: Colors.black),
+                        ),
+                      ))
+                          .toList(),
+                      // Esto controla cómo se muestra el texto SELECCIONADO en el campo
+                      selectedItemBuilder: (_) => _preguntas
+                          .map((p) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          p,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: kArial),
+                        ),
+                      ))
+                          .toList(),
                       onChanged: (value) {
                         setState(() {
                           _selectedQuestion1 = value;
-                          // Si coincide con la otra, la limpia
-                          if (_selectedQuestion2 == value) {
-                            _selectedQuestion2 = null;
-                          }
+                          if (_selectedQuestion2 == value) _selectedQuestion2 = null;
                         });
                       },
-                      validator: (v) {
-                        if (v == null || v.isEmpty) {
-                          return 'Selecciona la pregunta 1';
-                        }
-                        return null;
-                      },
+                      validator: (v) =>
+                      (v == null || v.isEmpty) ? 'Selecciona la pregunta 1' : null,
                     ),
                     const SizedBox(height: 12),
 
-                    // Campo Respuesta 1
+                    // Respuesta 1
                     TextFormField(
                       controller: _answer1Ctrl,
                       decoration: const InputDecoration(
@@ -196,45 +229,53 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         border: OutlineInputBorder(),
                       ),
                       style: const TextStyle(fontFamily: kArial),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Ingresa la respuesta 1';
-                        }
-                        return null;
-                      },
+                      validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Ingresa la respuesta 1' : null,
                     ),
                     const SizedBox(height: 24),
 
-                    // Desplegable Pregunta 2 con contraste y expansión
+                    // Pregunta 2
                     DropdownButtonFormField<String>(
                       isExpanded: true,
+                      menuMaxHeight: 360,
                       decoration: const InputDecoration(
                         labelText: 'Pregunta de seguridad 2',
                         border: OutlineInputBorder(),
+                        contentPadding:
+                        EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                       ),
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        color: Colors.black,
-                      ),
-                      dropdownColor: Colors.white,
-                      iconEnabledColor: kMarronOscuro,
-                      items: _preguntas.map((pregunta) {
-                        return DropdownMenuItem(
-                          value: pregunta,
-                          child: Text(
-                            pregunta,
-                            style: const TextStyle(fontFamily: kArial, color: Colors.black),
-                          ),
-                        );
-                      }).toList(),
+                      iconEnabledColor: scheme.primary,
+                      dropdownColor: theme.brightness == Brightness.dark
+                          ? scheme.surface
+                          : Colors.white,
                       value: _selectedQuestion2,
+                      items: _preguntas
+                          .map((p) => DropdownMenuItem(
+                        value: p,
+                        child: Text(
+                          p,
+                          maxLines: 3,
+                          overflow: TextOverflow.visible,
+                          style: const TextStyle(
+                              fontFamily: kArial, color: Colors.black),
+                        ),
+                      ))
+                          .toList(),
+                      selectedItemBuilder: (_) => _preguntas
+                          .map((p) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          p,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: kArial),
+                        ),
+                      ))
+                          .toList(),
                       onChanged: (value) {
                         setState(() {
                           _selectedQuestion2 = value;
-                          // Si coincide con la otra, la limpia
-                          if (_selectedQuestion1 == value) {
-                            _selectedQuestion1 = null;
-                          }
+                          if (_selectedQuestion1 == value) _selectedQuestion1 = null;
                         });
                       },
                       validator: (v) {
@@ -249,7 +290,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Campo Respuesta 2
+                    // Respuesta 2
                     TextFormField(
                       controller: _answer2Ctrl,
                       decoration: const InputDecoration(
@@ -257,16 +298,12 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         border: OutlineInputBorder(),
                       ),
                       style: const TextStyle(fontFamily: kArial),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Ingresa la respuesta 2';
-                        }
-                        return null;
-                      },
+                      validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Ingresa la respuesta 2' : null,
                     ),
                     const SizedBox(height: 24),
 
-                    const Divider(thickness: 1, color: Colors.grey),
+                    Divider(thickness: 1, color: theme.dividerColor),
                     const SizedBox(height: 24),
 
                     // Nueva contraseña
@@ -314,18 +351,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     if (_errorMessage != null) ...[
                       Text(
                         _errorMessage!,
-                        style: const TextStyle(color: Colors.red, fontFamily: kArial),
+                        style: TextStyle(color: scheme.error, fontFamily: kArial),
                       ),
                       const SizedBox(height: 16),
                     ],
 
-                    // Botón “Actualizar contraseña”
+                    // Botón
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: kMarronOscuro,
-                          foregroundColor: Colors.white,
+                          backgroundColor: scheme.primary,
+                          foregroundColor: scheme.onPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           textStyle: const TextStyle(
                             fontFamily: kArial,
@@ -334,12 +371,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         ),
                         onPressed: _isLoading ? null : _submitChange,
                         child: _isLoading
-                            ? const SizedBox(
+                            ? SizedBox(
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              scheme.onPrimary,
+                            ),
                           ),
                         )
                             : const Text('Actualizar contraseña'),

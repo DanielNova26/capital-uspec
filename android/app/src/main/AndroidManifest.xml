@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.example.capital_uspec">
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- ===== Permisos base ===== -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -15,7 +14,7 @@
     <!-- Cámara (image_picker) -->
     <uses-permission android:name="android.permission.CAMERA"/>
 
-    <!-- Almacenamiento (solo para Android 28 o menos, requerido por algunos flujos de cámara) -->
+    <!-- Almacenamiento (solo para Android 28 o menos) -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
@@ -25,22 +24,19 @@
         android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="33" />
 
-    <!-- Alarmas exactas (para android_alarm_manager_plus en Android 12+) -->
+    <!-- Alarmas exactas -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Recomendado para alarmas/servicios en background -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- (Opcional) Si vas a ejecutar servicios en primer plano -->
-    <!-- <uses-permission android:name="android.permission.FOREGROUND_SERVICE" /> -->
-
     <!-- Sugerido por Google Maps (aceleración) -->
     <uses-feature
         android:glEsVersion="0x00020000"
         android:required="true" />
 
-    <!-- Cámara opcional (no bloquea dispositivos sin cámara) -->
+    <!-- Cámara opcional -->
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false"/>
@@ -52,8 +48,9 @@
         android:usesCleartextTraffic="false">
 
         <!-- ===== Flutter / Lanzador ===== -->
+        <!-- OJO: nombre COMPLETO del Activity (ya no .MainActivity) -->
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.todo.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
@@ -62,25 +59,21 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Tema que se muestra mientras Flutter arranca -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"/>
 
-            <!-- Lanzador -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
 
-            <!-- Click en notificación (FCM/Locales) -->
             <intent-filter>
                 <action android:name="FLUTTER_NOTIFICATION_CLICK" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
-        <!-- Requerido por Flutter embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -93,16 +86,10 @@
         <!-- ===== Google Maps SDK: API KEY ===== -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyCZna3nMuCU8BxpaJbfjFKyT4A0hM4fya4" />
-
-        <!-- (Opcional) Icono por defecto de notificaciones:
-        <meta-data
-            android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@mipmap/ic_launcher"/>
-        -->
+            android:value="TU_API_KEY_DE_MAPS" />
     </application>
 
-    <!-- ===== Consultas opcionales: acción de procesar texto ===== -->
+    <!-- ===== Consultas opcionales ===== -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>

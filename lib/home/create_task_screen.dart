@@ -42,6 +42,9 @@ const List<String> kTokenKeys = [
 
 /// ==================================================
 
+/// Color principal de la app
+const Color kMarronOscuro = Color(0xFF145DA0);
+
 class CreateTaskScreen extends StatefulWidget {
   /// Puedes pasar el usuario actual si lo tienes (cedula/username/docId).
   final String? currentUserId;
@@ -891,7 +894,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     _jefeUid == null ? true : _hasAnyToken(_usuarios[_jefeUid!]);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Crear tarea')),
+      appBar: AppBar(
+        title: const Text('Crear tarea'),
+        backgroundColor: kMarronOscuro,
+        foregroundColor: Colors.white,
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -1119,6 +1126,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             onPressed: _takePhoto,
                             icon: const Icon(Icons.photo_camera_outlined),
                             label: const Text('Tomar foto'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kMarronOscuro,
+                              foregroundColor: Colors.white,
+                            ),
                           ),
                           if (_photo != null)
                             OutlinedButton.icon(
@@ -1130,6 +1141,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             onPressed: _pickFiles,
                             icon: const Icon(Icons.attach_file),
                             label: const Text('Adjuntar archivos'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: kMarronOscuro,
+                              foregroundColor: Colors.white,
+                            ),
                           ),
                         ],
                       ),
@@ -1198,6 +1213,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   )
                       : const Icon(Icons.check),
                   label: Text(_saving ? 'Creando…' : 'Crear tarea'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kMarronOscuro,
+                    foregroundColor: Colors.white,
+                  ),
                 ),
               ),
             ],

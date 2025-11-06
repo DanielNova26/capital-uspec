@@ -14,7 +14,7 @@ import 'task_history_screen.dart';
 import 'assigned_tasks_screen.dart';
 import 'team_overview_screen.dart';
 
-const Color kMarronOscuro = Color(0xffc28942);
+const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
 /// Drawer que muestra avatar, nombre y cargo del usuario,

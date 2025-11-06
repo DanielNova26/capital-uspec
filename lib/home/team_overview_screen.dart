@@ -5,10 +5,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-const Color kMarronOscuro = Color(0xffc28942);
+/// ====== Paleta unificada (tema teal) ======
+const Color kTeal = Color(0xFF0F766E);       // AppBar, acentos
+const Color kSurface = Color(0xFFF1F5F9);    // Fondo de pantallas
+const Color kCard = Color(0xFFE0F2F1);       // Tarjetas y contenedores
 const String kArial = 'Arial';
 
-// ------------------------- Utils -------------------------
+/// ------------------------- Utils -------------------------
 
 DateTime? _toDate(dynamic v) {
   if (v == null) return null;
@@ -29,7 +32,7 @@ Color _statusColor(String s) {
     case 'pendiente':
       return Colors.orange.shade600;
     case 'en_progreso':
-      return Colors.blue.shade600;
+      return kTeal;
     case 'completada':
       return Colors.green.shade700;
     case 'devuelta':
@@ -106,7 +109,7 @@ bool _isJefe(String? cargo) {
   return s.contains('jefe') || s.contains('coordinador') || s.contains('lider');
 }
 
-// ------------------------- Screen -------------------------
+/// ------------------------- Screen -------------------------
 
 /// Pantalla “Ver equipo de trabajo”
 class TeamOverviewScreen extends StatefulWidget {
@@ -312,7 +315,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     }
   }
 
-  // ---------------------------- Data (tareas) ----------------------------
+  /// ---------------------------- Data (tareas) ----------------------------
 
   /// Retorna la lista base según permisos
   /// Gerente: todas; Director: por área (raíz y anidados); Jefe: por subordinados
@@ -373,7 +376,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     return out;
   }
 
-  // ---------------------------- Filtros cliente ----------------------------
+  /// ---------------------------- Filtros cliente ----------------------------
 
   bool _pasaFiltrosCliente(Map<String, dynamic> m) {
     final q = _searchCtl.text.trim().toLowerCase();
@@ -450,7 +453,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     return true;
   }
 
-  // ---------------------------- UI ----------------------------
+  /// ---------------------------- UI ----------------------------
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
@@ -490,9 +493,10 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         : (_soyDirector ? 'Equipo — Dirección' : 'Equipo — A mi cargo');
 
     return Scaffold(
+      backgroundColor: kSurface,
       appBar: AppBar(
         title: Text(title, style: const TextStyle(fontFamily: kArial)),
-        backgroundColor: kMarronOscuro,
+        backgroundColor: kTeal,
       ),
       body: FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
         future: _fetchTasks(),
@@ -526,17 +530,14 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
               Expanded(
                 child: filtered.isEmpty
                     ? const Center(
-                    child: Text(
-                        'Sin tareas para los filtros seleccionados.',
+                    child: Text('Sin tareas para los filtros seleccionados.',
                         style: TextStyle(fontFamily: kArial)))
                     : ListView.separated(
-                  padding:
-                  const EdgeInsets.fromLTRB(8, 8, 8, 14),
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 14),
                   itemCount: filtered.length,
                   separatorBuilder: (_, __) =>
                   const SizedBox(height: 6),
-                  itemBuilder: (_, i) =>
-                      _TaskTile(doc: filtered[i]),
+                  itemBuilder: (_, i) => _TaskTile(doc: filtered[i]),
                 ),
               ),
             ],
@@ -705,7 +706,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   }
 }
 
-// ------------------------- Item de tarea -------------------------
+/// ------------------------- Item de tarea -------------------------
 
 class _TaskTile extends StatelessWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
@@ -724,7 +725,7 @@ class _TaskTile extends StatelessWidget {
 
     return Card(
       elevation: 1,
-      color: const Color(0xFFFFF6EF),
+      color: kCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         dense: true,
@@ -751,12 +752,10 @@ class _TaskTile extends StatelessWidget {
             children: [
               Chip(
                 labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                visualDensity:
-                const VisualDensity(horizontal: -3, vertical: -3),
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 label: Text(estado.isEmpty ? 'sin_estado' : estado,
-                    style:
-                    const TextStyle(color: Colors.white, fontSize: 11)),
+                    style: const TextStyle(color: Colors.white, fontSize: 11)),
                 backgroundColor: _statusColor(estado),
               ),
               _pill('Vence: $vence'),
@@ -818,8 +817,7 @@ class _TaskTile extends StatelessWidget {
               style: const TextStyle(
                   fontWeight: FontWeight.w600, fontSize: 13)),
         ),
-        Expanded(
-            child: Text(v, style: const TextStyle(fontSize: 13))),
+        Expanded(child: Text(v, style: const TextStyle(fontSize: 13))),
       ],
     ),
   );

@@ -1,7 +1,7 @@
 // lib/login/instruction_screen.dart
 
 import 'package:flutter/material.dart';
-import 'lib/login/package:registration_screen.dart';
+import 'package:ToDo/login/registration_screen.dart';
 
 class InstructionScreen extends StatelessWidget {
   final String cedula;

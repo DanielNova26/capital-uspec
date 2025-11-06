@@ -24,7 +24,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mime/mime.dart'; // opcional, para adivinar mime
 
-const Color kMarronOscuro = Color(0xffc28942);
+const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
 class CompleteTaskScreen extends StatefulWidget {

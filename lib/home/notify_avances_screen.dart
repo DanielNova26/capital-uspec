@@ -18,7 +18,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-const Color kMarronOscuro = Color(0xffc28942);
+const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
 class NotifyAvancesScreen extends StatefulWidget {
