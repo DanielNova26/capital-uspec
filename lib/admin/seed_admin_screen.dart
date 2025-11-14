@@ -17,6 +17,7 @@ import 'package:open_filex/open_filex.dart';
 import '../services/seed_excel_parser.dart';
 import '../services/seeder_service.dart';
 import '../services/catalog_export_service.dart';
+import '../services/demo_seed_service.dart';
 import '../bootstrap/static_excel_catalogs_seed.dart';
 
 class SeedAdminScreen extends StatefulWidget {
@@ -35,6 +36,7 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
   List<Map<String, dynamic>> _previewPersonal = [];
   String? _fileName;
   bool _loading = false;
+  final DemoSeedService _demoSeedService = DemoSeedService();
 
   @override
   void dispose() {
@@ -241,6 +243,62 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
       if (mounted) setState(() => _loading = false);
     }
   }
+  
+  Future<void> _seedDemoDataset() async {
+    setState(() => _loading = true);
+    try {
+      await _ensureAuth();
+      final result = await _demoSeedService.ensureDemoData();
+      if (!mounted) return;
+
+      await showDialog(
+        context: context,
+        builder: (ctx) {
+          return AlertDialog(
+            title: const Text('Credenciales demo creadas'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Comparte estos datos con el equipo de revisión. '
+                  'El dataset se puede regenerar tantas veces como necesites.',
+                ),
+                const SizedBox(height: 12),
+                SelectableText('Empresa ID: ${result.empresaId}'),
+                SelectableText('Usuario: ${result.username}'),
+                SelectableText('Contraseña: ${result.password}'),
+                SelectableText('Correo: ${result.email}'),
+                const SizedBox(height: 12),
+                const Text('Preguntas de seguridad:'),
+                ...result.securityQuestions.map(
+                  (qa) => Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: SelectableText('${qa.question}\nRespuesta: ${qa.answer}'),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SelectableText('PIN administrador (triple tap): ${result.adminPin}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Listo'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al crear demo: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -322,6 +380,38 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
                 const SizedBox(height: 12),
                 if (_wb != null) _CountsBar(wb: _wb!),
                 const SizedBox(height: 16),
+                Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Dataset demo para App Store / Play Store',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Genera automáticamente la empresa de ejemplo, el '
+                          'usuario demo y las tareas solicitadas para la revisión '
+                          'de Apple. Ejecuta este paso antes de enviar un build '
+                          'a App Store Connect.',
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _loading ? null : _seedDemoDataset,
+                          icon: const Icon(Icons.verified_user),
+                          label: Text(
+                            _loading
+                                ? 'Creando dataset demo...'
+                                : 'Crear/actualizar usuario demo',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(

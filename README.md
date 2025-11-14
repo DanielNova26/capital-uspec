@@ -1,16 +1,19 @@
-# capital_uspec
+# ToDo – Plataforma de gestión corporativa
 
-Aplicaicon principal de Capital Uspec
+Aplicación Flutter para administrar tareas, talento humano y procesos
+corporativos de la organización.
 
-## Getting Started
+## Dataset demo para revisión de tiendas
 
-This project is a starting point for a Flutter application.
+Si necesitas compartir la app con Apple o Google en modo revisión,consulta la guía [docs/app-review-demo-account.md](docs/app-review-demo-account.md). 
+Allí se explica cómo generar el usuario demo (`demo.reviewer` / `Review2025!`) desde el panel de semillas y qué información enviar al equipo de App Store Review.
 
-A few resources to get you started if this is your first Flutter project:
+## Desarrollo local
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+1. Instala las dependencias con `flutter pub get`.
+2. Configura Firebase ejecutando `flutterfire configure` o copiando el
+   `firebase_options.dart` correspondiente.
+3. Corre `flutter run` y selecciona el dispositivo deseado.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Para pruebas específicas de la capa de datos existen herramientas de siembra en
+el panel administrador (triple tap sobre el logo → PIN `2468`).
