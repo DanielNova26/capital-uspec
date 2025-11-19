@@ -2,12 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>ToDo</string>
+	<string>Todo</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,18 +13,16 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>ToDo</string>
+	<string>todo</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.3</string>
+	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>1.3</string>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
@@ -45,23 +41,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>La aplicación necesita usar la cámara para capturar fotos y evidencias relacionadas con los procesos internos de la empresa.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>La aplicación necesita acceder a tu galería de fotos para cargar y visualizar imágenes de soporte interno.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>La aplicación necesita guardar imágenes tomadas o generadas durante los procesos de gestión.</string>
-	<key>NSDocumentsFolderUsageDescription</key>
-	<string>La aplicación necesita acceder a los archivos locales para cargar y consultar documentos relacionados con las operaciones internas.</string>
-	<key>NSFileProviderDomainUsageDescription</key>
-	<string>La aplicación requiere acceso a los archivos y recursos locales para compartir información entre módulos internos.</string>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>La aplicación usa notificaciones para informarte sobre novedades, recordatorios y actualizaciones internas.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>La aplicación necesita tu ubicación mientras está en uso para registrar rutas, ubicaciones o validar operaciones logísticas internas.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>La aplicación puede usar tu ubicación incluso en segundo plano para garantizar la trazabilidad y seguimiento de los procesos logísticos.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>La aplicación puede acceder a tu ubicación para optimizar tareas internas relacionadas con desplazamientos y monitoreo.</string>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
 </dict>
 </plist>
