@@ -1,7 +1,6 @@
 // lib/login/instruction_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:ToDo/login/registration_screen.dart';
 import 'registration_screen.dart';
 
 class InstructionScreen extends StatelessWidget {
