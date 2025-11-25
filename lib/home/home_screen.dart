@@ -1,6 +1,8 @@
 // lib/home/home_screen.dart
 
 import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -34,6 +36,27 @@ class _HomeScreenState extends State<HomeScreen> {
   // Registro automático de FCM
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
+
+  Future<void> _persistFcmToken({
+    required String token,
+    required String userId,
+  }) async {
+    try {
+      final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
+      await fun.call({'cedula': userId, 'token': token});
+    } catch (e) {
+      debugPrint('[FCM] registerDeviceToken error: $e');
+    }
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(userId)
+          .set({'fcmTokens': FieldValue.arrayUnion([token])}, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('[FCM] write fallback error: $e');
+    }
+  }
 
   DateTime? _toDate(dynamic v) {
     if (v == null) return null;
@@ -101,44 +124,35 @@ class _HomeScreenState extends State<HomeScreen> {
         announcement: false, carPlay: false, criticalAlert: false, provisional: false,
       );
       debugPrint('[FCM] permiso: ${settings.authorizationStatus}');
+      // Suscribirse antes de pedir el token inicial para capturar el primer
+      // valor en iOS (se emite cuando se resuelve el APNS token).
+      _tokenSub ??= FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        if (newToken.isEmpty) return;
+        await _persistFcmToken(token: newToken, userId: userId);
+      });
+
+      // iOS necesita resolver primero el token de APNS para luego generar el
+      // token FCM. Si getToken devuelve null, forzamos la generación
+      // recuperando el APNS token y luego reintentando.
+      if (Platform.isIOS) {
+        final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        debugPrint('[FCM] APNS token: $apnsToken');
+      }
 
       // Token actual
-      final token = await FirebaseMessaging.instance.getToken();
+      var token = await FirebaseMessaging.instance.getToken();
+      if (token == null && Platform.isIOS) {
+        // Algunos dispositivos entregan el FCM token unos milisegundos después
+        // de obtener el APNS; reintentamos una vez.
+        await Future.delayed(const Duration(milliseconds: 300));
+        token = await FirebaseMessaging.instance.getToken();
+      }
       debugPrint('[FCM] token actual: $token');
 
       if (token != null && token.isNotEmpty) {
-        // 1) Backend (limpia tokens inválidos)
-        try {
-          final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
-          await fun.call({'cedula': userId, 'token': token});
-        } catch (e) {
-          debugPrint('[FCM] registerDeviceToken error: $e');
-        }
-
-        // 2) Respaldo directo
-        try {
-          await FirebaseFirestore.instance
-              .collection('TBL_USUARIOS')
-              .doc(userId)
-              .set({'fcmTokens': FieldValue.arrayUnion([token])}, SetOptions(merge: true));
-        } catch (e) {
-          debugPrint('[FCM] write fallback error: $e');
-        }
+        await _persistFcmToken(token: token, userId: userId);
       }
 
-      _tokenSub ??= FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-        if (newToken.isEmpty) return;
-        try {
-          final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
-          await fun.call({'cedula': userId, 'token': newToken});
-        } catch (_) {}
-        try {
-          await FirebaseFirestore.instance
-              .collection('TBL_USUARIOS')
-              .doc(userId)
-              .set({'fcmTokens': FieldValue.arrayUnion([newToken])}, SetOptions(merge: true));
-        } catch (_) {}
-      });
     } catch (e) {
       debugPrint('[FCM] error general: $e');
     }
