@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'instruction_screen.dart';
 
 // Usa las mismas constantes globales para colores y fuente
-const Color kMarronOscuro = Color(0xffc28942);
-const Color kMarronClaro = Color(0xffe19e4c);
+const Color kMarronOscuro = Color(0xff1975b8);
+const Color kMarronClaro = Color(0xff1975b8);
 const String kArial = 'Arial';
 
 class DataPolicyScreen extends StatelessWidget {
@@ -37,7 +37,7 @@ class DataPolicyScreen extends StatelessWidget {
             Expanded(
               child: SingleChildScrollView(
                 child: Text(
-                  'AUTORIZO a la UNIÓN TEMPORAL CAPITAL USPEC 2025, para que recolecte, almacene, consulte, procese, actualice y utilice la información personal contenida en mi hoja de vida, '
+                  'AUTORIZO a la App ToDo, para que recolecte, almacene, consulte, procese, actualice y utilice la información personal contenida en mi hoja de vida, '
                       'así como cualquier otro dato suministrado durante el proceso de selección y contratación.',
                   style: const TextStyle(
                     fontFamily: kArial,

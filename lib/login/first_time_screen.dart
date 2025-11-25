@@ -24,10 +24,20 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
     });
 
     try {
-      final hoja = await FirebaseFirestore.instance
-          .collection('TBL_HojasVida')
-          .doc(cedula)
-          .get();
+      final usuariosCol =
+      FirebaseFirestore.instance.collection('TBL_USUARIOS');
+      // Intenta encontrar por ID de documento (cedula) y, si no existe,
+      // busca por campo 'cedula' para soportar IDs distintos al número.
+      var hoja = await usuariosCol.doc(cedula).get();
+      if (!hoja.exists) {
+        final query = await usuariosCol
+            .where('cedula', isEqualTo: cedula)
+            .limit(1)
+            .get();
+        if (query.docs.isNotEmpty) {
+          hoja = query.docs.first;
+        }
+      }
 
       if (hoja.exists) {
         // Extrae datos para usuario y contraseña
@@ -43,11 +53,9 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
             .first
             .toLowerCase();
         final usuario = "$primerNombre.$primerApellido";
-        final contrasena = "Capital123";
+        final contrasena = "123456";
 
-        final userRef = FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .doc(usuario);
+        final userRef = usuariosCol.doc(usuario);
 
         // Crear o actualizar el documento y asignar role + forzar cambio de contraseña
         await userRef.set({
@@ -90,7 +98,7 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
         );
       } else {
         setState(() => _isLoading = false);
-        // Lleva a política de datos si no existe en TBL_HojasVida
+        // Lleva a política de datos si no existe en TBL_USUARIOS
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => DataPolicyScreen(cedula: cedula),

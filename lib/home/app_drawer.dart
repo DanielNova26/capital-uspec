@@ -80,8 +80,11 @@ class AppDrawer extends StatelessWidget {
               ((estruct?['cargo'] as String?) ?? (user?['cargo'] as String?) ?? '')
                   .trim();
 
-              // Foto
-              final fotoUrl = ((user?['fotoUrl'] as String?) ?? '').trim();
+              // Foto (intenta primero con TBL_USUARIOS, luego con TBL_ESTRUCTURA_ORGANIZACIONAL)
+              final fotoUrl = ((user?['fotoUrl'] as String?) ??
+                  (estruct?['fotoUrl'] as String?) ??
+                  '')
+                  .trim();
 
               return ListView(
                 padding: EdgeInsets.zero,

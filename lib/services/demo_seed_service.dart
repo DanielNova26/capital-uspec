@@ -262,7 +262,7 @@ class DemoSeedService {
 
     // Hojas de vida simplificadas (para pantallas de Perfil / Equipo)
     batch.set(
-      _db.collection('TBL_HojasVida').doc(reviewerId),
+      _db.collection('TBL_USUARIOS').doc(reviewerId),
       {
         'primerNombre': reviewerNombre.split(' ').first,
         'segundoNombre': 'Demo',
@@ -283,7 +283,7 @@ class DemoSeedService {
     );
 
     batch.set(
-      _db.collection('TBL_HojasVida').doc(coordinadorId),
+      _db.collection('TBL_USUARIOS').doc(coordinadorId),
       {
         'primerNombre': 'Carolina',
         'primerApellido': 'Coordinadora',
@@ -299,7 +299,7 @@ class DemoSeedService {
     );
 
     batch.set(
-      _db.collection('TBL_HojasVida').doc(analistaId),
+      _db.collection('TBL_USUARIOS').doc(analistaId),
       {
         'primerNombre': 'Juan',
         'primerApellido': 'Analista',

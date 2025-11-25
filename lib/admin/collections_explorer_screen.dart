@@ -9,7 +9,6 @@ class CollectionsExplorerScreen extends StatelessWidget {
   // mantener tu propia lista o usar la Admin SDK en un servidor.
   static const _knownCollections = <String>[
     'TBL_USUARIOS',
-    'TBL_HojasVida',
     'TBL_ESTRUCTURA_ORGANIZACIONAL',
     'roles',
     'apps',

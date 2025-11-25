@@ -90,8 +90,8 @@ class RegistrationScreen extends StatefulWidget {
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
   // Colores corporativos
-  static const Color _primaryColor = Color(0xFFE19E4C);
-  static const Color _accentColor  = Color(0xFFC28942);
+  static const Color _primaryColor = Color(0xFF1975B8);
+  static const Color _accentColor  = Color(0xFF1975B8);
 
   int _currentStep = 0;
   final _formKeys = List.generate(5, (_) => GlobalKey<FormState>());
@@ -175,10 +175,18 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   }
 
   Future<void> _loadExistingData() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('TBL_HojasVida')
-        .doc(widget.cedula)
-        .get();
+    final usuariosCol =
+    FirebaseFirestore.instance.collection('TBL_USUARIOS');
+    var doc = await usuariosCol.doc(widget.cedula).get();
+    if (!doc.exists) {
+      final query = await usuariosCol
+          .where('cedula', isEqualTo: widget.cedula)
+          .limit(1)
+          .get();
+      if (query.docs.isNotEmpty) {
+        doc = query.docs.first;
+      }
+    }
     if (!doc.exists) return;
     final d = doc.data()!;
 

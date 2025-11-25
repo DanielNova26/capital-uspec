@@ -7,7 +7,7 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 const String _areasCollection   = 'TBL_AREAS';
 const String _cargosCollection  = 'TBL_CARGOS';
 const String _orgCollection     = 'TBL_ESTRUCTURA_ORGANIZACIONAL';
-const String _hojaCollection    = 'TBL_HojasVida';
+const String _hojaCollection    = 'TBL_USUARIOS';
 const String _ccCollection      = 'TBL_CENTROS_COSTOS';
 const Color  _kPrimaryColor     = Color(0xffc28942);
 const String _kFontFamily       = 'Arial';

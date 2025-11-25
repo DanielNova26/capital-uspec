@@ -11,8 +11,6 @@ class FirestoreUserRepository {
       _db.collection('TBL_CEDULAS');
   CollectionReference<Map<String, dynamic>> get _usuariosCol =>
       _db.collection('TBL_USUARIOS');
-  CollectionReference<Map<String, dynamic>> get _hojasVidaCol =>
-      _db.collection('TBL_HojasVida');
 
   String sanitizeCedula(String raw) =>
       raw.replaceAll(RegExp(r'[^0-9]'), '');
@@ -87,18 +85,6 @@ class FirestoreUserRepository {
       if (extrasUsuario != null) ...extrasUsuario,
     });
 
-    // HV mínima
-    final hv = await _hojasVidaCol.doc(ced).get();
-    if (!hv.exists) {
-      await _hojasVidaCol.doc(ced).set({
-        'cedula': ced,
-        'nombres': data['nombres'] ?? primerNombre,
-        'apellidos': data['apellidos'] ?? primerApellido,
-        'correo': correo,
-        'createdAt': now,
-        'updatedAt': now,
-      });
-    }
 
     return username;
   }

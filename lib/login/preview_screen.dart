@@ -8,8 +8,8 @@ import 'login_screen.dart'; // Asegúrate que el path sea correcto
 
 class PreviewScreen extends StatelessWidget {
   final Map<String, dynamic> data;
-  static const Color _primaryColor = Color(0xFFE19E4C);
-  static const Color _accentColor  = Color(0xFFC28942);
+  static const Color _primaryColor = Color(0xFF1975B8);
+  static const Color _accentColor  = Color(0xFF1975B8);
 
   const PreviewScreen({Key? key, required this.data}) : super(key: key);
 
@@ -99,10 +99,22 @@ class PreviewScreen extends StatelessWidget {
       ..remove('fotoBytes');
 
     // 3. Subimos TODO + marcamos registrado + limpiamos revisión
-    await FirebaseFirestore.instance
-        .collection('TBL_HojasVida')
-        .doc(data['cedula'])
-        .set({
+    final usuariosCol =
+    FirebaseFirestore.instance.collection('TBL_USUARIOS');
+    final cedula = data['cedula'] as String;
+    var docRef = usuariosCol.doc(cedula);
+    final existing = await docRef.get();
+    if (!existing.exists) {
+      final query = await usuariosCol
+          .where('cedula', isEqualTo: cedula)
+          .limit(1)
+          .get();
+      if (query.docs.isNotEmpty) {
+        docRef = query.docs.first.reference;
+      }
+    }
+
+    await docRef.set({
       ...uploadData,
       'registered': true,
       'needsRevision': false,

@@ -12,8 +12,8 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-const Color _primaryColor = Color(0xFFE19E4C);
-const Color _accentColor  = Color(0xFFC28942);
+const Color _primaryColor = Color(0xFF1975B8);
+const Color _accentColor  = Color(0xFF1975B8);
 const String _arial       = 'Arial';
 
 /// Formatter para convertir todo el texto a mayúsculas
@@ -151,6 +151,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _certs           = <Certificado>[];
 
   final _exps            = <Experiencia>[Experiencia()];
+  DocumentReference<Map<String, dynamic>>? _usuarioDoc;
 
   @override
   void initState() {
@@ -159,11 +160,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final doc = await FirebaseFirestore.instance
-        .collection('TBL_HojasVida')
-        .doc(widget.userId)
-        .get();
+    final usuariosCol =
+    FirebaseFirestore.instance.collection('TBL_USUARIOS');
+    var doc = await usuariosCol.doc(widget.userId).get();
+    if (!doc.exists) {
+      final query = await usuariosCol
+          .where('cedula', isEqualTo: widget.userId)
+          .limit(1)
+          .get();
+      if (query.docs.isNotEmpty) {
+        doc = query.docs.first;
+      }
+    }
     if (!doc.exists) return;
+    _usuarioDoc = doc.reference;
     final d = doc.data()!;
     setState(() {
       _needsRevision = d['needsRevision'] == true;
@@ -431,10 +441,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }).toList(),
     };
 
-    await FirebaseFirestore.instance
-        .collection('TBL_HojasVida')
-        .doc(widget.userId)
-        .update(updateData);
+    final target = _usuarioDoc ?? FirebaseFirestore.instance
+        .collection('TBL_USUARIOS')
+        .doc(widget.userId);
+    await target.update(updateData);
 
     Navigator.of(context).pop(); // cierra diálogo
     ScaffoldMessenger.of(context).showSnackBar(
