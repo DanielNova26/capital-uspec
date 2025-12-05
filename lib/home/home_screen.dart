@@ -37,17 +37,33 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
 
+  Future<String?> _getFcmTokenWithRetries() async {
+    // Intento inicial
+    var token = await FirebaseMessaging.instance.getToken();
+    if (token != null && token.isNotEmpty) return token;
+
+    // En iOS, el token puede tardar unos segundos hasta resolver APNS
+    if (Platform.isIOS) {
+      await FirebaseMessaging.instance.getAPNSToken();
+
+      for (final delay in const [
+        Duration(milliseconds: 400),
+        Duration(seconds: 1),
+        Duration(seconds: 2),
+      ]) {
+        await Future.delayed(delay);
+        token = await FirebaseMessaging.instance.getToken();
+        if (token != null && token.isNotEmpty) return token;
+      }
+    }
+
+    return token; // podría seguir siendo null en simuladores iOS
+  }
+
   Future<void> _persistFcmToken({
     required String token,
     required String userId,
   }) async {
-
-    try {
-      final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
-      await fun.call({'cedula': userId, 'token': token});
-    } catch (e) {
-      debugPrint('[FCM] registerDeviceToken error: $e');
-    }
     final platform = Platform.operatingSystem;
     final deviceName = Platform.isAndroid
         ? 'Android'
@@ -166,13 +182,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       // Token actual
-      var token = await FirebaseMessaging.instance.getToken();
-      if (token == null && Platform.isIOS) {
-        // Algunos dispositivos entregan el FCM token unos milisegundos después
-        // de obtener el APNS; reintentamos una vez.
-        await Future.delayed(const Duration(milliseconds: 300));
-        token = await FirebaseMessaging.instance.getToken();
-      }
+      final token = await _getFcmTokenWithRetries();
       debugPrint('[FCM] token actual: $token');
 
       if (token != null && token.isNotEmpty) {
