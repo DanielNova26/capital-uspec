@@ -206,6 +206,12 @@ class NotificationsService {
 
   /// Registra el token en la función registerDeviceToken (doc por cédula).
   static Future<void> _registerTokenWithCedula(String token) async {
+    final platform = Platform.operatingSystem;
+    final deviceName = Platform.isAndroid
+        ? 'Android'
+        : Platform.isIOS
+        ? 'iOS'
+        : platform;
     try {
       final cedula = await _resolveCedula();
       if (cedula == null) {
@@ -219,6 +225,8 @@ class NotificationsService {
       await callable.call(<String, dynamic>{
         'cedula': cedula,
         'token': token,
+        'platform': platform,
+        'deviceName': deviceName,
       });
       if (kDebugMode) {
         print('[FCM] Token registrado para cédula: $cedula');
@@ -226,6 +234,29 @@ class NotificationsService {
     } catch (e) {
       if (kDebugMode) {
         print('[FCM] Error registrando token: $e');
+        final cedula = await _resolveCedula();
+        if (cedula != null) {
+          try {
+            await FirebaseFirestore.instance
+                .collection('TBL_USUARIOS')
+                .doc(cedula)
+                .set({
+              'fcmTokens': FieldValue.arrayUnion([token]),
+              'fcmDevices.$token': {
+                'platform': platform,
+                'deviceName': deviceName,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+            }, SetOptions(merge: true));
+            if (kDebugMode) {
+              print('[FCM] Token registrado vía fallback para: $cedula');
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              print('[FCM] Fallback Firestore error: $e');
+            }
+          }
+        }
       }
     }
   }

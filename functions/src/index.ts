@@ -265,11 +265,20 @@ export const registerDeviceToken = functions
   .https.onCall(async (data: any, _context: functions.https.CallableContext) => {
     const cedula = (data?.cedula || "").toString().trim();
     const token = (data?.token || "").toString().trim();
+        const platform = (data?.platform || "").toString().trim();
+        const deviceName = (data?.deviceName || "").toString().trim();
     if (!cedula || !token) {
       throw new functions.https.HttpsError("invalid-argument", "Parámetros: cedula y token");
     }
     await db.collection("TBL_USUARIOS").doc(cedula).set(
-      { fcmTokens: admin.firestore.FieldValue.arrayUnion(token) },
+              {
+                fcmTokens: admin.firestore.FieldValue.arrayUnion(token),
+                [`fcmDevices.${token}`]: {
+                  platform: platform || "unknown",
+                  deviceName: deviceName || null,
+                  updatedAt: Date.now(),
+                },
+              },
       { merge: true }
     );
     console.log("[registerDeviceToken] cedula:", cedula);

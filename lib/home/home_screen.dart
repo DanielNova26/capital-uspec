@@ -41,9 +41,27 @@ class _HomeScreenState extends State<HomeScreen> {
     required String token,
     required String userId,
   }) async {
+
     try {
       final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
       await fun.call({'cedula': userId, 'token': token});
+    } catch (e) {
+      debugPrint('[FCM] registerDeviceToken error: $e');
+    }
+    final platform = Platform.operatingSystem;
+    final deviceName = Platform.isAndroid
+        ? 'Android'
+        : Platform.isIOS
+        ? 'iOS'
+        : platform;
+    try {
+      final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
+      await fun.call({
+        'cedula': userId,
+        'token': token,
+        'platform': platform,
+        'deviceName': deviceName,
+      });
     } catch (e) {
       debugPrint('[FCM] registerDeviceToken error: $e');
     }
@@ -52,7 +70,14 @@ class _HomeScreenState extends State<HomeScreen> {
       await FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
           .doc(userId)
-          .set({'fcmTokens': FieldValue.arrayUnion([token])}, SetOptions(merge: true));
+          .set({
+        'fcmTokens': FieldValue.arrayUnion([token]),
+        'fcmDevices.$token': {
+          'platform': platform,
+          'deviceName': deviceName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[FCM] write fallback error: $e');
     }
