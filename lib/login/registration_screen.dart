@@ -81,7 +81,8 @@ class Experiencia {
 
 class RegistrationScreen extends StatefulWidget {
   final String cedula;
-  const RegistrationScreen({Key? key, required this.cedula})
+  final String empresaId;
+  const RegistrationScreen({Key? key, required this.cedula, required this.empresaId})
       : super(key: key);
 
   @override
@@ -178,9 +179,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     final usuariosCol =
     FirebaseFirestore.instance.collection('TBL_USUARIOS');
     var doc = await usuariosCol.doc(widget.cedula).get();
+    if (doc.exists) {
+      final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
+      if (empresaDoc != widget.empresaId) {
+        doc = await usuariosCol.doc();
+      }
+    }
     if (!doc.exists) {
       final query = await usuariosCol
           .where('cedula', isEqualTo: widget.cedula)
+          .where('empresaId', isEqualTo: widget.empresaId)
           .limit(1)
           .get();
       if (query.docs.isNotEmpty) {
@@ -604,6 +612,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           data: {
             // — Datos personales —
             'cedula':           widget.cedula,
+            'empresaId':        widget.empresaId,
             'fotoBytes':        _fotoBytes!,
             'fotoUrl':          _fotoUrl!,
             'cedulaDocUrl':     _cedulaDocUrl!,

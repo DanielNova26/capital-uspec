@@ -14,6 +14,7 @@ class FirstTimeScreen extends StatefulWidget {
 class _FirstTimeScreenState extends State<FirstTimeScreen> {
   final _formKey = GlobalKey<FormState>();
   String cedula = '';
+  String empresaId = '';
   bool _isLoading = false;
   String? _error;
 
@@ -26,21 +27,36 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
     try {
       final usuariosCol =
       FirebaseFirestore.instance.collection('TBL_USUARIOS');
-      // Intenta encontrar por ID de documento (cedula) y, si no existe,
-      // busca por campo 'cedula' para soportar IDs distintos al número.
-      var hoja = await usuariosCol.doc(cedula).get();
-      if (!hoja.exists) {
+
+      // hoja puede ser null si invalidamos el documento inicial
+      DocumentSnapshot<Map<String, dynamic>>? hoja =
+      await usuariosCol.doc(cedula).get();
+
+      // 1. Intento por ID de documento (cedula como ID)
+      if (hoja.exists) {
+        final empresaDoc =
+            (hoja.data()?['empresaId'] as String?)?.trim() ?? '';
+        // Si el empresaId no coincide, ignoramos este documento
+        if (empresaDoc != empresaId) {
+          hoja = null;
+        }
+      }
+
+      // 2. Si no encontramos por ID o lo invalidamos, buscamos por campos
+      if (hoja == null || !hoja.exists) {
         final query = await usuariosCol
             .where('cedula', isEqualTo: cedula)
+            .where('empresaId', isEqualTo: empresaId)
             .limit(1)
             .get();
+
         if (query.docs.isNotEmpty) {
           hoja = query.docs.first;
         }
       }
 
-      if (hoja.exists) {
-        // Extrae datos para usuario y contraseña
+      // 3. Si encontramos un registro válido, creamos/actualizamos el usuario de acceso
+      if (hoja != null && hoja.exists) {
         final data = hoja.data()!;
         final primerNombre = (data['primerNombre'] ?? '')
             .toString()
@@ -57,11 +73,11 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
 
         final userRef = usuariosCol.doc(usuario);
 
-        // Crear o actualizar el documento y asignar role + forzar cambio de contraseña
         await userRef.set({
           'usuario': usuario,
           'cedula': cedula,
           'password': contrasena,
+          'empresaId': empresaId,
           'primerNombre': data['primerNombre'],
           'primerApellido': data['primerApellido'],
           'role': 'usuario',
@@ -87,7 +103,8 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
                 onPressed: () {
                   Navigator.pop(context); // cierra el diálogo
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const LoginScreen()),
                         (_) => false,
                   );
                 },
@@ -98,10 +115,13 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
         );
       } else {
         setState(() => _isLoading = false);
-        // Lleva a política de datos si no existe en TBL_USUARIOS
+        // No existe en TBL_USUARIOS -> ir a política de datos
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => DataPolicyScreen(cedula: cedula),
+            builder: (_) => DataPolicyScreen(
+              cedula: cedula,
+              empresaId: empresaId,
+            ),
           ),
         );
       }
@@ -118,7 +138,7 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Primer Ingreso"),
-        backgroundColor: const Color(0xFFE19E4C),
+        backgroundColor: const Color(0xFF1975B8),
         centerTitle: true,
       ),
       body: Padding(
@@ -147,11 +167,28 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
                       keyboardType: TextInputType.number,
                       onChanged: (v) => cedula = v.trim(),
                       validator: (v) =>
-                      v == null || v.trim().isEmpty ? "Ingrese la cédula" : null,
+                      v == null || v.trim().isEmpty
+                          ? "Ingrese la cédula"
+                          : null,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      decoration: const InputDecoration(
+                        labelText: "Empresa ID",
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => empresaId = v.trim(),
+                      validator: (v) =>
+                      v == null || v.trim().isEmpty
+                          ? "Ingrese el ID de la empresa"
+                          : null,
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 8),
-                      Text(_error!, style: const TextStyle(color: Colors.red)),
+                      Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
                     ],
                     const SizedBox(height: 24),
                     SizedBox(

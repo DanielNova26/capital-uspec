@@ -85,7 +85,6 @@ class FirestoreUserRepository {
       if (extrasUsuario != null) ...extrasUsuario,
     });
 
-
     return username;
   }
 }

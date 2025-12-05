@@ -97,11 +97,18 @@ class PreviewScreen extends StatelessWidget {
     // 2. Preparamos los datos (quitamos los bytes en crudo)
     final uploadData = Map<String, dynamic>.from(data)
       ..remove('fotoBytes');
-
+    final empresaId = (data['empresaId'] as String?)?.trim() ?? '';
+    if (empresaId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Falta el ID de la empresa.')),
+      );
+      return;
+    }
     // 3. Subimos TODO + marcamos registrado + limpiamos revisión
     final usuariosCol =
     FirebaseFirestore.instance.collection('TBL_USUARIOS');
     final cedula = data['cedula'] as String;
+
     var docRef = usuariosCol.doc(cedula);
     final existing = await docRef.get();
     if (!existing.exists) {

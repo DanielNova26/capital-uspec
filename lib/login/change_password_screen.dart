@@ -8,7 +8,9 @@ const String kArial = 'Arial';
 
 class ChangePasswordScreen extends StatefulWidget {
   final String usuario; // ID del doc (antes mostrabas esto)
-  const ChangePasswordScreen({Key? key, required this.usuario}) : super(key: key);
+  final String empresaId;
+  const ChangePasswordScreen({Key? key, required this.usuario, required this.empresaId})
+      : super(key: key);
 
   @override
   State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
@@ -61,10 +63,15 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           .doc(widget.usuario)
           .get();
 
-      if (doc.exists) {
+      final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
+      if (doc.exists && empresaDoc == widget.empresaId) {
         final data = doc.data() as Map<String, dynamic>;
         setState(() {
           _nombre = (data['nombres'] as String?)?.trim();
+        });
+      }  else {
+        setState(() {
+          _errorMessage = 'El usuario no pertenece a esta empresa.';
         });
       }
     } catch (_) {
@@ -93,6 +100,16 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       final docRef = FirebaseFirestore.instance
           .collection('TBL_USUARIOS')
           .doc(widget.usuario);
+
+      final doc = await docRef.get();
+      final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
+      if (!doc.exists || empresaDoc != widget.empresaId) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'No se pudo validar la empresa del usuario.';
+        });
+        return;
+      }
 
       await docRef.update({
         'password': _newPassCtrl.text.trim(),

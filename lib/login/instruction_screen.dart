@@ -5,7 +5,10 @@ import 'registration_screen.dart';
 
 class InstructionScreen extends StatelessWidget {
   final String cedula;
-  const InstructionScreen({Key? key, required this.cedula}) : super(key: key);
+  final String empresaId;
+
+  const InstructionScreen({Key? key, required this.cedula, required this.empresaId})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -21,16 +24,15 @@ class InstructionScreen extends StatelessWidget {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                child: Text(
+                child: const Text(
                   'Para un registro exitoso, por favor:\n\n'
                       '1. Captura tu fotografía tipo carnet con buena iluminación.\n'
                       '2. Prepara los siguientes documentos escaneados en PDF:\n'
                       '   • Soportes laborales.\n'
                       '   • Certificados de estudios.\n'
                       '   • Tarjeta profesional.\n'
-                      '   • Cédula de ciudadanía (anverso y reverso).\n\n'
-                      'Ten todo listo antes de continuar para agilizar el proceso.',
-                  style: const TextStyle(fontSize: 16),
+                      '   • Cédula de ciudadanía (anverso y reverso).\n\n' 'Ten todo listo antes de continuar para agilizar el proceso.',
+                  style: TextStyle(fontSize: 16),
                 ),
               ),
             ),
@@ -38,7 +40,10 @@ class InstructionScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute(
-                    builder: (_) => RegistrationScreen(cedula: cedula),
+                    builder: (_) => RegistrationScreen(
+                      cedula: cedula,
+                      empresaId: empresaId,
+                    ),
                   ),
                 );
               },

@@ -1,4 +1,4 @@
-//lib/login/data_policy_screen.dart
+// lib/login/data_policy_screen.dart
 import 'package:flutter/material.dart';
 import 'instruction_screen.dart';
 
@@ -9,7 +9,9 @@ const String kArial = 'Arial';
 
 class DataPolicyScreen extends StatelessWidget {
   final String cedula;
-  const DataPolicyScreen({Key? key, required this.cedula}) : super(key: key);
+  final String empresaId;
+  const DataPolicyScreen({Key? key, required this.cedula, required this.empresaId})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -36,10 +38,10 @@ class DataPolicyScreen extends StatelessWidget {
           children: [
             Expanded(
               child: SingleChildScrollView(
-                child: Text(
-                  'AUTORIZO a la App ToDo, para que recolecte, almacene, consulte, procese, actualice y utilice la información personal contenida en mi hoja de vida, '
-                      'así como cualquier otro dato suministrado durante el proceso de selección y contratación.',
-                  style: const TextStyle(
+                child: const Text(
+                  'AUTORIZO a la App ToDo, para que recolecte, almacene, consulte, procese, actualice y utilice la información personal contenida en mi hoja de vida, así como cualquier otro dato suministrado durante el proceso de selección y contratación.',
+
+                  style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 16,
                     height: 1.5,
@@ -56,7 +58,10 @@ class DataPolicyScreen extends StatelessWidget {
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => InstructionScreen(cedula: cedula),
+                      builder: (_) => InstructionScreen(
+                        cedula: cedula,
+                        empresaId: empresaId,
+                      ),
                     ),
                   );
                 },

@@ -31,7 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
   // Capturamos directamente los valores con onChanged
   String usuarioInput = '';
   String passwordInput = '';
-
+  String empresaInput = '';
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -103,6 +103,28 @@ class _LoginScreenState extends State<LoginScreen> {
                         onChanged: (value) => usuarioInput = value.trim(),
                         validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Ingrese su usuario' : null,
+                        textInputAction: TextInputAction.next,
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Empresa ID
+                      TextFormField(
+                        style: const TextStyle(fontFamily: kArial, fontSize: 14),
+                        decoration: InputDecoration(
+                          labelText: 'Empresa ID',
+                          labelStyle: TextStyle(
+                            color: scheme.primary.withOpacity(0.8),
+                            fontFamily: kArial,
+                          ),
+                          border: const OutlineInputBorder(),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                        ),
+                        onChanged: (value) => empresaInput = value.trim(),
+                        validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Ingrese el ID de la empresa' : null,
                         textInputAction: TextInputAction.next,
                       ),
                       const SizedBox(height: 20),
@@ -253,25 +275,30 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final input = usuarioInput;
     final pass = passwordInput;
+    final empresaId = empresaInput;
 
     try {
       final collectionRef =
       FirebaseFirestore.instance.collection('TBL_USUARIOS');
-      DocumentSnapshot<Map<String, dynamic>> docSnapshot;
+      DocumentSnapshot<Map<String, dynamic>>? docSnapshot;
 
       // 1) Intentamos leer por ID (username)
-      docSnapshot = await collectionRef.doc(input).get();
-
-      if (!docSnapshot.exists) {
-        // 2) Si no existe, buscamos por campo 'cedula'
+      final byId = await collectionRef.doc(input).get();
+      final empresaDoc = (byId.data()?['empresaId'] as String?)?.trim() ?? '';
+      if (byId.exists && empresaDoc == empresaId) {
+        docSnapshot = byId;
+      }
+      if (docSnapshot == null) {
+        // 2) Si no existe, buscamos por campo 'cedula' + empresaId
         final querySnap = await collectionRef
             .where('cedula', isEqualTo: input)
+            .where('empresaId', isEqualTo: empresaId)
             .limit(1)
             .get();
 
         if (querySnap.docs.isEmpty) {
           setState(() {
-            _errorMessage = 'Usuario o cédula no registrado';
+            _errorMessage = 'Usuario o cédula no registrado para esta empresa';
             _isLoading = false;
           });
           return;
@@ -281,10 +308,10 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       // Si llegamos aquí, docSnapshot existe
-      final data = docSnapshot.data()!;
+      final data = docSnapshot!.data()!;
       final storedPass = data['password'] as String? ?? '';
       final needsChange = data['needsPasswordChange'] as bool? ?? false;
-      final docId = docSnapshot.id; // Esto es el "username" usado
+      final docId = docSnapshot!.id; // Esto es el "username" usado
 
       // 3) Comparamos contraseñas
       if (pass != storedPass) {
@@ -302,7 +329,10 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => ChangePasswordScreen(usuario: docId),
+              builder: (_) => ChangePasswordScreen(
+                usuario: docId,
+                empresaId: empresaId,
+              ),
           ),
         );
       } else {

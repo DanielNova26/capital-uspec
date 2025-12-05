@@ -124,6 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
         announcement: false, carPlay: false, criticalAlert: false, provisional: false,
       );
       debugPrint('[FCM] permiso: ${settings.authorizationStatus}');
+
       // Suscribirse antes de pedir el token inicial para capturar el primer
       // valor en iOS (se emite cuando se resuelve el APNS token).
       _tokenSub ??= FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
