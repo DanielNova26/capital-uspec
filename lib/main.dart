@@ -1,6 +1,7 @@
 // lib/main.dart
 // Arranque de la app + Firebase + App Check + FCM + notificaciones locales.
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -91,10 +92,17 @@ Future<void> _initFirebaseAndPushCore() async {
   // Firebase base
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // App Check (en desarrollo usa debug; en producción configura Play Integrity)
+  // App Check
+  // - En debug usa el proveedor "debug" para evitar errores de atestación
+  //   al desarrollar en simuladores o sin App Attest configurado.
+  // - En release fuerza los proveedores reales (Play Integrity / App Attest)
+  //   con fallback a DeviceCheck en iOS para evitar 403 de "attestation failed".
   await FirebaseAppCheck.instance.activate(
-   androidProvider: AndroidProvider.debug, // <-- para dev. Cambia a .playIntegrity en prod
-    appleProvider: AppleProvider.debug,
+    androidProvider:
+    kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+    appleProvider: kReleaseMode
+        ? AppleProvider.appAttestWithDeviceCheckFallback
+        : AppleProvider.debug,
   );
 
   // Notificaciones locales
