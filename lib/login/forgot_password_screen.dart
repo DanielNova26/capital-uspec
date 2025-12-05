@@ -21,7 +21,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _answer2Ctrl = TextEditingController();
   final _newPassCtrl = TextEditingController();
   final _confirmPassCtrl = TextEditingController();
-  final _empresaCtrl = TextEditingController();
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -37,6 +36,63 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   // ID real de Firestore (puede ser el username o uno encontrado por cedula)
   late String _docId; // se asignará al verificar al usuario
 
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) async {
+    if (docs.length == 1) return docs.first;
+
+    final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
+    final Map<String, String> nombres = {};
+    final ids = docs
+        .map((d) => (d.data()['empresaId'] as String?)?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    await Future.wait(ids.map((id) async {
+      final emp = await empresasCol.doc(id).get();
+      if (emp.exists) {
+        final nombre = (emp.data()?['nombre'] as String?)?.trim();
+        if (nombre != null && nombre.isNotEmpty) nombres[id] = nombre;
+      }
+    }));
+
+    return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Selecciona tu empresa'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, index) {
+                final doc = docs[index];
+                final empresaId =
+                    (doc.data()['empresaId'] as String?)?.trim() ?? '';
+                final nombre = nombres[empresaId];
+                final title =
+                nombre != null && nombre.isNotEmpty ? nombre : empresaId;
+
+                return ListTile(
+                  title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
+                  subtitle: empresaId.isEmpty
+                      ? null
+                      : Text(
+                    empresaId,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                  onTap: () => Navigator.of(context).pop(doc),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _usuarioOrCedulaCtrl.dispose();
@@ -44,24 +100,16 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     _answer2Ctrl.dispose();
     _newPassCtrl.dispose();
     _confirmPassCtrl.dispose();
-    _empresaCtrl.dispose();
     super.dispose();
   }
 
   /// 1) Intentar leer directamente por ID (asumimos que el usuario escribió el username),
   /// 2) Si no existe, hacemos un query por campo "cedula"
   Future<void> _checkUserAndLoadQuestions() async {
-    final empresaId = _empresaCtrl.text.trim();
     final input = _usuarioOrCedulaCtrl.text.trim();
     if (input.isEmpty) {
       setState(() {
         _errorMessage = 'Ingresa tu usuario o cédula';
-      });
-      return;
-    }
-    if (empresaId.isEmpty) {
-      setState(() {
-        _errorMessage = 'Ingresa el ID de la empresa';
       });
       return;
     }
@@ -80,27 +128,32 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
       // 1) Intentamos leer directamente por ID (input como doc ID)
       final byId = await collectionRef.doc(input).get();
-      final empresaDoc = (byId.data()?['empresaId'] as String?)?.trim() ?? '';
-      if (byId.exists && empresaDoc == empresaId) {
+      if (byId.exists) {
         docSnapshot = byId;
       }
 
       if (docSnapshot == null) {
         // 2) Si no existe un doc con ese ID, buscamos por campo "cedula == input"
-        // 2) Si no existe un doc con ese ID, buscamos por campo "cedula == input"
-        final querySnap = await collectionRef
-            .where('cedula', isEqualTo: input)
-            .where('empresaId', isEqualTo: empresaId)
-            .limit(1)
-            .get();
+        final querySnap = await collectionRef.where('cedula', isEqualTo: input).get();
 
         if (querySnap.docs.isEmpty) {
           setState(() {
-            _errorMessage = 'Usuario no encontrado para esta empresa';
+            _errorMessage = 'Usuario no encontrado';
           });
           return;
-        } else {
+        }
+
+        if (querySnap.docs.length == 1) {
           docSnapshot = querySnap.docs.first;
+        } else {
+          final selected = await _selectEmpresa(querySnap.docs);
+          if (selected == null) {
+            setState(() {
+              _errorMessage = 'Selecciona la empresa para continuar';
+            });
+            return;
+          }
+          docSnapshot = selected;
         }
       }
 
@@ -237,15 +290,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 textInputAction: TextInputAction.done,
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                controller: _empresaCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Empresa ID',
-                  border: OutlineInputBorder(),
-                ),
-                style: const TextStyle(fontFamily: kArial),
-                textInputAction: TextInputAction.done,
-              ),
 
               SizedBox(
                 width: double.infinity,

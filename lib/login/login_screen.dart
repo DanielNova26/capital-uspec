@@ -31,9 +31,65 @@ class _LoginScreenState extends State<LoginScreen> {
   // Capturamos directamente los valores con onChanged
   String usuarioInput = '';
   String passwordInput = '';
-  String empresaInput = '';
   bool _isLoading = false;
   String? _errorMessage;
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) async {
+    if (docs.length == 1) return docs.first;
+
+    final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
+    final Map<String, String> nombres = {};
+    final ids = docs
+        .map((d) => (d.data()['empresaId'] as String?)?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    await Future.wait(ids.map((id) async {
+      final emp = await empresasCol.doc(id).get();
+      if (emp.exists) {
+        final nombre = (emp.data()?['nombre'] as String?)?.trim();
+        if (nombre != null && nombre.isNotEmpty) nombres[id] = nombre;
+      }
+    }));
+
+    return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Selecciona tu empresa'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, index) {
+                final doc = docs[index];
+                final empresaId =
+                    (doc.data()['empresaId'] as String?)?.trim() ?? '';
+                final nombre = nombres[empresaId];
+                final title =
+                nombre != null && nombre.isNotEmpty ? nombre : empresaId;
+
+                return ListTile(
+                  title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
+                  subtitle: empresaId.isEmpty
+                      ? null
+                      : Text(
+                    empresaId,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                  onTap: () => Navigator.of(context).pop(doc),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,28 +159,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         onChanged: (value) => usuarioInput = value.trim(),
                         validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Ingrese su usuario' : null,
-                        textInputAction: TextInputAction.next,
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Empresa ID
-                      TextFormField(
-                        style: const TextStyle(fontFamily: kArial, fontSize: 14),
-                        decoration: InputDecoration(
-                          labelText: 'Empresa ID',
-                          labelStyle: TextStyle(
-                            color: scheme.primary.withOpacity(0.8),
-                            fontFamily: kArial,
-                          ),
-                          border: const OutlineInputBorder(),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                        ),
-                        onChanged: (value) => empresaInput = value.trim(),
-                        validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Ingrese el ID de la empresa' : null,
                         textInputAction: TextInputAction.next,
                       ),
                       const SizedBox(height: 20),
@@ -275,7 +309,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final input = usuarioInput;
     final pass = passwordInput;
-    final empresaId = empresaInput;
 
     try {
       final collectionRef =
@@ -285,25 +318,33 @@ class _LoginScreenState extends State<LoginScreen> {
       // 1) Intentamos leer por ID (username)
       final byId = await collectionRef.doc(input).get();
       final empresaDoc = (byId.data()?['empresaId'] as String?)?.trim() ?? '';
-      if (byId.exists && empresaDoc == empresaId) {
+      if (byId.exists) {
         docSnapshot = byId;
       }
       if (docSnapshot == null) {
-        // 2) Si no existe, buscamos por campo 'cedula' + empresaId
+        // 2) Si no existe, buscamos por campo 'cedula' y permitimos escoger empresa        final querySnap = await collectionRef
         final querySnap = await collectionRef
-            .where('cedula', isEqualTo: input)
-            .where('empresaId', isEqualTo: empresaId)
-            .limit(1)
+            .where('cedula', isEqualTo: input).where('cedula', isEqualTo: input)
             .get();
 
         if (querySnap.docs.isEmpty) {
           setState(() {
-            _errorMessage = 'Usuario o cédula no registrado para esta empresa';
+            _errorMessage = 'Usuario o cédula no registrado';
             _isLoading = false;
           });
           return;
-        } else {
+        }  if (querySnap.docs.length == 1) {
           docSnapshot = querySnap.docs.first;
+        } else {
+          final selected = await _selectEmpresa(querySnap.docs);
+          if (selected == null) {
+            setState(() {
+              _errorMessage = 'Selecciona la empresa para continuar';
+              _isLoading = false;
+            });
+            return;
+          }
+          docSnapshot = selected;
         }
       }
 
@@ -312,6 +353,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final storedPass = data['password'] as String? ?? '';
       final needsChange = data['needsPasswordChange'] as bool? ?? false;
       final docId = docSnapshot!.id; // Esto es el "username" usado
+      final empresaId = (data['empresaId'] as String?)?.trim() ?? '';
 
       // 3) Comparamos contraseñas
       if (pass != storedPass) {
@@ -329,10 +371,10 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-              builder: (_) => ChangePasswordScreen(
-                usuario: docId,
-                empresaId: empresaId,
-              ),
+            builder: (_) => ChangePasswordScreen(
+              usuario: docId,
+              empresaId: empresaId,
+            ),
           ),
         );
       } else {

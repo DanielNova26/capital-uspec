@@ -14,9 +14,65 @@ class FirstTimeScreen extends StatefulWidget {
 class _FirstTimeScreenState extends State<FirstTimeScreen> {
   final _formKey = GlobalKey<FormState>();
   String cedula = '';
-  String empresaId = '';
   bool _isLoading = false;
   String? _error;
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
+      List<DocumentSnapshot<Map<String, dynamic>>> docs,
+      ) async {
+    if (docs.length == 1) return docs.first;
+
+    final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
+    final Map<String, String> nombres = {};
+    final ids = docs
+        .map((d) => (d.data()?['empresaId'] as String?)?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    await Future.wait(ids.map((id) async {
+      final emp = await empresasCol.doc(id).get();
+      if (emp.exists) {
+        final nombre = (emp.data()?['nombre'] as String?)?.trim();
+        if (nombre != null && nombre.isNotEmpty) nombres[id] = nombre;
+      }
+    }));
+
+    return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Selecciona tu empresa'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, index) {
+                final doc = docs[index];
+                final empresaId =
+                    (doc.data()?['empresaId'] as String?)?.trim() ?? '';
+                final nombre = nombres[empresaId];
+                final title =
+                nombre != null && nombre.isNotEmpty ? nombre : empresaId;
+
+                return ListTile(
+                  title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
+                  subtitle: empresaId.isEmpty
+                      ? null
+                      : Text(
+                    empresaId,
+                    style: const TextStyle(fontFamily: 'Arial'),
+                  ),
+                  onTap: () => Navigator.of(context).pop(doc),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   Future<void> _verificarCedula(BuildContext context) async {
     setState(() {
@@ -28,36 +84,53 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
       final usuariosCol =
       FirebaseFirestore.instance.collection('TBL_USUARIOS');
 
-      // hoja puede ser null si invalidamos el documento inicial
-      DocumentSnapshot<Map<String, dynamic>>? hoja =
-      await usuariosCol.doc(cedula).get();
+      final Map<String, DocumentSnapshot<Map<String, dynamic>>> candidatos = {};
 
-      // 1. Intento por ID de documento (cedula como ID)
-      if (hoja.exists) {
-        final empresaDoc =
-            (hoja.data()?['empresaId'] as String?)?.trim() ?? '';
-        // Si el empresaId no coincide, ignoramos este documento
-        if (empresaDoc != empresaId) {
-          hoja = null;
+      final byId = await usuariosCol.doc(cedula).get();
+      if (byId.exists) candidatos[byId.id] = byId;
+
+      final query = await usuariosCol.where('cedula', isEqualTo: cedula).get();
+      for (final d in query.docs) {
+        candidatos[d.id] = d;
+      }
+
+      if (candidatos.isEmpty) {
+        setState(() {
+          _error =
+          'No encontramos tu cédula en ninguna empresa. Contacta al administrador.';
+          _isLoading = false;
+        });
+        return;}
+
+      final docs = candidatos.values.toList();
+
+      DocumentSnapshot<Map<String, dynamic>>? hoja;
+      if (docs.length == 1) {
+        hoja = docs.first;
+      } else {
+        hoja = await _selectEmpresa(docs);
+        if (hoja == null) {
+          setState(() {
+            _error = 'Selecciona la empresa para continuar.';
+            _isLoading = false;
+          });
+          return;
         }
       }
 
-      // 2. Si no encontramos por ID o lo invalidamos, buscamos por campos
-      if (hoja == null || !hoja.exists) {
-        final query = await usuariosCol
-            .where('cedula', isEqualTo: cedula)
-            .where('empresaId', isEqualTo: empresaId)
-            .limit(1)
-            .get();
+      final data = hoja.data()!;
+      final empresaId = (data['empresaId'] as String?)?.trim() ?? '';
 
-        if (query.docs.isNotEmpty) {
-          hoja = query.docs.first;
-        }
+      if (empresaId.isEmpty) {
+        setState(() {
+          _error = 'El usuario no tiene empresa asignada. Contacta al administrador.';
+          _isLoading = false;
+        });
+        return;
       }
 
       // 3. Si encontramos un registro válido, creamos/actualizamos el usuario de acceso
-      if (hoja != null && hoja.exists) {
-        final data = hoja.data()!;
+      if (hoja.exists) {
         final primerNombre = (data['primerNombre'] ?? '')
             .toString()
             .split(' ')
@@ -166,21 +239,8 @@ class _FirstTimeScreenState extends State<FirstTimeScreen> {
                       ),
                       keyboardType: TextInputType.number,
                       onChanged: (v) => cedula = v.trim(),
-                      validator: (v) =>
-                      v == null || v.trim().isEmpty
+                      validator: (v) =>                          v == null || v.trim().isEmpty
                           ? "Ingrese la cédula"
-                          : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      decoration: const InputDecoration(
-                        labelText: "Empresa ID",
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) => empresaId = v.trim(),
-                      validator: (v) =>
-                      v == null || v.trim().isEmpty
-                          ? "Ingrese el ID de la empresa"
                           : null,
                     ),
                     if (_error != null) ...[
