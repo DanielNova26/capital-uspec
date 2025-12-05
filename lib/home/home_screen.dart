@@ -36,15 +36,25 @@ class _HomeScreenState extends State<HomeScreen> {
   // Registro automático de FCM
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
-
   Future<String?> _getFcmTokenWithRetries() async {
+    Future<String?> _safeGetToken() async {
+      try {
+        return await FirebaseMessaging.instance.getToken();
+      } catch (e) {
+        debugPrint('[FCM] getToken error: $e');
+        return null;
+      }
+    }
+
     // Intento inicial
-    var token = await FirebaseMessaging.instance.getToken();
+    var token = await _safeGetToken();
     if (token != null && token.isNotEmpty) return token;
 
-    // En iOS, el token puede tardar unos segundos hasta resolver APNS
+    // En iOS, el token puede tardar unos segundos hasta resolver APNS.
+    // Si aún no existe APNS, forzamos su resolución y esperamos.
     if (Platform.isIOS) {
-      await FirebaseMessaging.instance.getAPNSToken();
+      var apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+      debugPrint('[FCM] APNS token (retry path): $apnsToken');
 
       for (final delay in const [
         Duration(milliseconds: 400),
@@ -52,7 +62,10 @@ class _HomeScreenState extends State<HomeScreen> {
         Duration(seconds: 2),
       ]) {
         await Future.delayed(delay);
-        token = await FirebaseMessaging.instance.getToken();
+        apnsToken = await FirebaseMessaging.instance.getAPNSToken();
+        if (apnsToken == null) continue;
+
+        token = await _safeGetToken();
         if (token != null && token.isNotEmpty) return token;
       }
     }
