@@ -178,11 +178,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   Future<void> _loadExistingData() async {
     final usuariosCol =
     FirebaseFirestore.instance.collection('TBL_USUARIOS');
-    var doc = await usuariosCol.doc(widget.cedula).get();
+    DocumentSnapshot<Map<String, dynamic>> doc =
+    await usuariosCol.doc(widget.cedula).get();
     if (doc.exists) {
       final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
       if (empresaDoc != widget.empresaId) {
-        doc = await usuariosCol.doc();
+        doc = await usuariosCol.doc().get();
       }
     }
     if (!doc.exists) {
