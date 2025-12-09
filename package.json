@@ -1,0 +1,10 @@
+{
+  "name": "capital-uspec",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "flutter build web --release",
+    "start": "flutter run -d chrome",
+    "test": "flutter test"
+  }
+}
