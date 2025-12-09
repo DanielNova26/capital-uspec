@@ -5,6 +5,8 @@
   "scripts": {
     "build": "flutter build web --release",
     "start": "flutter run -d chrome",
-    "test": "flutter test"
+    "test": "flutter test",
+    "ios:run": "flutter run -d ios",
+    "ios:build": "flutter build ios --release"
   }
 }
