@@ -265,15 +265,27 @@ exports.registerDeviceToken = functions
     if (!cedula || !token) {
         throw new functions.https.HttpsError("invalid-argument", "Parámetros: cedula y token");
     }
-    await db.collection("TBL_USUARIOS").doc(cedula).set({
+        const basePayload = {
+        fcmToken: token,
         fcmTokens: admin.firestore.FieldValue.arrayUnion(token),
         [`fcmDevices.${token}`]: {
             platform: platform || "unknown",
             deviceName: deviceName || null,
             updatedAt: Date.now(),
         },
-    }, { merge: true });
-    console.log("[registerDeviceToken] cedula:", cedula);
+        };
+        const cedulaRef = db.collection("TBL_USUARIOS").doc(cedula);
+        await cedulaRef.set(basePayload, { merge: true });
+        // Si la cédula enviada corresponde al uid del usuario, sincroniza también
+        // el documento encontrado por uid para evitar duplicados.
+        const cedulaDoc = await cedulaRef.get();
+        if (!cedulaDoc.exists) {
+            const byUid = await db.collection("TBL_USUARIOS").where("uid", "==", cedula).limit(1).get();
+            if (!byUid.empty) {
+                await byUid.docs[0].ref.set(basePayload, { merge: true });
+            }
+        }
+        console.log("[registerDeviceToken] cedula:", cedula, "token length:", token.length);
     return { ok: true };
 });
 exports.sendTestPushHttp = functions
