@@ -1,15 +1,16 @@
-# Uncomment this line to define a global platform for your project
 platform :ios, '14.0'
 
-# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+# Desactiva estadísticas de CocoaPods
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# Configuración del proyecto Xcode
 project 'Runner', {
   'Debug' => :debug,
   'Profile' => :release,
   'Release' => :release,
 }
 
+# Función para obtener FLUTTER_ROOT correctamente
 def flutter_root
   env_flutter_root = ENV['FLUTTER_ROOT']
   return env_flutter_root unless env_flutter_root.nil? || env_flutter_root.empty?
@@ -21,23 +22,27 @@ def flutter_root
 
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
-        next unless matches
+    next unless matches
 
     flutter_root_value = matches[1].strip
-    return env_flutter_root unless flutter_root_value.nil? || flutter_root_value.empty? || flutter_root_value.include?('$')
-    return flutter_root_value
+    # 👇 ESTA LÍNEA ESTABA MAL EN TU PODFILE (DEVOLVÍA env_flutter_root EN VEZ DE flutter_root_value)
+    return flutter_root_value unless flutter_root_value.nil? || flutter_root_value.empty? || flutter_root_value.include?('$')
   end
+
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Set the FLUTTER_ROOT environment variable or run flutter pub get to regenerate the file."
 end
 
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+# Carga el podhelper de Flutter (forma oficial)
+require File.expand_path('packages/flutter_tools/bin/podhelper', flutter_root)
 
+# Configuración base de pods para iOS de Flutter
 flutter_ios_podfile_setup
 
 target 'Runner' do
   use_frameworks!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -48,3 +53,5 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
   end
 end
+
+
