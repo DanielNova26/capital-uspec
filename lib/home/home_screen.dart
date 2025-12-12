@@ -548,7 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
     cards.sort((a, b) => (a['due'] as DateTime).compareTo(b['due'] as DateTime));
 
     return SizedBox(
-      height: 160,
+      height: 190,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: cards.length,

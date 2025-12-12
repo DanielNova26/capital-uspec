@@ -204,6 +204,26 @@ class SeederService {
     return out;
   }
 
+  Future<Map<String, Map<String, dynamic>>> _loadExistingUsers(
+      Set<String> cedulas) async {
+    final out = <String, Map<String, dynamic>>{};
+    if (cedulas.isEmpty) return out;
+
+    final col = _db.collection('TBL_USUARIOS');
+    final ids = cedulas.toList();
+    const chunkSize = 10; // whereIn máximo 10
+
+    for (int i = 0; i < ids.length; i += chunkSize) {
+      final chunk = ids.sublist(i, i + chunkSize > ids.length ? ids.length : i + chunkSize);
+      final snap = await col.where(FieldPath.documentId, whereIn: chunk).get();
+      for (final d in snap.docs) {
+        out[d.id] = d.data();
+      }
+    }
+
+    return out;
+  }
+
   // ------------------ UPSERTS POR EMPRESA ------------------
   Future<void> _upsertAreas(List<Map<String, dynamic>> rows, String empresaId) async {
     if (rows.isEmpty) return;
@@ -392,16 +412,30 @@ class SeederService {
     final estructuraCol = _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
     final cedulasCol    = _db.collection('TBL_CEDULAS');
 
+    final cedulas = rows
+        .map((r) => _digits(_s(r['cedula'])))
+        .where((c) => c.isNotEmpty)
+        .toSet();
+    final existingUsers = await _loadExistingUsers(cedulas);
+
     await _writeInChunks(rows, (batch, r) {
       final cedula = _digits(_s(r['cedula']));
       if (cedula.isEmpty) return;
 
-      final tipoDoc = _s(r['tipo_documento']);
-      String nombres = _s(r['nombres']);
-      String apellidos = _s(r['apellidos']);
-      final nombreCompleto = _s(r['nombreCompleto']);
-      final correo = _s(r['correo']);
+      final existing = existingUsers[cedula];
+      final exists = existing != null;
 
+      final tipoDoc = _s(r['tipo_documento']);
+      String nombres = _s(r['nombres']).isNotEmpty
+          ? _s(r['nombres'])
+          : _s(existing?['nombres']);
+      String apellidos = _s(r['apellidos']).isNotEmpty
+          ? _s(r['apellidos'])
+          : _s(existing?['apellidos']);
+      final nombreCompleto = _s(r['nombreCompleto']);
+      final correo = _s(r['correo']).isNotEmpty
+          ? _s(r['correo'])
+          : _s(existing?['correo']);
       if (nombres.isEmpty && apellidos.isEmpty && nombreCompleto.isNotEmpty) {
         final parts = nombreCompleto.split(RegExp(r'\s+'));
         if (parts.length >= 2) {
@@ -413,27 +447,41 @@ class SeederService {
         }
       }
 
-      final areaNombre  = _s(r['area']);
-      final cargoNombre = _s(r['cargo']);
-      final centroNom   = _s(r['centroCostos']);
+      final areaNombre  = _s(r['area']).isNotEmpty ? _s(r['area']) : _s(existing?['area']);
+      final cargoNombre = _s(r['cargo']).isNotEmpty ? _s(r['cargo']) : _s(existing?['cargo']);
+      final centroNom   =
+
+      _s(r['centroCostos']).isNotEmpty ? _s(r['centroCostos']) : _s(existing?['centroCostos']);
 
       final areaId   = areaNombre.isEmpty  ? null : '${empresaId}_${_idFromName(areaNombre)}';
       final cargoId  = cargoNombre.isEmpty ? null : '${empresaId}_${_idFromName(cargoNombre)}';
       final centroId = centroNom.isEmpty   ? null : '${empresaId}_${_idFromName(centroNom)}';
 
-      final jefeId = _digits(_s(r['jefeId']));
-      final jefeNombre = _s(r['jefeNombre']);
-      final cargoJefe = _s(r['cargoJefe']);
+      final jefeId = _digits(_s(r['jefeId']).isNotEmpty ? _s(r['jefeId']) : _s(existing?['jefeId']));
+      final jefeNombre = _s(r['jefeNombre']).isNotEmpty
+          ? _s(r['jefeNombre'])
+          : _s(existing?['jefeNombre']);
+      final cargoJefe = _s(r['cargoJefe']).isNotEmpty
+          ? _s(r['cargoJefe'])
+          : _s(existing?['cargoJefe']);
 
-      final estado = _s(r['estado']).isEmpty ? 'activo' : _s(r['estado']).toLowerCase();
+      final estadoRaw = _s(r['estado']);
+      final estado = estadoRaw.isNotEmpty
+          ? estadoRaw.toLowerCase()
+          : (_s(existing?['estado']).isNotEmpty ? _s(existing?['estado']) : 'activo');
 
       final appsCsv = _s(r['apps']);
       final apps = appsCsv.isEmpty ? <String>[] : _splitApps(appsCsv);
+      final existingApps =
+      (existing?['apps'] as List<dynamic>? ?? []).map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+      final effectiveApps = apps.isNotEmpty ? apps : existingApps;
 
-      batch.set(usuariosCol.doc(cedula), {
+      final userPayload = <String, dynamic>{
         'usuario': cedula,
         'cedula': cedula,
-        'tipo_documento': tipoDoc.isEmpty ? 'CC' : tipoDoc,
+        'tipo_documento': tipoDoc.isNotEmpty
+            ? tipoDoc
+            : (_s(existing?['tipo_documento']).isNotEmpty ? _s(existing?['tipo_documento']) : 'CC'),
         'nombres': nombres,
         'apellidos': apellidos,
         'correo': correo.isEmpty ? null : correo,
@@ -449,12 +497,19 @@ class SeederService {
         'jefeNombre': jefeNombre.isEmpty ? null : jefeNombre,
         'cargoJefe': cargoJefe.isEmpty ? null : cargoJefe,
         'estado': estado,
-        'apps': apps,
-        'password': '123456',
-        'needsPasswordChange': true,
-        'createdAt': FieldValue.serverTimestamp(),
+        'apps': effectiveApps,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      };
+
+      if (!exists) {
+        userPayload.addAll({
+          'password': '123456',
+          'needsPasswordChange': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      batch.set(usuariosCol.doc(cedula), userPayload, SetOptions(merge: true));
 
       batch.set(estructuraCol.doc(cedula), {
         'empresaId': empresaId,

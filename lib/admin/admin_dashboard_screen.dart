@@ -1,12 +1,9 @@
 // lib/admin/admin_dashboard_screen.dart
 
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../home/app_drawer.dart';
+import 'package:flutter/material.dart';
 
-const Color kMarronOscuro = Color(0xffc28942);
-const Color kMarronClaro  = Color(0xffe19e4c);
-const String kArial       = 'Arial';
+const String kArial = 'Arial';
 
 class AdminDashboardScreen extends StatefulWidget {
   final String userId; // cédula del usuario que abre el panel (admin)
@@ -16,30 +13,22 @@ class AdminDashboardScreen extends StatefulWidget {
   _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen>
-    with SingleTickerProviderStateMixin {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final _db = FirebaseFirestore.instance;
 
-  late final TabController _tabController;
-
   bool _loading = true;
-  String _empresaId = '';
 
   // Data Firestore
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _users = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _roles = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _apps  = []; // catálogo para asignar en ROLES
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _apps = [];
 
   // Estado UI
-  Map<String, String> _userRoleMap = {}; // userId -> roleName
   Map<String, Set<String>> _userAppsMap = {}; // userId -> apps
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this); // Usuarios · Roles
     _loadAll();
-    _tabController.addListener(() => setState(() {})); // refrescar FAB según pestaña
   }
 
   // ------------------------ CARGA INICIAL ------------------------
@@ -57,12 +46,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         .where('empresaId', isEqualTo: empresaId)
         .get();
 
-    final rolesSnap = await _db
-        .collection('TBL_ROLES')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
-
-    // Traemos las apps disponibles para ASIGNAR EN ROLES (solo enabled)
+    // Traemos las apps disponibles para asignar (solo enabled)
     final appsSnap = await _db
         .collection('TBL_APPS')
         .where('empresaId', isEqualTo: empresaId)
@@ -70,13 +54,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         .get();
 
     setState(() {
-      _empresaId   = empresaId;
-      _users       = usersSnap.docs;
-      _roles       = rolesSnap.docs;
-      _apps        = appsSnap.docs;
-      _userRoleMap = {
-        for (var u in _users) u.id: _safeStr(u.data()['role']),
-      };
+      _users = usersSnap.docs;
+      _apps = appsSnap.docs;
       _userAppsMap = {
         for (var u in _users)
           u.id: {
@@ -115,22 +94,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   }
 
   // ------------------------ USUARIOS ------------------------
-  Future<void> _saveUserRoles() async {
-    final batch = _db.batch();
-    for (final u in _users) {
-      final newRole = _safeStr(_userRoleMap[u.id]);
-      batch.update(u.reference, {
-        'role': newRole,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
-    await batch.commit();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Roles de usuarios guardados')),
-    );
-  }
-
   Future<void> _saveUserApps(String userId, Set<String> apps) async {
     await _db.collection('TBL_USUARIOS').doc(userId).set({
       'apps': apps.toList(),
@@ -145,143 +108,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     setState(() {});
   }
 
-  // ------------------------ ROLES (con apps dentro del rol) ------------------------
-  Future<void> _createOrEditRole({DocumentSnapshot<Map<String, dynamic>>? roleDoc}) async {
-    final isEdit = roleDoc != null;
-    final data   = roleDoc?.data() ?? {};
-
-    final TextEditingController nameCtrl = TextEditingController(
-      text: isEdit ? _safeStr(data['name']) : '',
-    );
-
-    // apps actuales del rol
-    final currentApps = <String>{
-      if (isEdit)
-        ...((data['apps'] as List<dynamic>? ?? [])
-            .map((e) => _safeStr(e))
-            .where((e) => e.isNotEmpty))
-    };
-    final localSelected = currentApps.toSet();
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 16, right: 16, top: 8,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-          ),
-          child: SizedBox(
-            height: MediaQuery.of(ctx).size.height * 0.85,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(isEdit ? 'Editar rol' : 'Crear rol',
-                    style: const TextStyle(
-                        fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre del rol',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                const Text('Apps que puede usar este rol',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-
-                // Lista de apps (nombre visible y appId como subtítulo)
-                Expanded(
-                  child: _apps.isEmpty
-                      ? const Center(
-                    child: Text('No hay apps habilitadas en esta empresa.',
-                        style: TextStyle(fontFamily: kArial)),
-                  )
-                      : ListView.separated(
-                    itemCount: _apps.length,
-                    separatorBuilder: (_, __) => const Divider(height: 0),
-                    itemBuilder: (_, i) {
-                      final aDoc = _apps[i];
-                      final a = aDoc.data();
-                      final appId  = _safeStr(a['appId']).isNotEmpty ? _safeStr(a['appId']) : aDoc.id;
-                      final nombre = _safeStr(a['nombre']).isNotEmpty ? _safeStr(a['nombre']) : _prettyFromAppId(appId);
-                      final checked = localSelected.contains(appId);
-
-                      return CheckboxListTile(
-                        value: checked,
-                        onChanged: (v) {
-                          if (v == true) {
-                            localSelected.add(appId);
-                          } else {
-                            localSelected.remove(appId);
-                          }
-                          (ctx as Element).markNeedsBuild();
-                        },
-                        title: Text(nombre, style: const TextStyle(fontFamily: kArial)),
-                        subtitle: Text(appId,
-                            style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54)),
-                        activeColor: kMarronClaro,
-                      );
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: kMarronClaro),
-                    onPressed: () async {
-                      final name = _safeStr(nameCtrl.text);
-                      if (name.isEmpty) return;
-
-                      final payload = {
-                        'empresaId': _empresaId,
-                        'name': name,
-                        'apps': localSelected.toList(),
-                        'updatedAt': FieldValue.serverTimestamp(),
-                        'createdAt': FieldValue.serverTimestamp(),
-                      };
-
-                      if (isEdit) {
-                        await roleDoc!.reference.set(payload, SetOptions(merge: true));
-                      } else {
-                        await _db.collection('TBL_ROLES').add(payload);
-                      }
-
-                      if (!mounted) return;
-                      Navigator.of(ctx).pop();
-                      await _loadAll();
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(isEdit ? 'Rol actualizado' : 'Rol creado')),
-                      );
-                    },
-                    child: Text(isEdit ? 'Guardar cambios' : 'Crear rol',
-                        style: const TextStyle(fontFamily: kArial)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _deleteRole(String id) async {
-    await _db.collection('TBL_ROLES').doc(id).delete();
-    await _loadAll();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Rol eliminado')));
-  }
-
   Future<void> _editUserApps({
     required QueryDocumentSnapshot<Map<String, dynamic>> userDoc,
   }) async {
@@ -294,8 +120,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      backgroundColor: Colors.white,
       builder: (ctx) {
+        final scheme = Theme.of(ctx).colorScheme;
         return Padding(
           padding: EdgeInsets.only(
             left: 16,
@@ -327,9 +153,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     itemBuilder: (_, i) {
                       final aDoc = _apps[i];
                       final a = aDoc.data();
-                      final appId = _safeStr(a['appId']).isNotEmpty
-                          ? _safeStr(a['appId'])
-                          : aDoc.id;
+                      final appId =
+                      _safeStr(a['appId']).isNotEmpty ? _safeStr(a['appId']) : aDoc.id;
                       final nombre = _safeStr(a['nombre']).isNotEmpty
                           ? _safeStr(a['nombre'])
                           : _prettyFromAppId(appId);
@@ -345,42 +170,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           }
                           (ctx as Element).markNeedsBuild();
                         },
-                        activeColor: kMarronClaro,
                         title: Text(nombre, style: const TextStyle(fontFamily: kArial)),
                         subtitle: Text(appId,
                             style: const TextStyle(
                                 fontFamily: kArial, fontSize: 12, color: Colors.black54)),
+                        activeColor: scheme.primary,
                       );
                     },
                   ),
                 ),
+
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: kMarronOscuro,
-                          side: const BorderSide(color: kMarronOscuro),
-                        ),
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: kMarronClaro),
-                        onPressed: () async {
-                          await _saveUserApps(userDoc.id, localSelected);
-                          if (!mounted) return;
-                          Navigator.of(ctx).pop();
-                        },
-                        child: const Text('Guardar', style: TextStyle(fontFamily: kArial)),
-                      ),
-                    ),
-                  ],
-                )
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: scheme.primary),
+                    onPressed: () async {
+                      await _saveUserApps(userDoc.id, localSelected);
+                      if (!mounted) return;
+                      Navigator.of(ctx).pop();
+                      await _loadAll();
+                    },
+                    child: const Text('Guardar cambios', style: TextStyle(fontFamily: kArial)),
+                  ),
+                ),
               ],
             ),
           ),
@@ -388,205 +201,114 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       },
     );
   }
-
   // ------------------------ UI ------------------------
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      drawer: AppDrawer(userId: widget.userId),
       appBar: AppBar(
-        backgroundColor: kMarronOscuro,
         title: const Text('Admin', style: TextStyle(fontFamily: kArial)),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(44),
-          child: Container(
-            color: kMarronOscuro,
-            child: TabBar(
-              controller: _tabController,
-              indicatorColor: kMarronClaro,
-              indicatorWeight: 3,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              labelStyle: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
-              tabs: const [
-                Tab(text: 'Usuarios'),
-                Tab(text: 'Roles'),
-              ],
-            ),
-          ),
-        ),
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
       ),
-      floatingActionButton: (_tabController.index == 1) // Solo en Roles
-          ? FloatingActionButton(
-        backgroundColor: kMarronClaro,
-        onPressed: () => _createOrEditRole(),
-        child: const Icon(Icons.add, color: Colors.white),
-      )
-          : null,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-        controller: _tabController,
-        children: [
-          // -------- Usuarios: asignar rol --------
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Expanded(
-                  child: ListView.separated(
-                    itemCount: _users.length,
-                    separatorBuilder: (_, __) => const Divider(color: kMarronClaro),
-                    itemBuilder: (_, i) {
-                      final uDoc = _users[i];
-                      final d = uDoc.data();
-                      final nombre = _userDisplayName(d, uDoc.id);
-                      final cedula = _safeStr(d['cedula']).isNotEmpty ? _safeStr(d['cedula']) : uDoc.id;
-                      final currentRole = _safeStr(_userRoleMap[uDoc.id]);
-                      final userApps = (_userAppsMap[uDoc.id] ?? {}).toList();
+          : RefreshIndicator(
+        onRefresh: _loadAll,
+        child: ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: _users.length,
+          itemBuilder: (_, i) {
+            final uDoc = _users[i];
+            final d = uDoc.data();
+            final nombre = _userDisplayName(d, uDoc.id);
+            final cedula = _safeStr(d['cedula']).isNotEmpty ? _safeStr(d['cedula']) : uDoc.id;
+            final userApps = (_userAppsMap[uDoc.id] ?? {}).toList();
 
-                      return ListTile(
-                        leading: const CircleAvatar(
-                          backgroundColor: kMarronClaro,
-                          child: Icon(Icons.person, color: Colors.white),
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                side: BorderSide(color: scheme.outlineVariant),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: scheme.primary,
+                          foregroundColor: scheme.onPrimary,
+                          child: const Icon(Icons.person),
                         ),
-                        title: Text(nombre, style: const TextStyle(fontFamily: kArial)),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Cédula: $cedula',
-                                style: const TextStyle(fontFamily: kArial)),
-                            if (userApps.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Wrap(
-                                  spacing: 6,
-                                  runSpacing: -6,
-                                  children: userApps
-                                      .map((a) => Chip(
-                                    backgroundColor: kMarronClaro.withOpacity(0.15),
-                                    label: Text(a,
-                                        style: const TextStyle(
-                                            fontFamily: kArial, fontSize: 11, color: kMarronOscuro)),
-                                  ))
-                                      .toList(),
-                                ),
-                              ),
-                            if (userApps.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 4),
-                                child: Text('Sin apps asignadas',
-                                    style: TextStyle(fontFamily: kArial, fontSize: 12)),
-                              ),
-                          ],
-                        ),
-                        trailing: SizedBox(
-                          width: 180,
+                        const SizedBox(width: 12),
+                        Expanded(
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              DropdownButton<String>(
-                                value: currentRole.isEmpty ? null : currentRole,
-                                hint: const Text('Rol', style: TextStyle(fontFamily: kArial)),
-                                items: _roles.map((r) {
-                                  final name = _safeStr(r.data()['name']).isNotEmpty
-                                      ? _safeStr(r.data()['name'])
-                                      : r.id;
-                                  return DropdownMenuItem<String>(
-                                    value: name,
-                                    child: Text(name, style: const TextStyle(fontFamily: kArial)),
-                                  );
-                                }).toList(),
-                                onChanged: (v) => setState(() {
-                                  if (v != null) _userRoleMap[uDoc.id] = v;
-                                }),
-                              ),
-                              const SizedBox(height: 6),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: kMarronOscuro,
-                                  side: const BorderSide(color: kMarronOscuro),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              Text(
+                                nombre,
+                                style: const TextStyle(
+                                  fontFamily: kArial,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
                                 ),
-                                onPressed: () => _editUserApps(userDoc: uDoc),
-                                icon: const Icon(Icons.apps, size: 16),
-                                label: const Text('Asignar apps',
-                                    style: TextStyle(fontFamily: kArial, fontSize: 12)),
                               ),
+                              const SizedBox(height: 4),
+                              Text('Cédula: $cedula',
+                                  style: const TextStyle(fontFamily: kArial, fontSize: 13)),
                             ],
                           ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: kMarronClaro),
-                    onPressed: _saveUserRoles,
-                    child: const Text('Guardar roles', style: TextStyle(fontFamily: kArial)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // -------- Roles: listar + editar apps del rol --------
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Expanded(
-                  child: ListView.separated(
-                    itemCount: _roles.length,
-                    separatorBuilder: (_, __) => const Divider(color: kMarronClaro),
-                    itemBuilder: (_, i) {
-                      final rDoc = _roles[i];
-                      final r = rDoc.data();
-                      final name = _safeStr(r['name']).isNotEmpty ? _safeStr(r['name']) : rDoc.id;
-                      final apps = ((r['apps'] as List<dynamic>? ?? [])
-                          .map((e) => _safeStr(e))
-                          .where((e) => e.isNotEmpty)
-                          .toList())
-                          .cast<String>();
-
-                      return ListTile(
-                        leading: const CircleAvatar(
-                          backgroundColor: kMarronClaro,
-                          child: Icon(Icons.badge, color: Colors.white),
+                        TextButton.icon(
+                          onPressed: () => _editUserApps(userDoc: uDoc),
+                          icon: const Icon(Icons.apps),
+                          label:
+                          const Text('Asignar apps', style: TextStyle(fontFamily: kArial)),
                         ),
-                        title: Text(name, style: const TextStyle(fontFamily: kArial)),
-                        subtitle: apps.isEmpty
-                            ? const Text('Sin apps asignadas',
-                            style: TextStyle(fontFamily: kArial, fontSize: 12))
-                            : Text(apps.join(' · '),
-                            style: const TextStyle(fontFamily: kArial, fontSize: 12)),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Editar',
-                              icon: const Icon(Icons.edit, color: kMarronOscuro),
-                              onPressed: () => _createOrEditRole(roleDoc: rDoc),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (userApps.isNotEmpty)
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: userApps
+                            .map(
+                              (a) => Chip(
+                            backgroundColor: scheme.primaryContainer,
+                            label: Text(
+                              a,
+                              style: TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 12,
+                                color: scheme.onPrimaryContainer,
+                              ),
                             ),
-                            IconButton(
-                              tooltip: 'Eliminar',
-                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                              onPressed: () => _deleteRole(rDoc.id),
-                            ),
-                          ],
+                          ),
+                        )
+                            .toList(),
+                      )
+                    else
+                      Text(
+                        'Sin apps asignadas',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 13,
+                          color: scheme.onSurfaceVariant,
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                  ],
                 ),
-                // FAB para crear rol
-              ],
-            ),
-          ),
-        ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
