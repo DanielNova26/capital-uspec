@@ -32,6 +32,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   // Estado UI
   Map<String, String> _userRoleMap = {}; // userId -> roleName
+  Map<String, Set<String>> _userAppsMap = {}; // userId -> apps
 
   @override
   void initState() {
@@ -75,6 +76,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _apps        = appsSnap.docs;
       _userRoleMap = {
         for (var u in _users) u.id: _safeStr(u.data()['role']),
+      };
+      _userAppsMap = {
+        for (var u in _users)
+          u.id: {
+            ...((u.data()['apps'] as List<dynamic>? ?? [])
+                .map((e) => _safeStr(e))
+                .where((e) => e.isNotEmpty))
+          },
       };
       _loading = false;
     });
@@ -120,6 +129,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Roles de usuarios guardados')),
     );
+  }
+
+  Future<void> _saveUserApps(String userId, Set<String> apps) async {
+    await _db.collection('TBL_USUARIOS').doc(userId).set({
+      'apps': apps.toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    _userAppsMap[userId] = apps;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Apps del usuario actualizadas')),
+    );
+    setState(() {});
   }
 
   // ------------------------ ROLES (con apps dentro del rol) ------------------------
@@ -259,6 +282,113 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         .showSnackBar(const SnackBar(content: Text('Rol eliminado')));
   }
 
+  Future<void> _editUserApps({
+    required QueryDocumentSnapshot<Map<String, dynamic>> userDoc,
+  }) async {
+    final data = userDoc.data();
+    final nombre = _userDisplayName(data, userDoc.id);
+    final cedula = _safeStr(data['cedula']).isNotEmpty ? _safeStr(data['cedula']) : userDoc.id;
+    final localSelected = {...(_userAppsMap[userDoc.id] ?? {})};
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 8,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.8,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Apps asignadas',
+                    style: const TextStyle(
+                        fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text('$nombre • Cédula: $cedula',
+                    style: const TextStyle(fontFamily: kArial, color: Colors.black54)),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _apps.isEmpty
+                      ? const Center(
+                    child: Text('No hay apps habilitadas para esta empresa.',
+                        style: TextStyle(fontFamily: kArial)),
+                  )
+                      : ListView.separated(
+                    itemCount: _apps.length,
+                    separatorBuilder: (_, __) => const Divider(height: 0),
+                    itemBuilder: (_, i) {
+                      final aDoc = _apps[i];
+                      final a = aDoc.data();
+                      final appId = _safeStr(a['appId']).isNotEmpty
+                          ? _safeStr(a['appId'])
+                          : aDoc.id;
+                      final nombre = _safeStr(a['nombre']).isNotEmpty
+                          ? _safeStr(a['nombre'])
+                          : _prettyFromAppId(appId);
+                      final checked = localSelected.contains(appId);
+
+                      return CheckboxListTile(
+                        value: checked,
+                        onChanged: (v) {
+                          if (v == true) {
+                            localSelected.add(appId);
+                          } else {
+                            localSelected.remove(appId);
+                          }
+                          (ctx as Element).markNeedsBuild();
+                        },
+                        activeColor: kMarronClaro,
+                        title: Text(nombre, style: const TextStyle(fontFamily: kArial)),
+                        subtitle: Text(appId,
+                            style: const TextStyle(
+                                fontFamily: kArial, fontSize: 12, color: Colors.black54)),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: kMarronOscuro,
+                          side: const BorderSide(color: kMarronOscuro),
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: kMarronClaro),
+                        onPressed: () async {
+                          await _saveUserApps(userDoc.id, localSelected);
+                          if (!mounted) return;
+                          Navigator.of(ctx).pop();
+                        },
+                        child: const Text('Guardar', style: TextStyle(fontFamily: kArial)),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ------------------------ UI ------------------------
   @override
   Widget build(BuildContext context) {
@@ -313,6 +443,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       final nombre = _userDisplayName(d, uDoc.id);
                       final cedula = _safeStr(d['cedula']).isNotEmpty ? _safeStr(d['cedula']) : uDoc.id;
                       final currentRole = _safeStr(_userRoleMap[uDoc.id]);
+                      final userApps = (_userAppsMap[uDoc.id] ?? {}).toList();
 
                       return ListTile(
                         leading: const CircleAvatar(
@@ -320,22 +451,71 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           child: Icon(Icons.person, color: Colors.white),
                         ),
                         title: Text(nombre, style: const TextStyle(fontFamily: kArial)),
-                        subtitle: Text('Cédula: $cedula', style: const TextStyle(fontFamily: kArial)),
-                        trailing: DropdownButton<String>(
-                          value: currentRole.isEmpty ? null : currentRole,
-                          hint: const Text('Rol', style: TextStyle(fontFamily: kArial)),
-                          items: _roles.map((r) {
-                            final name = _safeStr(r.data()['name']).isNotEmpty
-                                ? _safeStr(r.data()['name'])
-                                : r.id;
-                            return DropdownMenuItem<String>(
-                              value: name,
-                              child: Text(name, style: const TextStyle(fontFamily: kArial)),
-                            );
-                          }).toList(),
-                          onChanged: (v) => setState(() {
-                            if (v != null) _userRoleMap[uDoc.id] = v;
-                          }),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Cédula: $cedula',
+                                style: const TextStyle(fontFamily: kArial)),
+                            if (userApps.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Wrap(
+                                  spacing: 6,
+                                  runSpacing: -6,
+                                  children: userApps
+                                      .map((a) => Chip(
+                                    backgroundColor: kMarronClaro.withOpacity(0.15),
+                                    label: Text(a,
+                                        style: const TextStyle(
+                                            fontFamily: kArial, fontSize: 11, color: kMarronOscuro)),
+                                  ))
+                                      .toList(),
+                                ),
+                              ),
+                            if (userApps.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 4),
+                                child: Text('Sin apps asignadas',
+                                    style: TextStyle(fontFamily: kArial, fontSize: 12)),
+                              ),
+                          ],
+                        ),
+                        trailing: SizedBox(
+                          width: 180,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              DropdownButton<String>(
+                                value: currentRole.isEmpty ? null : currentRole,
+                                hint: const Text('Rol', style: TextStyle(fontFamily: kArial)),
+                                items: _roles.map((r) {
+                                  final name = _safeStr(r.data()['name']).isNotEmpty
+                                      ? _safeStr(r.data()['name'])
+                                      : r.id;
+                                  return DropdownMenuItem<String>(
+                                    value: name,
+                                    child: Text(name, style: const TextStyle(fontFamily: kArial)),
+                                  );
+                                }).toList(),
+                                onChanged: (v) => setState(() {
+                                  if (v != null) _userRoleMap[uDoc.id] = v;
+                                }),
+                              ),
+                              const SizedBox(height: 6),
+                              OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: kMarronOscuro,
+                                  side: const BorderSide(color: kMarronOscuro),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                ),
+                                onPressed: () => _editUserApps(userDoc: uDoc),
+                                icon: const Icon(Icons.apps, size: 16),
+                                label: const Text('Asignar apps',
+                                    style: TextStyle(fontFamily: kArial, fontSize: 12)),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     },

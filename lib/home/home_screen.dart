@@ -410,10 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
               icon = const Icon(Icons.group_work, size: 32, color: Colors.white);
               break;
             case 'gerenciadashboard':
-              icon = ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset('assets/logo.png', width: 32, height: 32),
-              );
+              icon = const Icon(Icons.domain, size: 32, color: Colors.white);
               break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
