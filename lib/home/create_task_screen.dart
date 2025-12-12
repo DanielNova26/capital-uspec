@@ -158,7 +158,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   DateTime? _deadline;
 
   // ====== Selecciones ======
-  String? _centroId = 'global'; // Solo global
+  String? _centroId = 'global';
   String? _areaId;
   String? _asignadoUid;
   String? _asignadoNombre;
@@ -167,6 +167,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ====== Datos cargados ======
   List<Map<String, String>> _areas = []; // [{id,nombre}]
+  List<Map<String, String>> _centros = []; // [{id,nombre}]
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
   List<Map<String, String>> get _empleadosFiltrados {
@@ -220,7 +221,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _getMyPosition(),
       _loadAreas(),
       _loadUsuarios(),
-      _loadCentrosSoloGlobal(), // fija _centroId='global'
+      _loadCentros(),
     ]);
     setState(() {});
   }
@@ -269,13 +270,34 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return null;
   }
 
-  Future<void> _loadCentrosSoloGlobal() async {
+  Future<void> _loadCentros() async {
     try {
-      // Leemos por si a futuro necesitas validar, pero dejamos solo "Global".
-      await FirebaseFirestore.instance.collection(kCollCentros).limit(1).get();
-      _centroId = 'global';
+      final qs =
+      await FirebaseFirestore.instance.collection(kCollCentros).limit(1000).get();
+      _centros = qs.docs
+          .map((d) {
+        final m = d.data();
+        final id = (m['centroId'] ?? d.id).toString();
+        final nombre = (m['nombre'] ?? id).toString();
+        return {'id': id, 'nombre': nombre};
+      })
+          .where((m) => (m['id'] ?? '').toString().isNotEmpty)
+          .toList()
+        ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+
+      // Si no hay selección previa o ya no existe, toma el primero disponible
+      final selectedExists =
+          _centros.any((c) => c['id'] == _centroId) || _centroId == 'global';
+      if (_centros.isNotEmpty && (!selectedExists || _centroId == null)) {
+        _centroId = _centros.first['id'];
+      }
+
+      // Fallback a "global" si no hay centros configurados
+      if (_centros.isEmpty) {
+        _centroId = 'global';
+      }
     } catch (_) {
-      _centroId = 'global';
+      _centroId ??= 'global';
     }
   }
 
@@ -977,7 +999,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // Centro de costos (solo Global)
+                        // Centro de costos
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _centroId,
@@ -985,10 +1007,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             labelText: 'Centro de costos',
                             border: OutlineInputBorder(),
                           ),
-                          items: const [
-                            DropdownMenuItem(
+                          items: [
+                            const DropdownMenuItem(
                               value: 'global',
                               child: Text('— Global —', overflow: TextOverflow.ellipsis),
+                            ),
+                            ..._centros.map(
+                                  (c) => DropdownMenuItem(
+                                value: c['id'],
+                                child: Text(
+                                  c['nombre'] ?? c['id'] ?? '—',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
                             ),
                           ],
                           onChanged: (v) => setState(() => _centroId = v),

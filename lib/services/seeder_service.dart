@@ -160,15 +160,48 @@ class SeederService {
       List<Map<String, dynamic>> a,
       List<Map<String, dynamic>> b,
       ) {
-    final out = <String, Map<String, dynamic>>{};
+    final out = <Map<String, dynamic>>[];
+
+    bool matches(Map<String, dynamic> existing, String codigo, String nombreNorm) {
+      final existingCodigo = _s(existing['codigo']).toLowerCase();
+      final existingNombre = _s(existing['nombre']).toLowerCase();
+      if (codigo.isNotEmpty && existingCodigo.isNotEmpty && existingCodigo == codigo) {
+        return true;
+      }
+      if (nombreNorm.isNotEmpty && existingNombre.isNotEmpty && existingNombre == nombreNorm) {
+        return true;
+      }
+      return false;
+    }
+
     for (final r in [...a, ...b]) {
       final nombre = _s(r['nombre']);
-      final codigo = _s(r['codigo']);
-      if (nombre.isEmpty && codigo.isEmpty) continue;
-      final key = (codigo.isNotEmpty ? 'c:$codigo' : 'n:${nombre.toLowerCase().trim()}');
-      out[key] = {'nombre': nombre, 'codigo': codigo};
+      final codigoRaw = _s(r['codigo']);
+      final codigo = codigoRaw.toLowerCase();
+      final nombreNorm = nombre.toLowerCase().trim();
+      if (nombreNorm.isEmpty && codigo.isEmpty) continue;
+
+      Map<String, dynamic>? existing;
+      for (final e in out) {
+        if (matches(e, codigo, nombreNorm)) {
+          existing = e;
+          break;
+        }
+      }
+
+      if (existing != null) {
+        if (_s(existing['codigo']).isEmpty && codigoRaw.isNotEmpty) {
+          existing['codigo'] = codigoRaw;
+        }
+        if (_s(existing['nombre']).isEmpty && nombre.isNotEmpty) {
+          existing['nombre'] = nombre;
+        }
+      } else {
+        out.add({'nombre': nombre, 'codigo': codigoRaw});
+      }
     }
-    return out.values.toList();
+
+    return out;
   }
 
   // ------------------ UPSERTS POR EMPRESA ------------------
