@@ -32,11 +32,20 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
   final _empresaNombreCtrl = TextEditingController(text: 'Empresa Demo');
   bool _crearUsuarios = true;
 
+  List<_EmpresaOption> _empresas = [];
+  bool _loadingEmpresas = false;
+
   SeedWorkbook? _wb;
   List<Map<String, dynamic>> _previewPersonal = [];
   String? _fileName;
   bool _loading = false;
   final DemoSeedService _demoSeedService = DemoSeedService();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchEmpresas();
+  }
 
   @override
   void dispose() {
@@ -49,6 +58,37 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
     final auth = FirebaseAuth.instance;
     if (auth.currentUser == null) {
       await auth.signInAnonymously();
+    }
+  }
+
+  Future<void> _fetchEmpresas() async {
+    setState(() => _loadingEmpresas = true);
+    try {
+      await _ensureAuth();
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_EMPRESAS')
+          .orderBy('updatedAt', descending: true)
+          .limit(50)
+          .get();
+
+      final options = snap.docs.map((d) {
+        final data = d.data();
+        final id = (data['empresaId'] ?? d.id ?? '').toString();
+        return _EmpresaOption(
+          id: id,
+          nombre: (data['nombre'] ?? id).toString(),
+        );
+      }).where((e) => e.id.isNotEmpty).toList();
+
+      if (!mounted) return;
+      setState(() => _empresas = options);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cargar la lista de empresas: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loadingEmpresas = false);
     }
   }
 
@@ -304,134 +344,201 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Panel de Semillas (Admin)')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+      body: SafeArea(
+        child: Center(
+            child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+                  child: Column(
                     children: [
-                      SizedBox(
-                        width: 260,
-                        child: TextField(
-                          controller: _empresaIdCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Empresa ID',
-                            hintText: 'p.ej. EMPRESA_001',
-                            border: OutlineInputBorder(),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          crossAxisAlignment: WrapCrossAlignment.start,
+                          children: [
+                          SizedBox(
+                          width: 260,
+                          child: TextField(
+                            controller: _empresaIdCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Empresa ID',
+                              hintText: 'p.ej. EMPRESA_001',
+                              border: OutlineInputBorder(),
+                            ),
                           ),
                         ),
-                      ),
-                      SizedBox(
-                        width: 300,
-                        child: TextField(
-                          controller: _empresaNombreCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Empresa Nombre',
-                            hintText: 'p.ej. Unión Temporal XYZ',
-                            border: OutlineInputBorder(),
+                        SizedBox(
+                          width: 300,
+                          child: TextField(
+                            controller: _empresaNombreCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Empresa Nombre',
+                              hintText: 'p.ej. Unión Temporal XYZ',
+                              border: OutlineInputBorder(),
+                            ),
                           ),
                         ),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _loading ? null : _pickExcel,
-                        icon: const Icon(Icons.upload_file),
-                        label: Text(_fileName == null ? 'Seleccionar Excel' : _fileName!),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Checkbox(
-                            value: _crearUsuarios,
-                            onChanged: _loading ? null : (v) => setState(() => _crearUsuarios = v ?? false),
+
+    SizedBox(
+    width: 320,
+    child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Row(
+    children: [
+    const Text('Empresas existentes'),
+    IconButton(
+    onPressed: _loadingEmpresas ? null : _fetchEmpresas,
+    icon: _loadingEmpresas
+    ? const SizedBox(
+    width: 18,
+    height: 18,
+    child: CircularProgressIndicator(strokeWidth: 2),
+    )
+        : const Icon(Icons.refresh),
+    tooltip: 'Refrescar lista',
+    ),
+    ],
+    ),
+    DropdownButtonFormField<String>(
+    isExpanded: true,
+    value: _empresas.any((e) => e.id == _empresaIdCtrl.text)
+    ? _empresaIdCtrl.text
+        : null,
+    hint: Text(
+    _loadingEmpresas
+    ? 'Cargando empresas...'
+        : _empresas.isEmpty
+    ? 'No hay empresas cargadas'
+        : 'Elige para sobreescribir',
+    ),
+    items: _empresas
+        .map(
+    (e) => DropdownMenuItem(
+    value: e.id,
+    child: Text('${e.id} · ${e.nombre}'),
+    ),
+    )
+        .toList(),
+    onChanged: _loading
+    ? null
+        : (value) {
+    if (value == null) return;
+    final selected = _empresas.firstWhere(
+    (e) => e.id == value,
+    orElse: () => _EmpresaOption(id: value, nombre: value),
+    );
+    _empresaIdCtrl.text = selected.id;
+    _empresaNombreCtrl.text = selected.nombre;
+    },
+    ),
+    const SizedBox(height: 4),
+    const Text(
+    'Selecciona una empresa cargada para sobreescribir sus datos con el Excel.',
+    style: TextStyle(fontSize: 12),
+    ),
+    ],
                           ),
-                          const Text('Crear usuarios automáticamente'),
-                        ],
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _loading ? null : _import,
-                        icon: _loading
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.playlist_add_check),
-                        label: Text(_loading ? 'Importando...' : 'Importar'),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _loading ? null : _seedBaseFromAssets,
-                        icon: const Icon(Icons.cloud_download),
-                        label: const Text('Sembrar catálogos base (assets)'),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: _loading ? null : _exportCatalogs,
-                        icon: const Icon(Icons.download),
-                        label: const Text('Exportar catálogos (XLSX)'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (_wb != null) _CountsBar(wb: _wb!),
-                const SizedBox(height: 16),
-                Card(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Dataset demo para App Store / Play Store',
-                          style: theme.textTheme.titleMedium,
                         ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Genera automáticamente la empresa de ejemplo, el '
-                          'usuario demo y las tareas solicitadas para la revisión '
-                          'de Apple. Ejecuta este paso antes de enviar un build '
-                          'a App Store Connect.',
+                            ElevatedButton.icon(
+                              onPressed: _loading ? null : _pickExcel,
+                              icon: const Icon(Icons.upload_file),
+                              label: Text(_fileName == null ? 'Seleccionar Excel' : _fileName!),
+                            ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Checkbox(
+                                  value: _crearUsuarios,
+                                  onChanged: _loading ? null : (v) => setState(() => _crearUsuarios = v ?? false),
+                                ),
+                                const Text('Crear usuarios automáticamente'),
+                              ],
                         ),
-                        const SizedBox(height: 12),
                         ElevatedButton.icon(
-                          onPressed: _loading ? null : _seedDemoDataset,
-                          icon: const Icon(Icons.verified_user),
-                          label: Text(
-                            _loading
-                                ? 'Creando dataset demo...'
-                                : 'Crear/actualizar usuario demo',
-                          ),
+                          onPressed: _loading ? null : _import,
+                          icon: _loading
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.playlist_add_check),
+                          label: Text(_loading ? 'Importando...' : 'Importar'),
                         ),
+                        ElevatedButton.icon(
+                          onPressed: _loading ? null : _seedBaseFromAssets,
+                          icon: const Icon(Icons.cloud_download),
+                          label: const Text('Sembrar catálogos base (assets)'),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: _loading ? null : _exportCatalogs,
+                          icon: const Icon(Icons.download),
+                          label: const Text('Exportar catálogos (XLSX)'),
+                          ),
                       ],
                     ),
                   ),
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Previsualización PERSONAL (${_previewPersonal.length} filas)',
+                    const SizedBox(height: 12),
+                    if (_wb != null) _CountsBar(wb: _wb!),
+          const SizedBox(height: 16),
+          Card(
+            margin: const EdgeInsets.only(bottom: 16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Dataset demo para App Store / Play Store',
                     style: theme.textTheme.titleMedium,
                   ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: theme.dividerColor),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: _previewPersonal.isEmpty
-                        ? const Center(child: Text('Selecciona un archivo Excel (.xlsx) con la hoja PERSONAL.'))
-                        : _PreviewTable(rows: _previewPersonal),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Genera automáticamente la empresa de ejemplo, el '
+                        'usuario demo y las tareas solicitadas para la revisión '
+                        'de Apple. Ejecuta este paso antes de enviar un build '
+                        'a App Store Connect.',
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: _loading ? null : _seedDemoDataset,
+                    icon: const Icon(Icons.verified_user),
+                    label: Text(
+                      _loading
+                          ? 'Creando dataset demo...'
+                          : 'Crear/actualizar usuario demo',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+                  ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Previsualización PERSONAL (${_previewPersonal.length} filas)',
+              style: theme.textTheme.titleMedium,
+                    ),
+                  ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 420,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: theme.dividerColor),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: _previewPersonal.isEmpty
+                              ? const Center(child: Text('Selecciona un archivo Excel (.xlsx) con la hoja PERSONAL.'))
+                              : _PreviewTable(rows: _previewPersonal),
+                        ),
+                      ),
+                    ],
+                  ),
             ),
           ),
         ),
@@ -439,7 +546,12 @@ class _SeedAdminScreenState extends State<SeedAdminScreen> {
     );
   }
 }
+class _EmpresaOption {
+  final String id;
+  final String nombre;
 
+  _EmpresaOption({required this.id, required this.nombre});
+}
 class _CountsBar extends StatelessWidget {
   final SeedWorkbook wb;
   const _CountsBar({required this.wb});

@@ -15,6 +15,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../admin/admin_dashboard_screen.dart';
 // Import relativo al Talento Humano Dashboard
 import '../talento_humano/talento_humano_dashboard_screen.dart';
+import '../gerencia/gerencia_dashboard_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart';
 
@@ -388,23 +389,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
           final isTH = appIdLower == 'talentohumanodashboard';
           final isAdmin = appIdLower == 'admindashboard';
+          final isGerencia = appIdLower == 'gerenciadashboard';
           final visibleByRole = role == 'desarrollador';
           final visibleByAssign = assignedLower.contains(appIdLower);
 
           return (isTH && (visibleByRole || visibleByAssign)) ||
-              (isAdmin && (visibleByRole || visibleByAssign));
+              (isAdmin && (visibleByRole || visibleByAssign)) ||
+              (isGerencia && (visibleByRole || visibleByAssign));
         }).map((doc) {
           final data = doc.data();
           final appId = (data['appId'] as String?)?.trim() ?? '';
           final nombre = (data['nombre'] as String?)?.trim() ?? appId;
 
-          Icon icon;
+          Widget icon;
           switch (appId.toLowerCase()) {
             case 'admindashboard':
               icon = const Icon(Icons.admin_panel_settings, size: 32, color: Colors.white);
               break;
             case 'talentohumanodashboard':
               icon = const Icon(Icons.group_work, size: 32, color: Colors.white);
+              break;
+            case 'gerenciadashboard':
+              icon = ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset('assets/logo.png', width: 32, height: 32),
+              );
               break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
@@ -425,6 +434,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (_) => TalentoHumanoDashboardScreen(userId: cedula)),
+                  );
+                  break;
+                case 'gerenciadashboard':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => GerenciaDashboardScreen(userId: cedula)),
                   );
                   break;
                 default:

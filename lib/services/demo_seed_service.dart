@@ -181,6 +181,20 @@ class DemoSeedService {
     );
 
     batch.set(
+      _db.collection('TBL_APPS').doc('${empresaId}_GerenciaDashboard'),
+      {
+        'empresaId': empresaId,
+        'appId': 'GerenciaDashboard',
+        'nombre': 'Dashboard de Gerencia',
+        'descripcion': 'Control visual de tareas y desempeño por área.',
+        'enabled': true,
+        'createdAt': serverNow,
+        'updatedAt': serverNow,
+      },
+      SetOptions(merge: true),
+    );
+
+    batch.set(
       _db.collection('TBL_ROLES').doc('${empresaId}_desarrollador'),
       {
         'empresaId': empresaId,
@@ -204,8 +218,7 @@ class DemoSeedService {
         'cargo': 'Gerente de Proyectos',
         'telefono': '+57 300 123 4567',
         'role': 'desarrollador',
-        'apps': const ['AdminDashboard', 'TalentoHumanoDashboard'],
-        'password': reviewerPassword,
+        'apps': const ['AdminDashboard', 'TalentoHumanoDashboard', 'GerenciaDashboard'],        'password': reviewerPassword,
         'needsPasswordChange': false,
         'pregunta_seguridad_1': questions[0].question,
         'respuesta_seguridad_1': questions[0].answer.toLowerCase(),
