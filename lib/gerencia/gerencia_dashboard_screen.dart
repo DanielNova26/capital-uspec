@@ -188,16 +188,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             return Scaffold(
               appBar: AppBar(
                 backgroundColor: kBrand,
-                title: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: Image.asset('assets/logo.png', height: 32),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text('Dashboard de Gerencia',
-                        style: TextStyle(fontFamily: kArial)),
-                  ],
+                title: const Text(
+                  'Gerencia',
+                  style: TextStyle(fontFamily: kArial),
                 ),
               ),
               body: tasks.isEmpty

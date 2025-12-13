@@ -164,16 +164,48 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _asignadoNombre;
   String? _jefeUid;
   String? _jefeNombre;
+  String? _empresaId;
+  String? _miAreaId;
 
   // ====== Datos cargados ======
   List<Map<String, String>> _areas = []; // [{id,nombre}]
   List<Map<String, String>> _centros = []; // [{id,nombre}]
+  List<Map<String, String>> get _areasFiltradas {
+    if (_centroId == null || _centroId == 'global' || _centroId!.isEmpty) {
+      return _areas;
+    }
+
+    final selectedCentro = _centroId!;
+    final Set<String> areasConUsuarios = {};
+
+    _usuarios.forEach((_, data) {
+      final estado = (data['estado'] ?? '').toString().toLowerCase();
+      if (estado != 'activo') return;
+
+      final area = (data['areaId'] ?? '').toString();
+      final centro = _centroDeUsuario(data);
+      if (area.isNotEmpty && centro == selectedCentro) {
+        areasConUsuarios.add(area);
+      }
+    });
+
+    final filtradas = _areas.where((a) {
+      final areaId = (a['id'] ?? '').toString();
+      final centroArea = (a['centroId'] ?? '').toString();
+      if (centroArea.isNotEmpty && centroArea == selectedCentro) return true;
+      return areaId.isNotEmpty && areasConUsuarios.contains(areaId);
+    }).toList();
+
+    filtradas.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    return filtradas;
+  }
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
   List<Map<String, String>> get _empleadosFiltrados {
     // Filtra por área si hay selección
     final all = _usuarios.entries
         .where((e) => (e.value['estado'] ?? '').toString().toLowerCase() == 'activo')
+        .where((e) => _coincideCentro(e.value))
         .map((e) => {
       'uid': e.key,
       'nombre': _nombreDeUsuario(e.value),
@@ -217,13 +249,35 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _bootstrap() async {
     await _ensurePermissions();
+    await _loadCurrentUser();
     await Future.wait([
       _getMyPosition(),
       _loadAreas(),
       _loadUsuarios(),
       _loadCentros(),
     ]);
+    _ensureAreaSeleccionada();
     setState(() {});
+  }
+
+  Future<void> _loadCurrentUser() async {
+    if (widget.currentUserId == null) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection(kCollUsuarios)
+          .doc(widget.currentUserId)
+          .get();
+      if (!doc.exists) return;
+
+      final data = doc.data() ?? {};
+      _empresaId = (data['empresaId'] ?? '').toString().trim();
+      _miAreaId = (data['areaId'] ?? '').toString().trim();
+
+      if ((_areaId ?? '').isEmpty && (_miAreaId ?? '').isNotEmpty) {
+        _areaId = _miAreaId;
+      }
+    } catch (_) {}
   }
 
   Future<void> _ensurePermissions() async {
@@ -269,11 +323,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     } catch (_) {}
     return null;
   }
-
   Future<void> _loadCentros() async {
     try {
-      final qs =
-      await FirebaseFirestore.instance.collection(kCollCentros).limit(1000).get();
+      Query<Map<String, dynamic>> q =
+      FirebaseFirestore.instance.collection(kCollCentros).limit(1000);
+      if (_empresaId != null && _empresaId!.isNotEmpty) {
+        q = q.where('empresaId', isEqualTo: _empresaId);
+      }
+
+      final qs = await q.get();
       _centros = qs.docs
           .map((d) {
         final m = d.data();
@@ -302,24 +360,40 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _loadAreas() async {
-    final qs = await FirebaseFirestore.instance.collection(kCollAreas).limit(1000).get();
+  Query<Map<String, dynamic>> q =
+  FirebaseFirestore.instance.collection(kCollAreas).limit(1000);
+  if (_empresaId != null && _empresaId!.isNotEmpty) {
+  q = q.where('empresaId', isEqualTo: _empresaId);
+  }
+
+  final qs = await q.get();
 
     _areas = qs.docs
         .map((d) {
       final m = d.data();
       final id = (m['areaId'] ?? d.id).toString();
       final nombre = (m['nombre'] ?? '—').toString();
-      return {'id': id, 'nombre': nombre};
+  final centroId = (m['centroId'] ?? m['centro'] ?? '').toString();
+  return {'id': id, 'nombre': nombre, 'centroId': centroId};
     })
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+
+  _ensureAreaSeleccionada();
   }
 
   Future<void> _loadUsuarios() async {
-    final qs = await FirebaseFirestore.instance.collection(kCollUsuarios).limit(2000).get();
+  Query<Map<String, dynamic>> q =
+  FirebaseFirestore.instance.collection(kCollUsuarios).limit(2000);
+  if (_empresaId != null && _empresaId!.isNotEmpty) {
+  q = q.where('empresaId', isEqualTo: _empresaId);
+  }
+
+  final qs = await q.get();
     for (final d in qs.docs) {
       _usuarios[d.id] = d.data();
     }
+  _ensureAreaSeleccionada();
   }
 
   String _nombreDeUsuario(Map<String, dynamic> u) {
@@ -343,6 +417,56 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     } catch (_) {
       return null;
     }
+  }
+
+  String _centroDeUsuario(Map<String, dynamic>? u) {
+  if (u == null) return '';
+  const keys = [
+  'centroId',
+  'centroid',
+  'centro',
+  'centro_costos',
+  'centroCostos',
+  'centrocostos',
+  ];
+  for (final k in keys) {
+  final v = (u[k] ?? '').toString();
+  if (v.isNotEmpty) return v;
+  }
+  return '';
+  }
+
+  bool _coincideCentro(Map<String, dynamic> u) {
+  if (_centroId == null || _centroId == 'global' || _centroId!.isEmpty) {
+  return true;
+  }
+  final centro = _centroDeUsuario(u);
+  return centro == _centroId;
+  }
+
+  void _ensureAreaSeleccionada() {
+  final lista = _areasFiltradas;
+  final selectedExists = lista.any((a) => a['id'] == _areaId);
+  final myAreaExists =
+  _miAreaId != null && lista.any((a) => a['id'] == _miAreaId);
+
+  if (!selectedExists) {
+  if (myAreaExists) {
+  _areaId = _miAreaId;
+  } else if (lista.isNotEmpty) {
+  _areaId = lista.first['id'];
+  } else {
+  _areaId = null;
+  }
+
+  if (_asignadoUid != null) {
+  final e = _usuarios[_asignadoUid!];
+  final areaDelAsignado = (e?['areaId'] ?? '').toString();
+  if (_areaId != null && areaDelAsignado != _areaId) {
+  _alElegirAsignado(null);
+  }
+  }
+  }
   }
 
   // ==================== IMAGEN + MAPA ====================
@@ -1023,8 +1147,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                               ),
                             ),
                           ],
-                          onChanged: (v) => setState(() => _centroId = v),
-                        ),
+  onChanged: (v) => setState(() {
+  _centroId = v;
+  _ensureAreaSeleccionada();
+  }),
+  ),
                         const SizedBox(height: 12),
 
                         // Área
@@ -1035,8 +1162,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             labelText: 'Departamento (Área)',
                             border: OutlineInputBorder(),
                           ),
-                          items: _areas
-                              .map(
+  items: _areasFiltradas                              .map(
                                 (a) => DropdownMenuItem(
                               value: a['id'],
                               child: Text(
