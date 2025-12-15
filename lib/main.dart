@@ -179,6 +179,54 @@ class ToDoApp extends StatelessWidget {
           backgroundColor: Color(0xFF0078D7),
           foregroundColor: Colors.white,
         ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ButtonStyle(
+            padding: const MaterialStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            ),
+            shape: MaterialStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            textStyle: const MaterialStatePropertyAll(
+              TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+            elevation: const MaterialStatePropertyAll(4),
+            shadowColor: MaterialStatePropertyAll(Colors.black.withOpacity(0.25)),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: ButtonStyle(
+            padding: const MaterialStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            ),
+            shape: MaterialStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            textStyle: const MaterialStatePropertyAll(
+              TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: ButtonStyle(
+            padding: const MaterialStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            ),
+            shape: MaterialStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            side: MaterialStateProperty.resolveWith(
+                  (states) => BorderSide(
+                color: states.contains(MaterialState.pressed)
+                    ? const Color(0xFF005A9E)
+                    : const Color(0xFF0078D7),
+              ),
+            ),
+            textStyle: const MaterialStatePropertyAll(
+              TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+          ),
+        ),
       ),
 
       // (Opcional) darkTheme si quieres que se adapte al sistema

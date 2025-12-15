@@ -131,6 +131,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   String _estadoSel = 'todos';
   String _cargoSel = 'todos';
   String _centroSel = 'todos';
+  String? _empresaId;
   DateTime? _from;
   DateTime? _to;
 
@@ -164,6 +165,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   }
 
   Future<void> _bootstrap() async {
+    await _loadEmpresa();
     await Future.wait([
       _loadMiEstructura(),
       _loadAreas(),
@@ -175,6 +177,29 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
       await _loadSubordinadosRecursivo(widget.currentUserId);
     }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _loadEmpresa() async {
+    try {
+      final u = await FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(widget.currentUserId)
+          .get();
+      final data = u.data() ?? {};
+      final emp = (data['empresaId'] ?? '').toString().trim();
+      if (emp.isNotEmpty) {
+        _empresaId = emp;
+      } else {
+        final empresas = data['empresas'] as List<dynamic>? ?? [];
+        for (final e in empresas) {
+          final id = (e ?? '').toString().trim();
+          if (id.isNotEmpty) {
+            _empresaId = id;
+            break;
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   // ---------- Estructura + Fallback a TBL_USUARIOS ----------
@@ -215,10 +240,23 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         final cargoIdU = (mu['cargoId'] ?? '').toString().toLowerCase();
         final areaU = (mu['areaId'] ?? mu['area'] ?? '').toString();
         final centroU = (mu['centroId'] ?? mu['centro'] ?? '').toString();
+        final empresaU = (mu['empresaId'] ?? '').toString().trim();
+        final empresasLista = mu['empresas'] as List<dynamic>? ?? [];
 
         if ((_miAreaId ?? '').isEmpty) _miAreaId = areaU;
         if ((_miCentro ?? '').isEmpty) _miCentro = centroU;
         if ((_miCargo ?? '').isEmpty) _miCargo = cargoU;
+        if ((_empresaId ?? '').isEmpty && empresaU.isNotEmpty) {
+          _empresaId = empresaU;
+        } else if ((_empresaId ?? '').isEmpty) {
+          for (final e in empresasLista) {
+            final id = (e ?? '').toString().trim();
+            if (id.isNotEmpty) {
+              _empresaId = id;
+              break;
+            }
+          }
+        }
 
         final isGerenteById = cargoIdU.contains('gerente');
         _soyGerente = _isGerente(cargoU) || isGerenteById;
@@ -231,10 +269,11 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   Future<void> _loadAreas() async {
     try {
-      final qs = await FirebaseFirestore.instance
-          .collection('TBL_AREAS')
-          .limit(1000)
-          .get();
+      var q = FirebaseFirestore.instance.collection('TBL_AREAS').limit(1000);
+      if ((_empresaId ?? '').isNotEmpty) {
+        q = q.where('empresaId', isEqualTo: _empresaId);
+      }
+      final qs = await q.get();
       for (final d in qs.docs) {
         final m = d.data();
         final id = (m['areaId'] ?? d.id).toString();
@@ -246,10 +285,11 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   Future<void> _loadCargos() async {
     try {
-      final qs = await FirebaseFirestore.instance
-          .collection('TBL_CARGOS')
-          .limit(1000)
-          .get();
+      var q = FirebaseFirestore.instance.collection('TBL_CARGOS').limit(1000);
+      if ((_empresaId ?? '').isNotEmpty) {
+        q = q.where('empresaId', isEqualTo: _empresaId);
+      }
+      final qs = await q.get();
       for (final d in qs.docs) {
         final m = d.data();
         final id = (m['cargoId'] ?? d.id).toString();
@@ -261,10 +301,13 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   Future<void> _loadCentros() async {
     try {
-      final qs = await FirebaseFirestore.instance
+      var q = FirebaseFirestore.instance
           .collection('TBL_CENTROS_COSTO')
-          .limit(1000)
-          .get();
+          .limit(1000);
+      if ((_empresaId ?? '').isNotEmpty) {
+        q = q.where('empresaId', isEqualTo: _empresaId);
+      }
+      final qs = await q.get();
       for (final d in qs.docs) {
         final m = d.data();
         final id = (m['centroId'] ?? d.id).toString();
@@ -283,22 +326,22 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
       final jefe = cola.removeAt(0);
       if (!visitados.add(jefe)) continue;
 
+      Query<Map<String, dynamic>> buildQuery(String field) {
+        var q = FirebaseFirestore.instance
+            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+            .where(field, isEqualTo: jefe)
+            .limit(500);
+        if ((_empresaId ?? '').isNotEmpty) {
+          q = q.where('empresaId', isEqualTo: _empresaId);
+        }
+        return q;
+      }
+
       final futures = <Future<QuerySnapshot<Map<String, dynamic>>>>[
-        FirebaseFirestore.instance
-            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-            .where('jefe_directo', isEqualTo: jefe)
-            .limit(500)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-            .where('jefeId', isEqualTo: jefe)
-            .limit(500)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-            .where('jefe_uid', isEqualTo: jefe)
-            .limit(500)
-            .get(),
+        buildQuery('jefe_directo').get(),
+        buildQuery('jefeId').get(),
+        buildQuery('jefe_uid').get(),
+
       ];
 
       final snaps = await Future.wait(futures);

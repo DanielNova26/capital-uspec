@@ -133,6 +133,25 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _persistSelectedEmpresa(String userId, String empresaId) async {
+    try {
+      final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
+      final empresaDoc = await empresasCol.doc(empresaId).get();
+      final data = empresaDoc.data();
+      final nombre = (data?['nombre'] as String?)?.trim();
+
+      await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(userId).set(
+        {
+          'empresaId': empresaId,
+          if (nombre != null && nombre.isNotEmpty) 'empresaNombre': nombre,
+        },
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      debugPrint('No se pudo actualizar la empresa seleccionada: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
