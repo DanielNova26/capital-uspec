@@ -476,6 +476,29 @@ class SeederService {
       (existing?['apps'] as List<dynamic>? ?? []).map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
       final effectiveApps = apps.isNotEmpty ? apps : existingApps;
 
+      // Permitir múltiples empresas por usuario sin sobrescribir la principal existente
+      final empresas = <String>[];
+      final existingEmpresaId = _s(existing?['empresaId']);
+      final existingEmpresasList = existing?['empresas'] as List<dynamic>?;
+
+      if (existingEmpresaId.isNotEmpty) empresas.add(existingEmpresaId);
+      if (existingEmpresasList != null) {
+        for (final e in existingEmpresasList) {
+          final id = _s(e);
+          if (id.isNotEmpty && !empresas.contains(id)) {
+            empresas.add(id);
+          }
+        }
+      }
+      if (!empresas.contains(empresaId)) {
+        empresas.add(empresaId);
+      }
+
+      final primaryEmpresaId = existingEmpresaId.isNotEmpty ? existingEmpresaId : empresaId;
+      final primaryEmpresaNombre = _s(existing?['empresaNombre']).isNotEmpty
+          ? _s(existing?['empresaNombre'])
+          : empresaNombre;
+
       final userPayload = <String, dynamic>{
         'usuario': cedula,
         'cedula': cedula,
@@ -485,8 +508,9 @@ class SeederService {
         'nombres': nombres,
         'apellidos': apellidos,
         'correo': correo.isEmpty ? null : correo,
-        'empresaId': empresaId,
-        'empresaNombre': empresaNombre,
+        'empresaId': primaryEmpresaId,
+        'empresaNombre': primaryEmpresaNombre,
+        'empresas': empresas,
         'area': areaNombre.isEmpty ? null : areaNombre,
         'areaId': areaId,
         'cargo': cargoNombre.isEmpty ? null : cargoNombre,
