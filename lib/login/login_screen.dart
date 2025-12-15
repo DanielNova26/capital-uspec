@@ -34,17 +34,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      ) async {
-    if (docs.length == 1) return docs.first;
-
+  Future<Map<String, String>> _loadEmpresaNames(Set<String> ids) async {
+    if (ids.isEmpty) return {};
     final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
-    final Map<String, String> nombres = {};
-    final ids = docs
-        .map((d) => (d.data()['empresaId'] as String?)?.trim() ?? '')
-        .where((id) => id.isNotEmpty)
-        .toSet();
+    final nombres = <String, String>{};
 
     await Future.wait(ids.map((id) async {
       final emp = await empresasCol.doc(id).get();
@@ -53,6 +46,19 @@ class _LoginScreenState extends State<LoginScreen> {
         if (nombre != null && nombre.isNotEmpty) nombres[id] = nombre;
       }
     }));
+
+    return nombres;
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) async {
+    if (docs.length == 1) return docs.first;
+
+    final nombres = await _loadEmpresaNames(docs
+        .map((d) => (d.data()['empresaId'] as String?)?.trim() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet());
 
     return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
       context: context,
@@ -88,6 +94,42 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<String?> _selectEmpresaId(List<String> empresaIds) async {
+    final uniqueIds = empresaIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (uniqueIds.isEmpty) return '';
+    if (uniqueIds.length == 1) return uniqueIds.first;
+
+    final nombres = await _loadEmpresaNames(uniqueIds);
+
+    return showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Selecciona tu empresa'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: uniqueIds.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (_, index) {
+              final id = uniqueIds.elementAt(index);
+              final nombre = nombres[id];
+              final title = nombre != null && nombre.isNotEmpty ? nombre : id;
+              return ListTile(
+                title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
+                subtitle: Text(
+                  id,
+                  style: const TextStyle(fontFamily: kArial),
+                ),
+                onTap: () => Navigator.of(context).pop(id),
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 
@@ -314,18 +356,17 @@ class _LoginScreenState extends State<LoginScreen> {
       final collectionRef =
       FirebaseFirestore.instance.collection('TBL_USUARIOS');
       DocumentSnapshot<Map<String, dynamic>>? docSnapshot;
+      String? selectedEmpresaId;
 
       // 1) Intentamos leer por ID (username)
       final byId = await collectionRef.doc(input).get();
-      final empresaDoc = (byId.data()?['empresaId'] as String?)?.trim() ?? '';
       if (byId.exists) {
         docSnapshot = byId;
       }
       if (docSnapshot == null) {
-        // 2) Si no existe, buscamos por campo 'cedula' y permitimos escoger empresa        final querySnap = await collectionRef
-        final querySnap = await collectionRef
-            .where('cedula', isEqualTo: input).where('cedula', isEqualTo: input)
-            .get();
+        // 2) Si no existe, buscamos por campo 'cedula' y permitimos escoger empresa
+        final querySnap =
+        await collectionRef.where('cedula', isEqualTo: input).get();
 
         if (querySnap.docs.isEmpty) {
           setState(() {
@@ -333,7 +374,9 @@ class _LoginScreenState extends State<LoginScreen> {
             _isLoading = false;
           });
           return;
-        }  if (querySnap.docs.length == 1) {
+        }
+
+        if (querySnap.docs.length == 1) {
           docSnapshot = querySnap.docs.first;
         } else {
           final selected = await _selectEmpresa(querySnap.docs);
@@ -349,11 +392,49 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       // Si llegamos aquí, docSnapshot existe
-      final data = docSnapshot!.data()!;
+      final data = docSnapshot!.data();
+      if (data == null) {
+        setState(() {
+          _errorMessage = 'Error al leer los datos del usuario';
+          _isLoading = false;
+        });
+        return;
+      }
       final storedPass = data['password'] as String? ?? '';
       final needsChange = data['needsPasswordChange'] as bool? ?? false;
       final docId = docSnapshot!.id; // Esto es el "username" usado
-      final empresaId = (data['empresaId'] as String?)?.trim() ?? '';
+
+      // Determinar la empresa: permite que un usuario tenga varias empresas
+      final empresaIds = <String>[];
+      final empresaCampo = (data['empresaId'] as String?)?.trim();
+      if (empresaCampo != null && empresaCampo.isNotEmpty) {
+        empresaIds.add(empresaCampo);
+      }
+
+      final empresasLista = data['empresas'] as List<dynamic>?;
+      if (empresasLista != null) {
+        for (final e in empresasLista) {
+          final id = (e as String?)?.trim();
+          if (id != null && id.isNotEmpty) empresaIds.add(id);
+        }
+      }
+
+      if (empresaIds.isEmpty) {
+        setState(() {
+          _errorMessage = 'No se encontró empresa asociada al usuario';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      selectedEmpresaId ??= await _selectEmpresaId(empresaIds);
+      if (selectedEmpresaId == null) {
+        setState(() {
+          _errorMessage = 'Selecciona la empresa para continuar';
+          _isLoading = false;
+        });
+        return;
+      }
 
       // 3) Comparamos contraseñas
       if (pass != storedPass) {
@@ -373,7 +454,7 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(
             builder: (_) => ChangePasswordScreen(
               usuario: docId,
-              empresaId: empresaId,
+              empresaId: selectedEmpresaId!,
             ),
           ),
         );
