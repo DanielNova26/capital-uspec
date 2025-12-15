@@ -130,6 +130,9 @@ class GerenciaDashboardScreen extends StatefulWidget {
 class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   final _db = FirebaseFirestore.instance;
   late Future<_Bootstrap> _bootstrapFuture;
+  String _statusFilter = 'todas';
+  String _areaFilter = 'todas';
+  String _personaFilter = 'todas';
 
   @override
   void initState() {
@@ -142,6 +145,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final usersSnap = await _db.collection('TBL_USUARIOS').get();
     final areasSnap = await _db.collection('TBL_AREAS').get();
 
+    final userData = userDoc.data() ?? {};
+    final empresaId = (userData['empresaId'] ?? '').toString().trim();
+
     final areas = <String, String>{
       for (final d in areasSnap.docs)
         (d.data()['areaId'] ?? d.id).toString():
@@ -152,7 +158,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       for (final d in usersSnap.docs) d.id: d.data(),
     };
 
-    return _Bootstrap(userDoc: userDoc.data() ?? {}, users: users, areas: areas);
+    return _Bootstrap(
+      userDoc: userData,
+      users: users,
+      areas: areas,
+      empresaId: empresaId,
+    );
   }
 
   @override
@@ -172,8 +183,13 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         }
 
         final bootstrap = bootSnap.data!;
+        final baseQuery = bootstrap.empresaId.isEmpty
+            ? _db.collection('TBL_TAREAS')
+            : _db
+            .collection('TBL_TAREAS')
+            .where('empresaId', isEqualTo: bootstrap.empresaId);
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _db.collection('TBL_TAREAS').snapshots(),
+          stream: baseQuery.snapshots(),
           builder: (context, tasksSnap) {
             if (tasksSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
@@ -181,8 +197,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             }
 
             final tasks = tasksSnap.data?.docs ?? [];
-            final personScores = _buildScores(tasks, bootstrap);
-            final statusCount = _statusDistribution(tasks);
+            final filteredTasks = _applyFilters(tasks);
+            final personScores = _buildScores(filteredTasks, bootstrap);
+            final statusCount = _statusDistribution(filteredTasks);
             final areaScores = _aggregateByArea(personScores.values);
 
             return Scaffold(
@@ -212,7 +229,16 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                     children: [
                       _buildHeader(bootstrap.userDoc),
                       const SizedBox(height: 12),
-                      _buildSummaryCards(tasks, personScores),
+                      _buildFilters(bootstrap, tasks),
+                      const SizedBox(height: 12),
+                      _buildSummaryCards(
+                        filteredTasks,
+                        personScores,
+                        activeStatus: _statusFilter,
+                        onSelectStatus: (value) => setState(() {
+                          _statusFilter = value == _statusFilter ? 'todas' : value;
+                        }),
+                      ),
                       const SizedBox(height: 16),
                       _buildCharts(statusCount, areaScores),
                       const SizedBox(height: 16),
@@ -274,21 +300,187 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     );
   }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks) {
+    return tasks.where((d) {
+      final data = d.data();
+      final estado = _resolvedEstado(data);
+      final areaId = (data['areaId'] ?? '').toString();
+      final personaId = (data['asignado_uid'] ?? '').toString();
+
+      final bool statusMatch;
+      switch (_statusFilter) {
+        case 'activas':
+          statusMatch = estado != 'completada' && estado != 'finalizado';
+          break;
+        case 'finalizadas':
+          statusMatch = estado == 'completada' || estado == 'finalizado';
+          break;
+        case 'todas':
+          statusMatch = true;
+          break;
+        default:
+          statusMatch = estado == _statusFilter;
+      }
+
+      final areaMatch = _areaFilter == 'todas' || areaId == _areaFilter;
+      final personaMatch =
+          _personaFilter == 'todas' || personaId == _personaFilter;
+      return statusMatch && areaMatch && personaMatch;
+    }).toList();
+  }
+
+  Widget _buildFilters(
+      _Bootstrap bootstrap,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+      ) {
+    final areaIds = <String>{
+      for (final t in tasks)
+        if ((t.data()['areaId'] ?? '').toString().isNotEmpty)
+          (t.data()['areaId'] ?? '').toString(),
+    };
+    final personaMap = <String, String>{'todas': 'Todo el equipo'};
+
+    for (final t in tasks) {
+      final data = t.data();
+      final uid = (data['asignado_uid'] ?? '').toString();
+      if (uid.isEmpty || personaMap.containsKey(uid)) continue;
+      final user = bootstrap.users[uid];
+      final nombre = user != null
+          ? _nombreDeUsuario(user)
+          : (data['asignado_nombre'] ?? uid).toString();
+      personaMap[uid] = nombre;
+    }
+
+    final areaItems = [
+      const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
+      ...areaIds
+          .map((id) => DropdownMenuItem(
+        value: id,
+        child: Text(bootstrap.areas[id] ?? id,
+            overflow: TextOverflow.ellipsis),
+      ))
+          .toList()
+        ..sort((a, b) => (a.child as Text).data!
+            .toLowerCase()
+            .compareTo((b.child as Text).data!.toLowerCase())),
+    ];
+
+    final personaEntries = personaMap.entries.toList()
+      ..sort((a, b) {
+        if (a.key == 'todas') return -1;
+        if (b.key == 'todas') return 1;
+        return a.value.toLowerCase().compareTo(b.value.toLowerCase());
+      });
+
+    final personaItems = personaEntries
+        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+        .toList();
+
+    final statusOptions = const [
+      ['todas', 'Todas'],
+      ['activas', 'Activas'],
+      ['pendiente', 'Pendiente'],
+      ['en_progreso', 'En progreso'],
+      ['finalizadas', 'Finalizadas'],
+      ['devuelta', 'Devueltas'],
+      ['retrasado', 'Retrasadas'],
+    ];
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Filtros',
+                style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: statusOptions.map((opt) {
+                final value = opt[0]!;
+                final label = opt[1]!;
+                final selected = _statusFilter == value;
+                return ChoiceChip(
+                  label: Text(label, style: const TextStyle(fontFamily: kArial)),
+                  selected: selected,
+                  selectedColor: kBrand.withOpacity(0.12),
+                  onSelected: (_) {
+                    setState(() {
+                      _statusFilter = selected ? 'todas' : value;
+                    });
+                  },
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: 260,
+                  child: DropdownButtonFormField<String>(
+                    value: _areaFilter,
+                    decoration: const InputDecoration(
+                      labelText: 'Área',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: areaItems,
+                    onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
+                  ),
+                ),
+                SizedBox(
+                  width: 260,
+                  child: DropdownButtonFormField<String>(
+                    value: _personaFilter,
+                    decoration: const InputDecoration(
+                      labelText: 'Persona',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: personaItems,
+                    onChanged: (v) => setState(() => _personaFilter = v ?? 'todas'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSummaryCards(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      Map<String, _PersonScore> scores,
-      ) {
+      Map<String, _PersonScore> scores, {
+        required String activeStatus,
+        required void Function(String value) onSelectStatus,
+      }) {
     final total = tasks.length;
     final finalizadas = tasks.where((t) {
       final estado = _resolvedEstado(t.data());
       return estado == 'completada' || estado == 'finalizado';
     }).length;
-    final devueltas = tasks.where((t) => _resolvedEstado(t.data()) == 'devuelta').length;
-    final retrasadas = tasks.where((t) => _resolvedEstado(t.data()) == 'retrasado').length;
+    final devueltas =
+        tasks.where((t) => _resolvedEstado(t.data()) == 'devuelta').length;
+    final retrasadas =
+        tasks.where((t) => _resolvedEstado(t.data()) == 'retrasado').length;
     final promedioPuntos = scores.values.isEmpty
         ? 0
         : scores.values.map((e) => e.puntos).reduce((a, b) => a + b) /
         scores.values.length;
+
+    void toggle(String value) {
+      onSelectStatus(value == activeStatus ? 'todas' : value);
+    }
 
     final cards = [
       _SummaryCard(
@@ -296,24 +488,32 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         value: '$total',
         icon: Icons.assignment,
         color: Colors.blue.shade50,
+        isActive: activeStatus == 'activas',
+        onTap: () => toggle('activas'),
       ),
       _SummaryCard(
         title: 'Finalizadas',
         value: '$finalizadas',
         icon: Icons.check_circle,
         color: Colors.green.shade50,
+        isActive: activeStatus == 'finalizadas',
+        onTap: () => toggle('finalizadas'),
       ),
       _SummaryCard(
         title: 'Devueltas',
         value: '$devueltas',
         icon: Icons.undo,
         color: Colors.purple.shade50,
+        isActive: activeStatus == 'devuelta',
+        onTap: () => toggle('devuelta'),
       ),
       _SummaryCard(
         title: 'Retrasadas',
         value: '$retrasadas',
         icon: Icons.alarm,
         color: Colors.red.shade50,
+        isActive: activeStatus == 'retrasado',
+        onTap: () => toggle('retrasado'),
       ),
       _SummaryCard(
         title: 'Promedio de puntos',
@@ -329,9 +529,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       itemCount: cards.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 1.8,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+        childAspectRatio: 1.55,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
       ),
       itemBuilder: (_, i) => cards[i],
     );
@@ -467,33 +667,53 @@ class _SummaryCard extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.color,
+    this.isActive = false,
+    this.onTap,
   });
 
   final String title;
   final String value;
   final IconData icon;
   final Color color;
+  final bool isActive;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: color,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Icon(icon, color: kBrand),
-            Text(title,
-                style: const TextStyle(fontFamily: kArial, color: Colors.black54)),
-            Text(
-              value,
-              style: const TextStyle(
-                  fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 20),
-            ),
-          ],
+    final effectiveColor = isActive ? color.withOpacity(0.95) : color;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Card(
+        color: effectiveColor,
+        elevation: isActive ? 2.5 : 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Icon(icon, color: kBrand),
+                  if (isActive)
+                    const Icon(Icons.filter_alt, color: kBrand, size: 18),
+                ],
+              ),
+              Text(title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                  const TextStyle(fontFamily: kArial, color: Colors.black54)),
+              Text(
+                value,
+                style: const TextStyle(
+                    fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 20),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -687,9 +907,15 @@ class _AreaBarChart extends StatelessWidget {
 }
 
 class _Bootstrap {
-  _Bootstrap({required this.userDoc, required this.users, required this.areas});
+  _Bootstrap({
+    required this.userDoc,
+    required this.users,
+    required this.areas,
+    required this.empresaId,
+  });
 
   final Map<String, dynamic> userDoc;
   final Map<String, Map<String, dynamic>> users;
   final Map<String, String> areas;
+  final String empresaId;
 }

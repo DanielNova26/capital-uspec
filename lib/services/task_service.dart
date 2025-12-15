@@ -188,10 +188,12 @@ class TaskService {
     required String taskId,
     required String newAssignedTo,
     String? newAssignedToName,
+    String? newAreaId,
   }) async {
     await _db.collection(_tasks).doc(taskId).update({
       'asignado_uid'    : newAssignedTo,
       if (newAssignedToName != null) 'asignado_nombre': newAssignedToName,
+      if (newAreaId != null) 'areaId' : newAreaId,
       'updatedAt'       : FieldValue.serverTimestamp(),
     });
   }

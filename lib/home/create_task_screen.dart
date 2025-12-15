@@ -158,7 +158,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   DateTime? _deadline;
 
   // ====== Selecciones ======
-  String? _centroId = 'global';
+  String? _centroId;
   String? _areaId;
   String? _asignadoUid;
   String? _asignadoNombre;
@@ -171,7 +171,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   List<Map<String, String>> _areas = []; // [{id,nombre}]
   List<Map<String, String>> _centros = []; // [{id,nombre}]
   List<Map<String, String>> get _areasFiltradas {
-    if (_centroId == null || _centroId == 'global' || _centroId!.isEmpty) {
+    if (_centroId == null || _centroId!.isEmpty) {
       return _areas;
     }
 
@@ -344,18 +344,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
       // Si no hay selección previa o ya no existe, toma el primero disponible
-      final selectedExists =
-          _centros.any((c) => c['id'] == _centroId) || _centroId == 'global';
+      final selectedExists = _centros.any((c) => c['id'] == _centroId);
       if (_centros.isNotEmpty && (!selectedExists || _centroId == null)) {
         _centroId = _centros.first['id'];
       }
-
-      // Fallback a "global" si no hay centros configurados
-      if (_centros.isEmpty) {
-        _centroId = 'global';
-      }
     } catch (_) {
-      _centroId ??= 'global';
+      _centroId = null;
     }
   }
 
@@ -437,11 +431,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   bool _coincideCentro(Map<String, dynamic> u) {
-  if (_centroId == null || _centroId == 'global' || _centroId!.isEmpty) {
-  return true;
-  }
-  final centro = _centroDeUsuario(u);
-  return centro == _centroId;
+    if (_centroId == null || _centroId!.isEmpty) {
+      return true;
+    }
+    final centro = _centroDeUsuario(u);
+    return centro == _centroId;
   }
 
   void _ensureAreaSeleccionada() {
@@ -915,7 +909,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'fecha_creacion': FieldValue.serverTimestamp(),
         'fecha_limite': _deadline == null ? null : Timestamp.fromDate(_deadline!),
         'estado': 'pendiente',
-        'centroId': _centroId, // 'global'
+        'centroId': _centroId,
         'areaId': _areaId,
         // 👇 fuerza string, sin espacios
         'asignado_uid': (_asignadoUid ?? '').toString().trim(),
@@ -1132,10 +1126,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             border: OutlineInputBorder(),
                           ),
                           items: [
-                            const DropdownMenuItem(
-                              value: 'global',
-                              child: Text('— Global —', overflow: TextOverflow.ellipsis),
-                            ),
                             ..._centros.map(
                                   (c) => DropdownMenuItem(
                                 value: c['id'],
