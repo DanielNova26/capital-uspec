@@ -935,7 +935,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
 
       // ===== Crear documento =====
-      final ref = await FirebaseFirestore.instance.collection(kCollTareas).add({
+      final resolvedEmpresaId = () {
+        final current = (_empresaId ?? '').trim();
+        if (current.isNotEmpty) return current;
+        final empFromAsignado = _empresaDe(asignadoDoc);
+        if (empFromAsignado.isNotEmpty) return empFromAsignado;
+        return '';
+      }();
+
+      final payload = <String, dynamic>{
         'titulo': _titleCtl.text.trim(),
         'descripcion': _descCtl.text.trim(),
         'prioridad': _priority,
@@ -963,7 +971,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'evidencias_paths': evidencePath == null ? [] : [evidencePath],
         'adjuntos': adjuntos,
         'notify': true,
-      });
+      };
+
+      if (resolvedEmpresaId.isNotEmpty) {
+        payload['empresaId'] = resolvedEmpresaId;
+      }
+
+      final ref = await FirebaseFirestore.instance.collection(kCollTareas).add(payload);
 
       _photo = null;
       _pickedFiles.clear();

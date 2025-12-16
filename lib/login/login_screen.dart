@@ -172,10 +172,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Future<String?> _selectEmpresaId(List<String> empresaIds) async {
-    final uniqueIds = empresaIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+  Future<String?> _selectEmpresaId(
+      List<String> empresaIds, {
+        String? preselectedId,
+      }) async {
+    final uniqueIds =
+    empresaIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
     if (uniqueIds.isEmpty) return '';
-    if (uniqueIds.length == 1) return uniqueIds.first;
+    final ids = uniqueIds.toList()..sort();
+    if (ids.length == 1) return ids.first;
 
     final nombres = await _loadEmpresaNames(uniqueIds);
 
@@ -187,7 +192,9 @@ class _LoginScreenState extends State<LoginScreen> {
       builder: (_) {
         final theme = Theme.of(context);
         final scheme = theme.colorScheme;
-        final ids = uniqueIds.toList()..sort();
+        String selected = preselectedId != null && ids.contains(preselectedId)
+            ? preselectedId
+            : ids.first;
 
         return SafeArea(
           child: Padding(
@@ -220,10 +227,13 @@ class _LoginScreenState extends State<LoginScreen> {
                     itemBuilder: (_, index) {
                       final id = ids[index];
                       final nombre = nombres[id];
-                      final title = nombre != null && nombre.isNotEmpty ? nombre : id;
+                      final title =
+                      nombre != null && nombre.isNotEmpty ? nombre : id;
+                      final isSelected = selected == id;
                       return Material(
-                        color: scheme.surface,
-                        elevation: 1,
+                        color:
+                        isSelected ? scheme.primaryContainer : scheme.surface,
+                        elevation: isSelected ? 2 : 1,
                         borderRadius: BorderRadius.circular(12),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
@@ -235,11 +245,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             child: Row(
                               children: [
+                                Radio<String>(
+                                  value: id,
+                                  groupValue: selected,
+                                  activeColor: scheme.primary,
+                                  onChanged: (value) =>
+                                      Navigator.of(context).pop(value),
+                                ),
                                 CircleAvatar(
                                   radius: 20,
                                   backgroundColor: scheme.primaryContainer,
                                   child: Text(
-                                    id.substring(0, id.length >= 2 ? 2 : 1).toUpperCase(),
+                                    id
+                                        .substring(0, id.length >= 2 ? 2 : 1)
+                                        .toUpperCase(),
                                     style: TextStyle(
                                       color: scheme.onPrimaryContainer,
                                       fontWeight: FontWeight.w700,
@@ -268,7 +287,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ],
                                   ),
                                 ),
-                                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                                Icon(Icons.chevron_right,
+                                    color: scheme.onSurfaceVariant),
                               ],
                             ),
                           ),
@@ -601,7 +621,9 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
 
-      if (empresaIds.isEmpty) {
+      final uniqueEmpresas = empresaIds.toSet().toList();
+
+      if (uniqueEmpresas.isEmpty) {
         setState(() {
           _errorMessage = 'No se encontró empresa asociada al usuario';
           _isLoading = false;
@@ -609,12 +631,16 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      selectedEmpresaId ??= (data['empresaId'] as String?)?.trim();
-
-      if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
-        selectedEmpresaId = await _selectEmpresaId(empresaIds);
+      final storedEmpresaId = (data['empresaId'] as String?)?.trim();
+      if (uniqueEmpresas.length == 1) {
+        selectedEmpresaId = uniqueEmpresas.first;
+      } else {
+        selectedEmpresaId = await _selectEmpresaId(
+          uniqueEmpresas,
+          preselectedId: storedEmpresaId,
+        );
       }
-      if (selectedEmpresaId == null) {
+      if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
         setState(() {
           _errorMessage = 'Selecciona la empresa para continuar';
           _isLoading = false;

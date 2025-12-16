@@ -611,10 +611,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final filtered = docs.where((d) {
       final data = d.data();
       final title = _str(data, ['titulo', 'title']).toLowerCase();
+      final empresaTarea = _str(data, ['empresaId', 'empresa_id', 'empresa']);
       final desc = _str(data, ['descripcion', 'description']).toLowerCase();
       final status = _resolvedStatus(data);
       final areaId = _str(data, ['areaId']);
 
+      final matchEmpresa = _empresaId.isEmpty ||
+          empresaTarea.isEmpty ||
+          empresaTarea == _empresaId;
       final matchSearch = q.isEmpty ||
           title.contains(q) ||
           desc.contains(q) ||
@@ -637,7 +641,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
       final matchArea = _areaFilter == 'todas' || areaId == _areaFilter;
 
-      return matchSearch && matchStatus && matchArea;
+      return matchEmpresa && matchSearch && matchStatus && matchArea;
     }).toList();
 
     int tsOf(Map<String, dynamic> m) {
@@ -652,13 +656,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   // ---- Stream de tareas (sin orderBy para evitar índice) ----
   Stream<QuerySnapshot<Map<String, dynamic>>> _streamAssignedTo(String userId) {
-    Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+    return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
-        .where('asignado_uid', isEqualTo: userId);
-    if (_empresaId.isNotEmpty) {
-      q = q.where('empresaId', isEqualTo: _empresaId);
-    }
-    return q.snapshots();
+        .where('asignado_uid', isEqualTo: userId)
+        .snapshots();
   }
 
   @override

@@ -466,13 +466,14 @@ class _HomeScreenState extends State<HomeScreen> {
               return GestureDetector(
                 onTap: a.onTap,
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     CircleAvatar(
-                      radius: 30,
+                      radius: 28,
                       backgroundColor: scheme.primary,
                       child: a.iconBuilder(),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     SizedBox(
                       width: 120,
                       child: Text(
