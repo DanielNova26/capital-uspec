@@ -182,39 +182,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _jefeNombre;
   String? _empresaId;
   String? _miAreaId;
+  String? _currentUid;
 
   // ====== Datos cargados ======
   List<Map<String, String>> _areas = []; // [{id,nombre}]
   List<Map<String, String>> _centros = []; // [{id,nombre}]
   List<Map<String, String>> get _areasFiltradas {
-    if (_centroId == null || _centroId!.isEmpty) {
-      return _areas;
-    }
-
-    final selectedCentro = _centroId!;
-    final Set<String> areasConUsuarios = {};
-
-    _usuarios.forEach((_, data) {
-      final estado = (data['estado'] ?? '').toString().toLowerCase();
-      if (estado != 'activo') return;
-
-      final area = _areaDe(data);
-      final centro = _centroDeUsuario(data);
-      if (area.isNotEmpty && centro == selectedCentro) {
-        areasConUsuarios.add(area);
-      }
-    });
-
-    final filtradas = _areas.where((a) {
-      final areaId = (a['id'] ?? '').toString();
-      final centroArea = (a['centroId'] ?? '').toString();
-      if (centroArea.isNotEmpty && centroArea == selectedCentro) return true;
-      return areaId.isNotEmpty && areasConUsuarios.contains(areaId);
-    }).toList();
-
-    filtradas.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-
-    return filtradas;
+    final lista = [..._areas];
+    lista.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    return lista;
   }
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
@@ -222,7 +198,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     // Filtra por área si hay selección
     final all = _usuarios.entries
         .where((e) => (e.value['estado'] ?? '').toString().toLowerCase() == 'activo')
-        .where((e) => _coincideCentro(e.value))
+        .where((e) => _currentUid == null || e.key != _currentUid)
         .map((e) => {
       'uid': e.key,
       'nombre': _nombreDeUsuario(e.value),
@@ -279,6 +255,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _loadCurrentUser() async {
     final uid = widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid;
+    _currentUid = uid;
     if (uid == null) return;
 
     try {
@@ -444,32 +421,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     } catch (_) {
       return null;
     }
-  }
-
-  String _centroDeUsuario(Map<String, dynamic>? u) {
-    if (u == null) return '';
-    const keys = [
-      'centroId',
-      'centroid',
-      'centro_id',
-      'centro',
-      'centro_costos',
-      'centroCostos',
-      'centrocostos',
-    ];
-    for (final k in keys) {
-      final v = (u[k] ?? '').toString();
-      if (v.isNotEmpty) return v;
-    }
-    return '';
-  }
-
-  bool _coincideCentro(Map<String, dynamic> u) {
-    if (_centroId == null || _centroId!.isEmpty) {
-      return true;
-    }
-    final centro = _centroDeUsuario(u);
-    return centro == _centroId;
   }
 
   void _ensureAreaSeleccionada() {
@@ -832,6 +783,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       );
       return;
     }
+    if (_currentUid != null && _asignadoUid == _currentUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No puedes asignarte una tarea a ti mismo.')),
+      );
+      return;
+    }
+
     if (_areaId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona el departamento (área).')),
@@ -1024,6 +982,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   void _alElegirAsignado(String? uid) async {
+    if (uid != null && _currentUid != null && uid == _currentUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No puedes asignarte una tarea a ti mismo.')),
+      );
+      setState(() {});
+      return;
+    }
+
     _asignadoUid = uid;
 
     if (uid == null) {
@@ -1180,11 +1146,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           ],
                           onChanged: (v) => setState(() {
                             _centroId = v;
-                            _areaId = null;
-                            _alElegirAsignado(null);
-                            _ensureAreaSeleccionada();
                           }),
                         ),
+
                         const SizedBox(height: 12),
 
                         // Área
