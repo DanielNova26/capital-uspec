@@ -184,6 +184,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _miAreaId;
   String? _currentUid;
 
+  // Estructura organizacional (por uid)
+  final Map<String, Map<String, dynamic>> _estructura = {};
+
   // ====== Datos cargados ======
   List<Map<String, String>> _areas = []; // [{id,nombre}]
   List<Map<String, String>> _centros = []; // [{id,nombre}]
@@ -243,6 +246,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _bootstrap() async {
     await _ensurePermissions();
     await _loadCurrentUser();
+    await _loadEstructura();
     await Future.wait([
       _getMyPosition(),
       _loadAreas(),
@@ -270,6 +274,30 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _miAreaId = _areaDe(data);
 
     } catch (_) {}
+  }
+
+  Future<void> _loadEstructura() async {
+    try {
+      Query<Map<String, dynamic>> ref =
+      FirebaseFirestore.instance.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
+      if (_empresaId != null && _empresaId!.isNotEmpty) {
+        ref = ref.where('empresaId', isEqualTo: _empresaId);
+      }
+
+      final qs = await ref.get();
+      _estructura
+        ..clear()
+        ..addEntries(qs.docs.map((d) => MapEntry(d.id, d.data())));
+
+      if ((_miAreaId ?? '').isEmpty && _currentUid != null) {
+        final me = _estructura[_currentUid!];
+        if (me != null) {
+          _miAreaId = _areaDe(me);
+        }
+      }
+    } catch (_) {
+      _estructura.clear();
+    }
   }
 
   Future<void> _ensurePermissions() async {
@@ -387,13 +415,44 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
+
+    // Fallback: áreas desde estructura organizacional si no están en TBL_AREAS
+    final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
+    for (final entry in _estructura.entries) {
+      final estr = entry.value;
+      final id = (estr['areaId'] ?? '').toString();
+      if (id.isEmpty || existingIds.contains(id)) continue;
+      final nombre = (estr['area'] ?? id).toString();
+      final centroId = (estr['centroId'] ?? estr['centro'] ?? '').toString();
+      _areas.add({'id': id, 'nombre': nombre, 'centroId': centroId});
+      existingIds.add(id);
+    }
+
+    _areas.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
     _ensureAreaSeleccionada();
   }
 
   Future<void> _loadUsuarios() async {
     final qs = await _queryByEmpresa(kCollUsuarios, limit: 2000);
     for (final d in qs.docs) {
-      final data = d.data();
+      final data = Map<String, dynamic>.from(d.data());
+      final estr = _estructura[d.id];
+      if (estr != null) {
+        bool _isEmpty(String key) =>
+            (data[key] == null || data[key].toString().trim().isEmpty);
+        void _fill(String key, dynamic value) {
+          if (_isEmpty(key) && value != null && value.toString().trim().isNotEmpty) {
+            data[key] = value;
+          }
+        }
+
+        _fill('areaId', estr['areaId']);
+        _fill('area', estr['area']);
+        _fill('centroId', estr['centroId'] ?? estr['centro']);
+        _fill('centroCostos', estr['centroCostos']);
+        _fill('jefeId', estr['jefeId']);
+        _fill('jefeNombre', estr['jefeNombre']);
+      }
       if (!_empresaCoincide(data)) continue;
       _usuarios[d.id] = data;
     }
