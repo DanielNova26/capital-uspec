@@ -51,45 +51,120 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      List<DocumentSnapshot<Map<String, dynamic>>> docs,
       ) async {
     if (docs.length == 1) return docs.first;
 
     final nombres = await _loadEmpresaNames(docs
-        .map((d) => (d.data()['empresaId'] as String?)?.trim() ?? '')
+        .map((d) => (d.data()?['empresaId'] as String?)?.trim() ?? '')
         .where((id) => id.isNotEmpty)
         .toSet());
 
-    return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
+    return showModalBottomSheet<DocumentSnapshot<Map<String, dynamic>>>(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) {
-        return AlertDialog(
-          title: const Text('Selecciona tu empresa'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: docs.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, index) {
-                final doc = docs[index];
-                final empresaId =
-                    (doc.data()['empresaId'] as String?)?.trim() ?? '';
-                final nombre = nombres[empresaId];
-                final title =
-                nombre != null && nombre.isNotEmpty ? nombre : empresaId;
+        final theme = Theme.of(context);
+        final scheme = theme.colorScheme;
 
-                return ListTile(
-                  title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
-                  subtitle: empresaId.isEmpty
-                      ? null
-                      : Text(
-                    empresaId,
-                    style: const TextStyle(fontFamily: kArial),
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: scheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(99),
                   ),
-                  onTap: () => Navigator.of(context).pop(doc),
-                );
-              },
+                ),
+                Text(
+                  'Selecciona tu empresa',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: docs.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, index) {
+                      final doc = docs[index];
+                      final empresaId =
+                          (doc.data()?['empresaId'] as String?)?.trim() ?? '';
+                      final nombre = nombres[empresaId];
+                      final title =
+                      nombre != null && nombre.isNotEmpty ? nombre : empresaId;
+
+                      return Material(
+                        color: scheme.surface,
+                        elevation: 1,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => Navigator.of(context).pop(doc),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: scheme.primaryContainer,
+                                  child: Text(
+                                    empresaId.isNotEmpty
+                                        ? empresaId.substring(0, empresaId.length >= 2 ? 2 : 1).toUpperCase()
+                                        : '—',
+                                    style: TextStyle(
+                                      color: scheme.onPrimaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title.isEmpty ? 'Empresa sin nombre' : title,
+                                        style: theme.textTheme.bodyLarge?.copyWith(
+                                          fontFamily: kArial,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      if (empresaId.isNotEmpty)
+                                        Text(
+                                          empresaId,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            fontFamily: kArial,
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -104,32 +179,109 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final nombres = await _loadEmpresaNames(uniqueIds);
 
-    return showDialog<String>(
+    return showModalBottomSheet<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Selecciona tu empresa'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: uniqueIds.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (_, index) {
-              final id = uniqueIds.elementAt(index);
-              final nombre = nombres[id];
-              final title = nombre != null && nombre.isNotEmpty ? nombre : id;
-              return ListTile(
-                title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
-                subtitle: Text(
-                  id,
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-                onTap: () => Navigator.of(context).pop(id),
-              );
-            },
-          ),
-        ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (_) {
+        final theme = Theme.of(context);
+        final scheme = theme.colorScheme;
+        final ids = uniqueIds.toList()..sort();
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: scheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                Text(
+                  'Selecciona tu empresa',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: ids.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, index) {
+                      final id = ids[index];
+                      final nombre = nombres[id];
+                      final title = nombre != null && nombre.isNotEmpty ? nombre : id;
+                      return Material(
+                        color: scheme.surface,
+                        elevation: 1,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => Navigator.of(context).pop(id),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: scheme.primaryContainer,
+                                  child: Text(
+                                    id.substring(0, id.length >= 2 ? 2 : 1).toUpperCase(),
+                                    style: TextStyle(
+                                      color: scheme.onPrimaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        title.isEmpty ? 'Empresa sin nombre' : title,
+                                        style: theme.textTheme.bodyLarge?.copyWith(
+                                          fontFamily: kArial,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      Text(
+                                        id,
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          fontFamily: kArial,
+                                          color: scheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -374,19 +526,16 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final collectionRef =
       FirebaseFirestore.instance.collection('TBL_USUARIOS');
-      DocumentSnapshot<Map<String, dynamic>>? docSnapshot;
       String? selectedEmpresaId;
 
-      // 1) Intentamos leer por ID (username)
+      // 1) Intentamos leer por ID (username) y, si no, por cédula
       final byId = await collectionRef.doc(input).get();
+      final List<DocumentSnapshot<Map<String, dynamic>>> candidatos = [];
       if (byId.exists) {
-        docSnapshot = byId;
-      }
-      if (docSnapshot == null) {
-        // 2) Si no existe, buscamos por campo 'cedula' y permitimos escoger empresa
+        candidatos.add(byId);
+      } else {
         final querySnap =
         await collectionRef.where('cedula', isEqualTo: input).get();
-
         if (querySnap.docs.isEmpty) {
           setState(() {
             _errorMessage = 'Usuario o cédula no registrado';
@@ -394,24 +543,39 @@ class _LoginScreenState extends State<LoginScreen> {
           });
           return;
         }
+        candidatos.addAll(querySnap.docs);
+      }
 
-        if (querySnap.docs.length == 1) {
-          docSnapshot = querySnap.docs.first;
-        } else {
-          final selected = await _selectEmpresa(querySnap.docs);
-          if (selected == null) {
-            setState(() {
-              _errorMessage = 'Selecciona la empresa para continuar';
-              _isLoading = false;
-            });
-            return;
-          }
-          docSnapshot = selected;
+      // 2) Validamos contraseña antes de mostrar empresas
+      final conPassword = candidatos.where((doc) {
+        final storedPass = (doc.data()?['password'] as String? ?? '').trim();
+        return storedPass == pass;
+      }).toList();
+
+      if (conPassword.isEmpty) {
+        setState(() {
+          _errorMessage = 'Contraseña incorrecta';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      DocumentSnapshot<Map<String, dynamic>>? docSnapshot;
+      if (conPassword.length == 1) {
+        docSnapshot = conPassword.first;
+      } else {
+        docSnapshot = await _selectEmpresa(conPassword);
+        if (docSnapshot == null) {
+          setState(() {
+            _errorMessage = 'Selecciona la empresa para continuar';
+            _isLoading = false;
+          });
+          return;
         }
       }
 
       // Si llegamos aquí, docSnapshot existe
-      final data = docSnapshot!.data();
+      final data = docSnapshot.data();
       if (data == null) {
         setState(() {
           _errorMessage = 'Error al leer los datos del usuario';
@@ -419,7 +583,6 @@ class _LoginScreenState extends State<LoginScreen> {
         });
         return;
       }
-      final storedPass = data['password'] as String? ?? '';
       final needsChange = data['needsPasswordChange'] as bool? ?? false;
       final docId = docSnapshot!.id; // Esto es el "username" usado
 
@@ -446,7 +609,11 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      selectedEmpresaId ??= await _selectEmpresaId(empresaIds);
+      selectedEmpresaId ??= (data['empresaId'] as String?)?.trim();
+
+      if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
+        selectedEmpresaId = await _selectEmpresaId(empresaIds);
+      }
       if (selectedEmpresaId == null) {
         setState(() {
           _errorMessage = 'Selecciona la empresa para continuar';
@@ -455,15 +622,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // 3) Comparamos contraseñas
-      if (pass != storedPass) {
-        setState(() {
-          _errorMessage = 'Contraseña incorrecta';
-          _isLoading = false;
-        });
-        return;
-      }
-
+      // Persistimos la empresa elegida para que las pantallas usen el filtro correcto
+      await _persistSelectedEmpresa(docId, selectedEmpresaId!);
+      
       // 4) Según 'needsPasswordChange', redirigimos
       if (needsChange) {
         // Debe cambiarla primero
