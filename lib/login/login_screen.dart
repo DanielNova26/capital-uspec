@@ -624,7 +624,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Persistimos la empresa elegida para que las pantallas usen el filtro correcto
       await _persistSelectedEmpresa(docId, selectedEmpresaId!);
-      
+
       // 4) Según 'needsPasswordChange', redirigimos
       if (needsChange) {
         // Debe cambiarla primero
