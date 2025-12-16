@@ -213,6 +213,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }).toList();
 
     filtradas.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+
     return filtradas;
   }
   // Usuarios activos, mapa para lookup rápido por uid
@@ -291,9 +292,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _empresaId = _empresaDe(data);
       _miAreaId = _areaDe(data);
 
-      if ((_areaId ?? '').isEmpty && (_miAreaId ?? '').isNotEmpty) {
-        _areaId = _miAreaId;
-      }
     } catch (_) {}
   }
 
@@ -383,10 +381,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           .toList()
         ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
-      // Si no hay selección previa o ya no existe, toma el primero disponible
+      // Si el centro previamente elegido ya no existe, limpiamos selección.
       final selectedExists = _centros.any((c) => c['id'] == _centroId);
-      if (_centros.isNotEmpty && (!selectedExists || _centroId == null)) {
-        _centroId = _centros.first['id'];
+      if (!selectedExists) {
+        _centroId = null;
+        _areaId = null;
+        _alElegirAsignado(null);
       }
     } catch (_) {
       _centroId = null;
@@ -475,23 +475,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   void _ensureAreaSeleccionada() {
     final lista = _areasFiltradas;
     final selectedExists = lista.any((a) => a['id'] == _areaId);
-    final myAreaExists = _miAreaId != null && lista.any((a) => a['id'] == _miAreaId);
-
     if (!selectedExists) {
-      if (myAreaExists) {
-        _areaId = _miAreaId;
-      } else if (lista.isNotEmpty) {
-        _areaId = lista.first['id'];
-      } else {
-        _areaId = null;
-      }
+      _areaId = null;
 
       if (_asignadoUid != null) {
-        final e = _usuarios[_asignadoUid!];
-        final areaDelAsignado = e == null ? '' : _areaDe(e);
-        if (_areaId != null && areaDelAsignado != _areaId) {
-          _alElegirAsignado(null);
-        }
+        _alElegirAsignado(null);
       }
     }
   }
@@ -832,6 +820,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _saveTask() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_centroId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona el centro de costos.')),
+      );
+      return;
+    }
     if (_asignadoUid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona la persona asignada.')),
@@ -1175,7 +1169,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           items: [
                             ..._centros.map(
                                   (c) => DropdownMenuItem(
-                                value: c['id'],
+                                    value: c['id'],
                                 child: Text(
                                   c['nombre'] ?? c['id'] ?? '—',
                                   overflow: TextOverflow.ellipsis,
@@ -1184,11 +1178,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                               ),
                             ),
                           ],
-  onChanged: (v) => setState(() {
-  _centroId = v;
-  _ensureAreaSeleccionada();
-  }),
-  ),
+                          onChanged: (v) => setState(() {
+                            _centroId = v;
+                            _areaId = null;
+                            _alElegirAsignado(null);
+                            _ensureAreaSeleccionada();
+                          }),
+                        ),
                         const SizedBox(height: 12),
 
                         // Área
@@ -1199,7 +1195,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             labelText: 'Departamento (Área)',
                             border: OutlineInputBorder(),
                           ),
-  items: _areasFiltradas                              .map(
+                          items: _areasFiltradas
+                              .map(
                                 (a) => DropdownMenuItem(
                               value: a['id'],
                               child: Text(
@@ -1216,9 +1213,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             if (_asignadoUid != null) {
                               final e = _usuarios[_asignadoUid!];
                               final areaDelAsignado = e == null ? '' : _areaDe(e);
-                              if (v != null && areaDelAsignado != v) {
+                              if (v == null || areaDelAsignado != v) {
                                 _alElegirAsignado(null);
                               }
+                            } else if (v == null) {
+                              _alElegirAsignado(null);
                             }
                             setState(() {});
                           },
