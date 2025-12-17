@@ -89,6 +89,24 @@ double _scoreForTask(Map<String, dynamic> task) {
   return max(0, score);
 }
 
+Set<String> _empresasDe(Map<String, dynamic> data) {
+  final out = <String>{};
+  final primary = (data['empresaId'] ?? '').toString().trim();
+  if (primary.isNotEmpty) out.add(primary);
+  final list = data['empresas'] as List<dynamic>? ?? const [];
+  for (final e in list) {
+    final id = (e ?? '').toString().trim();
+    if (id.isNotEmpty) out.add(id);
+  }
+  final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+  if (detalle != null) {
+    for (final key in detalle.keys) {
+      if (key.trim().isNotEmpty) out.add(key.trim());
+    }
+  }
+  return out;
+}
+
 class _PersonScore {
   _PersonScore({required this.displayName, required this.area});
 
@@ -142,27 +160,71 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
   Future<_Bootstrap> _loadBootstrap() async {
     final userDoc = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
-    final usersSnap = await _db.collection('TBL_USUARIOS').get();
-    final areasSnap = await _db.collection('TBL_AREAS').get();
-
     final userData = userDoc.data() ?? {};
-    final empresaId = (userData['empresaId'] ?? '').toString().trim();
+    final empresas = _empresasDe(userData);
+    final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
 
-    final areas = <String, String>{
-      for (final d in areasSnap.docs)
-        (d.data()['areaId'] ?? d.id).toString():
-        (d.data()['nombre'] ?? d.id).toString()
-    };
+    final areas = <String, String>{};
+    if (empresas.isEmpty) {
+      final areasSnap = await _db.collection('TBL_AREAS').get();
+      for (final d in areasSnap.docs) {
+        final data = d.data();
+        final id = (data['areaId'] ?? d.id).toString();
+        final nombre = (data['nombre'] ?? id).toString();
+        areas[id] = nombre;
+      }
+    } else {
+      final list = empresas.toList();
+      for (var i = 0; i < list.length; i += 10) {
+        final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+        final areasSnap = await _db
+            .collection('TBL_AREAS')
+            .where('empresaId', whereIn: chunk)
+            .get();
+        for (final d in areasSnap.docs) {
+          final data = d.data();
+          final id = (data['areaId'] ?? d.id).toString();
+          final nombre = (data['nombre'] ?? id).toString();
+          areas[id] = nombre;
+        }
+      }
+    }
 
-    final users = <String, Map<String, dynamic>>{
-      for (final d in usersSnap.docs) d.id: d.data(),
-    };
+    final users = <String, Map<String, dynamic>>{};
+    if (empresas.isEmpty) {
+      final usersSnap = await _db.collection('TBL_USUARIOS').get();
+      for (final d in usersSnap.docs) {
+        users[d.id] = d.data();
+      }
+    } else {
+      final list = empresas.toList();
+      for (var i = 0; i < list.length; i += 10) {
+        final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+
+        final snapPrimary = await _db
+            .collection('TBL_USUARIOS')
+            .where('empresaId', whereIn: chunk)
+            .get();
+        for (final d in snapPrimary.docs) {
+          users[d.id] = d.data();
+        }
+
+        final snapArray = await _db
+            .collection('TBL_USUARIOS')
+            .where('empresas', arrayContainsAny: chunk)
+            .get();
+        for (final d in snapArray.docs) {
+          users[d.id] = d.data();
+        }
+      }
+    }
 
     return _Bootstrap(
       userDoc: userData,
       users: users,
       areas: areas,
-      empresaId: empresaId,
+        empresaId: empresaPrincipal,
+      empresas: empresas,
     );
   }
 
@@ -183,11 +245,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         }
 
         final bootstrap = bootSnap.data!;
-        final baseQuery = bootstrap.empresaId.isEmpty
-            ? _db.collection('TBL_TAREAS')
-            : _db
-            .collection('TBL_TAREAS')
-            .where('empresaId', isEqualTo: bootstrap.empresaId);
+        final empresas = bootstrap.empresas.toList();
+        Query<Map<String, dynamic>> baseQuery = _db.collection('TBL_TAREAS');
+        if (empresas.isNotEmpty) {
+          baseQuery = baseQuery.where('empresaId', whereIn: empresas.take(10).toList());
+        }
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: baseQuery.snapshots(),
           builder: (context, tasksSnap) {
@@ -197,7 +259,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             }
 
             final tasks = tasksSnap.data?.docs ?? [];
-            final filteredTasks = _applyFilters(tasks);
+            final filteredTasks = _applyFilters(tasks, bootstrap);
             final personScores = _buildScores(filteredTasks, bootstrap);
             final statusCount = _statusDistribution(filteredTasks);
             final areaScores = _aggregateByArea(personScores.values);
@@ -301,12 +363,20 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks) {
-    return tasks.where((d) {
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+      _Bootstrap bootstrap) {
+  return tasks.where((d) {
       final data = d.data();
       final estado = _resolvedEstado(data);
       final areaId = (data['areaId'] ?? '').toString();
       final personaId = (data['asignado_uid'] ?? '').toString();
+      final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '').toString();
+
+      if (bootstrap.empresas.isNotEmpty &&
+          empresa.isNotEmpty &&
+          !bootstrap.empresas.contains(empresa)) {
+        return false;
+      }
 
       final bool statusMatch;
       switch (_statusFilter) {
@@ -912,10 +982,12 @@ class _Bootstrap {
     required this.users,
     required this.areas,
     required this.empresaId,
+    required this.empresas,
   });
 
   final Map<String, dynamic> userDoc;
   final Map<String, Map<String, dynamic>> users;
   final Map<String, String> areas;
   final String empresaId;
+  final Set<String> empresas;
 }

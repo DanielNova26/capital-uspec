@@ -80,6 +80,24 @@ String? _firstStrDeep(dynamic src, List<String> keys) {
 }
 
 // Normalización de cargos/roles
+Set<String> _empresasDe(Map<String, dynamic> data) {
+  final out = <String>{};
+  final primary = (data['empresaId'] ?? '').toString().trim();
+  if (primary.isNotEmpty) out.add(primary);
+  final list = data['empresas'] as List<dynamic>? ?? const [];
+  for (final e in list) {
+    final id = (e ?? '').toString().trim();
+    if (id.isNotEmpty) out.add(id);
+  }
+  final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+  if (detalle != null) {
+    for (final key in detalle.keys) {
+      if (key.trim().isNotEmpty) out.add(key.trim());
+    }
+  }
+  return out;
+}
+
 bool _isGerente(String? cargo) {
   final s0 = (cargo ?? '').trim().toLowerCase();
   if (s0.isEmpty) return false;
@@ -132,6 +150,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   String _cargoSel = 'todos';
   String _centroSel = 'todos';
   String? _empresaId;
+  Set<String> _empresaIds = {};
   DateTime? _from;
   DateTime? _to;
 
@@ -186,19 +205,9 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
           .doc(widget.currentUserId)
           .get();
       final data = u.data() ?? {};
-      final emp = (data['empresaId'] ?? '').toString().trim();
-      if (emp.isNotEmpty) {
-        _empresaId = emp;
-      } else {
-        final empresas = data['empresas'] as List<dynamic>? ?? [];
-        for (final e in empresas) {
-          final id = (e ?? '').toString().trim();
-          if (id.isNotEmpty) {
-            _empresaId = id;
-            break;
-          }
-        }
-      }
+      final empresas = _empresasDe(data);
+      _empresaIds = empresas;
+      _empresaId = empresas.isNotEmpty ? empresas.first : null;
     } catch (_) {}
   }
 
@@ -217,6 +226,11 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
           (me['cargo'] ?? me['rol'] ?? me['role'] ?? me['puesto'] ?? '')
               .toString();
       _miCentro = (me['centroId'] ?? me['centro'] ?? '').toString();
+      final empresasEstructura = _empresasDe(me);
+      if (empresasEstructura.isNotEmpty) {
+        _empresaIds.addAll(empresasEstructura);
+        _empresaId ??= empresasEstructura.first;
+      }
 
       final nivel = (me['nivel'] ?? '').toString().toLowerCase();
       final canAll1 = me['esGerente'] == true || me['isManager'] == true;

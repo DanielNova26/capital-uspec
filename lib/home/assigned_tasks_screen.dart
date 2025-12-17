@@ -43,7 +43,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   final _searchCtrl = TextEditingController();
   String _statusFilter = 'todas'; // todas | pendiente | en_progreso | completada
   String _areaFilter = 'todas';
-  String _empresaId = '';
+  Set<String> _empresaIds = {};
   Map<String, String> _areas = const {'todas': 'Todas las áreas'};
   Map<String, dynamic> _userData = const {};
   late Future<void> _bootstrapFuture;
@@ -68,25 +68,28 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           .doc(widget.userId)
           .get();
       final data = userDoc.data() ?? {};
-      final empresaId = (data['empresaId'] as String?)?.trim() ?? '';
-
+      final empresas = _extractEmpresas(data);
       final areas = <String, String>{'todas': 'Todas las áreas'};
-      if (empresaId.isNotEmpty) {
-        final snap = await FirebaseFirestore.instance
-            .collection('TBL_AREAS')
-            .where('empresaId', isEqualTo: empresaId)
-            .get();
-        areas.addEntries(snap.docs.map((d) {
-          final m = d.data();
-          final id = (m['areaId'] ?? d.id).toString();
-          final nombre = (m['nombre'] ?? id).toString();
-          return MapEntry(id, nombre);
-        }));
+      if (empresas.isNotEmpty) {
+        final list = empresas.toList();
+        for (var i = 0; i < list.length; i += 10) {
+          final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+          final snap = await FirebaseFirestore.instance
+              .collection('TBL_AREAS')
+              .where('empresaId', whereIn: chunk)
+              .get();
+          areas.addEntries(snap.docs.map((d) {
+            final m = d.data();
+            final id = (m['areaId'] ?? d.id).toString();
+            final nombre = (m['nombre'] ?? id).toString();
+            return MapEntry(id, nombre);
+          }));
+        }
       }
 
       if (!mounted) return;
       setState(() {
-        _empresaId = empresaId;
+        _empresaIds = empresas;
         _areas = areas;
         _userData = data;
         if (!_areas.keys.contains(_areaFilter)) {
@@ -94,6 +97,22 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         }
       });
     } catch (_) {}
+  }
+
+  Set<String> _extractEmpresas(Map<String, dynamic> data) {
+    final out = <String>{};
+    final primary = (data['empresaId'] as String? ?? '').trim();
+    if (primary.isNotEmpty) out.add(primary);
+    final list = data['empresas'] as List<dynamic>? ?? const [];
+    for (final e in list) {
+      final id = (e ?? '').toString().trim();
+      if (id.isNotEmpty) out.add(id);
+    }
+    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+    if (detalle != null) {
+      out.addAll(detalle.keys.where((k) => k.trim().isNotEmpty).map((k) => k.trim()));
+    }
+    return out;
   }
 
   // ---- Helpers de lectura segura ----
@@ -616,9 +635,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final status = _resolvedStatus(data);
       final areaId = _str(data, ['areaId']);
 
-      final matchEmpresa = _empresaId.isEmpty ||
+      final matchEmpresa = _empresaIds.isEmpty ||
           empresaTarea.isEmpty ||
-          empresaTarea == _empresaId;
+          empresaTarea == _empresaIds;
       final matchSearch = q.isEmpty ||
           title.contains(q) ||
           desc.contains(q) ||
@@ -673,7 +692,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         future: _bootstrapFuture,
         builder: (context, bootSnap) {
           final loadingBootstrap = bootSnap.connectionState == ConnectionState.waiting &&
-              _empresaId.isEmpty &&
+              _empresaIds.isEmpty &&
               _userData.isEmpty;
           if (loadingBootstrap) {
             return const Center(child: CircularProgressIndicator());

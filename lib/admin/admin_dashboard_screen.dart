@@ -38,24 +38,65 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     // 1) empresaId del admin logueado
     final yo = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
     final dataYo = yo.data() ?? {};
-    final empresaId = (dataYo['empresaId'] as String?)?.trim() ?? '';
+    final empresas = _empresasDe(dataYo);
 
     // 2) cargar por empresa
-    final usersSnap = await _db
-        .collection('TBL_USUARIOS')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
+    final usersMap = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    if (empresas.isEmpty) {
+      final usersSnap = await _db.collection('TBL_USUARIOS').get();
+      for (final d in usersSnap.docs) {
+        usersMap[d.id] = d;
+      }
+    } else {
+      final list = empresas.toList();
+      for (var i = 0; i < list.length; i += 10) {
+        final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+        final usersSnap = await _db
+            .collection('TBL_USUARIOS')
+            .where('empresaId', whereIn: chunk)
+            .get();
+        for (final d in usersSnap.docs) {
+          usersMap[d.id] = d;
+        }
+
+        final usersByArray = await _db
+            .collection('TBL_USUARIOS')
+            .where('empresas', arrayContainsAny: chunk)
+            .get();
+        for (final d in usersByArray.docs) {
+          usersMap[d.id] = d;
+        }
+      }
+    }
 
     // Traemos las apps disponibles para asignar (solo enabled)
-    final appsSnap = await _db
-        .collection('TBL_APPS')
-        .where('empresaId', isEqualTo: empresaId)
-        .where('enabled', isEqualTo: true)
-        .get();
+    final appsMap = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    if (empresas.isEmpty) {
+      final appsSnap = await _db
+          .collection('TBL_APPS')
+          .where('enabled', isEqualTo: true)
+          .get();
+      for (final d in appsSnap.docs) {
+        appsMap[d.id] = d;
+      }
+    } else {
+      final list = empresas.toList();
+      for (var i = 0; i < list.length; i += 10) {
+        final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+        final appsSnap = await _db
+            .collection('TBL_APPS')
+            .where('empresaId', whereIn: chunk)
+            .where('enabled', isEqualTo: true)
+            .get();
+        for (final d in appsSnap.docs) {
+          appsMap[d.id] = d;
+        }
+      }
+    }
 
     setState(() {
-      _users = usersSnap.docs;
-      _apps = appsSnap.docs;
+      _users = usersMap.values.toList();
+      _apps = appsMap.values.toList();
       _userAppsMap = {
         for (var u in _users)
           u.id: {
@@ -69,6 +110,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   // ------------------------ HELPERS ------------------------
+  Set<String> _empresasDe(Map<String, dynamic> data) {
+    final out = <String>{};
+    final primary = (data['empresaId'] as String? ?? '').trim();
+    if (primary.isNotEmpty) out.add(primary);
+    final list = data['empresas'] as List<dynamic>? ?? const [];
+    for (final e in list) {
+      final id = (e ?? '').toString().trim();
+      if (id.isNotEmpty) out.add(id);
+    }
+    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+    if (detalle != null) {
+      for (final key in detalle.keys) {
+        if (key.trim().isNotEmpty) out.add(key.trim());
+      }
+    }
+    return out;
+  }
+
   String _safeStr(dynamic v) => v == null ? '' : v.toString().trim();
 
   String _userDisplayName(Map<String, dynamic> d, String fallback) {
