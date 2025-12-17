@@ -224,6 +224,28 @@ class SeederService {
     return out;
   }
 
+  Future<Map<String, Map<String, dynamic>>> _loadExistingDocs(
+      String collection,
+      Set<String> ids,
+      ) async {
+    final out = <String, Map<String, dynamic>>{};
+    if (ids.isEmpty) return out;
+
+    final col = _db.collection(collection);
+    const chunkSize = 10;
+    final allIds = ids.toList();
+
+    for (int i = 0; i < allIds.length; i += chunkSize) {
+      final chunk = allIds.sublist(i, i + chunkSize > allIds.length ? allIds.length : i + chunkSize);
+      final snap = await col.where(FieldPath.documentId, whereIn: chunk).get();
+      for (final d in snap.docs) {
+        out[d.id] = d.data();
+      }
+    }
+
+    return out;
+  }
+
   // ------------------ UPSERTS POR EMPRESA ------------------
   Future<void> _upsertAreas(List<Map<String, dynamic>> rows, String empresaId) async {
     if (rows.isEmpty) return;
@@ -417,6 +439,8 @@ class SeederService {
         .where((c) => c.isNotEmpty)
         .toSet();
     final existingUsers = await _loadExistingUsers(cedulas);
+    final existingEstructuras = await _loadExistingDocs('TBL_ESTRUCTURA_ORGANIZACIONAL', cedulas);
+    final existingCedulasDocs = await _loadExistingDocs('TBL_CEDULAS', cedulas);
 
     await _writeInChunks(rows, (batch, r) {
       final cedula = _digits(_s(r['cedula']));
@@ -449,13 +473,13 @@ class SeederService {
 
       final areaNombre  = _s(r['area']).isNotEmpty ? _s(r['area']) : _s(existing?['area']);
       final cargoNombre = _s(r['cargo']).isNotEmpty ? _s(r['cargo']) : _s(existing?['cargo']);
-      final centroNom   =
+      final centroNom   = _s(r['centroCostos']).isNotEmpty
+          ? _s(r['centroCostos'])
+          : _s(existing?['centroCostos']);
 
-      _s(r['centroCostos']).isNotEmpty ? _s(r['centroCostos']) : _s(existing?['centroCostos']);
-
-      final areaId   = areaNombre.isEmpty  ? null : '${empresaId}_${_idFromName(areaNombre)}';
-      final cargoId  = cargoNombre.isEmpty ? null : '${empresaId}_${_idFromName(cargoNombre)}';
-      final centroId = centroNom.isEmpty   ? null : '${empresaId}_${_idFromName(centroNom)}';
+      final areaId   = areaNombre.isEmpty  ? '' : '${empresaId}_${_idFromName(areaNombre)}';
+      final cargoId  = cargoNombre.isEmpty ? '' : '${empresaId}_${_idFromName(cargoNombre)}';
+      final centroId = centroNom.isEmpty   ? '' : '${empresaId}_${_idFromName(centroNom)}';
 
       final jefeId = _digits(_s(r['jefeId']).isNotEmpty ? _s(r['jefeId']) : _s(existing?['jefeId']));
       final jefeNombre = _s(r['jefeNombre']).isNotEmpty
@@ -480,6 +504,9 @@ class SeederService {
       final empresas = <String>[];
       final existingEmpresaId = _s(existing?['empresaId']);
       final existingEmpresasList = existing?['empresas'] as List<dynamic>?;
+      final existingAreaId = _s(existing?['areaId']);
+      final existingCargoId = _s(existing?['cargoId']);
+      final existingCentroId = _s(existing?['centroId']);
 
       if (existingEmpresaId.isNotEmpty) empresas.add(existingEmpresaId);
       if (existingEmpresasList != null) {
@@ -499,6 +526,56 @@ class SeederService {
           ? _s(existing?['empresaNombre'])
           : empresaNombre;
 
+      final updatingPrimary = primaryEmpresaId == empresaId || existingEmpresaId.isEmpty;
+
+      final areaForPrimary = updatingPrimary
+          ? (areaNombre.isNotEmpty ? areaNombre : _s(existing?['area']))
+          : _s(existing?['area']);
+      final cargoForPrimary = updatingPrimary
+          ? (cargoNombre.isNotEmpty ? cargoNombre : _s(existing?['cargo']))
+          : _s(existing?['cargo']);
+      final centroForPrimary = updatingPrimary
+          ? (centroNom.isNotEmpty ? centroNom : _s(existing?['centroCostos']))
+          : _s(existing?['centroCostos']);
+      final jefeIdForPrimary = updatingPrimary
+          ? (jefeId.isNotEmpty ? jefeId : _s(existing?['jefeId']))
+          : _s(existing?['jefeId']);
+      final jefeNombreForPrimary = updatingPrimary
+          ? (jefeNombre.isNotEmpty ? jefeNombre : _s(existing?['jefeNombre']))
+          : _s(existing?['jefeNombre']);
+      final cargoJefeForPrimary = updatingPrimary
+          ? (cargoJefe.isNotEmpty ? cargoJefe : _s(existing?['cargoJefe']))
+          : _s(existing?['cargoJefe']);
+
+      final areaIdForPrimary = updatingPrimary
+          ? (areaId.isNotEmpty ? areaId : existingAreaId)
+          : existingAreaId;
+      final cargoIdForPrimary = updatingPrimary
+          ? (cargoId.isNotEmpty ? cargoId : existingCargoId)
+          : existingCargoId;
+      final centroIdForPrimary = updatingPrimary
+          ? (centroId.isNotEmpty ? centroId : existingCentroId)
+          : existingCentroId;
+
+      final empresasDetalle = <String, dynamic>{};
+      final existingEmpresasDetalle = existing?['empresasDetalle'] as Map<String, dynamic>?;
+      if (existingEmpresasDetalle != null) {
+        empresasDetalle.addAll(existingEmpresasDetalle);
+      }
+      empresasDetalle[empresaId] = {
+        'empresaId': empresaId,
+        'empresaNombre': empresaNombre,
+        'area': areaNombre.isEmpty ? null : areaNombre,
+        'areaId': areaId.isEmpty ? null : areaId,
+        'cargo': cargoNombre.isEmpty ? null : cargoNombre,
+        'cargoId': cargoId.isEmpty ? null : cargoId,
+        'centroCostos': centroNom.isEmpty ? null : centroNom,
+        'centroId': centroId.isEmpty ? null : centroId,
+        'jefeId': jefeId.isEmpty ? null : jefeId,
+        'jefeNombre': jefeNombre.isEmpty ? null : jefeNombre,
+        'cargoJefe': cargoJefe.isEmpty ? null : cargoJefe,
+      };
+
       final userPayload = <String, dynamic>{
         'usuario': cedula,
         'cedula': cedula,
@@ -511,15 +588,16 @@ class SeederService {
         'empresaId': primaryEmpresaId,
         'empresaNombre': primaryEmpresaNombre,
         'empresas': empresas,
-        'area': areaNombre.isEmpty ? null : areaNombre,
-        'areaId': areaId,
-        'cargo': cargoNombre.isEmpty ? null : cargoNombre,
-        'cargoId': cargoId,
-        'centroCostos': centroNom.isEmpty ? null : centroNom,
-        'centroId': centroId,
-        'jefeId': jefeId.isEmpty ? null : jefeId,
-        'jefeNombre': jefeNombre.isEmpty ? null : jefeNombre,
-        'cargoJefe': cargoJefe.isEmpty ? null : cargoJefe,
+        'empresasDetalle': empresasDetalle,
+        'area': areaForPrimary.isEmpty ? null : areaForPrimary,
+        'areaId': areaIdForPrimary.isEmpty ? null : areaIdForPrimary,
+        'cargo': cargoForPrimary.isEmpty ? null : cargoForPrimary,
+        'cargoId': cargoIdForPrimary.isEmpty ? null : cargoIdForPrimary,
+        'centroCostos': centroForPrimary.isEmpty ? null : centroForPrimary,
+        'centroId': centroIdForPrimary.isEmpty ? null : centroIdForPrimary,
+        'jefeId': jefeIdForPrimary.isEmpty ? null : jefeIdForPrimary,
+        'jefeNombre': jefeNombreForPrimary.isEmpty ? null : jefeNombreForPrimary,
+        'cargoJefe': cargoJefeForPrimary.isEmpty ? null : cargoJefeForPrimary,
         'estado': estado,
         'apps': effectiveApps,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -534,27 +612,90 @@ class SeederService {
       }
 
       batch.set(usuariosCol.doc(cedula), userPayload, SetOptions(merge: true));
+      final existingEstr = existingEstructuras[cedula];
+      final existingEstrEmpresaId = _s(existingEstr?['empresaId']);
+      final estructuraPrimaryEmpresa = existingEstrEmpresaId.isNotEmpty ? existingEstrEmpresaId : empresaId;
+      final estructuraMatchesPrimary = estructuraPrimaryEmpresa == empresaId || existingEstrEmpresaId.isEmpty;
+      final estructuraArea = estructuraMatchesPrimary
+          ? (areaNombre.isNotEmpty ? areaNombre : _s(existingEstr?['area']))
+          : _s(existingEstr?['area']);
+      final estructuraCargo = estructuraMatchesPrimary
+          ? (cargoNombre.isNotEmpty ? cargoNombre : _s(existingEstr?['cargo']))
+          : _s(existingEstr?['cargo']);
+      final estructuraCentro = estructuraMatchesPrimary
+          ? (centroNom.isNotEmpty ? centroNom : _s(existingEstr?['centroCostos']))
+          : _s(existingEstr?['centroCostos']);
+      final estructuraJefeId = estructuraMatchesPrimary
+          ? (jefeId.isNotEmpty ? jefeId : _s(existingEstr?['jefeId']))
+          : _s(existingEstr?['jefeId']);
+      final estructuraJefeNombre = estructuraMatchesPrimary
+          ? (jefeNombre.isNotEmpty ? jefeNombre : _s(existingEstr?['jefeNombre']))
+          : _s(existingEstr?['jefeNombre']);
+      final estructuraCargoJefe = estructuraMatchesPrimary
+          ? (cargoJefe.isNotEmpty ? cargoJefe : _s(existingEstr?['cargoJefe']))
+          : _s(existingEstr?['cargoJefe']);
+
+      final estructuraAreaId = estructuraMatchesPrimary
+          ? (areaId.isNotEmpty ? areaId : _s(existingEstr?['areaId']))
+          : _s(existingEstr?['areaId']);
+      final estructuraCargoId = estructuraMatchesPrimary
+          ? (cargoId.isNotEmpty ? cargoId : _s(existingEstr?['cargoId']))
+          : _s(existingEstr?['cargoId']);
+      final estructuraCentroId = estructuraMatchesPrimary
+          ? (centroId.isNotEmpty ? centroId : _s(existingEstr?['centroId']))
+          : _s(existingEstr?['centroId']);
+
+      final estructuraDetalle = <String, dynamic>{};
+      final existingEstrDetalle = existingEstr?['empresasDetalle'] as Map<String, dynamic>?;
+      if (existingEstrDetalle != null) estructuraDetalle.addAll(existingEstrDetalle);
+      estructuraDetalle[empresaId] = {
+        'empresaId': empresaId,
+        'empresaNombre': empresaNombre,
+        'area': areaNombre.isNotEmpty ? areaNombre : estructuraArea,
+        'areaId': areaId.isNotEmpty
+            ? areaId
+            : (estructuraAreaId.isNotEmpty ? estructuraAreaId : null),
+        'cargo': cargoNombre.isNotEmpty ? cargoNombre : estructuraCargo,
+        'cargoId': cargoId.isNotEmpty
+            ? cargoId
+            : (estructuraCargoId.isNotEmpty ? estructuraCargoId : null),
+        'centroCostos': centroNom.isNotEmpty ? centroNom : estructuraCentro,
+        'centroId': centroId.isNotEmpty
+            ? centroId
+            : (estructuraCentroId.isNotEmpty ? estructuraCentroId : null),
+        'jefeId': jefeId.isNotEmpty ? jefeId : estructuraJefeId,
+        'jefeNombre': jefeNombre.isNotEmpty ? jefeNombre : estructuraJefeNombre,
+        'cargoJefe': cargoJefe.isNotEmpty ? cargoJefe : estructuraCargoJefe,
+      };
 
       batch.set(estructuraCol.doc(cedula), {
-        'empresaId': empresaId,
+        'empresaId': estructuraPrimaryEmpresa,
         'cedula': cedula,
-        'area': areaNombre.isEmpty ? null : areaNombre,
-        'areaId': areaId,
-        'cargo': cargoNombre.isEmpty ? null : cargoNombre,
-        'cargoId': cargoId,
-        'centroCostos': centroNom.isEmpty ? null : centroNom,
-        'centroId': centroId,
-        'jefeId': jefeId.isEmpty ? null : jefeId,
-        'jefeNombre': jefeNombre.isEmpty ? null : jefeNombre,
-        'cargoJefe': cargoJefe.isEmpty ? null : cargoJefe,
+        'empresas': FieldValue.arrayUnion([empresaId]),
+        'empresasDetalle': estructuraDetalle,
+        'area': estructuraArea.isEmpty ? null : estructuraArea,
+        'areaId': estructuraAreaId.isEmpty ? null : estructuraAreaId,
+        'cargo': estructuraCargo.isEmpty ? null : estructuraCargo,
+        'cargoId': estructuraCargoId.isEmpty ? null : estructuraCargoId,
+        'centroCostos': estructuraCentro.isEmpty ? null : estructuraCentro,
+        'centroId': estructuraCentroId.isEmpty ? null : estructuraCentroId,
+        'jefeId': estructuraJefeId.isEmpty ? null : estructuraJefeId,
+        'jefeNombre': estructuraJefeNombre.isEmpty ? null : estructuraJefeNombre,
+        'cargoJefe': estructuraCargoJefe.isEmpty ? null : estructuraCargoJefe,
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      final existingCedulaDoc = existingCedulasDocs[cedula];
+      final cedulaPrimaryEmpresa = _s(existingCedulaDoc?['empresaId']).isNotEmpty
+          ? _s(existingCedulaDoc?['empresaId'])
+          : empresaId;
+
       batch.set(cedulasCol.doc(cedula), {
         'cedula': cedula,
         'usuarioRef': usuariosCol.doc(cedula),
-        'empresaId': empresaId,
+        'empresaId': cedulaPrimaryEmpresa,
+        'empresas': FieldValue.arrayUnion([empresaId]),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
