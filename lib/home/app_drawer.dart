@@ -3,9 +3,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:todo/state/empresa_scope.dart';
 
 // Ajusta este import según tu estructura real (mayúsculas/minúsculas).
-import '../Login/login_screen.dart';
+import '../login/login_screen.dart';
 
 import 'profile_screen.dart';
 import 'team_screen.dart';
@@ -205,6 +206,9 @@ class AppDrawer extends StatelessWidget {
   Future<void> _logout(BuildContext context) async {
     try {
       await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+    try {
+      EmpresaScope.of(context, listen: false).clear();
     } catch (_) {}
     if (context.mounted) {
       Navigator.pushAndRemoveUntil(

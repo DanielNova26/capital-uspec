@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:todo/state/empresa_scope.dart';
 
 // Están en el mismo folder "login"
 import 'first_time_screen.dart';
@@ -620,6 +621,13 @@ class _LoginScreenState extends State<LoginScreen> {
           if (id != null && id.isNotEmpty) empresaIds.add(id);
         }
       }
+      final empresasDetalle = data['empresasDetalle'] as Map<String, dynamic>?;
+      if (empresasDetalle != null) {
+        for (final entry in empresasDetalle.entries) {
+          final id = entry.key.toString().trim();
+          if (id.isNotEmpty) empresaIds.add(id);
+        }
+      }
 
       final uniqueEmpresas = empresaIds.toSet().toList();
 
@@ -649,6 +657,8 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       // Persistimos la empresa elegida para que las pantallas usen el filtro correcto
+      final empresaState = EmpresaScope.of(context, listen: false);
+      empresaState.setSelectedEmpresaId(selectedEmpresaId);
       await _persistSelectedEmpresa(docId, selectedEmpresaId!);
 
       // 4) Según 'needsPasswordChange', redirigimos
@@ -672,6 +682,7 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(
             builder: (_) => HomeScreen(
               username: docId, // ← Pasamos el username
+              empresaId: selectedEmpresaId!,
             ),
           ),
         );

@@ -10,6 +10,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'firebase_options.dart';
+import 'state/empresa_scope.dart';
 import 'login/login_screen.dart';
 
 /// ===== Handler de mensajes en segundo plano (Android) =====
@@ -149,7 +150,11 @@ Future<void> _initFirebaseAndPushCore() async {
 
 Future<void> main() async {
   await _initFirebaseAndPushCore();
-  runApp(const ToDoApp());
+  final empresaState = EmpresaState();
+  runApp(EmpresaScope(
+    notifier: empresaState,
+    child: const ToDoApp(),
+  ));
 }
 
 class ToDoApp extends StatelessWidget {

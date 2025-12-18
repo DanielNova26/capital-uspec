@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:todo/state/empresa_scope.dart';
 
 // Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart';
@@ -23,7 +24,12 @@ const String kArial = 'Arial';
 
 class HomeScreen extends StatefulWidget {
   final String username; // cédula o username (docId en TBL_USUARIOS)
-  const HomeScreen({Key? key, required this.username}) : super(key: key);
+  final String empresaId;
+  const HomeScreen({
+    Key? key,
+    required this.username,
+    required this.empresaId,
+  }) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -669,6 +675,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final empresaState = EmpresaScope.of(context);
+    final selectedEmpresaId = empresaState.selectedEmpresaId?.trim();
+    final empresaId =
+    (selectedEmpresaId != null && selectedEmpresaId.isNotEmpty)
+        ? selectedEmpresaId
+        : widget.empresaId.trim();
+
+    if ((selectedEmpresaId == null || selectedEmpresaId.isEmpty) &&
+        widget.empresaId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        empresaState.setSelectedEmpresaId(widget.empresaId);
+      });
+    }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -706,7 +725,6 @@ class _HomeScreenState extends State<HomeScreen> {
         final role = (userData['role'] as String?)?.trim().toLowerCase() ?? 'usuario';
         final assignedApps =
             (userData['apps'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
-        final empresaId = (userData['empresaId'] as String?)?.trim() ?? '';
         final saludo = '$pNombre${(pApellido.isNotEmpty ? ' $pApellido' : '')}';
 
         // 🔔 Registrar FCM automáticamente (una sola vez)
