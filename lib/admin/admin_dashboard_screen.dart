@@ -18,6 +18,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   bool _loading = true;
 
+  Set<String> _misEmpresas = {};
+  String? _empresaSeleccionada;
+  Map<String, String> _empresaNombres = {};
+
   // Data Firestore
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _users = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _apps = [];
@@ -39,16 +43,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final yo = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
     final dataYo = yo.data() ?? {};
     final empresas = _empresasDe(dataYo);
+    final selectedEmpresa = (_empresaSeleccionada != null &&
+        empresas.contains(_empresaSeleccionada))
+        ? _empresaSeleccionada
+        : (empresas.isNotEmpty ? empresas.first : null);
+    final filtroEmpresas = <String>{};
+    if (selectedEmpresa != null && selectedEmpresa.isNotEmpty) {
+      filtroEmpresas.add(selectedEmpresa);
+    } else {
+      filtroEmpresas.addAll(empresas);
+    }
+
+    final empresaNombres = await _loadEmpresaNombres(empresas);
 
     // 2) cargar por empresa
     final usersMap = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    if (empresas.isEmpty) {
+    if (filtroEmpresas.isEmpty) {
       final usersSnap = await _db.collection('TBL_USUARIOS').get();
       for (final d in usersSnap.docs) {
         usersMap[d.id] = d;
       }
     } else {
-      final list = empresas.toList();
+      final list = filtroEmpresas.toList();
       for (var i = 0; i < list.length; i += 10) {
         final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
         final usersSnap = await _db
@@ -71,7 +87,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     // Traemos las apps disponibles para asignar (solo enabled)
     final appsMap = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    if (empresas.isEmpty) {
+    if (filtroEmpresas.isEmpty) {
       final appsSnap = await _db
           .collection('TBL_APPS')
           .where('enabled', isEqualTo: true)
@@ -80,7 +96,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         appsMap[d.id] = d;
       }
     } else {
-      final list = empresas.toList();
+      final list = filtroEmpresas.toList();
       for (var i = 0; i < list.length; i += 10) {
         final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
         final appsSnap = await _db
@@ -95,6 +111,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
 
     setState(() {
+      _misEmpresas = empresas;
+      _empresaSeleccionada = selectedEmpresa;
+      _empresaNombres = empresaNombres;
       _users = usersMap.values.toList();
       _apps = appsMap.values.toList();
       _userAppsMap = {
@@ -110,6 +129,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   // ------------------------ HELPERS ------------------------
+  Future<Map<String, String>> _loadEmpresaNombres(Set<String> empresaIds) async {
+    final out = <String, String>{};
+    for (final id in empresaIds) {
+      if (id.trim().isEmpty) continue;
+      try {
+        final doc = await _db.collection('TBL_EMPRESAS').doc(id).get();
+        final nombre = (doc.data()?['nombre'] ?? '').toString().trim();
+        out[id] = nombre.isNotEmpty ? nombre : id;
+      } catch (_) {
+        out[id] = id;
+      }
+    }
+    return out;
+  }
+
   Set<String> _empresasDe(Map<String, dynamic> data) {
     final out = <String>{};
     final primary = (data['empresaId'] as String? ?? '').trim();
@@ -277,9 +311,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         onRefresh: _loadAll,
         child: ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: _users.length,
+          itemCount: _users.length + 1,
           itemBuilder: (_, i) {
-            final uDoc = _users[i];
+            if (i == 0) {
+              return _buildEmpresaSelector(scheme);
+            }
+
+            final uDoc = _users[i - 1];
             final d = uDoc.data();
             final nombre = _userDisplayName(d, uDoc.id);
             final cedula = _safeStr(d['cedula']).isNotEmpty ? _safeStr(d['cedula']) : uDoc.id;
@@ -367,6 +405,67 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmpresaSelector(ColorScheme scheme) {
+    if (_misEmpresas.isEmpty) return const SizedBox.shrink();
+    final empresasOrdenadas = _misEmpresas.toList()..sort();
+    final selected = _empresaSeleccionada ?? empresasOrdenadas.first;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Empresa activa',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: selected,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: empresasOrdenadas
+                  .map(
+                    (e) => DropdownMenuItem(
+                  value: e,
+                  child: Text(
+                    _empresaNombres[e] ?? e,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                ),
+              )
+                  .toList(),
+              onChanged: (v) {
+                if (v == null || v.isEmpty) return;
+                setState(() => _empresaSeleccionada = v);
+                _loadAll();
+              },
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Gestiona los usuarios y apps de la empresa seleccionada.',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
       ),
     );

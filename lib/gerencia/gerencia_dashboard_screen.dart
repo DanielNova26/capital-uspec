@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 const Color kBrand = Color(0xFF1E3A8A);
 const String kArial = 'Arial';
+const String kTodasEmpresasValue = '__todas_empresas__';
 
 DateTime? _toDate(dynamic v) {
   if (v is Timestamp) return v.toDate();
@@ -151,6 +152,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   String _statusFilter = 'todas';
   String _areaFilter = 'todas';
   String _personaFilter = 'todas';
+  String? _empresaActiva;
+  Map<String, String> _empresaNombres = {};
 
   @override
   void initState() {
@@ -158,11 +161,33 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     _bootstrapFuture = _loadBootstrap();
   }
 
+  Future<Map<String, String>> _loadEmpresaNombres(Set<String> empresas) async {
+    final nombres = <String, String>{};
+    for (final id in empresas) {
+      if (id.trim().isEmpty) continue;
+      try {
+        final doc = await _db.collection('TBL_EMPRESAS').doc(id).get();
+        final nombre = (doc.data()?['nombre'] ?? '').toString().trim();
+        if (nombre.isNotEmpty) {
+          nombres[id] = nombre;
+        }
+      } catch (_) {
+        // Ignorar errores de lectura y mostrar el ID.
+      }
+    }
+    return nombres;
+  }
+
   Future<_Bootstrap> _loadBootstrap() async {
     final userDoc = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
     final userData = userDoc.data() ?? {};
     final empresas = _empresasDe(userData);
     final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
+
+    _empresaActiva = (_empresaActiva != null && empresas.contains(_empresaActiva))
+        ? _empresaActiva
+        : (empresaPrincipal.isNotEmpty ? empresaPrincipal : (empresas.isNotEmpty ? empresas.first : null));
+    _empresaNombres = await _loadEmpresaNombres(empresas);
 
     final areas = <String, String>{};
     if (empresas.isEmpty) {
@@ -246,9 +271,18 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
         final bootstrap = bootSnap.data!;
         final empresas = bootstrap.empresas.toList();
-        Query<Map<String, dynamic>> baseQuery = _db.collection('TBL_TAREAS');
+        final empresasFiltro = <String>{};
         if (empresas.isNotEmpty) {
-          baseQuery = baseQuery.where('empresaId', whereIn: empresas.take(10).toList());
+          if (_empresaActiva == null || _empresaActiva == kTodasEmpresasValue) {
+            empresasFiltro.addAll(empresas);
+          } else {
+            empresasFiltro.add(_empresaActiva!);
+          }
+        }
+
+        Query<Map<String, dynamic>> baseQuery = _db.collection('TBL_TAREAS');
+        if (empresasFiltro.isNotEmpty) {
+          baseQuery = baseQuery.where('empresaId', whereIn: empresasFiltro.take(10).toList());
         }
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: baseQuery.snapshots(),
@@ -259,8 +293,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             }
 
             final tasks = tasksSnap.data?.docs ?? [];
-            final filteredTasks = _applyFilters(tasks, bootstrap);
-            final personScores = _buildScores(filteredTasks, bootstrap);
+            final filteredTasks = _applyFilters(tasks, bootstrap, empresasFiltro);            final personScores = _buildScores(filteredTasks, bootstrap);
             final statusCount = _statusDistribution(filteredTasks);
             final areaScores = _aggregateByArea(personScores.values);
 
@@ -293,6 +326,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                       const SizedBox(height: 12),
                       _buildFilters(bootstrap, tasks),
                       const SizedBox(height: 12),
+                      _buildEmpresaSelector(bootstrap.empresas),
+                      const SizedBox(height: 12),
                       _buildSummaryCards(
                         filteredTasks,
                         personScores,
@@ -322,6 +357,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         ' ' +
         ((user['apellidos'] ?? user['primerApellido'] ?? '') as String).trim();
     final cargo = (user['cargo'] ?? 'Gerencia').toString();
+
+    final empresaLabel = _empresaActiva == null
+        ? ''
+        : _empresaActiva == kTodasEmpresasValue
+        ? 'Todas mis empresas'
+        : _nombreEmpresa(_empresaActiva!);
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -353,8 +394,90 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                     'Control en tiempo real de tareas por área y responsable.',
                     style: TextStyle(fontFamily: kArial, fontSize: 12),
                   ),
+                  if (empresaLabel.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.business, size: 16, color: kBrand),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            empresaLabel,
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontSize: 12,
+                              color: Colors.black87,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _buildEmpresaSelector(Set<String> empresas) {
+    if (empresas.isEmpty) return const SizedBox.shrink();
+    final opciones = empresas.toList()..sort();
+    final showTodas = opciones.length > 1;
+    final defaultValue = _empresaActiva ?? (showTodas ? kTodasEmpresasValue : opciones.first);
+
+    final items = <DropdownMenuItem<String>>[
+      if (showTodas)
+        const DropdownMenuItem(
+          value: kTodasEmpresasValue,
+          child: Text('Todas mis empresas'),
+        ),
+      ...opciones.map(
+            (e) => DropdownMenuItem(
+          value: e,
+          child: Text(
+            _empresaNombres[e] ?? e,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    ];
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Empresa',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: defaultValue,
+              items: items,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (v) {
+                if (v == null || v.isEmpty) return;
+                setState(() {
+                  _empresaActiva = v;
+                  _statusFilter = 'todas';
+                  _areaFilter = 'todas';
+                  _personaFilter = 'todas';
+                });
+              },
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Solo se muestran datos de la empresa seleccionada.',
+              style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
             ),
           ],
         ),
@@ -364,17 +487,18 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
       List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      _Bootstrap bootstrap) {
-  return tasks.where((d) {
+      _Bootstrap bootstrap,
+      Set<String> empresasFiltro) {
+    return tasks.where((d) {
       final data = d.data();
       final estado = _resolvedEstado(data);
       final areaId = (data['areaId'] ?? '').toString();
       final personaId = (data['asignado_uid'] ?? '').toString();
       final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '').toString();
 
-      if (bootstrap.empresas.isNotEmpty &&
+      if (empresasFiltro.isNotEmpty &&
           empresa.isNotEmpty &&
-          !bootstrap.empresas.contains(empresa)) {
+          !empresasFiltro.contains(empresa)) {
         return false;
       }
 
@@ -728,6 +852,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final correo = (user['email'] ?? '').toString();
     if (correo.isNotEmpty) return correo;
     return user['cedula']?.toString() ?? 'Sin nombre';
+  }
+
+  String _nombreEmpresa(String id) {
+    if (id == kTodasEmpresasValue) return 'Todas mis empresas';
+    final nombre = _empresaNombres[id]?.trim();
+    return (nombre == null || nombre.isEmpty) ? id : nombre;
   }
 }
 
