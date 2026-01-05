@@ -62,9 +62,25 @@ class _NotificationList extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
         final docs = snap.data?.docs ?? [];
+
+        // Evita duplicados exactos por taskId + createdAt
+        final seen = <String>{};
+        final uniqueDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        for (final d in docs) {
+          final data = d.data();
+          final taskId = data['taskId'] as String? ?? '';
+          final ts = data['createdAt'] as Timestamp?;
+          final key = '$taskId-${ts?.millisecondsSinceEpoch ?? d.id}';
+          if (seen.add(key)) {
+            uniqueDocs.add(d);
+          }
+        }
+
         final filtered = onlyUnread
-            ? docs.where((d) => (d.data()['read'] as bool? ?? false) == false)
-            : docs;
+            ? uniqueDocs
+            .where((d) => (d.data()['read'] as bool? ?? false) == false)
+            .toList()
+            : uniqueDocs;
 
         if (filtered.isEmpty) {
           return Center(
@@ -92,64 +108,163 @@ class _NotificationList extends StatelessWidget {
             final fromId = data['fromId'] as String? ?? '';
             final from = data['fromName'] as String? ?? 'Desconocido';
 
-            return ListTile(
-              leading: onlyUnread
-                  ? const Icon(Icons.fiber_new, color: Colors.red)
-                  : const Icon(Icons.notifications),
-              title: Text(title, style: const TextStyle(fontFamily: kArial)),
-              subtitle: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                future: FirebaseFirestore.instance
-                    .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-                    .doc(fromId)
-                    .get(),
-                builder: (ctx2, snapOrg) {
-                  String cargo = '';
-                  if (snapOrg.connectionState == ConnectionState.done &&
-                      snapOrg.hasData &&
-                      snapOrg.data!.exists) {
-                    cargo = (snapOrg.data!.data()?['cargo'] as String?) ?? '';
-                  }
-                  return Column(
+
+            return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              future: taskId == null
+                  ? null
+                  : FirebaseFirestore.instance
+                  .collection('TBL_TAREAS')
+                  .doc(taskId)
+                  .get(),
+              builder: (ctxTask, snapTask) {
+                final taskData = snapTask.data?.data();
+                final status = (taskData?['status'] ?? taskData?['estado'] ?? 'pendiente')
+                    .toString();
+                final progress = (taskData?['progreso'] ?? taskData?['avance'] ?? '')
+                    .toString();
+                return ListTile(
+                  leading: onlyUnread
+                      ? const Icon(Icons.fiber_new, color: Colors.red)
+                      : const Icon(Icons.notifications),
+                  title: Text(title, style: const TextStyle(fontFamily: kArial)),
+                  subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(when, style: const TextStyle(fontFamily: kArial)),
-                      Text(
-                        'De: $from${cargo.isNotEmpty ? ' · $cargo' : ''}',
-                        style: const TextStyle(
-                          fontFamily: kArial,
-                          fontStyle: FontStyle.italic,
-                          fontSize: 12,
+                      Text(desc, style: const TextStyle(fontFamily: kArial)),
+                      if (status.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.timelapse, size: 14),
+                              const SizedBox(width: 4),
+                              Text('Estado: $status',
+                                  style: const TextStyle(fontFamily: kArial)),
+                            ],
+                          ),
                         ),
+                      if (progress.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.trending_up, size: 14),
+                              const SizedBox(width: 4),
+                              Text('Avance: $progress%',
+                                  style: const TextStyle(fontFamily: kArial)),
+                            ],
+                          ),
+                        ),
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+                            .doc(fromId)
+                            .get(),
+                        builder: (ctx2, snapOrg) {
+                          String cargo = '';
+                          if (snapOrg.connectionState == ConnectionState.done &&
+                              snapOrg.hasData &&
+                              snapOrg.data!.exists) {
+                            cargo = (snapOrg.data!.data()?['cargo'] as String?) ?? '';
+                          }
+                          return Text(
+                            'De: $from${cargo.isNotEmpty ? ' · $cargo' : ''}',
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 12,
+                            ),
+                          );
+                        },
                       ),
                     ],
-                  );
-                },
-              ),
-              isThreeLine: true,
-              onTap: () async {
-                // 1) Marcar notificación como leída
-                if (!isRead) {
-                  await doc.reference.update({'read': true});
-                }
-                // 2) Cambiar estado de la tarea a "visto"
-                if (taskId != null) {
-                  await FirebaseFirestore.instance
-                      .collection('TBL_TAREAS')
-                      .doc(taskId)
-                      .update({'status': 'visto'});
-                }
-                // 3) Navegar a AssignedTasksScreen destacando esa tarea
-                if (taskId != null) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => AssignedTasksScreen(
-                        userId: userId,
-                        highlightTaskId: taskId,
-                      ),
-                    ),
-                  );
-                }
+                  ),
+                  isThreeLine: true,
+                  trailing: taskId == null
+                      ? null
+                      : TextButton.icon(
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text('Ver tarea'),
+                    onPressed: () async {
+                      if (!isRead) {
+                        await doc.reference.update({'read': true});
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AssignedTasksScreen(
+                            userId: userId,
+                            highlightTaskId: taskId,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  onTap: () async {
+                    if (!isRead) {
+                      await doc.reference.update({'read': true});
+                    }
+                    if (taskId != null) {
+                      await FirebaseFirestore.instance
+                          .collection('TBL_TAREAS')
+                          .doc(taskId)
+                          .update({'status': 'visto'});
+
+                      showModalBottomSheet(
+                        context: context,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                        ),
+                        builder: (_) => Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Detalle de la tarea',
+                                  style: const TextStyle(
+                                      fontFamily: kArial, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              if (taskData != null)
+                                Text(taskData['descripcion']?.toString() ?? desc,
+                                    style: const TextStyle(fontFamily: kArial)),
+                              const SizedBox(height: 8),
+                              Text('Estado: $status',
+                                  style: const TextStyle(fontFamily: kArial)),
+                              const SizedBox(height: 4),
+                              if (taskData != null && taskData['fecha_limite'] != null)
+                                Text(
+                                  'Vence: ${DateFormat('dd/MM/yyyy').format((taskData['fecha_limite'] as Timestamp).toDate())}',
+                                  style: const TextStyle(fontFamily: kArial),
+                                ),
+                              const SizedBox(height: 12),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton.icon(
+                                  icon: const Icon(Icons.open_in_new),
+                                  label: const Text('Abrir tarea'),
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => AssignedTasksScreen(
+                                          userId: userId,
+                                          highlightTaskId: taskId,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              )
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                );
               },
             );
           },

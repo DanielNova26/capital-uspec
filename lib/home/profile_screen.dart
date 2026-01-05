@@ -12,8 +12,8 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-const Color _primaryColor = Color(0xFF1975B8);
-const Color _accentColor  = Color(0xFF1975B8);
+const Color _primaryColor = Color(0xFF145DA0);
+const Color _accentColor  = Color(0xFF0EA5E9);
 const String _arial       = 'Arial';
 
 /// Formatter para convertir todo el texto a mayúsculas

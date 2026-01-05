@@ -318,14 +318,14 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                 },
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _buildHeader(bootstrap.userDoc),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       _buildFilters(bootstrap, tasks),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       _buildEmpresaSelector(bootstrap.empresas),
                       const SizedBox(height: 12),
                       _buildSummaryCards(
@@ -336,9 +336,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                           _statusFilter = value == _statusFilter ? 'todas' : value;
                         }),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       _buildCharts(statusCount, areaScores),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       _buildRankingTable(personScores.values.toList()),
                     ],
                   ),

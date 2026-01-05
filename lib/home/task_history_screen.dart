@@ -679,10 +679,10 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
             ],
           ),
         ),
-        body: const TabBarView(
+        body: TabBarView(
           children: [
-            _AssignedToMeTab(userId: ''),
-            _ICreatedTab(userId: ''),
+            _AssignedToMeTab(userId: widget.currentUserId),
+            _ICreatedTab(userId: widget.currentUserId),
           ],
         ),
       ),
