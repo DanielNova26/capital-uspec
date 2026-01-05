@@ -19,6 +19,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng; // (s
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:todo/state/empresa_scope.dart';
 
 /// ===================== CONFIG =====================
 /// Tu API KEY (debes tener habilitado Static Maps y billing activo)
@@ -229,18 +230,49 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _myAddress;
 
   bool _saving = false;
+  bool _bootstrapped = false;
+  EmpresaState? _empresaState;
 
   @override
   void initState() {
     super.initState();
-    _bootstrap();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = EmpresaScope.of(context);
+    if (_empresaState != scope) {
+      _empresaState?.removeListener(_onEmpresaChanged);
+      _empresaState = scope..addListener(_onEmpresaChanged);
+    }
+    final selected = scope.selectedEmpresaId?.trim();
+    if (!_bootstrapped) {
+      _bootstrapped = true;
+      if ((selected ?? '').isNotEmpty) {
+        _empresaId = selected;
+      }
+      _bootstrap();
+    } else
+    if (selected != null && selected.isNotEmpty && selected != _empresaId) {
+      _empresaId = selected;
+      _bootstrap();
+    }
+  }
   @override
   void dispose() {
     _titleCtl.dispose();
     _descCtl.dispose();
     super.dispose();
+    _empresaState?.removeListener(_onEmpresaChanged);
+  }
+
+  void _onEmpresaChanged() {
+    final selected = _empresaState?.selectedEmpresaId?.trim();
+    if (selected != null && selected.isNotEmpty && selected != _empresaId) {
+      _empresaId = selected;
+      _bootstrap();
+    }
   }
 
   Future<void> _bootstrap() async {

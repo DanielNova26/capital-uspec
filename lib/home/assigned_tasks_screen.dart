@@ -11,6 +11,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:todo/state/empresa_scope.dart';
 
 // Servicio de tareas (reasignar). Ajusta la ruta si cambia:
 import '../services/task_service.dart' as svc;
@@ -48,6 +49,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   Map<String, dynamic> _userData = const {};
   late Future<void> _bootstrapFuture;
   bool _didAutoOpen = false;
+  EmpresaState? _empresaState;
+  String? _selectedEmpresaId;
 
   @override
   void initState() {
@@ -56,9 +59,34 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = EmpresaScope.of(context);
+    if (_empresaState != scope) {
+      _empresaState?.removeListener(_onEmpresaChanged);
+      _empresaState = scope..addListener(_onEmpresaChanged);
+    }
+    _syncEmpresa(scope.selectedEmpresaId);
+  }
+
+  @override
   void dispose() {
     _searchCtrl.dispose();
+    _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
+  }
+
+  void _onEmpresaChanged() {
+    _syncEmpresa(_empresaState?.selectedEmpresaId);
+  }
+
+  void _syncEmpresa(String? empresaId) {
+    final next = empresaId?.trim();
+    if (_selectedEmpresaId == next) return;
+    setState(() {
+      _selectedEmpresaId = next;
+      _bootstrapFuture = _loadBootstrap();
+    });
   }
 
   Future<void> _loadBootstrap() async {
@@ -69,9 +97,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           .get();
       final data = userDoc.data() ?? {};
       final empresas = _extractEmpresas(data);
+      final filteredEmpresas = (_selectedEmpresaId?.isNotEmpty ?? false)
+          ? <String>{_selectedEmpresaId!}
+          : empresas;
       final areas = <String, String>{'todas': 'Todas las áreas'};
-      if (empresas.isNotEmpty) {
-        final list = empresas.toList();
+      if (filteredEmpresas.isNotEmpty) {
+        final list = filteredEmpresas.toList();
         for (var i = 0; i < list.length; i += 10) {
           final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
           final snap = await FirebaseFirestore.instance
@@ -89,7 +120,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
       if (!mounted) return;
       setState(() {
-        _empresaIds = empresas;
+        _empresaIds = filteredEmpresas;
         _areas = areas;
         _userData = data;
         if (!_areas.keys.contains(_areaFilter)) {
@@ -637,7 +668,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
       final matchEmpresa = _empresaIds.isEmpty ||
           empresaTarea.isEmpty ||
-          empresaTarea == _empresaIds;
+          _empresaIds.contains(empresaTarea);
       final matchSearch = q.isEmpty ||
           title.contains(q) ||
           desc.contains(q) ||
@@ -925,7 +956,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: 1.6,
+            childAspectRatio: 1.25,
           ),
           itemBuilder: (_, i) => cards[i],
         ),

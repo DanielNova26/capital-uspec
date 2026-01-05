@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:todo/state/empresa_scope.dart';
 
 /// ====== Paleta unificada (tema teal) ======
 const Color kTeal = Color(0xFF0F766E);       // AppBar, acentos
@@ -153,6 +154,8 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   Set<String> _empresaIds = {};
   DateTime? _from;
   DateTime? _to;
+  EmpresaState? _empresaState;
+  String? _selectedEmpresaId;
 
   // Catálogos
   final Map<String, String> _areas = {'todas': 'Todas las áreas'};
@@ -180,7 +183,35 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = EmpresaScope.of(context);
+    if (_empresaState != scope) {
+      _empresaState?.removeListener(_onEmpresaChanged);
+      _empresaState = scope..addListener(_onEmpresaChanged);
+    }
+    final selected = scope.selectedEmpresaId?.trim();
+    if (_selectedEmpresaId != selected) {
+      _selectedEmpresaId = selected;
+      _bootstrap();
+    }
+  }
+
+  @override
+  void dispose() {
+    _empresaState?.removeListener(_onEmpresaChanged);
+    super.dispose();
+  }
+
+  void _onEmpresaChanged() {
+    final selected = _empresaState?.selectedEmpresaId?.trim();
+    if (_selectedEmpresaId != selected) {
+      _selectedEmpresaId = selected;
+      _bootstrap();
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -206,8 +237,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
           .get();
       final data = u.data() ?? {};
       final empresas = _empresasDe(data);
-      _empresaIds = empresas;
-      _empresaId = empresas.isNotEmpty ? empresas.first : null;
+      _empresaIds = (_selectedEmpresaId?.isNotEmpty ?? false)
+          ? <String>{_selectedEmpresaId!}
+          : empresas;
+      _empresaId = (_selectedEmpresaId?.isNotEmpty ?? false)
+          ? _selectedEmpresaId
+          : (empresas.isNotEmpty ? empresas.first : null);
     } catch (_) {}
   }
 
