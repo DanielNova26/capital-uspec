@@ -16,6 +16,11 @@ const Color _primaryColor = Color(0xFF145DA0);
 const Color _accentColor  = Color(0xFF0EA5E9);
 const String _arial       = 'Arial';
 
+final ButtonStyle _primaryButtonStyle =
+ElevatedButton.styleFrom(backgroundColor: _primaryColor, foregroundColor: Colors.white);
+final ButtonStyle _accentButtonStyle =
+ElevatedButton.styleFrom(backgroundColor: _accentColor, foregroundColor: Colors.white);
+
 /// Formatter para convertir todo el texto a mayúsculas
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override
@@ -489,14 +494,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               ElevatedButton(
                 onPressed: details.onStepContinue,
-                style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                style: _primaryButtonStyle,
                 child: Text(_currentStep < 4 ? 'Siguiente' : 'Guardar cambios'),
               ),
               const SizedBox(width: 12),
               if (_currentStep > 0)
                 ElevatedButton(
                   onPressed: details.onStepCancel,
-                  style: ElevatedButton.styleFrom(backgroundColor: _accentColor),
+                  style: _accentButtonStyle,
                   child: const Text('Atrás'),
                 ),
             ],
@@ -532,14 +537,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         onPressed: () => _pickPhotoSource(ImageSource.camera),
                         icon: const Icon(Icons.camera_alt),
                         label: const Text('Cámara'),
-                        style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                        style: _primaryButtonStyle,
                       ),
                       const SizedBox(width: 12),
                       ElevatedButton.icon(
                         onPressed: () => _pickPhotoSource(ImageSource.gallery),
                         icon: const Icon(Icons.photo_library),
                         label: const Text('Galería'),
-                        style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                        style: _primaryButtonStyle,
                       ),
                     ],
                   ),
@@ -612,7 +617,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     icon: const Icon(Icons.open_in_new),
                     label: const Text('Generar Procuraduría'),
-                    style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                    style: _primaryButtonStyle,
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
@@ -625,6 +630,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: Text(_procUrl == null ? 'Subir Procuraduría' : 'Procuraduría subida'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _procUrl == null ? _primaryColor : Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -635,7 +641,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     icon: const Icon(Icons.open_in_new),
                     label: const Text('Generar Contraloría'),
-                    style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                    style: _primaryButtonStyle,
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
@@ -648,6 +654,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: Text(_contrUrl == null ? 'Subir Contraloría' : 'Contraloría subida'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _contrUrl == null ? _primaryColor : Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -658,7 +665,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     icon: const Icon(Icons.open_in_new),
                     label: const Text('Generar Policía'),
-                    style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                    style: _primaryButtonStyle,
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
@@ -671,6 +678,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: Text(_polUrl == null ? 'Subir Policía' : 'Policía subida'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _polUrl == null ? _primaryColor : Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -681,7 +689,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     icon: const Icon(Icons.open_in_new),
                     label: const Text('Generar Medidas Correctivas'),
-                    style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                    style: _primaryButtonStyle,
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
@@ -694,6 +702,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: Text(_medUrl == null ? 'Subir Medidas' : 'Medidas subidas'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _medUrl == null ? _primaryColor : Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                   ),
                 ],
@@ -733,6 +742,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _bachUrl == null ? _primaryColor : Colors.green,
+                      foregroundColor: Colors.white,
                     ),
                     child: Text(_bachUrl == null ? 'Subir Soporte Bachillerato' : 'Soporte subido'),
                   ),
@@ -774,6 +784,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _cardUrl == null ? _primaryColor : Colors.green,
+                          foregroundColor: Colors.white,
                         ),
                         child: Text(_cardUrl == null ? 'Subir Tarjeta Profesional' : 'Tarjeta subida'),
                       ),
@@ -787,6 +798,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _uniUrl == null ? _primaryColor : Colors.green,
+                        foregroundColor: Colors.white,
                       ),
                       child: Text(_uniUrl == null ? 'Subir Soporte Universidad' : 'Soporte subido'),
                     ),
@@ -837,6 +849,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _certs[i].url == null ? _primaryColor : Colors.green,
+                          foregroundColor: Colors.white,
                         ),
                         child: Text(_certs[i].url == null ? 'Subir Soporte' : 'Soporte subido'),
                       ),
@@ -846,7 +859,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onPressed: () => setState(() => _certs.add(Certificado())),
                       icon: const Icon(Icons.add),
                       label: const Text('Agregar Curso'),
-                      style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                      style: _primaryButtonStyle,
                     ),
                   ],
                 ],
@@ -908,6 +921,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       label: Text(_exps[i].soporteUrl == null ? 'Subir soporte' : 'Soporte subido'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _exps[i].soporteUrl == null ? _primaryColor : Colors.green,
+                        foregroundColor: Colors.white,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -916,7 +930,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onPressed: () => setState(() => _exps.add(Experiencia())),
                     icon: const Icon(Icons.add),
                     label: const Text('Agregar experiencia'),
-                    style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
+                    style: _primaryButtonStyle,
                   ),
                 ],
               ),

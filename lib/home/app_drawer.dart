@@ -174,7 +174,7 @@ class AppDrawer extends StatelessWidget {
                   // >>>> AQUÍ ESTABA EL ERROR: pasa currentUserId y quita el const
                   ListTile(
                     leading: const Icon(Icons.group_work),
-                    title: const Text('Ver equipo de trabajo',
+                    title: const Text('Ver actividades de mi equipo',
                         style: TextStyle(fontFamily: kArial)),
                     onTap: () => Navigator.push(
                       context,

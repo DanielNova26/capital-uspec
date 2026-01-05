@@ -177,6 +177,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // ====== Selecciones ======
   String? _centroId;
   String? _areaId;
+  String _cargoFiltro = 'todos';
   String? _asignadoUid;
   String? _asignadoNombre;
   String? _jefeUid;
@@ -191,6 +192,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // ====== Datos cargados ======
   List<Map<String, String>> _areas = []; // [{id,nombre}]
   List<Map<String, String>> _centros = []; // [{id,nombre}]
+  List<String> _cargos = ['todos'];
   List<Map<String, String>> get _areasFiltradas {
     final lista = [..._areas];
     lista.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
@@ -207,17 +209,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       'uid': e.key,
       'nombre': _nombreDeUsuario(e.value),
       'areaId': _areaDe(e.value),
+      'cargo': (e.value['cargo'] ?? '').toString(),
       'jefeId': (e.value['jefeId'] ?? '').toString(),
       'jefeNombre': (e.value['jefeNombre'] ?? '').toString(),
     })
         .toList();
     if (_areaId == null || _areaId!.isEmpty) {
       all.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-      return all;
+      return _cargoFiltro == 'todos'
+          ? all
+          : all
+          .where((m) => (m['cargo'] ?? '').toLowerCase() == _cargoFiltro.toLowerCase())
+          .toList();
     }
     final filtered = all.where((m) => (m['areaId'] ?? '') == _areaId).toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-    return filtered.isEmpty ? all : filtered;
+    final cargoFiltered = (_cargoFiltro == 'todos')
+        ? filtered
+        : filtered
+        .where((m) => (m['cargo'] ?? '').toLowerCase() == _cargoFiltro.toLowerCase())
+        .toList();
+    return cargoFiltered.isEmpty ? filtered.isEmpty ? all : filtered : cargoFiltered;
   }
 
   // ====== Adjuntos / Foto ======
@@ -466,6 +478,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _loadUsuarios() async {
     final qs = await _queryByEmpresa(kCollUsuarios, limit: 2000);
+    final cargos = <String>{};
     for (final d in qs.docs) {
       final data = Map<String, dynamic>.from(d.data());
       final estr = _estructura[d.id];
@@ -486,8 +499,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         _fill('jefeNombre', estr['jefeNombre']);
       }
       if (!_empresaCoincide(data)) continue;
+      final cargo = (data['cargo'] ?? '').toString().trim();
+      if (cargo.isNotEmpty) cargos.add(cargo);
       _usuarios[d.id] = data;
     }
+    _cargos = ['todos', ...cargos.toList()..sort()];
     _ensureAreaSeleccionada();
   }
 
@@ -1277,6 +1293,36 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             setState(() {});
                           },
                           validator: (v) => v == null ? 'Selecciona el área' : null,
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Cargo
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          value: _cargoFiltro,
+                          decoration: const InputDecoration(
+                            labelText: 'Cargo',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _cargos
+                              .map((c) => DropdownMenuItem(
+                            value: c,
+                            child: Text(c == 'todos' ? 'Todos los cargos' : c,
+                                overflow: TextOverflow.ellipsis),
+                          ))
+                              .toList(),
+                          onChanged: (v) {
+                            setState(() {
+                              _cargoFiltro = v ?? 'todos';
+                              if (_asignadoUid != null) {
+                                final cargoAsignado =
+                                (_usuarios[_asignadoUid!]?['cargo'] ?? '').toString().toLowerCase();
+                                if (_cargoFiltro != 'todos' && cargoAsignado != _cargoFiltro.toLowerCase()) {
+                                  _alElegirAsignado(null);
+                                }
+                              }
+                            });
+                          },
                         ),
                         const SizedBox(height: 12),
 

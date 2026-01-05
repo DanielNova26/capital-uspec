@@ -19,6 +19,7 @@ import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart';
+import 'assigned_tasks_screen.dart';
 
 const String kArial = 'Arial';
 
@@ -297,6 +298,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     final n = notifications[i];
                     final title = (n['title'] ?? '') as String;
                     final body = (n['description'] ?? '') as String;
+                    final type = (n['type'] ?? '').toString();
+                    final typeLabel = _mapNotificationType(type);
+                    final taskId = (n['taskId'] ?? '').toString();
                     final dt = _toDate(n['createdAt']);
                     final when = dt == null ? '' : DateFormat('dd/MM/yyyy HH:mm', 'es').format(dt);
                     final unread = !(n['read'] as bool? ?? false);
@@ -327,6 +331,47 @@ class _HomeScreenState extends State<HomeScreen> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontFamily: kArial)),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              if (typeLabel.isNotEmpty)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: scheme.primary.withOpacity(.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(typeLabel,
+                                      style: TextStyle(
+                                        fontFamily: kArial,
+                                        color: scheme.primary,
+                                        fontWeight: FontWeight.w600,
+                                      )),
+                                ),
+                              if (taskId != null && taskId.isNotEmpty)
+                                TextButton.icon(
+                                  icon: const Icon(Icons.open_in_new, size: 18),
+                                  label: const Text('Ir al detalle'),
+                                  style: TextButton.styleFrom(foregroundColor: scheme.primary),
+                                  onPressed: () async {
+                                    if (!mounted) return;
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => AssignedTasksScreen(
+                                          userId: cedula,
+                                          highlightTaskId: taskId,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
                           const SizedBox(height: 4),
                           Text(when,
                               style: TextStyle(
@@ -340,11 +385,48 @@ class _HomeScreenState extends State<HomeScreen> {
                           context: context,
                           builder: (_) => AlertDialog(
                             title: Text(title, style: const TextStyle(fontFamily: kArial)),
-                            content: Text(body, style: const TextStyle(fontFamily: kArial)),
+                            content: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (typeLabel.isNotEmpty) ...[
+                                  Text('Tipo: $typeLabel',
+                                      style: const TextStyle(
+                                          fontFamily: kArial, fontWeight: FontWeight.w600)),
+                                  const SizedBox(height: 8),
+                                ],
+                                Text(body, style: const TextStyle(fontFamily: kArial)),
+                                if (when.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text('Fecha: $when',
+                                      style: TextStyle(
+                                          fontFamily: kArial,
+                                          color: scheme.onSurfaceVariant,
+                                          fontSize: 12)),
+                                ],
+                              ],
+                            ),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(context),
                                 child: const Text('Cerrar'),
+                              ),
+                            if (taskId != null && taskId.isNotEmpty)
+                              TextButton.icon(
+                                icon: const Icon(Icons.arrow_forward),
+                                label: const Text('Ver origen'),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => AssignedTasksScreen(
+                                        userId: cedula,
+                                        highlightTaskId: taskId,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -461,45 +543,68 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
+        Widget buildTile(_AppItem a) => GestureDetector(
+          onTap: a.onTap,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 28,
+                backgroundColor: scheme.primary,
+                child: a.iconBuilder(),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: 120,
+                child: Text(
+                  a.nombre,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontFamily: kArial, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        if (tiles.length == 1) {
+          return Center(child: buildTile(tiles.first));
+        }
+
         return SizedBox(
           height: 120,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: tiles.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (_, i) {
-              final a = tiles[i];
-              return GestureDetector(
-                onTap: a.onTap,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundColor: scheme.primary,
-                      child: a.iconBuilder(),
-                    ),
-                    const SizedBox(height: 4),
-                    SizedBox(
-                      width: 120,
-                      child: Text(
-                        a.nombre,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontFamily: kArial, fontSize: 14),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+            itemBuilder: (_, i) => buildTile(tiles[i]),
           ),
         );
       },
     );
   }
 
+  String _mapNotificationType(String raw) {
+    final type = raw.trim().toLowerCase();
+    switch (type) {
+      case 'avance':
+      case 'progress':
+        return 'Avance';
+      case 'novedad':
+      case 'news':
+        return 'Novedad';
+      case 'task_assigned':
+        return 'Tarea asignada';
+      case 'task_reassigned':
+        return 'Tarea reasignada';
+      case 'completed':
+        return 'Tarea finalizada';
+      default:
+        return type.isEmpty ? '' : raw;
+    }
+  }
+  
   // ====== Slider "Tareas del día" ======
   Widget _buildTodayTasksSlider({
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> assignedToMe,

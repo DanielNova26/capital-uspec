@@ -851,89 +851,102 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-      child: Column(
-        children: [
-          // Fila 1: búsqueda
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchCtl,
-                  onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEAF2FF),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFBFD3FF)),
+        ),
+        child: Column(
+          children: [
+            // Fila 1: búsqueda
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtl,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Buscar por título…',
+                      border: pill, enabledBorder: pill, focusedBorder: pill,
+                      contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Fila 2: Área + Estado (misma fila)
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
                     isDense: true,
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Buscar por título…',
-                    border: pill, enabledBorder: pill, focusedBorder: pill,
-                    contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    value: _areaSel,
+                    decoration: const InputDecoration(
+                      isDense: true, labelText: 'Área',
+                      border: pill, enabledBorder: pill,
+                      contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    ),
+                    items: _areasMap.entries
+                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-
-          // Fila 2: Área + Estado (misma fila)
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  isDense: true,
-                  value: _areaSel,
-                  decoration: const InputDecoration(
-                    isDense: true, labelText: 'Área',
-                    border: pill, enabledBorder: pill,
-                    contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    isDense: true,
+                    value: _estadoSel,
+                    decoration: const InputDecoration(
+                      isDense: true, labelText: 'Estado',
+                      border: pill, enabledBorder: pill,
+                      contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    ),
+                    items: _estadosMap.entries
+                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
                   ),
-                  items: _areasMap.entries
-                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  isDense: true,
-                  value: _estadoSel,
-                  decoration: const InputDecoration(
-                    isDense: true, labelText: 'Estado',
-                    border: pill, enabledBorder: pill,
-                    contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            // Fila 3: Rango de fechas
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_month, size: 18),
+                  label: Text(
+                    _from == null && _to == null
+                        ? 'Rango de fechas'
+                        : '${_from == null ? '—' : DateFormat('dd/MM').format(_from!)}  →  ${_to == null ? '—' : DateFormat('dd/MM').format(_to!)}',
                   ),
-                  items: _estadosMap.entries
-                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-                      .toList(),
-                  onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: kBrand,
+                    side: const BorderSide(color: kBrand),
+                  ),
+                  onPressed: _pickDateRange,
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 6),
-
-          // Fila 3: Rango de fechas
-          Row(
-            children: [
-              OutlinedButton.icon(
-                icon: const Icon(Icons.calendar_month, size: 18),
-                label: Text(
-                  _from == null && _to == null
-                      ? 'Rango de fechas'
-                      : '${_from == null ? '—' : DateFormat('dd/MM').format(_from!)}  →  ${_to == null ? '—' : DateFormat('dd/MM').format(_to!)}',
-                ),
-                onPressed: _pickDateRange,
-              ),
-              const SizedBox(width: 8),
-              if (_from != null || _to != null)
-                TextButton.icon(
-                  icon: const Icon(Icons.clear, size: 18),
-                  label: const Text('Quitar rango'),
-                  onPressed: () => setState(() { _from = null; _to = null; }),
-                ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 8),
+                if (_from != null || _to != null)
+                  TextButton.icon(
+                    icon: const Icon(Icons.clear, size: 18),
+                    label: const Text('Quitar rango'),
+                    style: TextButton.styleFrom(foregroundColor: kBrand),
+                    onPressed: () => setState(() { _from = null; _to = null; }),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

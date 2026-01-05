@@ -80,6 +80,13 @@ String? _firstStrDeep(dynamic src, List<String> keys) {
   return null;
 }
 
+extension _EmpresaFilter on Query<Map<String, dynamic>> {
+  Query<Map<String, dynamic>> applyEmpresaFilter(String? empresaId) {
+    if (empresaId == null || empresaId.isEmpty) return this;
+    return where('empresaId', isEqualTo: empresaId);
+  }
+}
+
 // Normalización de cargos/roles
 Set<String> _empresasDe(Map<String, dynamic> data) {
   final out = <String>{};
@@ -414,11 +421,13 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchTasks() async {
     // GERENTE: trae todo (se ordena en cliente)
     if (_soyGerente) {
-      final qs = await FirebaseFirestore.instance
-          .collection('TBL_TAREAS')
-          .limit(1000)
-          .get();
-      return qs.docs;
+      Query<Map<String, dynamic>> q =
+      FirebaseFirestore.instance.collection('TBL_TAREAS');
+      if ((_empresaId ?? '').isNotEmpty) {
+        q = q.where('empresaId', isEqualTo: _empresaId);
+      }
+      final qs = await q.limit(1000).get();
+      return  qs.docs;
     }
 
     // DIRECTOR: por área (raíz + adjuntos.areaId + meta.areaId), deduplicando
@@ -427,15 +436,18 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         FirebaseFirestore.instance
             .collection('TBL_TAREAS')
             .where('areaId', isEqualTo: _miAreaId)
+            .applyEmpresaFilter(_empresaId)
             .limit(500)
             .get(),
         FirebaseFirestore.instance
             .collection('TBL_TAREAS')
+            .applyEmpresaFilter(_empresaId)
             .where('adjuntos.areaId', isEqualTo: _miAreaId)
             .limit(500)
             .get(),
         FirebaseFirestore.instance
             .collection('TBL_TAREAS')
+            .applyEmpresaFilter(_empresaId)
             .where('meta.areaId', isEqualTo: _miAreaId)
             .limit(500)
             .get(),
@@ -461,6 +473,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
       final qs = await FirebaseFirestore.instance
           .collection('TBL_TAREAS')
           .where('asignado_uid', whereIn: chunk)
+          .applyEmpresaFilter(_empresaId)
           .limit(500)
           .get();
       out.addAll(qs.docs);
