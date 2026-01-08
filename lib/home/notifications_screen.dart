@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'assigned_tasks_screen.dart'; // Ajusta ruta si es diferente
+import 'assigned_tasks_screen.dart';
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);
@@ -46,6 +46,13 @@ class _NotificationList extends StatelessWidget {
     required this.onlyUnread,
   }) : super(key: key);
 
+  DateTime? _parseCreatedAt(dynamic createdAt) {
+    if (createdAt == null) return null;
+    if (createdAt is Timestamp) return createdAt.toDate();
+    if (createdAt is int) return DateTime.fromMillisecondsSinceEpoch(createdAt);
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final stream = FirebaseFirestore.instance
@@ -61,25 +68,22 @@ class _NotificationList extends StatelessWidget {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+
         final docs = snap.data?.docs ?? [];
 
-        // Evita duplicados exactos por taskId + createdAt
+        // Evita duplicados exactos por taskId + createdAt (si createdAt es null, usa doc.id)
         final seen = <String>{};
         final uniqueDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         for (final d in docs) {
           final data = d.data();
-          final taskId = data['taskId'] as String? ?? '';
-          final ts = data['createdAt'] as Timestamp?;
-          final key = '$taskId-${ts?.millisecondsSinceEpoch ?? d.id}';
-          if (seen.add(key)) {
-            uniqueDocs.add(d);
-          }
+          final taskId = (data['taskId'] as String?) ?? '';
+          final when = _parseCreatedAt(data['createdAt']);
+          final key = '$taskId-${when?.millisecondsSinceEpoch ?? d.id}';
+          if (seen.add(key)) uniqueDocs.add(d);
         }
 
         final filtered = onlyUnread
-            ? uniqueDocs
-            .where((d) => (d.data()['read'] as bool? ?? false) == false)
-            .toList()
+            ? uniqueDocs.where((d) => (d.data()['read'] as bool? ?? false) == false).toList()
             : uniqueDocs;
 
         if (filtered.isEmpty) {
@@ -97,31 +101,26 @@ class _NotificationList extends StatelessWidget {
           itemBuilder: (c, i) {
             final doc = filtered.elementAt(i);
             final data = doc.data();
-            final taskId = data['taskId'] as String?;
-            final title = data['title'] as String? ?? '';
-            final desc = data['description'] as String? ?? '';
-            final ts = data['createdAt'] as Timestamp?;
-            final when = ts != null
-                ? DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate())
-                : '';
-            final isRead = data['read'] as bool? ?? false;
-            final fromId = data['fromId'] as String? ?? '';
-            final from = data['fromName'] as String? ?? 'Desconocido';
 
+            final taskId = data['taskId'] as String?;
+            final title = (data['title'] as String?) ?? '';
+            final desc = (data['description'] as String?) ?? '';
+            final dt = _parseCreatedAt(data['createdAt']);
+            final when = dt != null ? DateFormat('dd/MM/yyyy HH:mm').format(dt) : '...';
+            final isRead = (data['read'] as bool?) ?? false;
+
+            final fromId = (data['fromId'] as String?) ?? '';
+            final from = (data['fromName'] as String?) ?? 'Sistema';
 
             return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
               future: taskId == null
                   ? null
-                  : FirebaseFirestore.instance
-                  .collection('TBL_TAREAS')
-                  .doc(taskId)
-                  .get(),
+                  : FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).get(),
               builder: (ctxTask, snapTask) {
                 final taskData = snapTask.data?.data();
-                final status = (taskData?['status'] ?? taskData?['estado'] ?? 'pendiente')
-                    .toString();
-                final progress = (taskData?['progreso'] ?? taskData?['avance'] ?? '')
-                    .toString();
+                final status = (taskData?['status'] ?? taskData?['estado'] ?? 'pendiente').toString();
+                final progress = (taskData?['progreso'] ?? taskData?['avance'] ?? '').toString();
+
                 return ListTile(
                   leading: onlyUnread
                       ? const Icon(Icons.fiber_new, color: Colors.red)
@@ -139,8 +138,7 @@ class _NotificationList extends StatelessWidget {
                             children: [
                               const Icon(Icons.timelapse, size: 14),
                               const SizedBox(width: 4),
-                              Text('Estado: $status',
-                                  style: const TextStyle(fontFamily: kArial)),
+                              Text('Estado: $status', style: const TextStyle(fontFamily: kArial)),
                             ],
                           ),
                         ),
@@ -151,13 +149,14 @@ class _NotificationList extends StatelessWidget {
                             children: [
                               const Icon(Icons.trending_up, size: 14),
                               const SizedBox(width: 4),
-                              Text('Avance: $progress%',
-                                  style: const TextStyle(fontFamily: kArial)),
+                              Text('Avance: $progress%', style: const TextStyle(fontFamily: kArial)),
                             ],
                           ),
                         ),
                       FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future: FirebaseFirestore.instance
+                        future: fromId.isEmpty
+                            ? null
+                            : FirebaseFirestore.instance
                             .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
                             .doc(fromId)
                             .get(),
@@ -222,16 +221,17 @@ class _NotificationList extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Detalle de la tarea',
-                                  style: const TextStyle(
-                                      fontFamily: kArial, fontWeight: FontWeight.bold)),
+                              const Text(
+                                'Detalle de la tarea',
+                                style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                              ),
                               const SizedBox(height: 8),
-                              if (taskData != null)
-                                Text(taskData['descripcion']?.toString() ?? desc,
-                                    style: const TextStyle(fontFamily: kArial)),
+                              Text(
+                                (taskData?['descripcion']?.toString() ?? desc),
+                                style: const TextStyle(fontFamily: kArial),
+                              ),
                               const SizedBox(height: 8),
-                              Text('Estado: $status',
-                                  style: const TextStyle(fontFamily: kArial)),
+                              Text('Estado: $status', style: const TextStyle(fontFamily: kArial)),
                               const SizedBox(height: 4),
                               if (taskData != null && taskData['fecha_limite'] != null)
                                 Text(
