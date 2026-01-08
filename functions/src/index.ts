@@ -1,8 +1,9 @@
 // functions/src/index.ts
-import * as functions from "firebase-functions/v1"; // 👈 compat v1
+import * as functions from "firebase-functions/v1"; // compat v1
 import * as admin from "firebase-admin";
 
-console.log("[BUILD] functions v2025-10-09-#fix-notif-array");
+console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
+
 admin.initializeApp();
 
 const db = admin.firestore();
@@ -21,35 +22,52 @@ function getAssignedId(d: admin.firestore.DocumentData | undefined | null): stri
     null
   );
 }
+
 function getBossId(d: admin.firestore.DocumentData | undefined | null): string | null {
   if (!d) return null;
   return (d as any).jefe_uid || (d as any).jefeId || (d as any).jefe || null;
 }
+
 function getTaskTitle(d: admin.firestore.DocumentData | undefined | null): string {
   if (!d) return "Nueva tarea";
   return ((d as any).title || (d as any).titulo || "Nueva tarea").toString();
 }
+
 function getTaskDescription(d: admin.firestore.DocumentData | undefined | null): string {
   if (!d) return "";
   return ((d as any).description || (d as any).descripcion || "").toString();
 }
 
-async function resolveBossIdFor(
-  assignedId: string,
-  fromTask?: admin.firestore.DocumentData | null
-) {
+async function resolveBossIdFor(assignedId: string, fromTask?: admin.firestore.DocumentData | null) {
   const fromDoc = getBossId(fromTask || undefined);
   if (fromDoc) return String(fromDoc);
+
   const u = await db.collection("TBL_USUARIOS").doc(assignedId).get();
   const jid = u.exists ? (u.get("jefeId") || u.get("jefe_uid") || u.get("jefe")) : null;
   return jid ? String(jid) : null;
 }
 
+/**
+ * Guarda una notificación dentro de Firestore en:
+ * TBL_NOTIFICACIONES/{userId}/notifications (subcollection)
+ *
+ * @param {string} userId - Id del usuario destinatario (docId/cedula/uid según tu app).
+ * @param {Record<string, unknown>} payload - Contenido de la notificación (title, description, taskId, type, etc).
+ */
 async function saveInAppNotification(userId: string, payload: Record<string, unknown>) {
-  const ref = db.collection("TBL_NOTIFICACIONES").doc(userId);
-  // ✅ nada de FieldValue dentro del array
-  const notif = { ...payload, createdAt: Date.now(), read: false };
-  await ref.set({ notifications: admin.firestore.FieldValue.arrayUnion(notif) }, { merge: true });
+  const parentRef = db.collection("TBL_NOTIFICACIONES").doc(userId);
+
+  // (opcional) asegurar doc padre
+  await parentRef.set({ updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+
+  // subcollection (esto coincide con tu Flutter)
+  const subRef = parentRef.collection("notifications");
+
+  await subRef.add({
+    ...payload,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    read: false,
+  });
 }
 
 async function getTokensFor(userId: string): Promise<string[]> {
@@ -110,6 +128,7 @@ async function sendPushTo(
       )
     );
   }
+
   return { success: resp.successCount, failure: resp.failureCount };
 }
 
@@ -129,6 +148,7 @@ export const onTaskCreated = functions
     const data = (snap.data() as admin.firestore.DocumentData) ?? {};
     const taskId = ctx.params.taskId as string;
     const assignedId = getAssignedId(data);
+
     console.log("[onTaskCreated] taskId:", taskId, "assignedId:", assignedId);
     if (!assignedId) return;
 
@@ -141,6 +161,7 @@ export const onTaskCreated = functions
     } catch (e) {
       console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
+
     const tokens = await getTokensFor(assignedId);
     console.log("[onTaskCreated] tokens:", tokens.length);
     const res = await sendPushTo(tokens, { title: "Nueva tarea asignada", body: description || title }, { taskId });
@@ -159,6 +180,7 @@ export const onTaskCreated = functions
       } catch (e) {
         console.error("[onTaskCreated] boss save notif error:", e);
       }
+
       const bossTokens = await getTokensFor(bossId);
       const dr = await sendDataOnlyTo(bossTokens, {
         type: "task_assigned_report",
@@ -173,10 +195,7 @@ export const onTaskCreated = functions
 export const onTaskUpdated = functions
   .region("us-central1")
   .firestore.document("TBL_TAREAS/{taskId}")
-  .onUpdate(async (
-    change: functions.Change<functions.firestore.DocumentSnapshot>,
-    ctx: functions.EventContext
-  ) => {
+  .onUpdate(async (change: functions.Change<functions.firestore.DocumentSnapshot>, ctx: functions.EventContext) => {
     const before = change.before.data() as admin.firestore.DocumentData | undefined;
     const after = change.after.data() as admin.firestore.DocumentData | undefined;
 
@@ -204,6 +223,7 @@ export const onTaskUpdated = functions
     } catch (e) {
       console.error("[onTaskUpdated] saveInAppNotification error:", e);
     }
+
     const tokens = await getTokensFor(newAssigned);
     console.log("[onTaskUpdated] tokens:", tokens.length);
     const res = await sendPushTo(
@@ -226,6 +246,7 @@ export const onTaskUpdated = functions
       } catch (e) {
         console.error("[onTaskUpdated] boss save notif error:", e);
       }
+
       const bossTokens2 = await getTokensFor(bossId2);
       const dr2 = await sendDataOnlyTo(bossTokens2, {
         type: prevAssigned ? "task_reassigned_report" : "task_assigned_report",
@@ -267,33 +288,35 @@ export const registerDeviceToken = functions
     const token = (data?.token || "").toString().trim();
     const platform = (data?.platform || "").toString().trim();
     const deviceName = (data?.deviceName || "").toString().trim();
+
     if (!cedula || !token) {
       throw new functions.https.HttpsError("invalid-argument", "Parámetros: cedula y token");
     }
+
     const basePayload = {
-         fcmToken: token,
-         fcmTokens: admin.firestore.FieldValue.arrayUnion(token),
-         [`fcmDevices.${token}`]: {
-           platform: platform || "unknown",
-           deviceName: deviceName || null,
-           updatedAt: Date.now(),
-         },
-       };
+      fcmToken: token,
+      fcmTokens: admin.firestore.FieldValue.arrayUnion(token),
+      [`fcmDevices.${token}`]: {
+        platform: platform || "unknown",
+        deviceName: deviceName || null,
+        updatedAt: Date.now(),
+      },
+    };
 
-       const cedulaRef = db.collection("TBL_USUARIOS").doc(cedula);
-       await cedulaRef.set(basePayload, { merge: true });
+    const cedulaRef = db.collection("TBL_USUARIOS").doc(cedula);
+    await cedulaRef.set(basePayload, { merge: true });
 
-       // Si la cédula enviada corresponde al uid del usuario, sincroniza también
-       // el documento encontrado por uid para evitar duplicados.
-       const cedulaDoc = await cedulaRef.get();
-       if (!cedulaDoc.exists) {
-         const byUid = await db.collection("TBL_USUARIOS").where("uid", "==", cedula).limit(1).get();
-         if (!byUid.empty) {
-           await byUid.docs[0].ref.set(basePayload, { merge: true });
-         }
-       }
+    // Si la cédula enviada corresponde al uid del usuario, sincroniza también
+    // el documento encontrado por uid para evitar duplicados.
+    const cedulaDoc = await cedulaRef.get();
+    if (!cedulaDoc.exists) {
+      const byUid = await db.collection("TBL_USUARIOS").where("uid", "==", cedula).limit(1).get();
+      if (!byUid.empty) {
+        await byUid.docs[0].ref.set(basePayload, { merge: true });
+      }
+    }
 
-       console.log("[registerDeviceToken] cedula:", cedula, "token length:", token.length);
+    console.log("[registerDeviceToken] cedula:", cedula, "token length:", token.length);
     return { ok: true };
   });
 
@@ -303,13 +326,14 @@ export const sendTestPushHttp = functions
     try {
       const isPost = req.method === "POST";
       const userId = (isPost ? (req.body?.userId as string) : (req.query.userId as string)) || "";
-      const title = ((isPost ? (req.body?.title as string) : (req.query.title as string)) || "⚡ Test push");
-      const body = ((isPost ? (req.body?.body as string) : (req.query.body as string)) || "Hola");
-      const taskId = ((isPost ? (req.body?.taskId as string) : (req.query.taskId as string)) || "TEST");
-      const skipSave = ((isPost ? (req.body?.skipSave as string) : (req.query.skipSave as string)) || "0");
+      const title = (isPost ? req.body?.title : req.query.title) || "⚡ Test push";
+      const body = (isPost ? req.body?.body : req.query.body) || "Hola";
+      const taskId = (isPost ? req.body?.taskId : req.query.taskId) || "TEST";
+      const skipSave = (isPost ? req.body?.skipSave : req.query.skipSave) || "0";
 
       if (!userId) {
-        res.status(400).json({ error: "userId requerido" }); return;
+        res.status(400).json({ error: "userId requerido" });
+        return;
       }
 
       if (skipSave !== "1" && skipSave?.toLowerCase() !== "true") {
@@ -342,22 +366,14 @@ export const notifyTaskCompleted = functions
       throw new functions.https.HttpsError("invalid-argument", "creatorId y taskId requeridos");
     }
 
-    // In-app (campana)
-    await saveInAppNotification(creatorId, {
-      title,
-      description: body,
-      taskId,
-      type: "task_completed",
-    });
+    await saveInAppNotification(creatorId, { title, description: body, taskId, type: "task_completed" });
 
-    // Push FCM
     const tokens = await getTokensFor(creatorId);
     await sendPushTo(tokens, { title, body }, { taskId, type: "task_completed" });
 
     return { ok: true };
   });
 
-// === agrega al final de functions/src/index.ts ===
 export const notifyTaskNews = functions
   .region("us-central1")
   .https.onCall(async (data: any, _context: functions.https.CallableContext) => {
@@ -371,13 +387,13 @@ export const notifyTaskNews = functions
 
     const recipients = [creator, boss].filter((x) => !!x && x.length > 0);
 
-    await Promise.all(recipients.map(async (uid) => {
-      await saveInAppNotification(uid, {
-        title, description: body, taskId, type: "task_news",
-      });
-      const tokens = await getTokensFor(uid);
-      await sendPushTo(tokens, { title, body }, { taskId, type: "task_news" });
-    }));
+    await Promise.all(
+      recipients.map(async (uid) => {
+        await saveInAppNotification(uid, { title, description: body, taskId, type: "task_news" });
+        const tokens = await getTokensFor(uid);
+        await sendPushTo(tokens, { title, body }, { taskId, type: "task_news" });
+      })
+    );
 
     return { ok: true, count: recipients.length };
   });

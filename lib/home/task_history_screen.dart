@@ -68,9 +68,10 @@ String _resolvedEstado(Map<String, dynamic> m) {
   return raw.isEmpty ? 'pendiente' : raw;
 }
 
-/// Extrae un mensaje/descripcion de múltiples claves posibles
+/// Extrae un mensaje/descripcion de múltiples claves posibles (MÁS ROBUSTO)
 String _msgOf(Map<String, dynamic> m) {
   final keys = [
+    // comunes
     'description',
     'mensaje',
     'descripcion',
@@ -78,15 +79,60 @@ String _msgOf(Map<String, dynamic> m) {
     'texto',
     'msg',
     'comment',
+    'comentario',
+
+    // devoluciones / aprobaciones / motivos
+    'reason',
+    'motivo',
+    'justificacion',
+    'observacion',
+    'observaciones',
+    'nota',
+    'respuesta',
+
+    // otros posibles
+    'body',
+    'contenido',
+    'detalle_novedad',
+    'detalle_avance',
   ];
+
   for (final k in keys) {
     final v = m[k];
+    if (v == null) continue;
+
     if (v is String && v.trim().isNotEmpty) return v.trim();
+
+    final s = v.toString().trim();
+    if (s.isNotEmpty && s != 'null') return s;
   }
   return '';
 }
 
 /// -------- Helpers de adjuntos y lectura básica --------
+
+/// Clave única para deduplicar adjuntos (evita 2 registros por el mismo archivo)
+String _attKey(Map<String, String> m) {
+  final url = (m['url'] ?? '').trim();
+  final path = (m['path'] ?? '').trim();
+  final name = (m['name'] ?? '').trim().toLowerCase();
+
+  if (url.isNotEmpty) return 'u:$url';
+  if (path.isNotEmpty) return 'p:$path';
+  return 'n:$name';
+}
+
+List<Map<String, String>> _dedupeAtts(List<Map<String, String>> list) {
+  final seen = <String>{};
+  final out = <Map<String, String>>[];
+
+  for (final m in list) {
+    final k = _attKey(m);
+    if (k == 'u:' || k == 'p:' || k == 'n:') continue;
+    if (seen.add(k)) out.add(m);
+  }
+  return out;
+}
 
 /// Normaliza a mapas {name, url?, path?, desc?}
 List<Map<String, String>> _attachmentsFromRoot(Map<String, dynamic> m) {
@@ -121,8 +167,7 @@ List<Map<String, String>> _attachmentsFromRoot(Map<String, dynamic> m) {
   }
 
   // evidencias_paths: [path]
-  final evidPaths =
-      (m['evidencias_paths'] as List?)?.cast<dynamic>() ?? const [];
+  final evidPaths = (m['evidencias_paths'] as List?)?.cast<dynamic>() ?? const [];
   for (final p in evidPaths) {
     final path = p?.toString() ?? '';
     if (path.isEmpty) continue;
@@ -147,7 +192,7 @@ List<Map<String, String>> _attachmentsFromRoot(Map<String, dynamic> m) {
     }
   }
 
-  return out;
+  return _dedupeAtts(out);
 }
 
 /// Normaliza cualquier lista de adjuntos (String o Map) a [{name,url?,path?,desc?}]
@@ -168,7 +213,7 @@ List<Map<String, String>> _attachmentsFromAny(dynamic listOrNull) {
       });
     }
   }
-  return out;
+  return _dedupeAtts(out);
 }
 
 /// Adjuntos de un avance (attachments + evidencias)
@@ -183,7 +228,7 @@ List<Map<String, String>> _attachmentsFromAvance(Map<String, dynamic> m) {
     final name = Uri.tryParse(url)?.pathSegments.last ?? 'evidencia';
     out.add({'name': name, 'url': url, 'desc': 'Evidencia'});
   }
-  return out;
+  return _dedupeAtts(out);
 }
 
 Future<bool> _openAttachment(Map<String, String> m) async {
@@ -235,10 +280,12 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         .orderBy('createdAt', descending: true)
         .limit(30)
         .get();
+
     final tmp = <Map<String, String>>[];
     for (final d in qs.docs) {
       final m = d.data();
       final msg = _msgOf(m);
+
       final att = (m['attachments'] as List?) ?? const [];
       for (final e in att) {
         if (e is String) {
@@ -250,10 +297,13 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
             'name': (mm['name'] ?? 'novedad').toString(),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
-            'desc': (mm['desc'] ?? mm['description'] ?? msg.isEmpty ? 'Novedad' : msg).toString(),
+            'desc': (mm['desc'] ?? mm['description'] ?? (msg.isEmpty ? 'Novedad' : msg)).toString(),
           });
         }
       }
+
+      // Si no hay attachments pero sí hay mensaje, lo mostramos como “ítem” sin archivo? NO.
+      // (lo dejamos solo para archivos)
     }
     if (tmp.isNotEmpty) res['Novedades'] = tmp;
   } catch (_) {}
@@ -267,10 +317,12 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         .orderBy('createdAt', descending: true)
         .limit(30)
         .get();
+
     final tmp = <Map<String, String>>[];
     for (final d in qs.docs) {
       final m = d.data();
       final msg = _msgOf(m);
+
       final evid = (m['evidencias'] as List?)?.cast<dynamic>() ?? const [];
       for (final e in evid) {
         final url = e?.toString() ?? '';
@@ -278,6 +330,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         final name = Uri.tryParse(url)?.pathSegments.last ?? 'avance_${d.id}';
         tmp.add({'name': name, 'url': url, 'desc': msg.isEmpty ? 'Avance' : msg});
       }
+
       final att = (m['attachments'] as List?) ?? const [];
       for (final e in att) {
         if (e is Map) {
@@ -286,7 +339,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
             'name': (mm['name'] ?? 'avance').toString(),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
-            'desc': (mm['desc'] ?? mm['description'] ?? msg.isEmpty ? 'Avance' : msg).toString(),
+            'desc': (mm['desc'] ?? mm['description'] ?? (msg.isEmpty ? 'Avance' : msg)).toString(),
           });
         } else if (e is String) {
           final name = Uri.tryParse(e)?.pathSegments.last ?? 'avance_${d.id}';
@@ -306,6 +359,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         .orderBy('createdAt', descending: true)
         .limit(5)
         .get();
+
     final tmp = <Map<String, String>>[];
     for (final d in qs.docs) {
       final m = d.data();
@@ -321,13 +375,17 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
             'name': (mm['name'] ?? 'finalizacion').toString(),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
-            'desc': (mm['desc'] ?? mm['description'] ?? msg.isEmpty ? 'Finalización' : msg).toString(),
+            'desc': (mm['desc'] ?? mm['description'] ?? (msg.isEmpty ? 'Finalización' : msg)).toString(),
           });
         }
       }
     }
     if (tmp.isNotEmpty) res['Finalización'] = tmp;
   } catch (_) {}
+
+  // ✅ Dedupe por pestaña + eliminar pestañas vacías
+  res.updateAll((key, value) => _dedupeAtts(value));
+  res.removeWhere((k, v) => v.isEmpty);
 
   return res;
 }
@@ -434,11 +492,20 @@ class _AttachmentsScreen extends StatelessWidget {
         backgroundColor: const Color(0xFFF5F7FF),
         appBar: AppBar(
           backgroundColor: kBrand,
+          foregroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Colors.white),
+          titleTextStyle: const TextStyle(
+            fontFamily: kArial,
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
           title: const Text('Adjuntos de la tarea',
               style: TextStyle(fontFamily: kArial)),
           bottom: TabBar(
             isScrollable: true,
             labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
             indicatorColor: Colors.white,
             tabs: [for (final k in keys) Tab(text: '$k (${tabsMap[k]!.length})')],
           ),
@@ -496,8 +563,7 @@ class _AttachmentsScreen extends StatelessWidget {
                 children: [
                   for (final k in keys)
                     ListView.separated(
-                      padding:
-                      const EdgeInsets.fromLTRB(12, 10, 12, 16),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
                       itemCount: tabsMap[k]!.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) {
@@ -506,14 +572,11 @@ class _AttachmentsScreen extends StatelessWidget {
                         final desc = (m['desc'] ?? '').toString();
                         final cardColor = _tabCardColor(k);
                         final (iconData, label) = _iconAndLabelFor(name);
-                        final isImage = _isImageName(name);
-                        final url = m['url'] ?? '';
 
                         // Animación sutil por item (stagger)
                         return TweenAnimationBuilder<double>(
                           tween: Tween(begin: 16, end: 0),
-                          duration:
-                          Duration(milliseconds: 210 + (i * 18)),
+                          duration: Duration(milliseconds: 210 + (i * 18)),
                           builder: (ctx, dx, child) => Opacity(
                             opacity: (16 - dx) / 16,
                             child: Transform.translate(
@@ -535,8 +598,7 @@ class _AttachmentsScreen extends StatelessWidget {
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(12),
-                                  border:
-                                  Border.all(color: Colors.black12),
+                                  border: Border.all(color: Colors.black12),
                                 ),
                                 child: Icon(iconData, size: 22),
                               ),
@@ -557,27 +619,32 @@ class _AttachmentsScreen extends StatelessWidget {
                                 style: const TextStyle(
                                     fontSize: 12, color: Colors.black54),
                               ),
-                              trailing: isImage && url.isNotEmpty
-                                  ? ClipRRect(
-                                borderRadius:
-                                BorderRadius.circular(8),
-                                child: Image.network(
-                                  url,
-                                  width: 52,
-                                  height: 36,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                  const Icon(Icons.open_in_new),
-                                ),
-                              )
-                                  : const Icon(Icons.open_in_new),
+
+                              // ✅ SOLO UN ICONO (sin miniatura) para evitar que parezca “2 archivos”
+                              trailing: IconButton(
+                                tooltip: 'Abrir',
+                                icon: const Icon(Icons.launch),
+                                onPressed: () async {
+                                  final ok = await _openAttachment(m);
+                                  if (!ok && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content:
+                                          Text('No se pudo abrir el archivo')),
+                                    );
+                                  }
+                                },
+                              ),
+
+                              // (opcional) también abre tocando la fila
                               onTap: () async {
                                 final ok = await _openAttachment(m);
                                 if (!ok && context.mounted) {
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(const SnackBar(
-                                      content:
-                                      Text('No se pudo abrir el archivo')));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                        Text('No se pudo abrir el archivo')),
+                                  );
                                 }
                               },
                             ),
@@ -614,11 +681,9 @@ void _pushAttachmentsPage(
     ),
     transitionDuration: const Duration(milliseconds: 280),
     transitionsBuilder: (_, anim, __, child) {
-      final slide = Tween<Offset>(
-          begin: const Offset(0.06, 0), end: Offset.zero)
+      final slide = Tween<Offset>(begin: const Offset(0.06, 0), end: Offset.zero)
           .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
-      final fade =
-      CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+      final fade = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
       return FadeTransition(
           opacity: fade, child: SlideTransition(position: slide, child: child));
     },
@@ -635,8 +700,8 @@ Future<void> _openAttachmentsPage(
   final tabsMap = await _collectAllAttachments(taskId, taskData);
   if (tabsMap.isEmpty || tabsMap.values.every((l) => l.isEmpty)) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No hay adjuntos.')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No hay adjuntos.')));
     }
     return;
   }
@@ -670,9 +735,20 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: kBrand,
+          foregroundColor: Colors.white,
+          iconTheme: const IconThemeData(color: Colors.white),
+          titleTextStyle: const TextStyle(
+            fontFamily: kArial,
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
           title: const Text('Historial de tareas',
               style: TextStyle(fontFamily: kArial)),
           bottom: const TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
             tabs: [
               Tab(text: 'Asignadas a mí', icon: Icon(Icons.assignment_ind)),
               Tab(text: 'Yo asigné', icon: Icon(Icons.manage_accounts)),
@@ -759,10 +835,12 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
           ? null
           : DateTimeRange(start: _from!, end: _to!),
     );
-    if (range != null) setState(() {
-      _from = range.start;
-      _to = range.end;
-    });
+    if (range != null) {
+      setState(() {
+        _from = range.start;
+        _to = range.end;
+      });
+    }
   }
 
   @override
@@ -813,14 +891,12 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
           if (_estadoSel != 'todos' && estado != _estadoSel) return false;
           if (_from != null &&
               (due == null ||
-                  due.isBefore(
-                      DateTime(_from!.year, _from!.month, _from!.day)))) {
+                  due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
             return false;
           }
           if (_to != null &&
               (due == null ||
-                  due.isAfter(DateTime(
-                      _to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
+                  due.isAfter(DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
             return false;
           }
           return true;
@@ -871,8 +947,11 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                       isDense: true,
                       prefixIcon: Icon(Icons.search),
                       hintText: 'Buscar por título…',
-                      border: pill, enabledBorder: pill, focusedBorder: pill,
-                      contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      border: pill,
+                      enabledBorder: pill,
+                      focusedBorder: pill,
+                      contentPadding:
+                      EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                     ),
                   ),
                 ),
@@ -880,7 +959,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
             ),
             const SizedBox(height: 10),
 
-            // Fila 2: Área + Estado (misma fila)
+            // Fila 2: Área + Estado
             Row(
               children: [
                 Expanded(
@@ -888,12 +967,16 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                     isDense: true,
                     value: _areaSel,
                     decoration: const InputDecoration(
-                      isDense: true, labelText: 'Área',
-                      border: pill, enabledBorder: pill,
-                      contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                      isDense: true,
+                      labelText: 'Área',
+                      border: pill,
+                      enabledBorder: pill,
+                      contentPadding:
+                      EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                     ),
                     items: _areasMap.entries
-                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                        .map((e) =>
+                        DropdownMenuItem(value: e.key, child: Text(e.value)))
                         .toList(),
                     onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
                   ),
@@ -904,12 +987,16 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                     isDense: true,
                     value: _estadoSel,
                     decoration: const InputDecoration(
-                      isDense: true, labelText: 'Estado',
-                      border: pill, enabledBorder: pill,
-                      contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                      isDense: true,
+                      labelText: 'Estado',
+                      border: pill,
+                      enabledBorder: pill,
+                      contentPadding:
+                      EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                     ),
                     items: _estadosMap.entries
-                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                        .map((e) =>
+                        DropdownMenuItem(value: e.key, child: Text(e.value)))
                         .toList(),
                     onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
                   ),
@@ -941,7 +1028,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                     icon: const Icon(Icons.clear, size: 18),
                     label: const Text('Quitar rango'),
                     style: TextButton.styleFrom(foregroundColor: kBrand),
-                    onPressed: () => setState(() { _from = null; _to = null; }),
+                    onPressed: () => setState(() {
+                      _from = null;
+                      _to = null;
+                    }),
                   ),
               ],
             ),
@@ -974,8 +1064,7 @@ class _AssignedTile extends StatelessWidget {
     );
   }
 
-  Widget _pillActionSmall(
-      IconData icon, String value, VoidCallback onTap) {
+  Widget _pillActionSmall(IconData icon, String value, VoidCallback onTap) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1001,11 +1090,13 @@ class _AssignedTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: bg, borderRadius: BorderRadius.circular(10),
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         d.toString(),
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        style:
+        const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -1038,8 +1129,8 @@ class _AssignedTile extends StatelessWidget {
                     TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const Spacer(),
                 Text(created,
-                    style: const TextStyle(
-                        fontSize: 12, color: Colors.black54)),
+                    style:
+                    const TextStyle(fontSize: 12, color: Colors.black54)),
               ]),
               const SizedBox(height: 10),
               Container(
@@ -1068,8 +1159,7 @@ class _AssignedTile extends StatelessWidget {
                   separatorBuilder: (_, __) => const SizedBox(height: 6),
                   itemBuilder: (ctx, i) {
                     final a = atts[i];
-                    final (icon, _) =
-                    _iconAndLabelFor(a['name'] ?? 'archivo');
+                    final (icon, _) = _iconAndLabelFor(a['name'] ?? 'archivo');
                     return ListTile(
                       dense: true,
                       tileColor: const Color(0xFFEFF4FF),
@@ -1080,14 +1170,24 @@ class _AssignedTile extends StatelessWidget {
                       title: Text(a['desc']?.isNotEmpty == true
                           ? a['desc']!
                           : (a['name'] ?? 'archivo')),
-                      trailing: const Icon(Icons.open_in_new),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.launch),
+                        onPressed: () async {
+                          final ok = await _openAttachment(a);
+                          if (!ok && ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(
+                                  content: Text('No se pudo abrir el archivo')),
+                            );
+                          }
+                        },
+                      ),
                       onTap: () async {
                         final ok = await _openAttachment(a);
                         if (!ok && ctx.mounted) {
                           ScaffoldMessenger.of(ctx).showSnackBar(
                             const SnackBar(
-                                content:
-                                Text('No se pudo abrir el archivo')),
+                                content: Text('No se pudo abrir el archivo')),
                           );
                         }
                       },
@@ -1122,8 +1222,7 @@ class _AssignedTile extends StatelessWidget {
 
   Widget _chipEstado(String estado) => Chip(
     labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    visualDensity:
-    const VisualDensity(horizontal: -3, vertical: -3),
+    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     label: Text(
       (estado.isEmpty ? 'sin estado' : estado),
@@ -1157,8 +1256,7 @@ class _AssignedTile extends StatelessWidget {
               const SizedBox(height: 8),
               _kv('Asignado', asignado.isEmpty ? '—' : asignado),
               _kv('Vence', vence),
-              if (prioridad.isNotEmpty)
-                _kv('Prioridad', prioridad.toUpperCase()),
+              if (prioridad.isNotEmpty) _kv('Prioridad', prioridad.toUpperCase()),
             ],
           ),
         ),
@@ -1196,18 +1294,19 @@ class _AssignedTile extends StatelessWidget {
         final hasNovedad = lastNovedad != null;
 
         final m = doc.data();
-        final title =
-        (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
+        final title = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
         final estado = _resolvedEstado(m);
         final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
         final due = _toDate(m['fecha_limite']);
         final vence = _fmt(due);
 
+        // ✅ mostrar comentario/mensaje de novedad en tarjeta
+        final novMsg = (lastNovedad == null) ? '' : _msgOf(lastNovedad!);
+
         return Card(
           elevation: 1,
           color: const Color(0xFFF0F5FF),
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () {
@@ -1215,70 +1314,72 @@ class _AssignedTile extends StatelessWidget {
                 _showNovedadDialog(context,
                     taskId: doc.id, taskData: m, novedad: lastNovedad!);
               } else {
-                _openAttachmentsPage(
-                    context, taskId: doc.id, taskData: m);
+                _openAttachmentsPage(context, taskId: doc.id, taskData: m);
               }
             },
             onLongPress: () => _showQuickDetails(context, m),
             child: Padding(
               padding: const EdgeInsets.all(10),
-              child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding:
-                      const EdgeInsets.only(top: 2, right: 10),
-                      child: Icon(
-                        hasNovedad
-                            ? Icons.error_outline
-                            : Icons.assignment_outlined,
-                        color: hasNovedad
-                            ? Colors.amber.shade700
-                            : Colors.grey,
-                        size: 18,
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, right: 10),
+                  child: Icon(
+                    hasNovedad ? Icons.error_outline : Icons.assignment_outlined,
+                    color: hasNovedad ? Colors.amber.shade700 : Colors.grey,
+                    size: 18,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+
+                        if (novMsg.isNotEmpty) ...[
+                          Text(
+                            '🟠 $novMsg',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
                           children: [
-                            Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
+                            _chipEstado(estado),
+                            _pillSmall(Icons.schedule, vence),
+                            if (prioridad == 'ALTA') _pillSmall(Icons.flag, prioridad),
+                            if (hasNovedad)
+                              _pillActionSmall(
+                                Icons.campaign,
+                                'Novedad',
+                                    () => _showNovedadDialog(
+                                  context,
+                                  taskId: doc.id,
+                                  taskData: m,
+                                  novedad: lastNovedad!,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                _chipEstado(estado),
-                                _pillSmall(Icons.schedule, vence),
-                                if (prioridad == 'ALTA')
-                                  _pillSmall(Icons.flag, prioridad),
-                                if (hasNovedad)
-                                  _pillActionSmall(
-                                    Icons.campaign,
-                                    'Novedad',
-                                        () => _showNovedadDialog(
-                                      context,
-                                      taskId: doc.id,
-                                      taskData: m,
-                                      novedad: lastNovedad!,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ]),
-                    ),
-                    const SizedBox(width: 8),
-                    _countdownBadge(due, estado),
-                  ]),
+                          ],
+                        ),
+                      ]),
+                ),
+                const SizedBox(width: 8),
+                _countdownBadge(due, estado),
+              ]),
             ),
           ),
         );
@@ -1324,10 +1425,8 @@ class _ICreatedTabState extends State<_ICreatedTab> {
 
   Future<void> _loadAreas() async {
     try {
-      final qs = await FirebaseFirestore.instance
-          .collection('TBL_AREAS')
-          .limit(1000)
-          .get();
+      final qs =
+      await FirebaseFirestore.instance.collection('TBL_AREAS').limit(1000).get();
       for (final d in qs.docs) {
         final m = d.data();
         final id = (m['areaId'] ?? d.id).toString();
@@ -1351,14 +1450,15 @@ class _ICreatedTabState extends State<_ICreatedTab> {
       context: context,
       firstDate: now.subtract(const Duration(days: 365 * 2)),
       lastDate: now.add(const Duration(days: 365)),
-      initialDateRange: _from == null || _to == null
-          ? null
-          : DateTimeRange(start: _from!, end: _to!),
+      initialDateRange:
+      _from == null || _to == null ? null : DateTimeRange(start: _from!, end: _to!),
     );
-    if (range != null) setState(() {
-      _from = range.start;
-      _to = range.end;
-    });
+    if (range != null) {
+      setState(() {
+        _from = range.start;
+        _to = range.end;
+      });
+    }
   }
 
   @override
@@ -1392,14 +1492,12 @@ class _ICreatedTabState extends State<_ICreatedTab> {
           return t?.toDate().millisecondsSinceEpoch ?? 0;
         }
 
-        var ordered = [...docs]
-          ..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
+        var ordered = [...docs]..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
 
         final q = _searchCtl.text.trim().toLowerCase();
         ordered = ordered.where((d) {
           final m = d.data();
-          final title =
-          ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
+          final title = ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
           final areaId = (m['areaId'] ?? '').toString();
           final estado = _resolvedEstado(m);
           final due = _toDate(m['fecha_limite']);
@@ -1408,14 +1506,12 @@ class _ICreatedTabState extends State<_ICreatedTab> {
           if (_estadoSel != 'todos' && estado != _estadoSel) return false;
           if (_from != null &&
               (due == null ||
-                  due.isBefore(
-                      DateTime(_from!.year, _from!.month, _from!.day)))) {
+                  due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
             return false;
           }
           if (_to != null &&
               (due == null ||
-                  due.isAfter(DateTime(
-                      _to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
+                  due.isAfter(DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
             return false;
           }
           return true;
@@ -1448,7 +1544,6 @@ class _ICreatedTabState extends State<_ICreatedTab> {
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
       child: Column(
         children: [
-          // Fila 1: búsqueda
           Row(
             children: [
               Expanded(
@@ -1459,16 +1554,17 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                     isDense: true,
                     prefixIcon: Icon(Icons.search),
                     hintText: 'Buscar por título…',
-                    border: pill, enabledBorder: pill, focusedBorder: pill,
-                    contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    border: pill,
+                    enabledBorder: pill,
+                    focusedBorder: pill,
+                    contentPadding:
+                    EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-
-          // Fila 2: Área + Estado (misma fila)
           Row(
             children: [
               Expanded(
@@ -1476,9 +1572,12 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                   isDense: true,
                   value: _areaSel,
                   decoration: const InputDecoration(
-                    isDense: true, labelText: 'Área',
-                    border: pill, enabledBorder: pill,
-                    contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    isDense: true,
+                    labelText: 'Área',
+                    border: pill,
+                    enabledBorder: pill,
+                    contentPadding:
+                    EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                   ),
                   items: _areasMap.entries
                       .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
@@ -1492,9 +1591,12 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                   isDense: true,
                   value: _estadoSel,
                   decoration: const InputDecoration(
-                    isDense: true, labelText: 'Estado',
-                    border: pill, enabledBorder: pill,
-                    contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                    isDense: true,
+                    labelText: 'Estado',
+                    border: pill,
+                    enabledBorder: pill,
+                    contentPadding:
+                    EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                   ),
                   items: _estadosMap.entries
                       .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
@@ -1504,10 +1606,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
               ),
             ],
           ),
-
           const SizedBox(height: 6),
-
-          // Fila 3: Rango de fechas
           Row(
             children: [
               OutlinedButton.icon(
@@ -1524,7 +1623,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                 TextButton.icon(
                   icon: const Icon(Icons.clear, size: 18),
                   label: const Text('Quitar rango'),
-                  onPressed: () => setState(() { _from = null; _to = null; }),
+                  onPressed: () => setState(() {
+                    _from = null;
+                    _to = null;
+                  }),
                 ),
             ],
           ),
@@ -1539,19 +1641,14 @@ class _CreatedTile extends StatelessWidget {
   _CreatedTile({required this.doc});
 
   Future<Map<String, dynamic>?> _latest(String sub) async {
-    final qs = await doc.reference
-        .collection(sub)
-        .orderBy('createdAt', descending: true)
-        .limit(1)
-        .get();
+    final qs = await doc.reference.collection(sub).orderBy('createdAt', descending: true).limit(1).get();
     if (qs.docs.isEmpty) return null;
     return qs.docs.first.data();
   }
 
   Widget _chipMini(String text, Color bg) => Chip(
     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    visualDensity:
-    const VisualDensity(horizontal: -3, vertical: -3),
+    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
     labelPadding: const EdgeInsets.symmetric(horizontal: 6),
     label: Text(text,
         style: const TextStyle(
@@ -1561,11 +1658,9 @@ class _CreatedTile extends StatelessWidget {
 
   Widget _pillMini(String text) => Chip(
     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    visualDensity:
-    const VisualDensity(horizontal: -3, vertical: -3),
+    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
     labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    label: Text(text,
-        style: const TextStyle(fontFamily: kArial, fontSize: 11)),
+    label: Text(text, style: const TextStyle(fontFamily: kArial, fontSize: 11)),
     backgroundColor: Colors.white,
     side: const BorderSide(color: Colors.black12),
   );
@@ -1584,13 +1679,9 @@ class _CreatedTile extends StatelessWidget {
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: bg, borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        d.toString(),
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+      child: Text(d.toString(),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -1619,49 +1710,63 @@ class _CreatedTile extends StatelessWidget {
         final hasNovedad = lastN != null;
         final hasAvance = lastA != null;
 
+        // ✅ comentarios visibles (novedad/avance)
+        final lastNMsg = lastN == null ? '' : _msgOf(lastN!);
+        final lastAMsg = lastA == null ? '' : _msgOf(lastA!);
+        final preview = lastNMsg.isNotEmpty
+            ? '🟠 Novedad: $lastNMsg'
+            : (lastAMsg.isNotEmpty ? '🔵 Avance: $lastAMsg' : '');
+
         final leading = estado == 'finalizado'
             ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
             : (hasNovedad
             ? const Icon(Icons.error_outline, color: Colors.amber, size: 20)
-            : const Icon(Icons.assignment_outlined,
-            color: Colors.grey, size: 20));
+            : const Icon(Icons.assignment_outlined, color: Colors.grey, size: 20));
 
         return Card(
           elevation: hasNovedad ? 2 : 1,
           color: const Color(0xFFF0F5FF),
-          shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: ListTile(
             dense: true,
-            visualDensity:
-            const VisualDensity(horizontal: -3, vertical: -3),
+            visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
             leading: leading,
             title: Text(
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14),
+                  fontFamily: kArial, fontWeight: FontWeight.w700, fontSize: 14),
             ),
             subtitle: Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Asignado: ${asignado.isEmpty ? "—" : asignado}',
+                  if (preview.isNotEmpty) ...[
+                    Text(
+                      preview,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontFamily: kArial, fontSize: 12)),
-                  _chipMini('Estado: ${estado.isEmpty ? "—" : estado}',
-                      _statusColor(estado)),
-                  _pillMini('Vence: $vence'),
-                  if (prioridad == 'ALTA') _pillMini('Prioridad: $prioridad'),
-                  if (hasNovedad) _pillMini('Novedad'),
-                  if (hasAvance) _pillMini('Avance'),
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text('Asignado: ${asignado.isEmpty ? "—" : asignado}',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: kArial, fontSize: 12)),
+                      _chipMini('Estado: ${estado.isEmpty ? "—" : estado}', _statusColor(estado)),
+                      _pillMini('Vence: $vence'),
+                      if (prioridad == 'ALTA') _pillMini('Prioridad: $prioridad'),
+                      if (hasNovedad) _pillMini('Novedad'),
+                      if (hasAvance) _pillMini('Avance'),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1684,7 +1789,6 @@ class _CreatedTile extends StatelessWidget {
     final m = doc.data();
 
     if (resEstado == 'finalizado') {
-      // Solo ver adjuntos
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -1694,22 +1798,18 @@ class _CreatedTile extends StatelessWidget {
             child: Wrap(children: [
               ListTile(
                 dense: true,
-                visualDensity:
-                const VisualDensity(horizontal: -3, vertical: -3),
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 title: Text(
                   (m['titulo'] ?? m['title'] ?? '(Sin título)').toString(),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                subtitle: Text('ID: ${doc.id}',
-                    style: const TextStyle(fontSize: 12)),
+                subtitle: Text('ID: ${doc.id}', style: const TextStyle(fontSize: 12)),
                 trailing: Chip(
                   labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  visualDensity:
-                  const VisualDensity(horizontal: -3, vertical: -3),
-                  materialTapTargetSize:
-                  MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   label: const Text('finalizado',
                       style: TextStyle(color: Colors.white, fontSize: 11)),
                   backgroundColor: _statusColor('finalizado'),
@@ -1718,8 +1818,7 @@ class _CreatedTile extends StatelessWidget {
               const Divider(height: 1),
               ListTile(
                 dense: true,
-                visualDensity:
-                const VisualDensity(horizontal: -3, vertical: -3),
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 leading: const Icon(Icons.folder_open),
                 title: const Text('Ver adjuntos'),
                 onTap: () async {
@@ -1739,7 +1838,6 @@ class _CreatedTile extends StatelessWidget {
       return;
     }
 
-    // Modal con acciones completas
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1749,24 +1847,20 @@ class _CreatedTile extends StatelessWidget {
           child: Wrap(children: [
             ListTile(
               dense: true,
-              visualDensity:
-              const VisualDensity(horizontal: -3, vertical: -3),
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
               title: Text(
                 (m['titulo'] ?? m['title'] ?? '(Sin título)').toString(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              subtitle: Text('ID: ${doc.id}',
-                  style: const TextStyle(fontSize: 12)),
+              subtitle: Text('ID: ${doc.id}', style: const TextStyle(fontSize: 12)),
               trailing: Chip(
                 labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                visualDensity:
-                const VisualDensity(horizontal: -3, vertical: -3),
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 label: Text(resEstado.isEmpty ? 'sin_estado' : resEstado,
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 11)),
+                    style: const TextStyle(color: Colors.white, fontSize: 11)),
                 backgroundColor: _statusColor(resEstado),
               ),
             ),
@@ -1774,14 +1868,11 @@ class _CreatedTile extends StatelessWidget {
 
             ListTile(
               dense: true,
-              visualDensity:
-              const VisualDensity(horizontal: -3, vertical: -3),
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
               leading: const Icon(Icons.report_problem_outlined),
               title: const Text('Responder novedad'),
               subtitle: Text(
-                lastN == null
-                    ? 'No hay novedad reciente (igual puedes responder).'
-                    : _msgOf(lastN!),
+                lastN == null ? 'No hay novedad reciente (igual puedes responder).' : _msgOf(lastN!),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1792,13 +1883,11 @@ class _CreatedTile extends StatelessWidget {
             ),
             ListTile(
               dense: true,
-              visualDensity:
-              const VisualDensity(horizontal: -3, vertical: -3),
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
               leading: const Icon(Icons.trending_up),
               title: const Text('Gestionar avance'),
               subtitle: Text(
-                lastA == null ? 'No hay avance reciente (puedes gestionar el plazo).'
-                    : _msgOf(lastA!),
+                lastA == null ? 'No hay avance reciente (puedes gestionar el plazo).' : _msgOf(lastA!),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1809,16 +1898,19 @@ class _CreatedTile extends StatelessWidget {
             ),
             const Divider(height: 1),
 
+            // ✅ FINALIZAR: ahora abre un “sí/no” con icono y mensaje “X no ha dado por finalizada…”
             ListTile(
               dense: true,
               visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
               leading: const Icon(Icons.verified_outlined),
-              title: const Text('Aprobar finalización'),
+              title: const Text('Autorizar finalización'),
+              subtitle: const Text('Confirma con Sí/No antes de aprobar.'),
               onTap: () async {
                 Navigator.pop(context);
-                await _aprobarFinalizacion(context, doc);
+                await _confirmAndApproveFinalizacion(context, doc);
               },
             ),
+
             ListTile(
               dense: true,
               visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
@@ -1833,25 +1925,88 @@ class _CreatedTile extends StatelessWidget {
             const Divider(height: 1),
             ListTile(
               dense: true,
-              visualDensity:
-              const VisualDensity(horizontal: -3, vertical: -3),
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
               leading: const Icon(Icons.folder_open),
               title: const Text('Ver adjuntos'),
               onTap: () async {
                 Navigator.pop(context);
-                await _openAttachmentsPage(
-                  context,
-                  taskId: doc.id,
-                  taskData: m,
-                );
+                await _openAttachmentsPage(context, taskId: doc.id, taskData: m);
               },
             ),
-
             const SizedBox(height: 6),
           ]),
         ),
       ),
     );
+  }
+
+  /// ✅ Confirma y aprueba finalización (con mensaje “X no ha dado por finalizada…” + Sí/No + icono)
+  Future<void> _confirmAndApproveFinalizacion(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) async {
+    final m = doc.data();
+    final estado = _resolvedEstado(m);
+    if (estado == 'finalizado') {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Ya está finalizada.')));
+      }
+      return;
+    }
+
+    final assignedName =
+    (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString().trim();
+    final assignedId = (m['asignado_uid'] ?? '').toString().trim();
+    final who = assignedName.isNotEmpty ? assignedName : (assignedId.isNotEmpty ? assignedId : 'El asignado');
+
+    // ¿Hay solicitud/evidencia de finalización?
+    bool hasFinalizacionRequest = false;
+    try {
+      final qs = await doc.reference.collection('finalizacion').limit(1).get();
+      if (qs.docs.isNotEmpty) hasFinalizacionRequest = true;
+    } catch (_) {}
+
+    // También considera campos root si los usas
+    final completedFlag = (m['completed'] == true) || (m['completada'] == true) || (m['finalizada'] == true);
+    final completedAt = m['completedAt'] ?? m['completionAt'] ?? m['finalizedAt'];
+    if (completedFlag || completedAt != null) hasFinalizacionRequest = true;
+
+    final title = 'Autorizar finalización';
+    final message = hasFinalizacionRequest
+        ? '¿Deseas autorizar la finalización de esta tarea?'
+        : '$who no ha dado por finalizada la tarea.\n\n¿Deseas autorizar la finalización de todos modos?';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.verified_outlined, color: Color(0xFF1E3A8A)),
+            SizedBox(width: 8),
+            Expanded(child: Text('Autorizar finalización')),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.close),
+            label: const Text('No'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.check),
+            label: const Text('Sí, autorizar'),
+            style: ElevatedButton.styleFrom(backgroundColor: kBrand, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(context, true),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    await _aprobarFinalizacion(context, doc);
   }
 
   // ---------- Novedad ----------
@@ -1973,12 +2128,11 @@ class _CreatedTile extends StatelessWidget {
   Future<void> _dialogGestionarAvance(
       BuildContext context,
       QueryDocumentSnapshot<Map<String, dynamic>> doc, {
-        Map<String, dynamic>? lastA, // mensaje y posible nextDate
+        Map<String, dynamic>? lastA,
       }) async {
     final mensaje = _msgOf(lastA ?? {});
     final DateTime? sugerida = _extractSuggestedDate(lastA);
 
-    // usamos strings para opciones
     String opSel = (sugerida != null) ? 'sugerida' : 'mantener';
     DateTime? nuevaFecha;
 
@@ -2024,8 +2178,7 @@ class _CreatedTile extends StatelessWidget {
               ],
               RadioListTile<String>(
                 dense: true,
-                visualDensity:
-                const VisualDensity(horizontal: -3, vertical: -3),
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 value: 'mantener',
                 groupValue: opSel,
                 onChanged: (v) => sbSetState(() => opSel = v ?? 'mantener'),
@@ -2035,8 +2188,7 @@ class _CreatedTile extends StatelessWidget {
               if (sugerida != null)
                 RadioListTile<String>(
                   dense: true,
-                  visualDensity:
-                  const VisualDensity(horizontal: -3, vertical: -3),
+                  visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                   value: 'sugerida',
                   groupValue: opSel,
                   onChanged: (v) => sbSetState(() => opSel = v ?? 'sugerida'),
@@ -2045,15 +2197,13 @@ class _CreatedTile extends StatelessWidget {
                 ),
               RadioListTile<String>(
                 dense: true,
-                visualDensity:
-                const VisualDensity(horizontal: -3, vertical: -3),
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 value: 'nueva',
                 groupValue: opSel,
                 onChanged: (v) => sbSetState(() => opSel = v ?? 'nueva'),
                 title: const Text('Asignar nueva fecha'),
                 subtitle: (opSel == 'nueva' && nuevaFecha != null)
-                    ? Text(
-                    'Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}')
+                    ? Text('Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}')
                     : null,
               ),
               if (opSel == 'nueva')
@@ -2072,10 +2222,7 @@ class _CreatedTile extends StatelessWidget {
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
             ElevatedButton(
               onPressed: () {
                 if (opSel == 'nueva' && nuevaFecha == null) return;
@@ -2103,7 +2250,6 @@ class _CreatedTile extends StatelessWidget {
 
     if (ok != true) return;
 
-    // Resolver la fecha final a aplicar
     DateTime? fechaFinal;
     if (opSel == 'sugerida') fechaFinal = sugerida;
     if (opSel == 'nueva') fechaFinal = nuevaFecha;
@@ -2117,7 +2263,6 @@ class _CreatedTile extends StatelessWidget {
       await doc.reference.update({'updatedAt': FieldValue.serverTimestamp()});
     }
 
-    // Notificar
     final assigned = (doc.data()['asignado_uid'] ?? '').toString();
     if (assigned.isNotEmpty) {
       final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
@@ -2133,8 +2278,8 @@ class _CreatedTile extends StatelessWidget {
     }
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Actualización aplicada')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Actualización aplicada')));
     }
   }
 
@@ -2144,15 +2289,14 @@ class _CreatedTile extends StatelessWidget {
     await doc.reference.update({
       'approved': true,
       'approvedAt': FieldValue.serverTimestamp(),
-      'estado': 'finalizado',  // set ambos
-      'status': 'finalizado',  // set ambos
+      'estado': 'finalizado',
+      'status': 'finalizado',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
     final assigned = (doc.data()['asignado_uid'] ?? '').toString();
     if (assigned.isNotEmpty) {
-      final fn =
-      FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
+      final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
       await fn.call(<String, dynamic>{
         'creatorId': assigned,
         'taskId': doc.id,
@@ -2191,8 +2335,7 @@ class _CreatedTile extends StatelessWidget {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-                'Explica por qué se devuelve y asigna nueva fecha de entrega.'),
+            const Text('Explica por qué se devuelve y asigna nueva fecha de entrega.'),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: pickFecha,
@@ -2215,19 +2358,13 @@ class _CreatedTile extends StatelessWidget {
           ],
         ),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Devolver')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Devolver')),
         ],
       ),
     );
 
-    if (ok == true &&
-        nuevaFecha != null &&
-        motivoCtrl.text.trim().isNotEmpty) {
+    if (ok == true && nuevaFecha != null && motivoCtrl.text.trim().isNotEmpty) {
       await doc.reference.update({
         'estado': 'en_progreso',
         'status': 'en_progreso',
@@ -2260,8 +2397,8 @@ class _CreatedTile extends StatelessWidget {
       }
     } else if (ok == true) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Debes indicar motivo y nueva fecha.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Debes indicar motivo y nueva fecha.')));
       }
     }
   }
