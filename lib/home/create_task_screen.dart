@@ -15,7 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:geocoding/geocoding.dart' as gcode;
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng; // (solo por tipo)
+import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng; // solo por tipo
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -57,6 +57,7 @@ class CreateTaskScreen extends StatefulWidget {
 }
 
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
+  // ===================== HELPERS BASE =====================
   String _firstNonEmpty(Map<String, dynamic> data, List<String> keys) {
     for (final k in keys) {
       final v = data[k];
@@ -70,11 +71,125 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String _empresaDe(Map<String, dynamic> data) =>
       _firstNonEmpty(data, const ['empresaId', 'empresa_id', 'empresa']);
 
-  String _areaDe(Map<String, dynamic> data) => _firstNonEmpty(data,
-      const ['areaId', 'area_id', 'area', 'departamentoId', 'departamento_id', 'departamento']);
+  String _areaDe(Map<String, dynamic> data) => _firstNonEmpty(
+    data,
+    const [
+      'areaId',
+      'area_id',
+      'area',
+      'departamentoId',
+      'departamento_id',
+      'departamento',
+    ],
+  );
 
-  /// ==================== TOKEN HELPERS PROFUNDOS ====================
-  /// Devuelve true si encuentra al menos un token en String / List / Map.
+  String _centroDe(Map<String, dynamic> data) => _firstNonEmpty(
+    data,
+    const [
+      'centroId',
+      'centro_id',
+      'centro',
+      'centroCostosId',
+      'centro_costos_id',
+      'centroCostos',
+      'centro_costos',
+      'centroNombre',
+      'centro_nombre',
+    ],
+  );
+
+  String _norm(String s) => s.trim().toLowerCase();
+
+  // ===================== RESOLUCIÓN ROBUSTA (IDs por nombre/código) =====================
+  String? _resolveCentroIdFromUser(Map<String, dynamic> u) {
+    // 1) si ya viene centroId real
+    final direct = _firstNonEmpty(u, const [
+      'centroId',
+      'centro_id',
+      'centro',
+      'centroCostosId',
+      'centro_costos_id',
+    ]);
+    if (direct.isNotEmpty && _centros.any((c) => c['id'] == direct)) return direct;
+
+    // 2) si viene por nombre (centro_costos) o por codigo
+    final nombre = _firstNonEmpty(u, const [
+      'centro_costos',
+      'centroCostos',
+      'centroNombre',
+      'centro_nombre',
+    ]);
+    final codigo = _firstNonEmpty(u, const [
+      'codigo',
+      'codigoCentro',
+      'centroCodigo',
+      'centro_codigo',
+    ]);
+
+    if (codigo.isNotEmpty) {
+      final hit = _centros.firstWhere(
+            (c) => _norm(c['codigo'] ?? '') == _norm(codigo),
+        orElse: () => {},
+      );
+      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
+    }
+
+    if (nombre.isNotEmpty) {
+      final hit = _centros.firstWhere(
+            (c) => _norm(c['nombre'] ?? '') == _norm(nombre),
+        orElse: () => {},
+      );
+      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
+    }
+
+    return null;
+  }
+
+  String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
+    // 1) si ya viene areaId real
+    final direct = _firstNonEmpty(u, const [
+      'areaId',
+      'area_id',
+      'departamentoId',
+      'departamento_id',
+    ]);
+    if (direct.isNotEmpty && _areas.any((a) => a['id'] == direct)) return direct;
+
+    // 2) si viene por nombre: area / areaNombre / departamento
+    final nombre = _firstNonEmpty(u, const [
+      'areaNombre',
+      'area_nombre',
+      'area',
+      'departamento',
+      'departamentoNombre',
+    ]);
+
+    if (nombre.isNotEmpty) {
+      final hit = _areas.firstWhere(
+            (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
+        orElse: () => {},
+      );
+      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
+    }
+
+    return null;
+  }
+
+  String? _nombreCentroPorId(String? id) {
+    if (id == null || id.trim().isEmpty) return null;
+    final hit = _centros.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
+    final n = (hit['nombre'] ?? '').trim();
+    return n.isEmpty ? null : n;
+  }
+
+  String? _nombreAreaPorId(String? id) {
+    if (id == null || id.trim().isEmpty) return null;
+    final hit = _areas.firstWhere((a) => a['id'] == id.trim(), orElse: () => {});
+    final n = (hit['nombre'] ?? '').trim();
+    return n.isEmpty ? null : n;
+  }
+
+  // ==================== TOKEN HELPERS PROFUNDOS ====================
   bool _hasAnyToken(Map<String, dynamic>? userData) {
     if (userData == null) return false;
 
@@ -86,8 +201,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return false;
     }
 
-    // Claves típicas
     const keys = [
+      'fcmDevices',
       'fcmTokens',
       'fcmToken',
       'tokens',
@@ -100,81 +215,25 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (anyToken(userData[k])) return true;
     }
 
-    // Fallback: cualquier clave que contenga "token"
     for (final e in userData.entries) {
       if (e.key.toLowerCase().contains('token') && anyToken(e.value)) {
+        return true;
+      }
+      if (e.key.toLowerCase().contains('fcm') && anyToken(e.value)) {
         return true;
       }
     }
     return false;
   }
 
-  /// Obtiene el primer token que encuentre (útil si lo necesitas).
-  String _firstToken(Map<String, dynamic>? userData) {
-    if (userData == null) return '';
-
-    String pick(dynamic v) {
-      if (v == null) return '';
-      if (v is String) return v.trim();
-      if (v is List) {
-        for (final x in v) {
-          final s = pick(x);
-          if (s.isNotEmpty) return s;
-        }
-        return '';
-      }
-      if (v is Map) {
-        for (final x in v.values) {
-          final s = pick(x);
-          if (s.isNotEmpty) return s;
-        }
-        return '';
-      }
-      return '';
-    }
-
-    const keys = [
-      'fcmTokens',
-      'fcmToken',
-      'tokens',
-      'deviceTokens',
-      'pushToken',
-      'notificationToken',
-      'token'
-    ];
-    for (final k in keys) {
-      final s = pick(userData[k]);
-      if (s.isNotEmpty) return s;
-    }
-    for (final e in userData.entries) {
-      if (e.key.toLowerCase().contains('token')) {
-        final s = pick(e.value);
-        if (s.isNotEmpty) return s;
-      }
-    }
-    return '';
-  }
-
-  /// Extractor simple (lo dejamos por compatibilidad puntual si te sirve en otro lado)
-  String _extractToken(Map<String, dynamic>? userData) {
-    if (userData == null) return '';
-    for (final k in kTokenKeys) {
-      final v = userData[k];
-      if (v == null) continue;
-      final s = v.toString().trim();
-      if (s.isNotEmpty) return s;
-    }
-    return '';
-  }
-
-  // ====== UI / Form ======
+  // ==================== UI / Form ====================
   final _formKey = GlobalKey<FormState>();
   final _titleCtl = TextEditingController();
   final _descCtl = TextEditingController();
   String _priority = 'media';
   DateTime? _deadline;
 
-  // ====== Selecciones ======
+  // ==================== Selecciones ====================
   String? _centroId;
   String? _areaId;
   String _cargoFiltro = 'todos';
@@ -184,66 +243,141 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _jefeNombre;
   String? _empresaId;
   String? _miAreaId;
+  String? _miCentroRaw; // puede venir como nombre o id
+  String? _miCentroId; // ya resuelto a id real cuando haya catálogo
   String? _currentUid;
 
   // Estructura organizacional (por uid)
   final Map<String, Map<String, dynamic>> _estructura = {};
 
-  // ====== Datos cargados ======
-  List<Map<String, String>> _areas = []; // [{id,nombre}]
-  List<Map<String, String>> _centros = []; // [{id,nombre}]
-  List<String> _cargos = ['todos'];
-  List<Map<String, String>> get _areasFiltradas {
-    final lista = [..._areas];
-    lista.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-    return lista;
-  }
+  // ==================== Datos cargados ====================
+  List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
+  List<Map<String, String>> _centros = []; // [{id,nombre,codigo}]
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
-  List<Map<String, String>> get _empleadosFiltrados {
-    // Filtra por área si hay selección
-    final all = _usuarios.entries
-        .where((e) => (e.value['estado'] ?? '').toString().toLowerCase() == 'activo')
-        .where((e) => _currentUid == null || e.key != _currentUid)
-        .map((e) => {
-      'uid': e.key,
-      'nombre': _nombreDeUsuario(e.value),
-      'areaId': _areaDe(e.value),
-      'cargo': (e.value['cargo'] ?? '').toString(),
-      'jefeId': (e.value['jefeId'] ?? '').toString(),
-      'jefeNombre': (e.value['jefeNombre'] ?? '').toString(),
-    })
-        .toList();
-    if (_areaId == null || _areaId!.isEmpty) {
-      all.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-      return _cargoFiltro == 'todos'
-          ? all
-          : all
-          .where((m) => (m['cargo'] ?? '').toLowerCase() == _cargoFiltro.toLowerCase())
-          .toList();
-    }
-    final filtered = all.where((m) => (m['areaId'] ?? '') == _areaId).toList()
-      ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-    final cargoFiltered = (_cargoFiltro == 'todos')
-        ? filtered
-        : filtered
-        .where((m) => (m['cargo'] ?? '').toLowerCase() == _cargoFiltro.toLowerCase())
-        .toList();
-    return cargoFiltered.isEmpty ? filtered.isEmpty ? all : filtered : cargoFiltered;
-  }
 
-  // ====== Adjuntos / Foto ======
+  // ==================== Adjuntos / Foto ====================
   final ImagePicker _picker = ImagePicker();
   File? _photo;
   final List<PlatformFile> _pickedFiles = [];
 
-  // ====== Ubicación ======
+  // ==================== Ubicación ====================
   Position? _myPos;
   String? _myAddress;
 
   bool _saving = false;
   bool _bootstrapped = false;
   EmpresaState? _empresaState;
+
+  // ==================== GETTERS DE FILTROS ====================
+  List<Map<String, String>> get _centrosOrdenados {
+    final lista = [..._centros];
+    lista.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    return lista;
+  }
+
+  /// Áreas filtradas por Centro:
+  /// - Si TBL_AREAS trae centroId -> filtra directo.
+  /// - Si NO trae centroId -> deriva qué áreas existen por usuarios del centro.
+  List<Map<String, String>> get _areasFiltradas {
+    final all = [..._areas]..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+
+    if (_centroId == null || _centroId!.trim().isEmpty) return all;
+
+    final anyAreaHasCentro = all.any((a) => (a['centroId'] ?? '').trim().isNotEmpty);
+    if (anyAreaHasCentro) {
+      final direct = all.where((a) => (a['centroId'] ?? '').trim() == _centroId!.trim()).toList();
+      return direct.isEmpty ? all : direct;
+    }
+
+    // Derivado por usuarios: (centro seleccionado) -> áreas que tienen usuarios en ese centro
+    final areaIds = <String>{};
+    for (final u in _usuarios.values) {
+      final estado = (u['estado'] ?? '').toString().toLowerCase();
+      if (estado != 'activo') continue;
+      final centroId = (_resolveCentroIdFromUser(u) ?? _centroDe(u)).trim();
+      if (centroId != _centroId!.trim()) continue;
+      final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
+      if (areaId.isNotEmpty) areaIds.add(areaId);
+    }
+
+    final derived = all.where((a) => areaIds.contains((a['id'] ?? '').trim())).toList();
+    return derived.isEmpty ? all : (derived..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? '')));
+  }
+
+  /// Cargos disponibles según Centro/Área (derivado de usuarios)
+  List<String> get _cargosFiltrados {
+    final cargos = <String>{};
+
+    for (final u in _usuarios.values) {
+      final estado = (u['estado'] ?? '').toString().toLowerCase();
+      if (estado != 'activo') continue;
+
+      if (_currentUid != null && (_usuarios[_currentUid] != null)) {
+        // nada especial
+      }
+
+      final centroId = (_resolveCentroIdFromUser(u) ?? _centroDe(u)).trim();
+      final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
+      final cargo = (u['cargo'] ?? '').toString().trim();
+
+      if (_centroId != null && _centroId!.trim().isNotEmpty && centroId.isNotEmpty) {
+        if (centroId != _centroId!.trim()) continue;
+      }
+      if (_areaId != null && _areaId!.trim().isNotEmpty && areaId.isNotEmpty) {
+        if (areaId != _areaId!.trim()) continue;
+      }
+      if (cargo.isNotEmpty) cargos.add(cargo);
+    }
+
+    final lista = cargos.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return ['todos', ...lista];
+  }
+
+  List<Map<String, String>> get _empleadosFiltrados {
+    final list = <Map<String, String>>[];
+
+    for (final entry in _usuarios.entries) {
+      final uid = entry.key;
+      final u = entry.value;
+
+      final estado = (u['estado'] ?? '').toString().toLowerCase();
+      if (estado != 'activo') continue;
+      if (_currentUid != null && uid == _currentUid) continue;
+
+      final centroId = (_resolveCentroIdFromUser(u) ?? _centroDe(u)).trim();
+      final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
+      final cargo = (u['cargo'] ?? '').toString().trim();
+
+      // 1) filtra por centro
+      if (_centroId != null && _centroId!.trim().isNotEmpty) {
+        if (centroId.isNotEmpty && centroId != _centroId!.trim()) continue;
+      }
+
+      // 2) filtra por área
+      if (_areaId != null && _areaId!.trim().isNotEmpty) {
+        if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
+      }
+
+      // 3) filtra por cargo
+      if (_cargoFiltro != 'todos' && _cargoFiltro.trim().isNotEmpty) {
+        if (cargo.toLowerCase() != _cargoFiltro.toLowerCase()) continue;
+      }
+
+      list.add({
+        'uid': uid,
+        'nombre': _nombreDeUsuario(u),
+        'centroId': centroId,
+        'areaId': areaId,
+        'cargo': cargo,
+        'jefeId': (u['jefeId'] ?? u['jefe_uid'] ?? '').toString(),
+        'jefeNombre': (u['jefeNombre'] ?? u['jefe_nombre'] ?? '').toString(),
+      });
+    }
+
+    list.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    return list;
+  }
 
   @override
   void initState() {
@@ -265,18 +399,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         _empresaId = selected;
       }
       _bootstrap();
-    } else
-    if (selected != null && selected.isNotEmpty && selected != _empresaId) {
+    } else if (selected != null && selected.isNotEmpty && selected != _empresaId) {
       _empresaId = selected;
       _bootstrap();
     }
   }
+
   @override
   void dispose() {
     _titleCtl.dispose();
     _descCtl.dispose();
-    super.dispose();
     _empresaState?.removeListener(_onEmpresaChanged);
+    super.dispose();
   }
 
   void _onEmpresaChanged() {
@@ -291,14 +425,31 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     await _ensurePermissions();
     await _loadCurrentUser();
     await _loadEstructura();
+
+    // IMPORTANT: primero catálogos, luego usuarios (para poder resolver ids por nombre/código)
     await Future.wait([
       _getMyPosition(),
-      _loadAreas(),
-      _loadUsuarios(),
       _loadCentros(),
+      _loadAreas(),
     ]);
-    _ensureAreaSeleccionada();
-    setState(() {});
+    await _loadUsuarios();
+
+    // Resolver mi centro cuando ya existe catálogo
+    if ((_miCentroRaw ?? '').trim().isNotEmpty) {
+      _miCentroId ??= _resolveCentroIdFromUser({
+        'centroId': _miCentroRaw,
+        'centro_costos': _miCentroRaw,
+        'codigo': _miCentroRaw,
+      });
+      // Si me llegó un centroId real y existe en catálogo:
+      if (_miCentroId == null && _centros.any((c) => c['id'] == _miCentroRaw!.trim())) {
+        _miCentroId = _miCentroRaw!.trim();
+      }
+    }
+
+    _ensureCentroYArea();
+
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadCurrentUser() async {
@@ -307,16 +458,16 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     if (uid == null) return;
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection(kCollUsuarios)
-          .doc(uid)
-          .get();
+      final doc = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
       if (!doc.exists) return;
 
       final data = doc.data() ?? {};
-      _empresaId = _empresaDe(data);
-      _miAreaId = _areaDe(data);
+      // empresa del usuario (puede venir y sobrescribir lo de scope si no estaba)
+      final emp = _empresaDe(data);
+      if (emp.trim().isNotEmpty) _empresaId = emp.trim();
 
+      _miAreaId = _areaDe(data).trim();
+      _miCentroRaw = _centroDe(data).trim();
     } catch (_) {}
   }
 
@@ -336,7 +487,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if ((_miAreaId ?? '').isEmpty && _currentUid != null) {
         final me = _estructura[_currentUid!];
         if (me != null) {
-          _miAreaId = _areaDe(me);
+          _miAreaId = _areaDe(me).trim();
         }
       }
     } catch (_) {
@@ -347,7 +498,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _ensurePermissions() async {
     final enabled = await Geolocator.isLocationServiceEnabled();
     if (!enabled) {
-      // no forzamos, pero invitamos
       await Geolocator.openLocationSettings();
     }
     var perm = await Geolocator.checkPermission();
@@ -359,9 +509,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _getMyPosition() async {
     try {
-      _myPos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      _myPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       _myAddress = await _reverseGeocode(_myPos!.latitude, _myPos!.longitude);
     } catch (_) {
       _myPos = null;
@@ -374,14 +522,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final places = await gcode.placemarkFromCoordinates(lat, lng);
       if (places.isNotEmpty) {
         final p = places.first;
-        final street = [
-          p.street,
-          p.subLocality,
-        ].where((e) => (e ?? '').isNotEmpty).join(', ');
-        final city = [
-          p.locality,
-          p.administrativeArea,
-        ].where((e) => (e ?? '').isNotEmpty).join(' - ');
+        final street = [p.street, p.subLocality].where((e) => (e ?? '').isNotEmpty).join(', ');
+        final city =
+        [p.locality, p.administrativeArea].where((e) => (e ?? '').isNotEmpty).join(' - ');
         return [street, city].where((e) => e.isNotEmpty).join(' | ');
       }
     } catch (_) {}
@@ -409,11 +552,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   bool _empresaCoincide(Map<String, dynamic> data) {
     if (_empresaId == null || _empresaId!.isEmpty) return true;
-    final emp = _empresaDe(data);
+    final emp = _empresaDe(data).trim();
     if (emp.isEmpty) return true;
     return emp == _empresaId;
   }
 
+  // ==================== CARGA DE CATÁLOGOS ====================
   Future<void> _loadCentros() async {
     try {
       final qs = await _queryByEmpresa(kCollCentros, limit: 1000);
@@ -421,21 +565,24 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           .map((d) {
         final m = d.data();
         if (!_empresaCoincide(m)) return null;
-        final id = (m['centroId'] ?? d.id).toString();
-        final nombre = (m['nombre'] ?? id).toString();
-        return {'id': id, 'nombre': nombre};
+
+        final id = (m['centroId'] ?? d.id).toString().trim();
+        final nombre = (m['nombre'] ?? id).toString().trim();
+        final codigo = (m['codigo'] ?? '').toString().trim();
+
+        if (id.isEmpty) return null;
+        return {
+          'id': id,
+          'nombre': nombre.isEmpty ? id : nombre,
+          'codigo': codigo, // ✅ para resolver por código
+        };
       })
           .whereType<Map<String, String>>()
-          .where((m) => (m['id'] ?? '').toString().isNotEmpty)
           .toList()
         ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
-      // Si el centro previamente elegido ya no existe, limpiamos selección.
-      final selectedExists = _centros.any((c) => c['id'] == _centroId);
-      if (!selectedExists) {
+      if (_centroId != null && !_centros.any((c) => c['id'] == _centroId)) {
         _centroId = null;
-        _areaId = null;
-        _alElegirAsignado(null);
       }
     } catch (_) {
       _centroId = null;
@@ -449,64 +596,111 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .map((d) {
       final m = d.data();
       if (!_empresaCoincide(m)) return null;
-      final id = _areaDe(m).isEmpty ? d.id : _areaDe(m);
-      final nombre = (m['nombre'] ?? '—').toString();
-      final centroId = (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '').toString();
-      return {'id': id, 'nombre': nombre, 'centroId': centroId};
+      final id = (_firstNonEmpty(m, const ['areaId', 'area_id']).trim().isEmpty) ? d.id : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
+      final nombre = (m['nombre'] ?? '—').toString().trim();
+      final centroId = (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '').toString().trim();
+      return {'id': id, 'nombre': nombre.isEmpty ? '—' : nombre, 'centroId': centroId};
     })
         .whereType<Map<String, String>>()
-        .where((m) => (m['id'] ?? '').toString().isNotEmpty)
+        .where((m) => (m['id'] ?? '').trim().isNotEmpty)
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-
 
     // Fallback: áreas desde estructura organizacional si no están en TBL_AREAS
     final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
     for (final entry in _estructura.entries) {
       final estr = entry.value;
-      final id = (estr['areaId'] ?? '').toString();
+      final id = (estr['areaId'] ?? '').toString().trim();
       if (id.isEmpty || existingIds.contains(id)) continue;
-      final nombre = (estr['area'] ?? id).toString();
-      final centroId = (estr['centroId'] ?? estr['centro'] ?? '').toString();
-      _areas.add({'id': id, 'nombre': nombre, 'centroId': centroId});
+      final nombre = (estr['area'] ?? estr['areaNombre'] ?? id).toString().trim();
+      final centroId = (estr['centroId'] ?? estr['centro'] ?? '').toString().trim();
+      _areas.add({'id': id, 'nombre': nombre.isEmpty ? id : nombre, 'centroId': centroId});
       existingIds.add(id);
     }
 
     _areas.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-    _ensureAreaSeleccionada();
   }
 
   Future<void> _loadUsuarios() async {
-    final qs = await _queryByEmpresa(kCollUsuarios, limit: 2000);
-    final cargos = <String>{};
-    for (final d in qs.docs) {
-      final data = Map<String, dynamic>.from(d.data());
-      final estr = _estructura[d.id];
-      if (estr != null) {
-        bool _isEmpty(String key) =>
-            (data[key] == null || data[key].toString().trim().isEmpty);
-        void _fill(String key, dynamic value) {
-          if (_isEmpty(key) && value != null && value.toString().trim().isNotEmpty) {
-            data[key] = value;
+    try {
+      _usuarios.clear();
+      final qs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
+
+      for (final d in qs.docs) {
+        final data = Map<String, dynamic>.from(d.data());
+        final estr = _estructura[d.id];
+
+        if (estr != null) {
+          bool _isEmpty(String key) =>
+              (data[key] == null || data[key].toString().trim().isEmpty);
+          void _fill(String key, dynamic value) {
+            if (_isEmpty(key) && value != null && value.toString().trim().isNotEmpty) {
+              data[key] = value;
+            }
           }
+
+          // Completar desde estructura (si falta)
+          _fill('areaId', estr['areaId']);
+          _fill('area', estr['area'] ?? estr['areaNombre']);
+          _fill('centroId', estr['centroId'] ?? estr['centro']);
+          _fill('centro_costos', estr['centro_costos'] ?? estr['centroCostos']);
+          _fill('centroCostos', estr['centroCostos']);
+          _fill('jefeId', estr['jefeId'] ?? estr['jefe_uid']);
+          _fill('jefeNombre', estr['jefeNombre'] ?? estr['jefe_nombre']);
         }
 
-        _fill('areaId', estr['areaId']);
-        _fill('area', estr['area']);
-        _fill('centroId', estr['centroId'] ?? estr['centro']);
-        _fill('centroCostos', estr['centroCostos']);
-        _fill('jefeId', estr['jefeId']);
-        _fill('jefeNombre', estr['jefeNombre']);
+        if (!_empresaCoincide(data)) continue;
+        _usuarios[d.id] = data;
       }
-      if (!_empresaCoincide(data)) continue;
-      final cargo = (data['cargo'] ?? '').toString().trim();
-      if (cargo.isNotEmpty) cargos.add(cargo);
-      _usuarios[d.id] = data;
+    } catch (_) {
+      _usuarios.clear();
     }
-    _cargos = ['todos', ...cargos.toList()..sort()];
-    _ensureAreaSeleccionada();
   }
 
+  // ==================== NORMALIZACIÓN DE CASCADA ====================
+  void _ensureCentroYArea() {
+    // Centro: si no hay centro elegido, intenta el del usuario
+    if ((_centroId ?? '').trim().isEmpty) {
+      if ((_miCentroId ?? '').trim().isNotEmpty && _centros.any((c) => c['id'] == _miCentroId)) {
+        _centroId = _miCentroId;
+      }
+    }
+
+    // Área: si no hay área elegida, intenta la del usuario si existe dentro del filtro
+    if ((_areaId ?? '').trim().isEmpty) {
+      final list = _areasFiltradas;
+      if ((_miAreaId ?? '').trim().isNotEmpty && list.any((a) => a['id'] == _miAreaId)) {
+        _areaId = _miAreaId;
+      }
+    }
+
+    // Si el área actual no pertenece al set filtrado del centro, limpiar
+    if (_areaId != null && _areaId!.trim().isNotEmpty) {
+      final list = _areasFiltradas;
+      if (!list.any((a) => a['id'] == _areaId)) {
+        _areaId = null;
+        _cargoFiltro = 'todos';
+        _alElegirAsignado(null);
+      }
+    }
+
+    // Si el cargo seleccionado ya no aplica, reset
+    if (_cargoFiltro != 'todos') {
+      final cargos = _cargosFiltrados;
+      if (!cargos.any((c) => c.toLowerCase() == _cargoFiltro.toLowerCase())) {
+        _cargoFiltro = 'todos';
+        _alElegirAsignado(null);
+      }
+    }
+
+    // Si el asignado ya no aparece en el filtro, limpiar
+    if (_asignadoUid != null) {
+      final ok = _empleadosFiltrados.any((e) => e['uid'] == _asignadoUid);
+      if (!ok) _alElegirAsignado(null);
+    }
+  }
+
+  // ==================== NOMBRE USUARIO ====================
   String _nombreDeUsuario(Map<String, dynamic> u) {
     final n = (u['nombres'] ?? '').toString().trim();
     final a = (u['apellidos'] ?? '').toString().trim();
@@ -530,20 +724,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
   }
 
-  void _ensureAreaSeleccionada() {
-    final lista = _areasFiltradas;
-    final selectedExists = lista.any((a) => a['id'] == _areaId);
-    if (!selectedExists) {
-      _areaId = null;
-
-      if (_asignadoUid != null) {
-        _alElegirAsignado(null);
-      }
-    }
-  }
-
   // ==================== IMAGEN + MAPA ====================
-
   Future<void> _takePhoto() async {
     try {
       final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
@@ -573,18 +754,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return c.future;
   }
 
-  /// Mapa estático. Si la API no está habilitada o falla, devuelve null.
   Future<ui.Image?> _getStaticMap({
     required double width,
     required double height,
   }) async {
     if (_myPos == null) return null;
     try {
-      // Asegura tamaño mínimo para evitar artefactos de 4x4 px.
       final effW = math.max(128, math.min(640, width.round()));
       final effH = math.max(128, math.min(640, height.round()));
 
-      // Zoom simple, suficientemente cerca
       const zoom = 16;
       final center = '${_myPos!.latitude},${_myPos!.longitude}';
       final staticUrl = Uri.parse(
@@ -610,22 +788,16 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<Uint8List?> _buildWatermarkedBytes(ui.Image base) async {
     final nowStr = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
 
-    // Creador: del usuario actual si vino como parámetro; si no, intenta con FirebaseAuth
     String creadorNombre = '—';
-    if (widget.currentUserId != null && _usuarios.containsKey(widget.currentUserId)) {
-      creadorNombre = _nombreDeUsuario(_usuarios[widget.currentUserId]!);
-    } else {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null && _usuarios.containsKey(uid)) {
-        creadorNombre = _nombreDeUsuario(_usuarios[uid]!);
-      }
+    final uid = widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null && _usuarios.containsKey(uid)) {
+      creadorNombre = _nombreDeUsuario(_usuarios[uid]!);
     }
 
     final origenCoords = _myPos == null
         ? '—'
         : '${_myPos!.latitude.toStringAsFixed(5)}, ${_myPos!.longitude.toStringAsFixed(5)}';
-    final origenLinea =
-        'Ubicación: $origenCoords${_myAddress == null ? '' : ' · ${_myAddress!}'}';
+    final origenLinea = 'Ubicación: $origenCoords${_myAddress == null ? '' : ' · ${_myAddress!}'}';
 
     final infoTexto = [
       'Tarea • $nowStr',
@@ -638,31 +810,22 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ].join('\n');
 
     final recorder = ui.PictureRecorder();
-    final canvas =
-    ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()));
-
-    // Foto base
-    canvas.drawImage(
-      base,
-      ui.Offset.zero,
-      ui.Paint()..filterQuality = ui.FilterQuality.medium,
+    final canvas = ui.Canvas(
+      recorder,
+      ui.Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()),
     );
 
-    // Logo (opcional)
+    canvas.drawImage(base, ui.Offset.zero, ui.Paint()..filterQuality = ui.FilterQuality.medium);
+
     ui.Image? logo;
     try {
       final lb = await rootBundle.load('assets/logo.png');
       logo = await _decodeUiImage(lb.buffer.asUint8List());
     } catch (_) {}
 
-    // Overlay inferior ~20%
     final overlayH = (base.height * 0.20).toDouble().clamp(120.0, 260.0);
-    final overlayRect =
-    ui.Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
-    canvas.drawRect(
-      overlayRect,
-      ui.Paint()..color = const Color(0xCC000000), // negro con alpha
-    );
+    final overlayRect = ui.Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
+    canvas.drawRect(overlayRect, ui.Paint()..color = const Color(0xCC000000));
 
     const double pad = 18.0;
     final logoW = base.width * 0.18;
@@ -688,7 +851,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       math.max(128, overlayH - 2 * pad),
     );
 
-    // Dibuja logo centrado en blanco
     if (logo != null && logoRect.width > 0 && logoRect.height > 0) {
       final scale = math.min(logoRect.width / logo.width, logoRect.height / logo.height);
       final w = logo.width * scale;
@@ -707,7 +869,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       );
     }
 
-    // Texto con ajuste binario de tamaño
     Future<ui.Paragraph> buildPara({
       required String txt,
       required double maxW,
@@ -735,8 +896,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           hi = mid - 0.5;
         }
       }
-      best ??=
-      (ui.ParagraphBuilder(ui.ParagraphStyle(textAlign: align, maxLines: maxLines, ellipsis: '…'))
+      best ??= (ui.ParagraphBuilder(ui.ParagraphStyle(
+        textAlign: align,
+        maxLines: maxLines,
+        ellipsis: '…',
+      ))
         ..pushStyle(ui.TextStyle(color: color, fontSize: lo))
         ..addText(txt))
           .build()
@@ -748,10 +912,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final textOffsetY = textRect.top + (textRect.height - para.height) / 2;
     canvas.drawParagraph(para, ui.Offset(textRect.left, textOffsetY));
 
-    // Mapa
     ui.Image? mapImg = await _getStaticMap(width: mapRect.width, height: mapRect.height);
     if (mapImg != null) {
-      // marco con bordes redondeados
       final rrect = ui.RRect.fromRectAndRadius(mapRect, const ui.Radius.circular(12));
       final clipPath = ui.Path()..addRRect(rrect);
       canvas.save();
@@ -776,7 +938,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         ..pushStyle(ui.TextStyle(color: Colors.white70, fontSize: 18))
         ..addText('MAPA (habilita Static Maps API)');
       final ph = pb.build()..layout(ui.ParagraphConstraints(width: mapRect.width));
-      canvas.drawParagraph(ph, ui.Offset(mapRect.left, mapRect.top + (mapRect.height - ph.height) / 2));
+      canvas.drawParagraph(
+        ph,
+        ui.Offset(mapRect.left, mapRect.top + (mapRect.height - ph.height) / 2),
+      );
     }
 
     final picture = recorder.endRecording();
@@ -786,11 +951,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   // ==================== PICKER / UPLOAD ====================
-
   Future<void> _pickFiles() async {
     final res = await FilePicker.platform.pickFiles(
       allowMultiple: true,
-      withData: true, // importante para putData en Web/Android
+      withData: true,
       type: FileType.custom,
       allowedExtensions: const [
         'pdf',
@@ -807,9 +971,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       ],
     );
     if (res != null && res.files.isNotEmpty) {
-      setState(() {
-        _pickedFiles.addAll(res.files);
-      });
+      setState(() => _pickedFiles.addAll(res.files));
     }
   }
 
@@ -841,8 +1003,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
   }
 
-  Future<({String path, String? url})> _uploadBytes(Uint8List bytes, String storagePath,
-      {String? mime}) async {
+  Future<({String path, String? url})> _uploadBytes(
+      Uint8List bytes,
+      String storagePath, {
+        String? mime,
+      }) async {
     final ref = FirebaseStorage.instance.ref(storagePath);
     await ref.putData(bytes, SettableMetadata(contentType: mime));
     String? url;
@@ -863,9 +1028,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return (storagePath: up.path, downloadURL: up.url);
   }
 
-  // ==================== GUARDAR ====================
-
-  /// Lectura fresca para validar token antes de crear (estricto).
+  // ==================== VALIDACIÓN TOKEN (FRESCA) ====================
   Future<bool> _docHasTokenFresh(String uid) async {
     try {
       final snap = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
@@ -876,190 +1039,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
   }
 
-  Future<void> _saveTask() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (_centroId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona el centro de costos.')),
-      );
-      return;
-    }
-    if (_asignadoUid == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona la persona asignada.')),
-      );
-      return;
-    }
-    if (_currentUid != null && _asignadoUid == _currentUid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No puedes asignarte una tarea a ti mismo.')),
-      );
-      return;
-    }
-
-    if (_areaId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona el departamento (área).')),
-      );
-      return;
-    }
-
-    // ====== VALIDACIÓN DE TOKENS (asignado y jefe directo) ======
-    // Relee el asignado desde Firestore para asegurar datos frescos y nombre
-    final asignadoDoc = await _fetchUser(_asignadoUid!);
-    if (asignadoDoc == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo leer la información del asignado.')),
-      );
-      return;
-    }
-
-    // Determina jefe (preferimos el ya calculado; si no, desde el doc del asignado)
-    String? jefeUid = _jefeUid ?? (asignadoDoc['jefeId']?.toString().trim());
-    Map<String, dynamic>? jefeDoc;
-    if (jefeUid != null && jefeUid.isNotEmpty) {
-      jefeDoc = await _fetchUser(jefeUid);
-    }
-
-    setState(() => _saving = true);
-
-    // === validación estricta antes de crear (lectura directa) ===
-    if (!await _docHasTokenFresh(_asignadoUid!)) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La persona asignada no ha iniciado sesión (no tiene token).')),
-      );
-      return;
-    }
-    if (jefeUid != null && jefeUid.isNotEmpty && !await _docHasTokenFresh(jefeUid)) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El jefe directo no ha iniciado sesión (no tiene token).')),
-      );
-      return;
-    }
-
-    try {
-      // ===== Evidencia (foto) con marca de agua =====
-      String? evidenceUrl;
-      String? evidencePath;
-      if (_photo != null) {
-        final raw = await _photo!.readAsBytes();
-        final base = await _decodeUiImage(raw);
-        final wm = await _buildWatermarkedBytes(base);
-        if (wm != null) {
-          final up = await _uploadEvidence(wm);
-          evidenceUrl = up.downloadURL;
-          evidencePath = up.storagePath;
-        }
-      }
-
-      // ===== Adjuntos =====
-      final now = DateTime.now();
-      final y = DateFormat('yyyy').format(now);
-      final m = DateFormat('MM').format(now);
-      final d = DateFormat('dd').format(now);
-      final List<Map<String, dynamic>> adjuntos = [];
-      for (final f in _pickedFiles) {
-        final name = f.name;
-        final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
-        final mime = _guessMimeFromExtension(ext);
-        final fileBytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
-        if (fileBytes == null) continue;
-
-        final storagePath = 'tareas/$y/$m/$d/adj_${DateTime.now().millisecondsSinceEpoch}_$name';
-        final up = await _uploadBytes(fileBytes, storagePath, mime: mime);
-        adjuntos.add({
-          'name': name,
-          'path': up.path,
-          'url': up.url,
-          'mime': mime,
-          'size': f.size,
-        });
-      }
-
-      // ===== Datos de creador =====
-      String? creadorId = widget.currentUserId;
-      String? creadorNombre;
-      if (creadorId != null && _usuarios.containsKey(creadorId)) {
-        creadorNombre = _nombreDeUsuario(_usuarios[creadorId]!);
-      } else {
-        final uid = FirebaseAuth.instance.currentUser?.uid;
-        if (uid != null) {
-          creadorId = uid;
-          if (_usuarios.containsKey(uid)) {
-            creadorNombre = _nombreDeUsuario(_usuarios[uid]!);
-          }
-        }
-      }
-
-      // ===== Crear documento =====
-      final resolvedEmpresaId = () {
-        final current = (_empresaId ?? '').trim();
-        if (current.isNotEmpty) return current;
-        final empFromAsignado = _empresaDe(asignadoDoc);
-        if (empFromAsignado.isNotEmpty) return empFromAsignado;
-        return '';
-      }();
-
-      final payload = <String, dynamic>{
-        'titulo': _titleCtl.text.trim(),
-        'descripcion': _descCtl.text.trim(),
-        'prioridad': _priority,
-        'fecha_creacion': FieldValue.serverTimestamp(),
-        'fecha_limite': _deadline == null ? null : Timestamp.fromDate(_deadline!),
-        'estado': 'pendiente',
-        'centroId': _centroId,
-        'areaId': _areaId,
-        // 👇 fuerza string, sin espacios
-        'asignado_uid': (_asignadoUid ?? '').toString().trim(),
-        'asignado_nombre': _asignadoNombre ??
-            _nombreDeUsuario(asignadoDoc), // por si aún no estaba seteado el nombre
-        'jefe_uid': jefeUid,
-        'jefe_nombre': _jefeNombre ?? (jefeDoc == null ? null : _nombreDeUsuario(jefeDoc)),
-        'creador_id': creadorId,
-        'creador_nombre': creadorNombre,
-        'ubicacion': _myPos == null
-            ? null
-            : {
-          'lat': _myPos!.latitude,
-          'lng': _myPos!.longitude,
-          'texto': _myAddress,
-        },
-        'evidencias': evidenceUrl == null ? [] : [evidenceUrl],
-        'evidencias_paths': evidencePath == null ? [] : [evidencePath],
-        'adjuntos': adjuntos,
-        'notify': true,
-      };
-
-      if (resolvedEmpresaId.isNotEmpty) {
-        payload['empresaId'] = resolvedEmpresaId;
-      }
-
-      final ref = await FirebaseFirestore.instance.collection(kCollTareas).add(payload);
-
-      _photo = null;
-      _pickedFiles.clear();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Tarea creada (ID: ${ref.id}).')),
-        );
-        Navigator.pop(context, true);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al crear tarea: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  // ==================== UI HELPERS ====================
-
+  // ==================== DEADLINE ====================
   Future<void> _pickDeadline() async {
     final now = DateTime.now();
     final d = await showDatePicker(
@@ -1077,11 +1057,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     setState(() => _deadline = DateTime(d.year, d.month, d.day, t.hour, t.minute));
   }
 
-  /// Lectura fresca de un usuario (para refrescar cache al elegir asignado/jefe)
+  // ==================== REFRESH USER ====================
   Future<Map<String, dynamic>?> _fetchUserFresh(String uid) async {
     try {
-      final snap =
-      await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
+      final snap = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
       return snap.data();
     } catch (_) {
       return null;
@@ -1114,11 +1093,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final u = _usuarios[uid];
     if (u != null) {
       _asignadoNombre = _nombreDeUsuario(u);
-      final jefeId = (u['jefeId'] ?? '').toString().trim();
+      final jefeId = (u['jefeId'] ?? u['jefe_uid'] ?? '').toString().trim();
       _jefeUid = jefeId.isEmpty ? null : jefeId;
-      _jefeNombre = (u['jefeNombre'] ?? '').toString().trim().isEmpty
-          ? null
-          : (u['jefeNombre'] ?? '').toString();
+      final jefeNom = (u['jefeNombre'] ?? u['jefe_nombre'] ?? '').toString().trim();
+      _jefeNombre = jefeNom.isEmpty ? null : jefeNom;
     }
 
     // 2) jefe fresco (si aplica)
@@ -1133,19 +1111,233 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     setState(() {});
   }
 
-  // ==================== BUILD ====================
+  // ==================== GUARDAR ====================
+  Future<void> _saveTask() async {
+    _ensureCentroYArea();
 
+    if (!_formKey.currentState!.validate()) return;
+    if (_centroId == null || _centroId!.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona el centro de costos.')),
+      );
+      return;
+    }
+    if (_areaId == null || _areaId!.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona el departamento (área).')),
+      );
+      return;
+    }
+    if (_asignadoUid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona la persona asignada.')),
+      );
+      return;
+    }
+    if (_currentUid != null && _asignadoUid == _currentUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No puedes asignarte una tarea a ti mismo.')),
+      );
+      return;
+    }
+
+    // Relee asignado
+    final asignadoDoc = await _fetchUser(_asignadoUid!);
+    if (asignadoDoc == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo leer la información del asignado.')),
+      );
+      return;
+    }
+
+    // Jefe
+    String? jefeUid = _jefeUid ??
+        (asignadoDoc['jefeId']?.toString().trim()) ??
+        (asignadoDoc['jefe_uid']?.toString().trim());
+    Map<String, dynamic>? jefeDoc;
+    if (jefeUid != null && jefeUid.isNotEmpty) {
+      jefeDoc = await _fetchUser(jefeUid);
+    }
+
+    setState(() => _saving = true);
+
+    // Validación estricta tokens (asignado + jefe si existe)
+    if (!await _docHasTokenFresh(_asignadoUid!)) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La persona asignada no ha iniciado sesión (no tiene token).')),
+      );
+      return;
+    }
+    if (jefeUid != null && jefeUid.isNotEmpty && !await _docHasTokenFresh(jefeUid)) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El jefe directo no ha iniciado sesión (no tiene token).')),
+      );
+      return;
+    }
+
+    try {
+      // Evidencia (foto) con marca de agua
+      String? evidenceUrl;
+      String? evidencePath;
+      if (_photo != null) {
+        final raw = await _photo!.readAsBytes();
+        final base = await _decodeUiImage(raw);
+        final wm = await _buildWatermarkedBytes(base);
+        if (wm != null) {
+          final up = await _uploadEvidence(wm);
+          evidenceUrl = up.downloadURL;
+          evidencePath = up.storagePath;
+        }
+      }
+
+      // Adjuntos
+      final now = DateTime.now();
+      final y = DateFormat('yyyy').format(now);
+      final m = DateFormat('MM').format(now);
+      final d = DateFormat('dd').format(now);
+      final List<Map<String, dynamic>> adjuntos = [];
+      for (final f in _pickedFiles) {
+        final name = f.name;
+        final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
+        final mime = _guessMimeFromExtension(ext);
+        final fileBytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
+        if (fileBytes == null) continue;
+
+        final storagePath = 'tareas/$y/$m/$d/adj_${DateTime.now().millisecondsSinceEpoch}_$name';
+        final up = await _uploadBytes(fileBytes, storagePath, mime: mime);
+        adjuntos.add({
+          'name': name,
+          'path': up.path,
+          'url': up.url,
+          'mime': mime,
+          'size': f.size,
+        });
+      }
+
+      // Datos creador
+      String? creadorId = widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid;
+      String? creadorNombre;
+      if (creadorId != null && _usuarios.containsKey(creadorId)) {
+        creadorNombre = _nombreDeUsuario(_usuarios[creadorId]!);
+      }
+
+      // Empresa (preferimos la seleccionada)
+      final resolvedEmpresaId = () {
+        final current = (_empresaId ?? '').trim();
+        if (current.isNotEmpty) return current;
+        final empFromAsignado = _empresaDe(asignadoDoc).trim();
+        if (empFromAsignado.isNotEmpty) return empFromAsignado;
+        return '';
+      }();
+
+      final payload = <String, dynamic>{
+        'titulo': _titleCtl.text.trim(),
+        'descripcion': _descCtl.text.trim(),
+        'prioridad': _priority,
+        'fecha_creacion': FieldValue.serverTimestamp(),
+        'fecha_limite': _deadline == null ? null : Timestamp.fromDate(_deadline!),
+        'estado': 'pendiente',
+
+        // ✅ IDs consistentes para filtros
+        'centroId': _centroId!.trim(),
+        'centroNombre': _nombreCentroPorId(_centroId),
+        'areaId': _areaId!.trim(),
+        'areaNombre': _nombreAreaPorId(_areaId),
+        'cargoFiltro': _cargoFiltro,
+
+        // asignación
+        'asignado_uid': (_asignadoUid ?? '').toString().trim(),
+        'asignado_nombre': _asignadoNombre ?? _nombreDeUsuario(asignadoDoc),
+        'jefe_uid': (jefeUid == null || jefeUid.trim().isEmpty) ? null : jefeUid.trim(),
+        'jefe_nombre': _jefeNombre ?? (jefeDoc == null ? null : _nombreDeUsuario(jefeDoc)),
+        'creador_id': creadorId,
+        'creador_nombre': creadorNombre,
+
+        // ubicación
+        'ubicacion': _myPos == null
+            ? null
+            : {
+          'lat': _myPos!.latitude,
+          'lng': _myPos!.longitude,
+          'texto': _myAddress,
+        },
+
+        // evidencias
+        'evidencias': evidenceUrl == null ? [] : [evidenceUrl],
+        'evidencias_paths': evidencePath == null ? [] : [evidencePath],
+
+        // adjuntos
+        'adjuntos': adjuntos,
+        'notify': true,
+      };
+
+      if (resolvedEmpresaId.isNotEmpty) {
+        payload['empresaId'] = resolvedEmpresaId;
+      }
+
+      final ref = await FirebaseFirestore.instance.collection(kCollTareas).add(payload);
+
+      _photo = null;
+      _pickedFiles.clear();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Tarea creada (ID: ${ref.id}).')),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al crear tarea: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ==================== UI: CHIP RESUMEN ====================
+  Widget _chipInfo(IconData icon, String text, {Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: (color ?? Colors.black).withOpacity(0.07),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: (color ?? Colors.black).withOpacity(0.10)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: (color ?? Colors.black).withOpacity(0.75)),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: (color ?? Colors.black).withOpacity(0.85), fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== BUILD ====================
   @override
   Widget build(BuildContext context) {
-    final styleLabel = Theme.of(context).textTheme.labelMedium;
-    final styleHint = Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54);
-
-    // Chequeo rápido (cache actualizada) para mostrar aviso visual;
-    // el bloqueo real ocurre en _saveTask con _docHasTokenFresh().
+    // Avisos rápidos tokens (cache)
     final bool hasAssigneeToken =
     _asignadoUid == null ? true : _hasAnyToken(_usuarios[_asignadoUid!]);
-    final bool hasBossToken =
-    _jefeUid == null ? true : _hasAnyToken(_usuarios[_jefeUid!]);
+    final bool hasBossToken = _jefeUid == null ? true : _hasAnyToken(_usuarios[_jefeUid!]);
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    // Mantén cascada limpia en cada build (por si cambió data)
+    _ensureCentroYArea();
 
     return Scaffold(
       appBar: AppBar(
@@ -1159,11 +1351,40 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Encabezado “resumen” más visual
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _chipInfo(Icons.apartment, _nombreCentroPorId(_centroId) ?? 'Centro: —',
+                      color: scheme.primary),
+                  _chipInfo(Icons.account_tree_outlined, _nombreAreaPorId(_areaId) ?? 'Área: —',
+                      color: scheme.secondary),
+                  _chipInfo(
+                    Icons.flag_outlined,
+                    'Prioridad: ${_priority.toUpperCase()}',
+                    color: _priority == 'alta'
+                        ? Colors.red
+                        : _priority == 'media'
+                        ? Colors.orange
+                        : Colors.green,
+                  ),
+                  _chipInfo(
+                    Icons.event_outlined,
+                    _deadline == null
+                        ? 'Límite: —'
+                        : 'Límite: ${DateFormat('dd/MM HH:mm').format(_deadline!)}',
+                    color: scheme.tertiary,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
               // -------- Datos principales --------
               Card(
                 elevation: 1,
                 clipBehavior: Clip.antiAlias,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Form(
@@ -1176,6 +1397,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             labelText: 'Título',
                             hintText: 'Ej. Entregar informe de stock',
                             border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.title),
                           ),
                           validator: (v) =>
                           (v == null || v.trim().isEmpty) ? 'Ingresa un título' : null,
@@ -1188,6 +1410,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             labelText: 'Descripción',
                             hintText: 'Detalles, criterios de aceptación, etc.',
                             border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.subject),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1201,6 +1424,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                 decoration: const InputDecoration(
                                   labelText: 'Prioridad',
                                   border: OutlineInputBorder(),
+                                  prefixIcon: Icon(Icons.flag_outlined),
                                 ),
                                 items: const [
                                   DropdownMenuItem(value: 'alta', child: Text('Alta')),
@@ -1218,6 +1442,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                   decoration: const InputDecoration(
                                     labelText: 'Fecha límite',
                                     border: OutlineInputBorder(),
+                                    prefixIcon: Icon(Icons.event_outlined),
                                   ),
                                   child: Text(
                                     _deadline == null
@@ -1231,40 +1456,53 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // Centro de costos
+                        // Centro de costos (primer filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _centroId,
                           decoration: const InputDecoration(
                             labelText: 'Centro de costos',
                             border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.apartment),
                           ),
-                          items: [
-                            ..._centros.map(
-                                  (c) => DropdownMenuItem(
-                                    value: c['id'],
-                                child: Text(
-                                  c['nombre'] ?? c['id'] ?? '—',
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                ),
+                          items: _centrosOrdenados
+                              .map(
+                                (c) => DropdownMenuItem(
+                              value: c['id'],
+                              child: Text(
+                                '${c['nombre'] ?? c['id'] ?? '—'}'
+                                    '${(c['codigo'] ?? '').trim().isEmpty ? '' : '  (${c['codigo']})'}',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
                               ),
                             ),
-                          ],
-                          onChanged: (v) => setState(() {
-                            _centroId = v;
-                          }),
+                          )
+                              .toList(),
+                          onChanged: (v) {
+                            setState(() {
+                              _centroId = v?.trim();
+                              // cascada: al cambiar centro, limpiamos área/cargo/asignado
+                              _areaId = null;
+                              _cargoFiltro = 'todos';
+                              _alElegirAsignado(null);
+                              _ensureCentroYArea();
+                            });
+                          },
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Selecciona el centro de costos'
+                              : null,
                         ),
 
                         const SizedBox(height: 12),
 
-                        // Área
+                        // Área (segundo filtro, ya depende del centro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _areaId,
                           decoration: const InputDecoration(
                             labelText: 'Departamento (Área)',
                             border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.account_tree_outlined),
                           ),
                           items: _areasFiltradas
                               .map(
@@ -1279,75 +1517,82 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           )
                               .toList(),
                           onChanged: (v) {
-                            _areaId = v;
-                            // Si la persona asignada no pertenece al área, limpiala
-                            if (_asignadoUid != null) {
-                              final e = _usuarios[_asignadoUid!];
-                              final areaDelAsignado = e == null ? '' : _areaDe(e);
-                              if (v == null || areaDelAsignado != v) {
-                                _alElegirAsignado(null);
-                              }
-                            } else if (v == null) {
+                            setState(() {
+                              _areaId = v?.trim();
+                              // cascada: al cambiar área, limpiar cargo/asignado
+                              _cargoFiltro = 'todos';
                               _alElegirAsignado(null);
-                            }
-                            setState(() {});
+                              _ensureCentroYArea();
+                            });
                           },
-                          validator: (v) => v == null ? 'Selecciona el área' : null,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Selecciona el área' : null,
                         ),
+
                         const SizedBox(height: 12),
 
-                        // Cargo
+                        // Cargo (tercer filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _cargoFiltro,
                           decoration: const InputDecoration(
                             labelText: 'Cargo',
                             border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.badge_outlined),
                           ),
-                          items: _cargos
-                              .map((c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(c == 'todos' ? 'Todos los cargos' : c,
-                                overflow: TextOverflow.ellipsis),
-                          ))
+                          items: _cargosFiltrados
+                              .map(
+                                (c) => DropdownMenuItem(
+                              value: c,
+                              child: Text(
+                                c == 'todos' ? 'Todos los cargos' : c,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
                               .toList(),
                           onChanged: (v) {
                             setState(() {
-                              _cargoFiltro = v ?? 'todos';
+                              _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
+                              // cascada: al cambiar cargo, limpiar asignado si ya no aplica
                               if (_asignadoUid != null) {
-                                final cargoAsignado =
-                                (_usuarios[_asignadoUid!]?['cargo'] ?? '').toString().toLowerCase();
-                                if (_cargoFiltro != 'todos' && cargoAsignado != _cargoFiltro.toLowerCase()) {
-                                  _alElegirAsignado(null);
-                                }
+                                final ok = _empleadosFiltrados.any((e) => e['uid'] == _asignadoUid);
+                                if (!ok) _alElegirAsignado(null);
                               }
+                              _ensureCentroYArea();
                             });
                           },
                         ),
+
                         const SizedBox(height: 12),
 
-                        // Persona asignada
+                        // Persona asignada (resultado del filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _asignadoUid,
                           decoration: const InputDecoration(
                             labelText: 'Persona asignada',
                             border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person_outline),
                           ),
                           items: _empleadosFiltrados.map((e) {
                             final nombre = e['nombre'] ?? '—';
+                            final cargo = (e['cargo'] ?? '').trim();
                             return DropdownMenuItem(
                               value: e['uid'],
-                              child: Text(nombre, overflow: TextOverflow.ellipsis, maxLines: 1),
+                              child: Text(
+                                cargo.isEmpty ? nombre : '$nombre  •  $cargo',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
                             );
                           }).toList(),
                           onChanged: _alElegirAsignado,
                           validator: (v) => v == null ? 'Selecciona la persona' : null,
                         ),
 
-                        // Avisos rápidos (cache) de tokens usando extractor profundo
+                        // Avisos tokens
                         if (_asignadoUid != null && !hasAssigneeToken) ...[
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 8),
                           Row(
                             children: const [
                               Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 18),
@@ -1378,12 +1623,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ],
 
                         if (_jefeNombre != null) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
                               'Jefe directo: $_jefeNombre',
-                              style: Theme.of(context).textTheme.bodyMedium,
+                              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
                             ),
                           ),
                         ],
@@ -1398,18 +1643,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               // -------- Evidencia y adjuntos --------
               Card(
                 elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Evidencia y adjuntos (opcionales)', style: styleLabel),
+                      Text('Evidencia y adjuntos (opcionales)',
+                          style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 8),
                       Text(
                         'Puedes tomar una foto; se generará una marca de agua con datos y un mapa. '
                             'También puedes adjuntar archivos (PDF, Word, Excel, PowerPoint, ZIP, imágenes).',
-                        style: styleHint,
+                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.black54),
                       ),
                       const SizedBox(height: 12),
 
@@ -1449,7 +1695,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         Align(
                           alignment: Alignment.centerLeft,
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(12),
                             child: Image.file(
                               _photo!,
                               height: 120,
@@ -1460,7 +1706,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ),
 
                       if (_pickedFiles.isNotEmpty) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         ListView.separated(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
@@ -1511,6 +1757,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   style: FilledButton.styleFrom(
                     backgroundColor: kMarronOscuro,
                     foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                 ),
               ),

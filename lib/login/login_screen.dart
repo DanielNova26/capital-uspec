@@ -125,7 +125,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                   backgroundColor: scheme.primaryContainer,
                                   child: Text(
                                     empresaId.isNotEmpty
-                                        ? empresaId.substring(0, empresaId.length >= 2 ? 2 : 1).toUpperCase()
+                                        ? empresaId
+                                        .substring(0, empresaId.length >= 2 ? 2 : 1)
+                                        .toUpperCase()
                                         : '—',
                                     style: TextStyle(
                                       color: scheme.onPrimaryContainer,
@@ -228,12 +230,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     itemBuilder: (_, index) {
                       final id = ids[index];
                       final nombre = nombres[id];
-                      final title =
-                      nombre != null && nombre.isNotEmpty ? nombre : id;
+                      final title = nombre != null && nombre.isNotEmpty ? nombre : id;
                       final isSelected = selected == id;
                       return Material(
-                        color:
-                        isSelected ? scheme.primaryContainer : scheme.surface,
+                        color: isSelected ? scheme.primaryContainer : scheme.surface,
                         elevation: isSelected ? 2 : 1,
                         borderRadius: BorderRadius.circular(12),
                         child: InkWell(
@@ -250,16 +250,13 @@ class _LoginScreenState extends State<LoginScreen> {
                                   value: id,
                                   groupValue: selected,
                                   activeColor: scheme.primary,
-                                  onChanged: (value) =>
-                                      Navigator.of(context).pop(value),
+                                  onChanged: (value) => Navigator.of(context).pop(value),
                                 ),
                                 CircleAvatar(
                                   radius: 20,
                                   backgroundColor: scheme.primaryContainer,
                                   child: Text(
-                                    id
-                                        .substring(0, id.length >= 2 ? 2 : 1)
-                                        .toUpperCase(),
+                                    id.substring(0, id.length >= 2 ? 2 : 1).toUpperCase(),
                                     style: TextStyle(
                                       color: scheme.onPrimaryContainer,
                                       fontWeight: FontWeight.w700,
@@ -288,8 +285,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     ],
                                   ),
                                 ),
-                                Icon(Icons.chevron_right,
-                                    color: scheme.onSurfaceVariant),
+                                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
                               ],
                             ),
                           ),
@@ -306,20 +302,79 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // ✅ helpers para leer variantes de campos desde empresasDetalle
+  String _pickStr(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v == null) continue;
+      final s = v.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  /// ✅ AJUSTE CLAVE:
+  /// Al seleccionar empresa, además de guardar empresaId/empresaNombre,
+  /// copiamos a nivel raíz areaId/cargoId/centroId/jefeId... desde empresasDetalle[empresaId]
   Future<void> _persistSelectedEmpresa(String userId, String empresaId) async {
     try {
-      final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
-      final empresaDoc = await empresasCol.doc(empresaId).get();
-      final data = empresaDoc.data();
-      final nombre = (data?['nombre'] as String?)?.trim();
+      final db = FirebaseFirestore.instance;
 
-      await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(userId).set(
-        {
-          'empresaId': empresaId,
-          if (nombre != null && nombre.isNotEmpty) 'empresaNombre': nombre,
-        },
-        SetOptions(merge: true),
-      );
+      // 1) nombre oficial desde TBL_EMPRESAS (si existe)
+      String? empresaNombre;
+      try {
+        final empDoc = await db.collection('TBL_EMPRESAS').doc(empresaId).get();
+        final data = empDoc.data();
+        final n = (data?['nombre'] as String?)?.trim();
+        if (n != null && n.isNotEmpty) empresaNombre = n;
+      } catch (_) {}
+
+      // 2) leer usuario para extraer empresasDetalle
+      final userRef = db.collection('TBL_USUARIOS').doc(userId);
+      final userSnap = await userRef.get();
+      final userData = userSnap.data() ?? {};
+
+      final empresasDetalle = userData['empresasDetalle'];
+      Map<String, dynamic>? det;
+      if (empresasDetalle is Map<String, dynamic>) {
+        final raw = empresasDetalle[empresaId];
+        if (raw is Map<String, dynamic>) det = raw;
+      }
+
+      final update = <String, dynamic>{
+        'empresaId': empresaId,
+        if (empresaNombre != null && empresaNombre.isNotEmpty)
+          'empresaNombre': empresaNombre,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      // 3) si existe detalle para esa empresa, “sincronizamos” top-level (lo que usa CreateTask)
+      if (det != null) {
+        final areaId = _pickStr(det, const ['areaId', 'area_id', 'departamentoId', 'departamento_id']);
+        final area = _pickStr(det, const ['area', 'areaNombre', 'area_nombre', 'departamento']);
+        final cargoId = _pickStr(det, const ['cargoId', 'cargo_id']);
+        final cargo = _pickStr(det, const ['cargo']);
+        final centroId = _pickStr(det, const ['centroId', 'centro_id', 'centro']);
+        final centroCostos = _pickStr(det, const ['centroCostos', 'centro_costos', 'centro_costos_nombre']);
+        final jefeId = _pickStr(det, const ['jefeId', 'jefe_id', 'jefe_uid']);
+        final jefeNombre = _pickStr(det, const ['jefeNombre', 'jefe_nombre']);
+        final cargoJefe = _pickStr(det, const ['cargoJefe']);
+
+        if (areaId.isNotEmpty) update['areaId'] = areaId;
+        if (area.isNotEmpty) update['area'] = area;
+
+        if (cargoId.isNotEmpty) update['cargoId'] = cargoId;
+        if (cargo.isNotEmpty) update['cargo'] = cargo;
+
+        if (centroId.isNotEmpty) update['centroId'] = centroId;
+        if (centroCostos.isNotEmpty) update['centroCostos'] = centroCostos;
+
+        if (jefeId.isNotEmpty) update['jefeId'] = jefeId;
+        if (jefeNombre.isNotEmpty) update['jefeNombre'] = jefeNombre;
+        if (cargoJefe.isNotEmpty) update['cargoJefe'] = cargoJefe;
+      }
+
+      await userRef.set(update, SetOptions(merge: true));
     } catch (e) {
       debugPrint('No se pudo actualizar la empresa seleccionada: $e');
     }
@@ -332,7 +387,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final scheme = theme.colorScheme;
 
     return Scaffold(
-      // Deja que el tema ponga el fondo (scaffoldBackgroundColor)
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -343,7 +397,6 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo + 🔒 Desbloqueo oculto por triple-tap (PIN por Firestore o 2468)
                 Container(
                   height: 90,
                   margin: const EdgeInsets.only(bottom: 16),
@@ -375,7 +428,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      // Usuario o Cédula
                       TextFormField(
                         style: const TextStyle(fontFamily: kArial, fontSize: 14),
                         decoration: InputDecoration(
@@ -397,7 +449,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 20),
 
-                      // Contraseña
                       TextFormField(
                         style: const TextStyle(fontFamily: kArial, fontSize: 14),
                         obscureText: true,
@@ -422,7 +473,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 18),
 
-                      // Botón Iniciar sesión
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -454,7 +504,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Mostrar mensaje de error si existe
                       if (_errorMessage != null) ...[
                         Text(
                           _errorMessage!,
@@ -464,7 +513,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 8),
                       ],
 
-                      // Enlace “Primera vez ingresa aquí”
                       GestureDetector(
                         onTap: () {
                           Navigator.push(
@@ -484,7 +532,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Enlace “¿Olvidaste tu contraseña?”
                       GestureDetector(
                         onTap: () {
                           Navigator.push(
@@ -527,12 +574,6 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  /// Lógica de login que valida contra Firestore:
-  /// 1) Busca documento por ID = usuarioInput,
-  /// 2) Si no existe, busca por campo cedula == usuarioInput,
-  /// 3) Compara la contraseña ingresada contra el campo 'password',
-  /// 4) Si needsPasswordChange == true, va a ChangePasswordScreen,
-  ///    en caso contrario va a HomeScreen.
   Future<void> _submitLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -545,18 +586,15 @@ class _LoginScreenState extends State<LoginScreen> {
     final pass = passwordInput;
 
     try {
-      final collectionRef =
-      FirebaseFirestore.instance.collection('TBL_USUARIOS');
+      final collectionRef = FirebaseFirestore.instance.collection('TBL_USUARIOS');
       String? selectedEmpresaId;
 
-      // 1) Intentamos leer por ID (username) y, si no, por cédula
       final byId = await collectionRef.doc(input).get();
       final List<DocumentSnapshot<Map<String, dynamic>>> candidatos = [];
       if (byId.exists) {
         candidatos.add(byId);
       } else {
-        final querySnap =
-        await collectionRef.where('cedula', isEqualTo: input).get();
+        final querySnap = await collectionRef.where('cedula', isEqualTo: input).get();
         if (querySnap.docs.isEmpty) {
           setState(() {
             _errorMessage = 'Usuario o cédula no registrado';
@@ -567,7 +605,6 @@ class _LoginScreenState extends State<LoginScreen> {
         candidatos.addAll(querySnap.docs);
       }
 
-      // 2) Validamos contraseña antes de mostrar empresas
       final conPassword = candidatos.where((doc) {
         final storedPass = (doc.data()?['password'] as String? ?? '').trim();
         return storedPass == pass;
@@ -595,7 +632,6 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
 
-      // Si llegamos aquí, docSnapshot existe
       final data = docSnapshot.data();
       if (data == null) {
         setState(() {
@@ -604,11 +640,13 @@ class _LoginScreenState extends State<LoginScreen> {
         });
         return;
       }
-      final needsChange = data['needsPasswordChange'] as bool? ?? false;
-      final docId = docSnapshot!.id; // Esto es el "username" usado
 
-      // Determinar la empresa: permite que un usuario tenga varias empresas
+      final needsChange = data['needsPasswordChange'] as bool? ?? false;
+      final docId = docSnapshot.id;
+
+      // Empresas asociadas
       final empresaIds = <String>[];
+
       final empresaCampo = (data['empresaId'] as String?)?.trim();
       if (empresaCampo != null && empresaCampo.isNotEmpty) {
         empresaIds.add(empresaCampo);
@@ -621,6 +659,7 @@ class _LoginScreenState extends State<LoginScreen> {
           if (id != null && id.isNotEmpty) empresaIds.add(id);
         }
       }
+
       final empresasDetalle = data['empresasDetalle'] as Map<String, dynamic>?;
       if (empresasDetalle != null) {
         for (final entry in empresasDetalle.entries) {
@@ -630,7 +669,6 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
       final uniqueEmpresas = empresaIds.toSet().toList();
-
       if (uniqueEmpresas.isEmpty) {
         setState(() {
           _errorMessage = 'No se encontró empresa asociada al usuario';
@@ -648,6 +686,7 @@ class _LoginScreenState extends State<LoginScreen> {
           preselectedId: storedEmpresaId,
         );
       }
+
       if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
         setState(() {
           _errorMessage = 'Selecciona la empresa para continuar';
@@ -656,14 +695,12 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // Persistimos la empresa elegida para que las pantallas usen el filtro correcto
+      // ✅ EmpresaScope + persistencia (incluye sincronización top-level desde empresasDetalle)
       final empresaState = EmpresaScope.of(context, listen: false);
       empresaState.setSelectedEmpresaId(selectedEmpresaId);
-      await _persistSelectedEmpresa(docId, selectedEmpresaId!);
+      await _persistSelectedEmpresa(docId, selectedEmpresaId);
 
-      // 4) Según 'needsPasswordChange', redirigimos
       if (needsChange) {
-        // Debe cambiarla primero
         setState(() => _isLoading = false);
         Navigator.pushReplacement(
           context,
@@ -675,13 +712,12 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         );
       } else {
-        // Ya cambió antes, vamos a HomeScreen
         setState(() => _isLoading = false);
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (_) => HomeScreen(
-              username: docId, // ← Pasamos el username
+              username: docId,
               empresaId: selectedEmpresaId!,
             ),
           ),

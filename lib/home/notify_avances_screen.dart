@@ -1,6 +1,12 @@
 // lib/home/notify_avances_screen.dart
-// Pantalla para reportar AVANCES con foto marcada, adjuntos y próxima fecha.
-// Notifica al creador y al jefe via callable `notifyTaskNews`.
+//
+// Unificado con TaskService:
+// - No hace uploads directos aquí
+// - No usa callable notifyTaskNews
+// - NO doble notificación
+// - Próxima fecha: OPCIONAL
+//
+// Requiere: file_picker, image_picker, geolocator, permission_handler, intl
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,15 +14,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:intl/intl.dart';
+
+import '../services/task_service.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
@@ -24,6 +28,7 @@ const String kArial = 'Arial';
 class NotifyAvancesScreen extends StatefulWidget {
   final String taskId;
   final String currentUserId;
+
   const NotifyAvancesScreen({
     Key? key,
     required this.taskId,
@@ -35,14 +40,16 @@ class NotifyAvancesScreen extends StatefulWidget {
 }
 
 class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
+  final _taskService = TaskService();
+
   final _descCtrl = TextEditingController();
-  DateTime? _nextDate;
+  DateTime? _nextDate; // ✅ opcional
 
   bool _loading = false;
   String? _error, _success;
 
   final _picker = ImagePicker();
-  List<PlatformFile> _files = [];
+  final List<PlatformFile> _files = [];
   final List<Map<String, dynamic>> _photoMeta = [];
 
   @override
@@ -50,8 +57,6 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     _descCtrl.dispose();
     super.dispose();
   }
-
-  /* ---------------- Helpers ---------------- */
 
   Future<bool> _ensureLocationPerm() async {
     final s = await Permission.locationWhenInUse.status;
@@ -72,10 +77,10 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
   Future<void> _pickFiles() async {
     final res = await FilePicker.platform.pickFiles(
       allowMultiple: true,
-      withData: true, // por si no tienes path (p.ej. web)
+      withData: true,
       type: FileType.custom,
       allowedExtensions: const [
-        'pdf','doc','docx','xls','xlsx','ppt','pptx','zip','jpg','jpeg','png'
+        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'jpg', 'jpeg', 'png'
       ],
     );
     if (res != null && res.files.isNotEmpty) {
@@ -86,18 +91,29 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
   String _guessMime(String name) {
     final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
     switch (ext) {
-      case 'pdf': return 'application/pdf';
-      case 'doc': return 'application/msword';
-      case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      case 'xls': return 'application/vnd.ms-excel';
-      case 'xlsx': return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      case 'ppt': return 'application/vnd.ms-powerpoint';
-      case 'pptx': return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-      case 'zip': return 'application/zip';
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xls':
+        return 'application/vnd.ms-excel';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'ppt':
+        return 'application/vnd.ms-powerpoint';
+      case 'pptx':
+        return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      case 'zip':
+        return 'application/zip';
       case 'jpg':
-      case 'jpeg': return 'image/jpeg';
-      case 'png': return 'image/png';
-      default: return 'application/octet-stream';
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      default:
+        return 'application/octet-stream';
     }
   }
 
@@ -108,16 +124,12 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     if (x == null) return;
 
     final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-    final tarea = await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(widget.taskId).get();
-    final photographer = (tarea.data()?['asignado_nombre'] ??
-        tarea.data()?['assignedToName'] ??
-        'Desconocido').toString();
 
     final now = DateTime.now();
     final lines = [
       DateFormat('dd/MM/yyyy HH:mm').format(now),
       '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
-      'Foto por: $photographer',
+      'Foto por: ${widget.currentUserId}',
     ];
 
     // base
@@ -131,8 +143,7 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     try {
       final ld = await rootBundle.load('assets/logo.png');
       final lc = await ui.instantiateImageCodec(ld.buffer.asUint8List());
-      final lf = await lc.getNextFrame();
-      logo = lf.image;
+      logo = (await lc.getNextFrame()).image;
     } catch (_) {}
 
     // dibujar marca
@@ -161,21 +172,23 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
         Rect.fromLTWH(rect.left + p, rect.top + (rect.height - logoH) / 2, logoW, logoH),
         Paint(),
       );
+    }
 
-      final style = const TextStyle(
-        color: Colors.black87,
-        fontSize: 28,
-        fontFamily: kArial,
-        fontWeight: FontWeight.bold,
+    final style = const TextStyle(
+      color: Colors.black87,
+      fontSize: 28,
+      fontFamily: kArial,
+      fontWeight: FontWeight.bold,
+    );
+
+    final startX = rect.left + p * 2 + (logo != null ? (blockW * 0.15) : 0);
+    for (var i = 0; i < lines.length; i++) {
+      final tp = TextPainter(
+        text: TextSpan(text: lines[i], style: style),
+        textDirection: ui.TextDirection.ltr,
       );
-      for (var i = 0; i < lines.length; i++) {
-        final tp = TextPainter(
-          text: TextSpan(text: lines[i], style: style),
-          textDirection: ui.TextDirection.ltr,
-        );
-        tp.layout(maxWidth: rect.width - logoW - p * 3);
-        tp.paint(canvas, Offset(rect.left + logoW + p * 2, rect.top + p + i * 30));
-      }
+      tp.layout(maxWidth: rect.width - p * 3);
+      tp.paint(canvas, Offset(startX, rect.top + p + i * 30));
     }
 
     final picture = rec.endRecording();
@@ -183,23 +196,16 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     final bd = await finalImg.toByteData(format: ui.ImageByteFormat.png);
     final png = bd!.buffer.asUint8List();
 
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/${now.millisecondsSinceEpoch}.png');
-    await file.writeAsBytes(png);
-
     setState(() {
       _files.add(PlatformFile(
-        name: file.path.split('/').last,
-        path: file.path,
-        size: file.lengthSync(),
+        name: 'foto_${now.millisecondsSinceEpoch}.png',
         bytes: png,
+        size: png.length,
       ));
       _photoMeta.add({
-        'path': file.path,
         'lat': pos.latitude,
         'lng': pos.longitude,
         'when': now.toIso8601String(),
-        'by': photographer,
       });
     });
   }
@@ -216,12 +222,9 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
   }
 
   Future<void> _submit() async {
-    if (_descCtrl.text.trim().isEmpty) {
+    final msg = _descCtrl.text.trim();
+    if (msg.isEmpty) {
       setState(() => _error = 'Describe el avance');
-      return;
-    }
-    if (_nextDate == null) {
-      setState(() => _error = 'Selecciona la próxima fecha');
       return;
     }
 
@@ -232,72 +235,26 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     });
 
     try {
-      final tareaDoc = await FirebaseFirestore.instance
-          .collection('TBL_TAREAS')
-          .doc(widget.taskId)
-          .get();
-      final t = tareaDoc.data() ?? {};
-
-      // Destinatarios (robusto con varios nombres de campo)
-      final creatorId = (t['creador_id'] ?? t['creatorId'])?.toString();
-      final bossId = (t['jefe_uid'] ?? t['bossId'] ?? t['delegatedTo'])?.toString();
-      final assignedName = (t['asignado_nombre'] ?? t['assignedToName'] ?? '').toString();
-
-      // Subida de adjuntos con metadatos
-      final List<Map<String, dynamic>> uploaded = [];
+      final atts = <TaskAttachment>[];
       for (final f in _files) {
-        final name = f.name;
-        final mime = _guessMime(name);
         final bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
         if (bytes == null) continue;
-
-        final now = DateTime.now();
-        final y = DateFormat('yyyy').format(now);
-        final m = DateFormat('MM').format(now);
-        final d = DateFormat('dd').format(now);
-        final storagePath = 'tareas/$y/$m/$d/avc_${now.millisecondsSinceEpoch}_$name';
-
-        final ref = FirebaseStorage.instance.ref(storagePath);
-        await ref.putData(bytes, SettableMetadata(contentType: mime));
-        String url = await ref.getDownloadURL();
-
-        uploaded.add({
-          'name': name,
-          'url': url,
-          'mime': mime,
-          'size': f.size,
-          'uploadedAt': Timestamp.now(),
-        });
+        atts.add(TaskAttachment(
+          filename: f.name,
+          bytes: bytes,
+          contentType: _guessMime(f.name),
+        ));
       }
 
-      // Guardar avance (subcolección)
-      final col = FirebaseFirestore.instance
-          .collection('TBL_TAREAS')
-          .doc(widget.taskId)
-          .collection('avances');
-
-      await col.add({
-        'description': _descCtrl.text.trim(),
-        'nextDate': Timestamp.fromDate(_nextDate!),
-        'attachments': uploaded,      // mapas con name/url/mime/size
-        'photoMeta': _photoMeta,      // info de fotos con marca
-        'createdAt': Timestamp.now(), // evita serverTimestamp en paths problemáticos
-        'by': widget.currentUserId,
-      });
-
-      // Notificación: usa callable (y no rompe si falla)
-      try {
-        final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
-        await fn.call({
-          'taskId': widget.taskId,
-          'creatorId': creatorId ?? '',
-          'bossId': bossId ?? '',
-          'title': 'Avance en tarea',
-          'body': _descCtrl.text.trim(),
-        });
-      } catch (e) {
-        debugPrint('[notifyTaskNews] fallo opcional: $e');
-      }
+      await _taskService.addAvance(
+        taskId: widget.taskId,
+        byUserId: widget.currentUserId,
+        byUserName: '', // si tienes nombre en sesión, ponlo aquí
+        message: msg,
+        nextDate: _nextDate, // ✅ opcional
+        attachments: atts,
+        photoMeta: _photoMeta,
+      );
 
       setState(() {
         _success = 'Avance enviado';
@@ -311,26 +268,7 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     } finally {
       setState(() => _loading = false);
     }
-    final tarea = (await FirebaseFirestore.instance
-        .collection('TBL_TAREAS')
-        .doc(widget.taskId)
-        .get()).data()!;
-    final creatorId = (tarea['creador_id'] ?? tarea['creatorId'])?.toString();
-    final bossId    = (tarea['jefe_uid']   ?? tarea['delegatedTo'])?.toString();
-
-// …después de guardar el avance:
-    final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-    await functions.httpsCallable('notifyTaskNews').call({
-      'taskId': widget.taskId,
-      'title': 'Avance en tarea',
-      'body': _descCtrl.text.trim() +
-          (_nextDate != null ? ' · Próxima: ${DateFormat('dd/MM/yyyy').format(_nextDate!)}' : ''),
-      'creatorId': creatorId ?? '',
-      'bossId': bossId ?? '',
-    });
   }
-
-  /* ---------------- UI ---------------- */
 
   @override
   Widget build(BuildContext context) {
@@ -347,11 +285,20 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
           child: Column(
             children: [
               if (_error != null)
-                _BannerMsg(msg: _error!, color: Colors.red.shade50, textColor: Colors.red.shade700, icon: Icons.error_outline),
+                _BannerMsg(
+                  msg: _error!,
+                  color: Colors.red.shade50,
+                  textColor: Colors.red.shade700,
+                  icon: Icons.error_outline,
+                ),
               if (_success != null)
-                _BannerMsg(msg: _success!, color: Colors.green.shade50, textColor: Colors.green.shade800, icon: Icons.check_circle),
+                _BannerMsg(
+                  msg: _success!,
+                  color: Colors.green.shade50,
+                  textColor: Colors.green.shade800,
+                  icon: Icons.check_circle,
+                ),
 
-              // Card principal
               Card(
                 elevation: 1.5,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -360,7 +307,13 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Detalle del avance', style: textTheme.titleMedium?.copyWith(fontFamily: kArial, fontWeight: FontWeight.w600)),
+                      Text(
+                        'Detalle del avance',
+                        style: textTheme.titleMedium?.copyWith(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: _descCtrl,
@@ -377,14 +330,25 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
                         leading: const Icon(Icons.event_available),
                         title: Text(
                           _nextDate == null
-                              ? 'Fecha próxima actividad'
+                              ? 'Fecha próxima actividad (opcional)'
                               : 'Próxima: ${DateFormat('dd/MM/yyyy').format(_nextDate!)}',
                           style: const TextStyle(fontFamily: kArial),
                         ),
-                        trailing: FilledButton.icon(
-                          onPressed: _pickNextDate,
-                          icon: const Icon(Icons.calendar_today),
-                          label: const Text('Elegir'),
+                        trailing: Wrap(
+                          spacing: 8,
+                          children: [
+                            if (_nextDate != null)
+                              IconButton(
+                                tooltip: 'Quitar fecha',
+                                onPressed: () => setState(() => _nextDate = null),
+                                icon: const Icon(Icons.clear),
+                              ),
+                            FilledButton.icon(
+                              onPressed: _pickNextDate,
+                              icon: const Icon(Icons.calendar_today),
+                              label: const Text('Elegir'),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -394,7 +358,6 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
 
               const SizedBox(height: 12),
 
-              // Card de evidencia
               Card(
                 elevation: 1.5,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -403,10 +366,16 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Evidencia (opcional)', style: textTheme.titleMedium?.copyWith(fontFamily: kArial, fontWeight: FontWeight.w600)),
+                      Text(
+                        'Evidencia (opcional)',
+                        style: textTheme.titleMedium?.copyWith(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Text(
-                        'Puedes tomar una foto (se agrega marca de agua con datos) o adjuntar archivos (PDF, Office, imágenes, ZIP).',
+                        'Puedes tomar una foto con marca de agua o adjuntar archivos.',
                         style: textTheme.bodySmall?.copyWith(color: Colors.black54),
                       ),
                       const SizedBox(height: 12),
@@ -468,7 +437,11 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
                   ),
                   onPressed: _loading ? null : _submit,
                   icon: _loading
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
                       : const Icon(Icons.send),
                   label: Text(_loading ? 'Enviando…' : 'Enviar avance'),
                 ),
@@ -481,13 +454,12 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
   }
 }
 
-/* ------- Widgets auxiliares ------- */
-
 class _BannerMsg extends StatelessWidget {
   final String msg;
   final Color color;
   final Color textColor;
   final IconData icon;
+
   const _BannerMsg({
     required this.msg,
     required this.color,

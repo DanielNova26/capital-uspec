@@ -1,8 +1,8 @@
 // lib/services/task_service.dart
 //
-// Servicio centralizado para TBL_TAREAS (esquema ES), subcolecciones de
-// avances/novedades y utilidades de adjuntos/Storage. Incluye helpers
-// para notificaciones en TBL_NOTIFICACIONES (modo doc-por-usuario con array).
+// Servicio unificado: TBL_TAREAS + subcolecciones avances/novedades + adjuntos Storage
+// + notificaciones en subcolección (compatible con NotificationsScreen):
+//   TBL_NOTIFICACIONES/{userId}/notifications/{notifId}
 //
 // Requiere: cloud_firestore, firebase_storage.
 
@@ -14,6 +14,7 @@ class TaskAttachment {
   final String filename;
   final Uint8List bytes;
   final String? contentType;
+
   TaskAttachment({
     required this.filename,
     required this.bytes,
@@ -22,64 +23,566 @@ class TaskAttachment {
 }
 
 class TaskService {
-  // Colecciones principales
-  static const String _tasks  = 'TBL_TAREAS';
-  static const String _notifs = 'TBL_NOTIFICACIONES';
+  static const String tasksCol = 'TBL_TAREAS';
+  static const String notifsRoot = 'TBL_NOTIFICACIONES';
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
-  TaskService({
-    FirebaseFirestore? db,
-    FirebaseStorage? storage,
-  })  : _db = db ?? FirebaseFirestore.instance,
+
+  TaskService({FirebaseFirestore? db, FirebaseStorage? storage})
+      : _db = db ?? FirebaseFirestore.instance,
         _storage = storage ?? FirebaseStorage.instance;
 
   // ---------------------------------------------------------------------------
-  // LECTURA / STREAM
+  // Helpers de nombres / lectura segura
   // ---------------------------------------------------------------------------
 
-  /// Stream de tareas **asignadas** a un usuario (usa `asignado_uid`).
-  /// Ordena por `fecha_creacion` descendente. Si Firestore pide índice,
-  /// créalo con el enlace que muestra la consola/log.
+  String _s(Map<String, dynamic> m, List<String> keys, {String def = ''}) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v == null) continue;
+      final s = v.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return def;
+  }
+
+  Timestamp? _t(Map<String, dynamic> m, List<String> keys) {
+    for (final k in keys) {
+      final v = m[k];
+      if (v is Timestamp) return v;
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Storage unificado
+  // ---------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> _uploadAttachment({
+    required String taskId,
+    required TaskAttachment att,
+    required String folder, // adjuntos | avances | novedades | evidencias
+  }) async {
+    final safeName = att.filename.replaceAll('/', '_').replaceAll('\\', '_');
+    final path =
+        'tareas/$taskId/$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName';
+
+    final ref = _storage.ref(path);
+    final meta = SettableMetadata(
+      contentType: att.contentType ?? 'application/octet-stream',
+    );
+
+    await ref.putData(att.bytes, meta);
+    final url = await ref.getDownloadURL();
+
+    return {
+      'name': safeName,
+      'path': path,
+      'url': url,
+      'mime': att.contentType ?? 'application/octet-stream',
+      'size': att.bytes.length,
+      'uploadedAt': Timestamp.now(), // NO serverTimestamp en arrays
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _uploadMany({
+    required String taskId,
+    required List<TaskAttachment> attachments,
+    required String folder,
+  }) async {
+    final out = <Map<String, dynamic>>[];
+    for (final a in attachments) {
+      out.add(await _uploadAttachment(taskId: taskId, att: a, folder: folder));
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notificaciones (compatibles con tu NotificationsScreen)
+  // ---------------------------------------------------------------------------
+
+  CollectionReference<Map<String, dynamic>> _userNotifsCol(String userId) {
+    return _db.collection(notifsRoot).doc(userId).collection('notifications');
+  }
+
+  Future<void> pushNotification({
+    required String toUserId,
+    required String title,
+    String description = '',
+    String? taskId,
+    String type = 'generic',
+    String? fromId,
+    String? fromName,
+  }) async {
+    if (toUserId.trim().isEmpty) return;
+
+    final ref = _userNotifsCol(toUserId).doc();
+    await ref.set({
+      'id': ref.id,
+      'title': title,
+      'description': description,
+      'taskId': taskId,
+      'type': type,
+      'fromId': fromId ?? '',
+      'fromName': fromName ?? '',
+      'createdAt': Timestamp.now(),
+      'read': false,
+    });
+  }
+
+  Future<void> pushNotificationToMany({
+    required List<String> toUserIds,
+    required String title,
+    String description = '',
+    String? taskId,
+    String type = 'generic',
+    String? fromId,
+    String? fromName,
+  }) async {
+    final unique = <String>{};
+    for (final u in toUserIds) {
+      final id = u.trim();
+      if (id.isEmpty) continue;
+      unique.add(id);
+    }
+    for (final id in unique) {
+      await pushNotification(
+        toUserId: id,
+        title: title,
+        description: description,
+        taskId: taskId,
+        type: type,
+        fromId: fromId,
+        fromName: fromName,
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tareas: Create / Get / Stream
+  // ---------------------------------------------------------------------------
+
   Stream<QuerySnapshot<Map<String, dynamic>>> streamTasksAssignedTo(String userId) {
     return _db
-        .collection(_tasks)
+        .collection(tasksCol)
         .where('asignado_uid', isEqualTo: userId)
-        .orderBy('fecha_creacion', descending: true)
         .snapshots();
   }
 
-  /// Obtiene el documento de una tarea por id.
   Future<DocumentSnapshot<Map<String, dynamic>>> getTask(String taskId) {
-    return _db.collection(_tasks).doc(taskId).get();
+    return _db.collection(tasksCol).doc(taskId).get();
   }
 
-  /// Normaliza un mapa de tarea (convierte ES -> campos "amigables" para UI).
-  /// No escribe nada; solo sirve para pintar la info.
+  /// Crea tarea (esquema ES + campos unificados)
+  Future<String> createTaskEs({
+    required String titulo,
+    String descripcion = '',
+    String estado = 'pendiente',
+    String prioridad = 'media',
+
+    // asignación
+    required String asignadoUid,
+    String? asignadoNombre,
+
+    // creador (quien envía)
+    required String creadorUid,
+    String? creadorNombre,
+
+    // jefe (opcional)
+    String? jefeUid,
+    String? jefeNombre,
+
+    // organización
+    String centroId = 'global',
+    String? areaId,
+    String? empresaId,
+
+    // fechas
+    DateTime? fechaLimite,
+
+    // ubicación opcional
+    Map<String, dynamic>? ubicacion,
+
+    // adjuntos
+    List<TaskAttachment>? attachments,
+
+    // extras
+    Map<String, dynamic>? extra,
+  }) async {
+    final ref = _db.collection(tasksCol).doc();
+    final id = ref.id;
+
+    final now = DateTime.now();
+
+    final uploaded = (attachments == null || attachments.isEmpty)
+        ? <Map<String, dynamic>>[]
+        : await _uploadMany(taskId: id, attachments: attachments, folder: 'adjuntos');
+
+    final data = <String, dynamic>{
+      'titulo': titulo,
+      'descripcion': descripcion,
+      'estado': estado,
+      'prioridad': prioridad,
+
+      'asignado_uid': asignadoUid,
+      'asignado_nombre': asignadoNombre ?? '',
+
+      'creador_id': creadorUid,
+      'creador_nombre': creadorNombre ?? '',
+
+      'jefe_uid': jefeUid ?? '',
+      'jefe_nombre': jefeNombre ?? '',
+
+      'centroId': centroId,
+      'areaId': areaId ?? '',
+      'empresaId': empresaId ?? '',
+
+      'fecha_creacion': Timestamp.fromDate(now),
+      'fecha_limite': fechaLimite == null ? null : Timestamp.fromDate(fechaLimite),
+
+      'ubicacion': ubicacion,
+      'adjuntos': uploaded,
+
+      'updatedAt': Timestamp.fromDate(now),
+    };
+
+    if (extra != null) data.addAll(extra);
+
+    await ref.set(data);
+
+    // Notificar asignación (al asignado)
+    await pushNotification(
+      toUserId: asignadoUid,
+      title: 'Nueva tarea asignada',
+      description: titulo,
+      taskId: id,
+      type: 'task_assigned',
+      fromId: creadorUid,
+      fromName: creadorNombre,
+    );
+
+    return id;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Avances / Novedades (UNIFICADO)
+  // ---------------------------------------------------------------------------
+
+  Future<void> addAvance({
+    required String taskId,
+    required String byUserId,
+    String? byUserName,
+    required String message,
+    DateTime? nextDate, // ✅ opcional
+    Map<String, dynamic>? geoloc, // {lat,lng,texto?}
+    List<TaskAttachment>? attachments,
+    List<Map<String, dynamic>>? photoMeta,
+  }) async {
+    final taskRef = _db.collection(tasksCol).doc(taskId);
+    final col = taskRef.collection('avances');
+    final doc = col.doc();
+
+    final uploaded = (attachments == null || attachments.isEmpty)
+        ? <Map<String, dynamic>>[]
+        : await _uploadMany(taskId: taskId, attachments: attachments, folder: 'avances');
+
+    await _db.runTransaction((trx) async {
+      final snap = await trx.get(taskRef);
+      final t = snap.data() ?? <String, dynamic>{};
+
+      final creadorId = _s(t, ['creador_id', 'creatorId']);
+      final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
+      final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+
+      trx.set(doc, {
+        'id': doc.id,
+        'by': byUserId,
+        'byName': byUserName ?? '',
+        'message': message.trim(),
+        'nextDate': nextDate == null ? null : Timestamp.fromDate(nextDate),
+        'geoloc': geoloc,
+        'attachments': uploaded,
+        'photoMeta': photoMeta ?? const [],
+        'createdAt': Timestamp.now(),
+      });
+
+      trx.update(taskRef, {
+        'updatedAt': FieldValue.serverTimestamp(),
+        'fecha_actualizacion': FieldValue.serverTimestamp(),
+        'actualizada_en': FieldValue.serverTimestamp(),
+        'estado': (t['estado']?.toString() == 'pendiente') ? 'en_progreso' : t['estado'],
+      });
+
+      final recipients = <String>[];
+      if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
+      if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
+
+      Future.microtask(() async {
+        await pushNotificationToMany(
+          toUserIds: recipients,
+          title: 'Avance en tarea',
+          description: nextDate == null
+              ? '$titulo · $message'
+              : '$titulo · $message · Próxima: ${nextDate.toString().split(" ").first}',
+          taskId: taskId,
+          type: 'task_avance',
+          fromId: byUserId,
+          fromName: byUserName,
+        );
+      });
+    });
+  }
+
+  Future<void> addNovedad({
+    required String taskId,
+    required String byUserId,
+    String? byUserName,
+    required String message,
+    Map<String, dynamic>? geoloc,
+    List<TaskAttachment>? attachments,
+    List<Map<String, dynamic>>? photoMeta,
+  }) async {
+    final taskRef = _db.collection(tasksCol).doc(taskId);
+    final col = taskRef.collection('novedades');
+    final doc = col.doc();
+
+    final uploaded = (attachments == null || attachments.isEmpty)
+        ? <Map<String, dynamic>>[]
+        : await _uploadMany(taskId: taskId, attachments: attachments, folder: 'novedades');
+
+    await _db.runTransaction((trx) async {
+      final snap = await trx.get(taskRef);
+      final t = snap.data() ?? <String, dynamic>{};
+
+      final creadorId = _s(t, ['creador_id', 'creatorId']);
+      final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
+      final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+
+      trx.set(doc, {
+        'id': doc.id,
+        'by': byUserId,
+        'byName': byUserName ?? '',
+        'message': message.trim(),
+        'geoloc': geoloc,
+        'attachments': uploaded,
+        'photoMeta': photoMeta ?? const [],
+        'createdAt': Timestamp.now(),
+      });
+
+      trx.update(taskRef, {
+        'updatedAt': FieldValue.serverTimestamp(),
+        'fecha_actualizacion': FieldValue.serverTimestamp(),
+        'actualizada_en': FieldValue.serverTimestamp(),
+      });
+
+      final recipients = <String>[];
+      if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
+      if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
+
+      Future.microtask(() async {
+        await pushNotificationToMany(
+          toUserIds: recipients,
+          title: 'Novedad en tarea',
+          description: '$titulo · $message',
+          taskId: taskId,
+          type: 'task_novedad',
+          fromId: byUserId,
+          fromName: byUserName,
+        );
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reasignación DIRECTA (OPCIÓN B) -> compatible con AssignedTasksScreen
+  // ---------------------------------------------------------------------------
+
+  /// Reasignación directa (sin aprobación).
+  ///
+  /// ✅ Compatibilidad:
+  /// - tu UI puede llamar: byUserId / byUserName
+  /// - o puede llamar: performedBy / performedByName
+  Future<void> reassignTask({
+    required String taskId,
+    required String newAssignedTo,
+    String? newAssignedToName,
+    String? newAreaId,
+
+    // Alias que tu UI está usando (AssignedTasksScreen)
+    String? byUserId,
+    String? byUserName,
+
+    // Alias alterno (por si lo usas en otras pantallas)
+    String? performedBy,
+    String? performedByName,
+  }) async {
+    final taskRef = _db.collection(tasksCol).doc(taskId);
+
+    final snap = await taskRef.get();
+    final t = snap.data() ?? <String, dynamic>{};
+
+    final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+
+    final prevAssignedUid = _s(t, ['asignado_uid', 'assignedTo']);
+    final prevAssignedName = _s(t, ['asignado_nombre', 'assignedToName']);
+
+    final creadorId = _s(t, ['creador_id', 'creatorId']);
+    final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
+
+    // Prioridad del actor: byUserId/byUserName (UI) > performedBy/performedByName
+    final actorId = (byUserId ?? performedBy ?? '').trim();
+    final actorName = (byUserName ?? performedByName ?? '').trim();
+
+    final fromId = actorId.isNotEmpty ? actorId : '';
+    final fromName = actorName.isNotEmpty
+        ? actorName
+        : (actorId.isNotEmpty ? actorId : 'Sistema');
+
+    await taskRef.update({
+      'asignado_uid': newAssignedTo,
+      if (newAssignedToName != null && newAssignedToName.trim().isNotEmpty)
+        'asignado_nombre': newAssignedToName.trim(),
+      if (newAreaId != null && newAreaId.trim().isNotEmpty) 'areaId': newAreaId.trim(),
+
+      // estado recomendado al reasignar
+      'estado': 'pendiente',
+      'status': 'pendiente',
+
+      // trazabilidad
+      'reasignada_en': FieldValue.serverTimestamp(),
+      'reasignada_desde_uid': prevAssignedUid,
+      'reasignada_desde_nombre': prevAssignedName,
+
+      // limpia solicitud pendiente si existiera
+      'reasignacion_pendiente': FieldValue.delete(),
+
+      // updated
+      'updatedAt': FieldValue.serverTimestamp(),
+      'fecha_actualizacion': FieldValue.serverTimestamp(),
+      'actualizada_en': FieldValue.serverTimestamp(),
+    });
+
+    // Notificar (sin duplicar)
+    final recipients = <String>{};
+
+    // nuevo asignado
+    if (newAssignedTo.trim().isNotEmpty) {
+      recipients.add(newAssignedTo.trim());
+    }
+
+    // creador y jefe
+    if (creadorId.isNotEmpty) recipients.add(creadorId);
+    if (jefeId.isNotEmpty) recipients.add(jefeId);
+
+    // por defecto, evitamos notificar al actor
+    if (actorId.isNotEmpty) recipients.remove(actorId);
+
+    // al nuevo asignado
+    if (recipients.contains(newAssignedTo)) {
+      await pushNotification(
+        toUserId: newAssignedTo,
+        title: 'Tarea reasignada',
+        description: titulo,
+        taskId: taskId,
+        type: 'task_reassigned',
+        fromId: fromId,
+        fromName: fromName,
+      );
+    }
+
+    // a los demás (creador/jefe)
+    final others = recipients.where((u) => u != newAssignedTo).toList();
+    if (others.isNotEmpty) {
+      await pushNotificationToMany(
+        toUserIds: others,
+        title: 'Tarea reasignada',
+        description:
+        '$titulo · Nuevo responsable: ${(newAssignedToName ?? '').trim().isNotEmpty ? newAssignedToName!.trim() : newAssignedTo}',
+        taskId: taskId,
+        type: 'task_reassigned_info',
+        fromId: fromId,
+        fromName: fromName,
+      );
+    }
+
+    // (Opcional) notificar al anterior asignado:
+    /*
+    if (prevAssignedUid.isNotEmpty && prevAssignedUid != newAssignedTo) {
+      await pushNotification(
+        toUserId: prevAssignedUid,
+        title: 'Tarea reasignada',
+        description: 'La tarea "$titulo" fue reasignada a otra persona.',
+        taskId: taskId,
+        type: 'task_reassigned_out',
+        fromId: fromId,
+        fromName: fromName,
+      );
+    }
+    */
+  }
+  // ---------------------------------------------------------------------------
+  // Alias para compatibilidad con pantallas que llaman requestReassignTask
+  // (Opción B: reasignación directa)
+  // ---------------------------------------------------------------------------
+
+  Future<void> requestReassignTask({
+    required String taskId,
+
+    // destino
+    required String newAssignedTo,
+    String? newAssignedToName,
+    String? newAreaId,
+
+    // actor (tu UI puede estar usando estos nombres)
+    String? requestedBy,
+    String? requestedByName,
+
+    // aliases extra por si tu pantalla usa otros nombres
+    String? byUserId,
+    String? byUserName,
+    String? performedBy,
+    String? performedByName,
+
+    // opcional (no se usa en opción B, pero lo aceptamos para no romper)
+    String? reason,
+  }) async {
+    final actorId = (requestedBy ?? byUserId ?? performedBy ?? '').trim();
+    final actorName = (requestedByName ?? byUserName ?? performedByName ?? '').trim();
+
+    // Opción B: aplica la reasignación inmediatamente
+    await reassignTask(
+      taskId: taskId,
+      newAssignedTo: newAssignedTo,
+      newAssignedToName: newAssignedToName,
+      newAreaId: newAreaId,
+      byUserId: actorId.isEmpty ? null : actorId,
+      byUserName: actorName.isEmpty ? null : actorName,
+    );
+
+    // Si quisieras registrar el motivo en la tarea, aquí sería el lugar (opcional)
+    // if ((reason ?? '').trim().isNotEmpty) {
+    //   await _db.collection(tasksCol).doc(taskId).update({
+    //     'reasignacion_motivo': reason!.trim(),
+    //   });
+    // }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Normalizador (para UI)
+  // ---------------------------------------------------------------------------
+
   Map<String, dynamic> normalize(Map<String, dynamic> d) {
-    Timestamp? _ts(List<String> keys) {
-      for (final k in keys) {
-        final v = d[k];
-        if (v is Timestamp) return v;
-      }
-      return null;
-    }
+    Timestamp? ts(List<String> keys) => _t(d, keys);
+    String str(List<String> keys, {String def = ''}) => _s(d, keys, def: def);
 
-    String _str(List<String> keys, {String def = ''}) {
-      for (final k in keys) {
-        final v = d[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString();
-      }
-      return def;
-    }
-
-    List<Map<String, dynamic>> _list(List<String> keys) {
+    List<Map<String, dynamic>> listMap(List<String> keys) {
       for (final k in keys) {
         final v = d[k];
         if (v is List) {
           return v
               .where((e) => e is Map)
-              .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e as Map))
+              .map((e) => Map<String, dynamic>.from(e as Map))
               .toList();
         }
       }
@@ -87,279 +590,21 @@ class TaskService {
     }
 
     return {
-      // nombres "amigables"
-      'title'          : _str(['titulo', 'title']),
-      'description'    : _str(['descripcion', 'description']),
-      'status'         : _str(['estado', 'status'], def: 'pendiente'),
-      'assignedTo'     : _str(['asignado_uid', 'assignedTo']),
-      'assignedToName' : _str(['asignado_nombre', 'assignedToName']),
-      'createdAt'      : _ts(['fecha_creacion', 'createdAt']),
-      'updatedAt'      : _ts(['updatedAt']),
-      'dueDate'        : _ts(['fecha_limite', 'dueDate']),
-      'attachments'    : _list(['adjuntos', 'attachments']),
-      'evidencias'     : _list(['evidencias']),
-      'jefeUid'        : _str(['jefe_uid', 'jefeId']),
-      'jefeNombre'     : _str(['jefe_nombre']),
-      'centroId'       : _str(['centroId']),
-      'areaId'         : _str(['areaId']),
-      'notify'         : d['notify'] == true,
-      'raw'            : d,
+      'title': str(['titulo', 'title']),
+      'description': str(['descripcion', 'description']),
+      'status': str(['estado', 'status'], def: 'pendiente'),
+      'assignedTo': str(['asignado_uid', 'assignedTo']),
+      'assignedToName': str(['asignado_nombre', 'assignedToName']),
+      'creatorId': str(['creador_id', 'creatorId']),
+      'creatorName': str(['creador_nombre', 'creatorName']),
+      'bossId': str(['jefe_uid', 'bossId', 'delegatedTo']),
+      'bossName': str(['jefe_nombre', 'bossName']),
+      'createdAt': ts(['fecha_creacion', 'createdAt']),
+      'updatedAt': ts(['updatedAt', 'fecha_actualizacion', 'fecha_actualizacion']),
+      'dueDate': ts(['fecha_limite', 'dueDate']),
+      'attachments': listMap(['adjuntos', 'attachments']),
+      'pendingReassign': d['reasignacion_pendiente'],
+      'raw': d,
     };
-  }
-
-  // ---------------------------------------------------------------------------
-  // CREACIÓN / EDICIÓN
-  // ---------------------------------------------------------------------------
-
-  /// Crea una tarea con **esquema en español** (coincide con tu CreateTaskScreen).
-  /// Si pasas `attachments`, los sube a Storage y los guarda en `adjuntos`.
-  Future<String> createTaskEs({
-    // Campos principales
-    required String titulo,
-    String descripcion = '',
-    String estado = 'pendiente',
-    String prioridad = 'media',
-
-    // Asignación
-    required String asignadoUid,
-    String? asignadoNombre,
-    String? jefeUid,
-    String? jefeNombre,
-
-    // Organización
-    String centroId = 'global',
-    String? areaId,
-
-    // Fechas
-    DateTime? fechaLimite,
-
-    // Ubicación opcional
-    Map<String, dynamic>? ubicacion, // {lat,lng,texto?}
-
-    // Adjuntos/Evidencias
-    List<TaskAttachment>? attachments,
-
-    // Extra opcional (se fusiona)
-    Map<String, dynamic>? extra,
-  }) async {
-    final ref = _db.collection(_tasks).doc();
-    final id = ref.id;
-    final now = DateTime.now();
-
-    // Sube adjuntos si vienen en memoria
-    final uploaded = <Map<String, dynamic>>[];
-    if (attachments != null && attachments.isNotEmpty) {
-      for (final att in attachments) {
-        final url = await _uploadTaskFile(taskId: id, att: att);
-        uploaded.add({
-          'name': att.filename,
-          'url': url,
-          'mime': att.contentType,
-          'uploadedAt': Timestamp.fromDate(now),
-        });
-      }
-    }
-
-    final data = <String, dynamic>{
-      'titulo'          : titulo,
-      'descripcion'     : descripcion,
-      'estado'          : estado,
-      'prioridad'       : prioridad,
-      'asignado_uid'    : asignadoUid,
-      'asignado_nombre' : asignadoNombre,
-      'jefe_uid'        : jefeUid,
-      'jefe_nombre'     : jefeNombre,
-      'centroId'        : centroId,
-      'areaId'          : areaId,
-      'fecha_creacion'  : Timestamp.fromDate(now),
-      'fecha_limite'    : fechaLimite == null ? null : Timestamp.fromDate(fechaLimite),
-      'ubicacion'       : ubicacion,
-      'adjuntos'        : uploaded,
-      'notify'          : true,
-    };
-
-    if (extra != null) data.addAll(extra);
-    await ref.set(data);
-    return id;
-  }
-
-  /// Reasigna una tarea: actualiza `asignado_uid` y (opcional) `asignado_nombre`.
-  Future<void> reassignTask({
-    required String taskId,
-    required String newAssignedTo,
-    String? newAssignedToName,
-    String? newAreaId,
-  }) async {
-    await _db.collection(_tasks).doc(taskId).update({
-      'asignado_uid'    : newAssignedTo,
-      if (newAssignedToName != null) 'asignado_nombre': newAssignedToName,
-      if (newAreaId != null) 'areaId' : newAreaId,
-      'updatedAt'       : FieldValue.serverTimestamp(),
-    });
-  }
-
-  /// Marca **completada** y puede anexar evidencias (se agregan también a `adjuntos`).
-  Future<void> completeTask({
-    required String taskId,
-    required String completedBy, // si quieres registrar quién la cerró
-    String? observacion,
-    Map<String, dynamic>? geoloc, // {lat,lng,texto?}
-    List<TaskAttachment>? evidences,
-  }) async {
-    final now = DateTime.now();
-    final ref = _db.collection(_tasks).doc(taskId);
-
-    // Sube evidencias (si hay) y prepáralas para anexar a adjuntos
-    final newAtts = <Map<String, dynamic>>[];
-    if (evidences != null && evidences.isNotEmpty) {
-      for (final ev in evidences) {
-        final url = await _uploadTaskFile(taskId: taskId, att: ev, folder: 'evidencias');
-        newAtts.add({
-          'name': ev.filename,
-          'url': url,
-          'mime': ev.contentType,
-          'uploadedAt': Timestamp.fromDate(now),
-          'type': 'evidencia',
-        });
-      }
-    }
-
-    await _db.runTransaction((trx) async {
-      final snap = await trx.get(ref);
-      final data = snap.data() ?? {};
-      final current = (data['adjuntos'] as List<dynamic>? ?? [])
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-      final merged = [...current, ...newAtts];
-
-      trx.update(ref, {
-        'estado'      : 'completada',
-        'updatedAt'   : FieldValue.serverTimestamp(),
-        'completedAt' : Timestamp.fromDate(now),
-        'completedBy' : completedBy,
-        if (observacion != null && observacion.isNotEmpty) 'observacion': observacion,
-        if (geoloc != null) 'ubicacion_cierre': geoloc,
-        'adjuntos'    : merged,
-      });
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // AVANCES / NOVEDADES (subcolecciones)
-  // ---------------------------------------------------------------------------
-
-  Future<String> addAvance({
-    required String taskId,
-    required String userId,
-    String? message,
-    Map<String, dynamic>? geoloc,
-    List<TaskAttachment>? attachments,
-  }) async {
-    final now = DateTime.now();
-    final col = _db.collection(_tasks).doc(taskId).collection('avances');
-    final doc = col.doc();
-
-    final uploaded = <Map<String, dynamic>>[];
-    if (attachments != null && attachments.isNotEmpty) {
-      for (final att in attachments) {
-        final url = await _uploadTaskFile(taskId: taskId, att: att, folder: 'avances');
-        uploaded.add({
-          'name': att.filename,
-          'url': url,
-          'mime': att.contentType,
-          'uploadedAt': Timestamp.fromDate(now),
-        });
-      }
-    }
-
-    await doc.set({
-      'id'         : doc.id,
-      'userId'     : userId,
-      'message'    : message ?? '',
-      'geoloc'     : geoloc,
-      'attachments': uploaded,
-      'createdAt'  : Timestamp.fromDate(now),
-    });
-    return doc.id;
-  }
-
-  Future<String> addNovedad({
-    required String taskId,
-    required String userId,
-    String? message,
-    Map<String, dynamic>? geoloc,
-    List<TaskAttachment>? attachments,
-  }) async {
-    final now = DateTime.now();
-    final col = _db.collection(_tasks).doc(taskId).collection('novedades');
-    final doc = col.doc();
-
-    final uploaded = <Map<String, dynamic>>[];
-    if (attachments != null && attachments.isNotEmpty) {
-      for (final att in attachments) {
-        final url = await _uploadTaskFile(taskId: taskId, att: att, folder: 'novedades');
-        uploaded.add({
-          'name': att.filename,
-          'url': url,
-          'mime': att.contentType,
-          'uploadedAt': Timestamp.fromDate(now),
-        });
-      }
-    }
-
-    await doc.set({
-      'id'         : doc.id,
-      'userId'     : userId,
-      'message'    : message ?? '',
-      'geoloc'     : geoloc,
-      'attachments': uploaded,
-      'createdAt'  : Timestamp.fromDate(now),
-    });
-    return doc.id;
-  }
-
-  // ---------------------------------------------------------------------------
-  // NOTIFICACIONES (opcional, doc por usuario con array `notifications`)
-  // ---------------------------------------------------------------------------
-
-  /// Agrega una notificación a `TBL_NOTIFICACIONES/{userId}.notifications` (array).
-  /// OJO: **NO** usa FieldValue.serverTimestamp dentro del array; usa Timestamp.now().
-  Future<void> appendNotificationForUser({
-    required String userId,
-    required String title,
-    String? description,
-    String? taskId,
-    String? type, // 'task_assigned', 'task_reassigned', 'test', etc.
-  }) async {
-    final ref = _db.collection(_notifs).doc(userId);
-    final notif = {
-      'title'     : title,
-      'description': description ?? '',
-      'taskId'    : taskId,
-      'type'      : type,
-      'createdAt' : Timestamp.now(),
-      'read'      : false,
-    };
-    await ref.set({
-      'notifications': FieldValue.arrayUnion([notif])
-    }, SetOptions(merge: true));
-  }
-
-  // ---------------------------------------------------------------------------
-  // PRIVADOS: Storage
-  // ---------------------------------------------------------------------------
-
-  Future<String> _uploadTaskFile({
-    required String taskId,
-    required TaskAttachment att,
-    String folder = 'adjuntos',
-  }) async {
-    final safeName = att.filename.replaceAll('/', '_').replaceAll('\\', '_');
-    final path = 'tasks/$taskId/$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName';
-    final ref = _storage.ref(path);
-    final meta = SettableMetadata(contentType: att.contentType ?? 'application/octet-stream');
-    await ref.putData(att.bytes, meta);
-    return await ref.getDownloadURL();
   }
 }
