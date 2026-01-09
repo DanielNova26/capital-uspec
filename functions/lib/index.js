@@ -147,7 +147,7 @@ exports.onNotificationCreated = functions
     .region("us-central1")
     .firestore.document("TBL_NOTIFICACIONES/{userId}/notifications/{notifId}")
     .onCreate(async (snap, ctx) => {
-    const data = (snap.data()) ?? {};
+    const data = snap.data() ?? {};
     const userId = ctx.params.userId;
     const isRead = (data.read ?? false);
     if (isRead)
@@ -255,7 +255,7 @@ exports.sendTestPush = functions
     catch (e) {
         console.error("[sendTestPush] saveInAppNotification error:", e);
     }
-        return { ok: true };
+    return { ok: true };
 });
 exports.registerDeviceToken = functions
     .region("us-central1")
@@ -311,13 +311,15 @@ exports.sendTestPushHttp = functions
             catch (e) {
                 console.error("[sendTestPushHttp] saveInAppNotification ERROR:", e?.message);
             }
-                        res.json({ ok: true });
-                        return;
         }
-        const tokens = await getTokensFor(userId);
-        console.log("[sendTestPushHttp] tokens:", tokens.length);
-        const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
-        res.json({ ok: true, ...r });
+        if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
+            const tokens = await getTokensFor(userId);
+            console.log("[sendTestPushHttp] tokens:", tokens.length);
+            const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
+            res.json({ ok: true, ...r });
+            return;
+        }
+        res.json({ ok: true });
     }
     catch (e) {
         console.error("[sendTestPushHttp] ERROR:", e?.message);
@@ -335,8 +337,6 @@ exports.notifyTaskCompleted = functions
         throw new functions.https.HttpsError("invalid-argument", "creatorId y taskId requeridos");
     }
     await saveInAppNotification(creatorId, { title, description: body, taskId, type: "task_completed" });
-    const tokens = await getTokensFor(creatorId);
-    await sendPushTo(tokens, { title, body }, { taskId, type: "task_completed" });
     return { ok: true };
 });
 exports.notifyTaskNews = functions
@@ -344,12 +344,14 @@ exports.notifyTaskNews = functions
     .https.onCall(async (data, _context) => {
     const taskId = (data?.taskId || "").toString().trim();
     const creator = (data?.creatorId || "").toString().trim();
+    const boss = (data?.bossId || "").toString().trim();
+    const title = (data?.title || "Novedad en tarea").toString();
     const body = (data?.body || "").toString();
     if (!taskId)
         throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
     const recipients = [creator, boss].filter((x) => !!x && x.length > 0);
     await Promise.all(recipients.map(async (uid) => {
         await saveInAppNotification(uid, { title, description: body, taskId, type: "task_news" });
-            }));
+    }));
     return { ok: true, count: recipients.length };
 });

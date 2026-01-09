@@ -73,6 +73,7 @@ String _msgOf(Map<String, dynamic> m) {
   final keys = [
     // comunes
     'description',
+    'message',
     'mensaje',
     'descripcion',
     'detalle',
@@ -112,25 +113,47 @@ String _msgOf(Map<String, dynamic> m) {
 /// -------- Helpers de adjuntos y lectura básica --------
 
 String _attKey(Map<String, String> m) {
-  final url = (m['url'] ?? '').trim();
-  final path = (m['path'] ?? '').trim();
-  final name = (m['name'] ?? '').trim().toLowerCase();
+  final rawName = (m['name'] ?? '').trim().toLowerCase();
+  if (rawName.isNotEmpty) return 'n:$rawName';
 
-  if (url.isNotEmpty) return 'u:$url';
-  if (path.isNotEmpty) return 'p:$path';
-  return 'n:$name';
+  final url = (m['url'] ?? '').trim();
+  if (url.isNotEmpty) {
+    final name = Uri.tryParse(url)?.pathSegments.last ?? '';
+    if (name.isNotEmpty) return 'n:${name.toLowerCase()}';
+    return 'u:$url';
+  }
+
+  final path = (m['path'] ?? '').trim();
+  if (path.isNotEmpty) {
+    final name = path.split('/').last;
+    if (name.isNotEmpty) return 'n:${name.toLowerCase()}';
+    return 'p:$path';
+  }
+
+  return 'n:';
 }
 
 List<Map<String, String>> _dedupeAtts(List<Map<String, String>> list) {
-  final seen = <String>{};
-  final out = <Map<String, String>>[];
+  final seen = <String, Map<String, String>>{};
 
   for (final m in list) {
     final k = _attKey(m);
-    if (k == 'u:' || k == 'p:' || k == 'n:') continue;
-    if (seen.add(k)) out.add(m);
+    if (k == 'u:' || k == 'p:' || k == 'n:' || k == 'n:') continue;
+
+    final existing = seen[k];
+    if (existing == null) {
+      seen[k] = m;
+      continue;
+    }
+
+    final hasUrl = (m['url'] ?? '').trim().isNotEmpty;
+    final existingHasUrl = (existing['url'] ?? '').trim().isNotEmpty;
+    if (hasUrl && !existingHasUrl) {
+      seen[k] = m;
+    }
   }
-  return out;
+
+  return seen.values.toList();
 }
 
 /// Normaliza a mapas {name, url?, path?, desc?}

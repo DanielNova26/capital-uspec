@@ -194,7 +194,6 @@ export const onTaskCreated = functions
       } catch (e) {
         console.error("[onTaskCreated] boss save notif error:", e);
       }
-
     }
   });
 
@@ -243,7 +242,6 @@ export const onTaskUpdated = functions
       } catch (e) {
         console.error("[onTaskUpdated] boss save notif error:", e);
       }
-
     }
   });
 
@@ -327,15 +325,15 @@ export const sendTestPushHttp = functions
           console.error("[sendTestPushHttp] saveInAppNotification ERROR:", (e as Error)?.message);
         }
       }
-        if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
-          const tokens = await getTokensFor(userId);
-          console.log("[sendTestPushHttp] tokens:", tokens.length);
-          const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
-          res.json({ ok: true, ...r });
-          return;
-        }
+      if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
+        const tokens = await getTokensFor(userId);
+        console.log("[sendTestPushHttp] tokens:", tokens.length);
+        const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
+        res.json({ ok: true, ...r });
+        return;
+      }
 
-        res.json({ ok: true });
+      res.json({ ok: true });
     } catch (e) {
       console.error("[sendTestPushHttp] ERROR:", (e as Error)?.message);
       res.status(500).json({ error: "internal", message: (e as Error)?.message });
