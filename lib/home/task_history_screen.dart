@@ -112,8 +112,15 @@ String _msgOf(Map<String, dynamic> m) {
 
 /// -------- Helpers de adjuntos y lectura básica --------
 
+String _basename(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return trimmed;
+  final parts = trimmed.split('/');
+  return parts.isNotEmpty ? parts.last : trimmed;
+}
+
 String _attKey(Map<String, String> m) {
-  final rawName = (m['name'] ?? '').trim().toLowerCase();
+  final rawName = _basename(m['name'] ?? '').trim().toLowerCase();
   if (rawName.isNotEmpty) return 'n:$rawName';
 
   final url = (m['url'] ?? '').trim();
@@ -167,7 +174,7 @@ List<Map<String, String>> _attachmentsFromRoot(Map<String, dynamic> m) {
       if (e is Map) {
         final mm = Map<String, dynamic>.from(e);
         out.add({
-          'name': (mm['name'] ?? mm['filename'] ?? 'archivo').toString(),
+          'name': _basename((mm['name'] ?? mm['filename'] ?? 'archivo').toString()),
           'url': (mm['url'] ?? '').toString(),
           'path': (mm['path'] ?? '').toString(),
           'desc': (mm['desc'] ?? mm['description'] ?? '').toString(),
@@ -193,7 +200,7 @@ List<Map<String, String>> _attachmentsFromRoot(Map<String, dynamic> m) {
   for (final p in evidPaths) {
     final path = p?.toString() ?? '';
     if (path.isEmpty) continue;
-    final name = path.split('/').last;
+    final name = _basename(path);
     out.add({'name': name, 'path': path, 'desc': 'Evidencia (Storage)'});
   }
 
@@ -206,7 +213,7 @@ List<Map<String, String>> _attachmentsFromRoot(Map<String, dynamic> m) {
     } else if (e is Map) {
       final mm = Map<String, dynamic>.from(e);
       out.add({
-        'name': (mm['name'] ?? 'finalizacion').toString(),
+        'name': _basename((mm['name'] ?? 'finalizacion').toString()),
         'url': (mm['url'] ?? '').toString(),
         'path': (mm['path'] ?? '').toString(),
         'desc': (mm['desc'] ?? mm['description'] ?? 'Finalización').toString(),
@@ -228,7 +235,7 @@ List<Map<String, String>> _attachmentsFromAny(dynamic listOrNull) {
     } else if (e is Map) {
       final mm = Map<String, dynamic>.from(e);
       out.add({
-        'name': (mm['name'] ?? mm['filename'] ?? 'archivo').toString(),
+        'name': _basename((mm['name'] ?? mm['filename'] ?? 'archivo').toString()),
         'url': (mm['url'] ?? '').toString(),
         'path': (mm['path'] ?? '').toString(),
         'desc': (mm['desc'] ?? mm['description'] ?? '').toString(),
@@ -298,7 +305,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         } else if (e is Map) {
           final mm = Map<String, dynamic>.from(e);
           tmp.add({
-            'name': (mm['name'] ?? 'novedad').toString(),
+            'name': _basename((mm['name'] ?? 'novedad').toString()),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
             'desc': (mm['desc'] ??
@@ -340,7 +347,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         if (e is Map) {
           final mm = Map<String, dynamic>.from(e);
           tmp.add({
-            'name': (mm['name'] ?? 'avance').toString(),
+            'name': _basename((mm['name'] ?? 'avance').toString()),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
             'desc': (mm['desc'] ??
@@ -384,7 +391,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
         } else if (e is Map) {
           final mm = Map<String, dynamic>.from(e);
           tmp.add({
-            'name': (mm['name'] ?? 'finalizacion').toString(),
+            'name': _basename((mm['name'] ?? 'finalizacion').toString()),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
             'desc': (mm['desc'] ??
@@ -1130,9 +1137,17 @@ class _AssignedTile extends StatelessWidget {
         required Map<String, dynamic> taskData,
         required Map<String, dynamic> novedad,
       }) {
-    final msg = _msgOf(novedad);
-    final created = _fmt(_toDate(novedad['createdAt']));
-    final atts = _attachmentsFromAny(novedad['attachments']);
+
+    Future<List<Map<String, dynamic>>> loadNovedades() async {
+      final qs = await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(taskId)
+          .collection('novedades')
+          .orderBy('createdAt', descending: true)
+          .limit(30)
+          .get();
+      return qs.docs.map((d) => d.data()).toList();
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1140,102 +1155,169 @@ class _AssignedTile extends StatelessWidget {
       builder: (_) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                const Icon(Icons.campaign, color: Color(0xFF1E3A8A)),
-                const SizedBox(width: 8),
-                const Text('Novedad',
-                    style:
-                    TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const Spacer(),
-                Text(created,
-                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
-              ]),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF2FF),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFBFD3FF)),
-                ),
-                child: Text(
-                  msg.isEmpty ? 'Sin descripción' : msg,
-                  style: const TextStyle(fontSize: 13),
-                ),
-              ),
-              if (atts.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Text('Adjuntos',
-                    style:
-                    TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.75,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  const Icon(Icons.campaign, color: Color(0xFF1E3A8A)),
+                  const SizedBox(width: 8),
+                  const Text('Novedades',
+                      style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Spacer(),
+                  Text(
+                    _fmt(_toDate(novedad['createdAt'])),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ]),
                 const SizedBox(height: 6),
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: atts.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 6),
-                  itemBuilder: (ctx, i) {
-                    final a = atts[i];
-                    final (icon, _) = _iconAndLabelFor(a['name'] ?? 'archivo');
-                    return ListTile(
-                      dense: true,
-                      tileColor: const Color(0xFFEFF4FF),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      leading: Icon(icon),
-                      title: Text(a['desc']?.isNotEmpty == true
-                          ? a['desc']!
-                          : (a['name'] ?? 'archivo')),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.launch),
-                        onPressed: () async {
-                          final ok = await _openAttachment(a);
-                          if (!ok && ctx.mounted) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              const SnackBar(
-                                  content: Text('No se pudo abrir el archivo')),
-                            );
-                          }
-                        },
-                      ),
-                      onTap: () async {
-                        final ok = await _openAttachment(a);
-                        if (!ok && ctx.mounted) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(
-                                content: Text('No se pudo abrir el archivo')),
+                const Text(
+                  'Ordenadas por fecha (más recientes arriba).',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: FutureBuilder<List<Map<String, dynamic>>>(
+                    future: loadNovedades(),
+                    builder: (ctx, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final items = snap.data ?? [];
+                      if (items.isEmpty) {
+                        return const Center(child: Text('No hay novedades.'));
+                      }
+                      return ListView.separated(
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 6),
+                        itemBuilder: (ctx, i) {
+                          final item = items[i];
+                          final msg = _msgOf(item);
+                          final created = _fmt(_toDate(item['createdAt']));
+                          final atts = _attachmentsFromAny(item['attachments']);
+                          return Card(
+                            elevation: 0,
+                            color: const Color(0xFFEFF4FF),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: const BorderSide(color: Color(0xFFBFD3FF)),
+                            ),
+                            child: ExpansionTile(
+                              tilePadding:
+                              const EdgeInsets.symmetric(horizontal: 12),
+                              title: Text(
+                                msg.isEmpty ? 'Sin descripción' : msg,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              subtitle: Text(
+                                created,
+                                style: const TextStyle(
+                                    fontSize: 11, color: Colors.black54),
+                              ),
+                              children: [
+                                if (atts.isNotEmpty) ...[
+                                  const Padding(
+                                    padding:
+                                    EdgeInsets.fromLTRB(12, 0, 12, 6),
+                                    child: Text('Adjuntos',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 12)),
+                                  ),
+                                  ListView.separated(
+                                    shrinkWrap: true,
+                                    physics:
+                                    const NeverScrollableScrollPhysics(),
+                                    itemCount: atts.length,
+                                    separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 6),
+                                    itemBuilder: (ctx, j) {
+                                      final a = atts[j];
+                                      final (icon, _) =
+                                      _iconAndLabelFor(a['name'] ?? 'archivo');
+                                      return ListTile(
+                                        dense: true,
+                                        tileColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                          BorderRadius.circular(10),
+                                        ),
+                                        leading: Icon(icon),
+                                        title: Text(
+                                          a['desc']?.isNotEmpty == true
+                                              ? a['desc']!
+                                              : (a['name'] ?? 'archivo'),
+                                        ),
+                                        trailing: IconButton(
+                                          icon: const Icon(Icons.launch),
+                                          onPressed: () async {
+                                            final ok =
+                                            await _openAttachment(a);
+                                            if (!ok && ctx.mounted) {
+                                              ScaffoldMessenger.of(ctx)
+                                                  .showSnackBar(
+                                                const SnackBar(
+                                                    content: Text(
+                                                        'No se pudo abrir el archivo')),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                        onTap: () async {
+                                          final ok = await _openAttachment(a);
+                                          if (!ok && ctx.mounted) {
+                                            ScaffoldMessenger.of(ctx)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                  content: Text(
+                                                      'No se pudo abrir el archivo')),
+                                            );
+                                          }
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ] else
+                                  const Padding(
+                                    padding:
+                                    EdgeInsets.fromLTRB(12, 0, 12, 12),
+                                    child: Text('Sin adjuntos.',
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black54)),
+                                  ),
+                              ],
+                            ),
                           );
-                        }
-                      },
-                    );
-                  },
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(backgroundColor: kBrand),
+                    icon: const Icon(Icons.folder_open),
+                    label: const Text('Ver adjuntos'),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _openAttachmentsPage(
+                        context,
+                        taskId: taskId,
+                        taskData: taskData,
+                        initialTabKey: 'Novedades',
+                      );
+                    },
+                  ),
                 ),
               ],
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(backgroundColor: kBrand),
-                  icon: const Icon(Icons.folder_open),
-                  label: const Text('Ver adjuntos'),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _openAttachmentsPage(
-                      context,
-                      taskId: taskId,
-                      taskData: taskData,
-                      initialTabKey: 'Novedades',
-                    );
-                  },
-                ),
-              )
-            ],
+            ),
           ),
         ),
       ),
