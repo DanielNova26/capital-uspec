@@ -1938,27 +1938,23 @@ class _CreatedTileState extends State<_CreatedTile> {
             widget.highlightTaskId != null &&
             widget.highlightTaskId == widget.doc.id) {
           _didAutoOpen = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
             if (!mounted) return;
-            // ✅ Si venimos desde notificación, abrimos directamente el Proceso en la pestaña correcta
+
+            // Si venimos desde notificación, abrir directo el Proceso en la pestaña correcta
             if (widget.openProcessTabKey != null &&
                 widget.openProcessTabKey!.isNotEmpty) {
-              _openAttachmentsPage(
+              await _openAttachmentsPage(
                 context,
                 taskId: widget.doc.id,
                 taskData: widget.doc.data(),
                 initialTabKey: widget.openProcessTabKey,
               );
-            } else {
-              _openActions(
-                context,
-                widget.doc,
-                lastN: lastN,
-                lastA: lastA,
-                resEstado: estado,
-              );
+              return; // ✅ IMPORTANTÍSIMO
             }
-            _openActions(
+
+            // Si no venimos con pestaña específica, abrir acciones
+            await _openActions(
               context,
               widget.doc,
               lastN: lastN,
@@ -1967,6 +1963,7 @@ class _CreatedTileState extends State<_CreatedTile> {
             );
           });
         }
+
 
         return Card(
           elevation: hasNovedad ? 2 : 1,

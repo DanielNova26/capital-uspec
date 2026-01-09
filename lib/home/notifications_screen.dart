@@ -3,7 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+
 import 'assigned_tasks_screen.dart';
+import 'task_history_screen.dart'; // ✅ NUEVO
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);
@@ -58,9 +60,102 @@ class _NotificationList extends StatelessWidget {
     final read = data['read'];
     final leido = data['leido'];
     final visto = data['visto'];
-    return (read is bool && read) ||
-        (leido is bool && leido) ||
-        (visto is bool && visto);
+    return (read is bool && read) || (leido is bool && leido) || (visto is bool && visto);
+  }
+
+  // ✅ Mapea type -> pestaña del Proceso (igual que tu HomeScreen)
+  String? _processTabForNotifType(String raw) {
+    final t = raw.trim().toLowerCase();
+
+    // Avances
+    const avances = {
+      'avance',
+      'progress',
+      'task_progress',
+      'gestion_avance',
+      'avance_creado',
+      'avance_actualizado',
+    };
+
+    // Novedades
+    const novedades = {
+      'novedad',
+      'news',
+      'task_news',
+      'respuesta_novedad',
+      'novedad_creada',
+      'novedad_actualizada',
+    };
+
+    // Finalización
+    const finalizacion = {
+      'finalizacion',
+      'completed',
+      'task_completed',
+      'finalizado',
+    };
+
+    if (avances.contains(t)) return 'Avances';
+    if (novedades.contains(t)) return 'Novedades';
+    if (finalizacion.contains(t)) return 'Finalización';
+    return null;
+  }
+
+  Future<void> _openNotificationTask({
+    required BuildContext context,
+    required String type,
+    required String taskId,
+    required String cedula,
+  }) async {
+    final tabKey = _processTabForNotifType(type);
+
+    // ✅ Si es avance/novedad/finalización => ir a historial y abrir proceso
+    if (tabKey != null) {
+      int tabIndex = 0; // 0 = Asignadas a mí, 1 = Yo asigné
+
+      try {
+        final snap = await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).get();
+        final data = snap.data();
+        if (data != null) {
+          final creatorId =
+          (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
+          final assignedId =
+          (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString().trim();
+
+          if (creatorId.isNotEmpty && creatorId == cedula) {
+            tabIndex = 1; // Yo asigné
+          } else if (assignedId.isNotEmpty && assignedId == cedula) {
+            tabIndex = 0; // Asignadas a mí
+          } else {
+            tabIndex = 1; // fallback
+          }
+        }
+      } catch (_) {}
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TaskHistoryScreen(
+            currentUserId: cedula,
+            initialTabIndex: tabIndex,
+            highlightTaskId: taskId,
+            openProcessTabKey: tabKey,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // ✅ Si NO es avance/novedad => comportamiento original (Mis tareas asignadas)
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AssignedTasksScreen(
+          userId: cedula,
+          highlightTaskId: taskId,
+        ),
+      ),
+    );
   }
 
   @override
@@ -157,6 +252,8 @@ class _NotificationList extends StatelessWidget {
             final when = dt != null ? DateFormat('dd/MM/yyyy HH:mm').format(dt) : '...';
             final isRead = _isRead(data);
 
+            final type = (data['type'] ?? '').toString(); // ✅ clave para decidir navegación
+
             final fromId = (data['fromId'] as String?) ?? '';
             final from = (data['fromName'] as String?) ?? 'Sistema';
 
@@ -166,8 +263,10 @@ class _NotificationList extends StatelessWidget {
                   : FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).get(),
               builder: (ctxTask, snapTask) {
                 final taskData = snapTask.data?.data();
-                final status = (taskData?['status'] ?? taskData?['estado'] ?? 'pendiente').toString();
-                final progress = (taskData?['progreso'] ?? taskData?['avance'] ?? '').toString();
+                final status =
+                (taskData?['status'] ?? taskData?['estado'] ?? 'pendiente').toString();
+                final progress =
+                (taskData?['progreso'] ?? taskData?['avance'] ?? '').toString();
 
                 return Card(
                   elevation: 1.5,
@@ -187,7 +286,10 @@ class _NotificationList extends StatelessWidget {
                         Expanded(
                           child: Text(
                             title,
-                            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         if (!isRead)
@@ -223,8 +325,7 @@ class _NotificationList extends StatelessWidget {
                                 children: [
                                   const Icon(Icons.timelapse, size: 14),
                                   const SizedBox(width: 4),
-                                  Text('Estado: $status',
-                                      style: const TextStyle(fontFamily: kArial)),
+                                  Text('Estado: $status', style: const TextStyle(fontFamily: kArial)),
                                 ],
                               ),
                             ),
@@ -235,8 +336,7 @@ class _NotificationList extends StatelessWidget {
                                 children: [
                                   const Icon(Icons.trending_up, size: 14),
                                   const SizedBox(width: 4),
-                                  Text('Avance: $progress%',
-                                      style: const TextStyle(fontFamily: kArial)),
+                                  Text('Avance: $progress%', style: const TextStyle(fontFamily: kArial)),
                                 ],
                               ),
                             ),
@@ -268,6 +368,8 @@ class _NotificationList extends StatelessWidget {
                         ],
                       ),
                     ),
+
+                    // ✅ AQUÍ estaba el problema: siempre abría AssignedTasksScreen.
                     trailing: taskId == null
                         ? null
                         : TextButton.icon(
@@ -277,22 +379,21 @@ class _NotificationList extends StatelessWidget {
                         if (!isRead) {
                           await doc.reference.update({'read': true});
                         }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AssignedTasksScreen(
-                              userId: userId,
-                              highlightTaskId: taskId,
-                            ),
-                          ),
+                        await _openNotificationTask(
+                          context: context,
+                          type: type,
+                          taskId: taskId,
+                          cedula: userId,
                         );
                       },
                     ),
+
                     onTap: () async {
                       if (!isRead) {
                         await doc.reference.update({'read': true});
                       }
                       if (taskId != null) {
+                        // (Opcional) Mantengo tu lógica actual de marcar "visto"
                         await FirebaseFirestore.instance
                             .collection('TBL_TAREAS')
                             .doc(taskId)
@@ -311,8 +412,10 @@ class _NotificationList extends StatelessWidget {
                               children: [
                                 const Text(
                                   'Detalle de la tarea',
-                                  style:
-                                  TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                    fontFamily: kArial,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
@@ -320,8 +423,7 @@ class _NotificationList extends StatelessWidget {
                                   style: const TextStyle(fontFamily: kArial),
                                 ),
                                 const SizedBox(height: 8),
-                                Text('Estado: $status',
-                                    style: const TextStyle(fontFamily: kArial)),
+                                Text('Estado: $status', style: const TextStyle(fontFamily: kArial)),
                                 const SizedBox(height: 4),
                                 if (taskData != null && taskData['fecha_limite'] != null)
                                   Text(
@@ -334,16 +436,13 @@ class _NotificationList extends StatelessWidget {
                                   child: ElevatedButton.icon(
                                     icon: const Icon(Icons.open_in_new),
                                     label: const Text('Abrir tarea'),
-                                    onPressed: () {
+                                    onPressed: () async {
                                       Navigator.pop(context);
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => AssignedTasksScreen(
-                                            userId: userId,
-                                            highlightTaskId: taskId,
-                                          ),
-                                        ),
+                                      await _openNotificationTask(
+                                        context: context,
+                                        type: type,
+                                        taskId: taskId,
+                                        cedula: userId,
                                       );
                                     },
                                   ),
