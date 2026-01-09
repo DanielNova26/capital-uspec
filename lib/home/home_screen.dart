@@ -55,32 +55,36 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _processTabForNotifType(String raw) {
     final t = raw.trim().toLowerCase();
 
-    // Avances
+    // Avances (incluye tus types reales)
     const avances = {
       'avance',
       'progress',
       'task_progress',
+      'task_avance',        // ✅ FIX
       'gestion_avance',
       'avance_creado',
       'avance_actualizado',
     };
 
-    // Novedades
+    // Novedades (incluye tus types reales)
     const novedades = {
       'novedad',
       'news',
       'task_news',
+      'task_novedad',       // ✅ FIX
       'respuesta_novedad',
       'novedad_creada',
       'novedad_actualizada',
     };
 
-    // Finalización (por si luego lo usas)
+    // Finalización (incluye tus types reales)
     const finalizacion = {
       'finalizacion',
       'completed',
-      'task_completed',
+      'task_completed',     // ✅ ya venía en tu firestore
       'finalizado',
+      'task_finalizado',
+      'task_finalizada',
     };
 
     if (avances.contains(t)) return 'Avances';
@@ -99,8 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // ✅ Si es avance/novedad/finalización => ir al historial y abrir proceso en la pestaña correcta
     if (tabKey != null) {
-      int tabIndex =
-      0; // 0 = Asignadas a mí, 1 = Yo asigné (por defecto intentamos resolver)
+      int tabIndex = 0; // 0 = Asignadas a mí, 1 = Yo asigné
 
       try {
         final snap = await FirebaseFirestore.instance
@@ -112,17 +115,15 @@ class _HomeScreenState extends State<HomeScreen> {
         if (data != null) {
           final creatorId =
           (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
-          final assignedId = (data['asignado_uid'] ?? data['assignedTo'] ?? '')
-              .toString()
-              .trim();
+          final assignedId =
+          (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString().trim();
 
           if (creatorId.isNotEmpty && creatorId == cedula) {
             tabIndex = 1; // Yo asigné
           } else if (assignedId.isNotEmpty && assignedId == cedula) {
             tabIndex = 0; // Asignadas a mí
           } else {
-            // fallback: si no coincide, muéstralo en "Yo asigné"
-            tabIndex = 1;
+            tabIndex = 1; // fallback razonable
           }
         }
       } catch (_) {}
@@ -135,14 +136,14 @@ class _HomeScreenState extends State<HomeScreen> {
             currentUserId: cedula,
             initialTabIndex: tabIndex,
             highlightTaskId: taskId,
-            openProcessTabKey: tabKey, // 👈 NUEVO
+            openProcessTabKey: tabKey, // 👈 pestaña correcta
           ),
         ),
       );
       return;
     }
 
-// ✅ Si NO es avance/novedad => comportamiento original (mis tareas asignadas)
+    // ✅ Si NO es avance/novedad => comportamiento original (mis tareas asignadas)
     if (!mounted) return;
     Navigator.push(
       context,
@@ -154,6 +155,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
   Future<String?> _getFcmTokenWithRetries() async {
     Future<String?> _safeGetToken() async {
       try {
@@ -164,12 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // Intento inicial
     var token = await _safeGetToken();
     if (token != null && token.isNotEmpty) return token;
 
-    // En iOS, el token puede tardar unos segundos hasta resolver APNS.
-    // Si aún no existe APNS, forzamos su resolución y esperamos.
     if (Platform.isIOS) {
       var apnsToken = await FirebaseMessaging.instance.getAPNSToken();
       debugPrint('[FCM] APNS token (retry path): $apnsToken');
@@ -188,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    return token; // podría seguir siendo null en simuladores iOS
+    return token;
   }
 
   Future<void> _persistFcmToken({
@@ -253,7 +252,6 @@ class _HomeScreenState extends State<HomeScreen> {
         (visto is bool && visto);
   }
 
-  // Helpers de campos (alias tolerantes)
   String _titleOf(Map<String, dynamic> m) =>
       (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
 
@@ -331,6 +329,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final body = (data['description'] as String?)?.trim().isNotEmpty == true
             ? data['description'].toString()
             : (data['body']?.toString() ?? '');
+
         final payload = data['taskId']?.toString();
 
         await LocalNotificationService.instance.show(
@@ -343,57 +342,54 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // ========= Registro automático de FCM =========
   Future<void> _ensureFcmRegistered(String userId) async {
     if (userId.isEmpty) return;
 
     try {
       await FirebaseMessaging.instance.setAutoInitEnabled(true);
-      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-        alert: true, badge: true, sound: true,
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
       );
       final settings = await FirebaseMessaging.instance.requestPermission(
-        alert: true, badge: true, sound: true,
-        announcement: false, carPlay: false, criticalAlert: false, provisional: false,
+        alert: true,
+        badge: true,
+        sound: true,
+        announcement: false,
+        carPlay: false,
+        criticalAlert: false,
+        provisional: false,
       );
       debugPrint('[FCM] permiso: ${settings.authorizationStatus}');
 
-      // Suscribirse antes de pedir el token inicial para capturar el primer
-      // valor en iOS (se emite cuando se resuelve el APNS token).
-      _tokenSub ??= FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-        if (newToken.isEmpty) return;
-        await _persistFcmToken(token: newToken, userId: userId);
-      });
+      _tokenSub ??=
+          FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+            if (newToken.isEmpty) return;
+            await _persistFcmToken(token: newToken, userId: userId);
+          });
 
-      // iOS necesita resolver primero el token de APNS para luego generar el
-      // token FCM. Si getToken devuelve null, forzamos la generación
-      // recuperando el APNS token y luego reintentando.
       if (Platform.isIOS) {
         final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
         debugPrint('[FCM] APNS token: $apnsToken');
       }
 
-      // Token actual
       final token = await _getFcmTokenWithRetries();
       debugPrint('[FCM] token actual: $token');
 
       if (token != null && token.isNotEmpty) {
         await _persistFcmToken(token: token, userId: userId);
       }
-
     } catch (e) {
       debugPrint('[FCM] error general: $e');
     }
   }
 
-  // ========= Calendario / Eventos =========
-
   List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
     final key = DateFormat('yyyy-MM-dd').format(day);
     return _events[key] ?? [];
   }
-
-  // ========= Campana / Notificaciones =========
 
   Future<void> _markAllAsRead({
     required String cedula,
@@ -448,10 +444,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Notificaciones',
-                      style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   Text('No tienes notificaciones todavía.',
-                      style: TextStyle(fontFamily: kArial, color: scheme.onSurfaceVariant)),
+                      style: TextStyle(
+                          fontFamily: kArial, color: scheme.onSurfaceVariant)),
                 ],
               ),
             );
@@ -470,23 +470,29 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 12),
               const Text('Notificaciones',
-                  style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Expanded(
                 child: ListView.separated(
                   controller: controller,
-                  padding: const EdgeInsets.only(left: 16, right: 16, bottom: 24),
+                  padding:
+                  const EdgeInsets.only(left: 16, right: 16, bottom: 24),
                   itemCount: notifications.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final n = notifications[i];
-                    final title = (n['title'] ?? '') as String;
-                    final body = (n['description'] ?? '') as String;
+                    final title = (n['title'] ?? '').toString();
+                    final body = (n['description'] ?? '').toString();
                     final type = (n['type'] ?? '').toString();
                     final typeLabel = _mapNotificationType(type);
                     final taskId = (n['taskId'] ?? '').toString();
                     final dt = _toDate(n['createdAt']);
-                    final when = dt == null ? '' : DateFormat('dd/MM/yyyy HH:mm', 'es').format(dt);
+                    final when = dt == null
+                        ? ''
+                        : DateFormat('dd/MM/yyyy HH:mm', 'es').format(dt);
                     final unread = !_isRead(n);
 
                     return ListTile(
@@ -495,12 +501,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           CircleAvatar(
                             backgroundColor: scheme.primary,
-                            child: const Icon(Icons.notifications, color: Colors.white),
+                            child: const Icon(Icons.notifications,
+                                color: Colors.white),
                           ),
                           if (unread)
                             const Positioned(
-                              right: -1, top: -1,
-                              child: CircleAvatar(radius: 6, backgroundColor: Colors.red),
+                              right: -1,
+                              top: -1,
+                              child: CircleAvatar(
+                                  radius: 6, backgroundColor: Colors.red),
                             ),
                         ],
                       ),
@@ -523,7 +532,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               if (typeLabel.isNotEmpty)
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
                                     color: scheme.primary.withOpacity(.1),
                                     borderRadius: BorderRadius.circular(12),
@@ -535,11 +545,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                         fontWeight: FontWeight.w600,
                                       )),
                                 ),
-                              if (taskId != null && taskId.isNotEmpty)
+                              if (taskId.isNotEmpty)
                                 TextButton.icon(
                                   icon: const Icon(Icons.open_in_new, size: 18),
                                   label: const Text('Ir al detalle'),
-                                  style: TextButton.styleFrom(foregroundColor: scheme.primary),
+                                  style: TextButton.styleFrom(
+                                      foregroundColor: scheme.primary),
                                   onPressed: () async {
                                     if (!mounted) return;
                                     Navigator.pop(context);
@@ -564,7 +575,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         showDialog(
                           context: context,
                           builder: (_) => AlertDialog(
-                            title: Text(title, style: const TextStyle(fontFamily: kArial)),
+                            title: Text(title,
+                                style: const TextStyle(fontFamily: kArial)),
                             content: Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -572,10 +584,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                 if (typeLabel.isNotEmpty) ...[
                                   Text('Tipo: $typeLabel',
                                       style: const TextStyle(
-                                          fontFamily: kArial, fontWeight: FontWeight.w600)),
+                                          fontFamily: kArial,
+                                          fontWeight: FontWeight.w600)),
                                   const SizedBox(height: 8),
                                 ],
-                                Text(body, style: const TextStyle(fontFamily: kArial)),
+                                Text(body,
+                                    style: const TextStyle(fontFamily: kArial)),
                                 if (when.isNotEmpty) ...[
                                   const SizedBox(height: 8),
                                   Text('Fecha: $when',
@@ -591,19 +605,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                 onPressed: () => Navigator.pop(context),
                                 child: const Text('Cerrar'),
                               ),
-                            if (taskId != null && taskId.isNotEmpty)
-                              TextButton.icon(
-                                icon: const Icon(Icons.arrow_forward),
-                                label: const Text('Ver origen'),
-                                onPressed: () async {
-                                  Navigator.pop(context);
-                                  await _openNotificationTask(
-                                    type: type,
-                                    taskId: taskId,
-                                    cedula: cedula,
-                                  );
-                                },
-                              ),
+                              if (taskId.isNotEmpty)
+                                TextButton.icon(
+                                  icon: const Icon(Icons.arrow_forward),
+                                  label: const Text('Ver origen'),
+                                  onPressed: () async {
+                                    Navigator.pop(context);
+                                    await _openNotificationTask(
+                                      type: type,
+                                      taskId: taskId,
+                                      cedula: cedula,
+                                    );
+                                  },
+                                ),
                             ],
                           ),
                         );
@@ -668,10 +682,12 @@ class _HomeScreenState extends State<HomeScreen> {
           Widget icon;
           switch (appId.toLowerCase()) {
             case 'admindashboard':
-              icon = const Icon(Icons.admin_panel_settings, size: 32, color: Colors.white);
+              icon = const Icon(Icons.admin_panel_settings,
+                  size: 32, color: Colors.white);
               break;
             case 'talentohumanodashboard':
-              icon = const Icon(Icons.group_work, size: 32, color: Colors.white);
+              icon =
+              const Icon(Icons.group_work, size: 32, color: Colors.white);
               break;
             case 'gerenciadashboard':
               icon = const Icon(Icons.domain, size: 32, color: Colors.white);
@@ -688,25 +704,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 case 'admindashboard':
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => AdminDashboardScreen(userId: cedula)),
+                    MaterialPageRoute(
+                        builder: (_) => AdminDashboardScreen(userId: cedula)),
                   );
                   break;
                 case 'talentohumanodashboard':
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => TalentoHumanoDashboardScreen(userId: cedula)),
+                    MaterialPageRoute(
+                        builder: (_) =>
+                            TalentoHumanoDashboardScreen(userId: cedula)),
                   );
                   break;
                 case 'gerenciadashboard':
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => GerenciaDashboardScreen(userId: cedula)),
+                        builder: (_) =>
+                            GerenciaDashboardScreen(userId: cedula)),
                   );
                   break;
                 default:
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text('Abrir $nombre')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Abrir $nombre')));
               }
             },
           );
@@ -715,7 +735,10 @@ class _HomeScreenState extends State<HomeScreen> {
         if (tiles.isEmpty) {
           return Text(
             'No tienes apps disponibles.',
-            style: TextStyle(fontFamily: kArial, fontSize: 16, color: scheme.onSurfaceVariant),
+            style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 16,
+                color: scheme.onSurfaceVariant),
           );
         }
 
@@ -766,21 +789,33 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (type) {
       case 'avance':
       case 'progress':
+      case 'task_progress':
+      case 'task_avance': // ✅ FIX
         return 'Avance';
+
       case 'novedad':
       case 'news':
+      case 'task_news':
+      case 'task_novedad': // ✅ FIX
+      case 'respuesta_novedad':
         return 'Novedad';
+
       case 'task_assigned':
         return 'Tarea asignada';
       case 'task_reassigned':
         return 'Tarea reasignada';
+
       case 'completed':
+      case 'task_completed':
+      case 'task_finalizada':
+      case 'task_finalizado':
         return 'Tarea finalizada';
+
       default:
         return type.isEmpty ? '' : raw;
     }
   }
-  
+
   // ====== Slider "Tareas del día" ======
   Widget _buildTodayTasksSlider({
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> assignedToMe,
@@ -794,7 +829,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final cards = <Map<String, dynamic>>[];
 
-    // Yo debo entregar (asignado_uid == myId)
     for (final d in assignedToMe) {
       final m = d.data();
       final due = _dueOf(m);
@@ -809,7 +843,6 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    // Me deben entregar (creador_id == myId)
     for (final d in iCreated) {
       final m = d.data();
       final due = _dueOf(m);
@@ -832,7 +865,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // Orden por hora de vencimiento
     cards.sort((a, b) => (a['due'] as DateTime).compareTo(b['due'] as DateTime));
 
     return SizedBox(
@@ -847,14 +879,11 @@ class _HomeScreenState extends State<HomeScreen> {
           final type = c['type'] as String;
           final estado = (c['estado'] as String?) ?? '';
 
-          // colores/estilo según “Yo entrego” vs “Me entregan”
           final bool yoEntrego = type == 'yo';
-          final Color bg = yoEntrego
-              ? scheme.primaryContainer
-              : scheme.tertiaryContainer;
-          final Color fg = yoEntrego
-              ? scheme.onPrimaryContainer
-              : scheme.onTertiaryContainer;
+          final Color bg =
+          yoEntrego ? scheme.primaryContainer : scheme.tertiaryContainer;
+          final Color fg =
+          yoEntrego ? scheme.onPrimaryContainer : scheme.onTertiaryContainer;
           final IconData ico = yoEntrego ? Icons.upload : Icons.download;
 
           return Container(
@@ -920,7 +949,8 @@ class _HomeScreenState extends State<HomeScreen> {
     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
     labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    label: Text(text, style: const TextStyle(fontFamily: kArial, fontSize: 11)),
+    label: Text(text,
+        style: const TextStyle(fontFamily: kArial, fontSize: 11)),
     backgroundColor: scheme.surface,
     side: BorderSide(color: scheme.outlineVariant),
   );
@@ -948,7 +978,8 @@ class _HomeScreenState extends State<HomeScreen> {
       visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       label: Text(estado.isEmpty ? '—' : estado,
-          style: const TextStyle(color: Colors.white, fontFamily: kArial, fontSize: 11)),
+          style: const TextStyle(
+              color: Colors.white, fontFamily: kArial, fontSize: 11)),
       backgroundColor: color,
     );
   }
@@ -958,8 +989,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final scheme = Theme.of(context).colorScheme;
     final empresaState = EmpresaScope.of(context);
     final selectedEmpresaId = empresaState.selectedEmpresaId?.trim();
-    final empresaId =
-    (selectedEmpresaId != null && selectedEmpresaId.isNotEmpty)
+    final empresaId = (selectedEmpresaId != null && selectedEmpresaId.isNotEmpty)
         ? selectedEmpresaId
         : widget.empresaId.trim();
 
@@ -984,7 +1014,8 @@ class _HomeScreenState extends State<HomeScreen> {
             appBar: AppBar(
               backgroundColor: scheme.primary,
               foregroundColor: scheme.onPrimary,
-              title: const Text('Usuario no encontrado', style: TextStyle(fontFamily: kArial)),
+              title: const Text('Usuario no encontrado',
+                  style: TextStyle(fontFamily: kArial)),
             ),
             body: const Center(
               child: Text(
@@ -999,18 +1030,20 @@ class _HomeScreenState extends State<HomeScreen> {
         final userData = userSnap.data!.data()!;
         final cedula = (userData['cedula'] as String?)?.trim() ?? '';
         final effectiveId = cedula.isNotEmpty ? cedula : widget.username.trim();
-        final pNombre =
-            (userData['nombres'] as String?) ?? (userData['primerNombre'] as String? ?? '');
-        final pApellido =
-            (userData['apellidos'] as String?) ?? (userData['primerApellido'] as String? ?? '');
-        final role = (userData['role'] as String?)?.trim().toLowerCase() ?? 'usuario';
-        final assignedApps =
-            (userData['apps'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
+        final pNombre = (userData['nombres'] as String?) ??
+            (userData['primerNombre'] as String? ?? '');
+        final pApellido = (userData['apellidos'] as String?) ??
+            (userData['primerApellido'] as String? ?? '');
+        final role =
+            (userData['role'] as String?)?.trim().toLowerCase() ?? 'usuario';
+        final assignedApps = (userData['apps'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+            <String>[];
         final saludo = '$pNombre${(pApellido.isNotEmpty ? ' $pApellido' : '')}';
 
         _startNotifListener(effectiveId);
 
-        // 🔔 Registrar FCM automáticamente (una sola vez)
         if (!_didRegisterToken && effectiveId.isNotEmpty) {
           _didRegisterToken = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1027,10 +1060,10 @@ class _HomeScreenState extends State<HomeScreen> {
               .snapshots(),
           builder: (context, notifSnap) {
             if (notifSnap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(body: Center(child: CircularProgressIndicator()));
+              return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()));
             }
 
-            // Notificaciones
             final List<Map<String, dynamic>> notifications = [];
             if (notifSnap.hasData) {
               for (final doc in notifSnap.data!.docs) {
@@ -1041,14 +1074,14 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             }
             notifications.sort((a, b) {
-              final ad = _toDate(a['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
-              final bd = _toDate(b['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final ad = _toDate(a['createdAt']) ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
+              final bd = _toDate(b['createdAt']) ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
               return bd.compareTo(ad);
             });
-            final unreadCount =
-                notifications.where((n) => !_isRead(n)).length;
+            final unreadCount = notifications.where((n) => !_isRead(n)).length;
 
-            // Tareas streams
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('TBL_TAREAS')
@@ -1056,7 +1089,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   .snapshots(),
               builder: (context, assignedSnap) {
                 if (assignedSnap.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                  return const Scaffold(
+                      body: Center(child: CircularProgressIndicator()));
                 }
                 final assignedDocs = assignedSnap.data?.docs ?? [];
 
@@ -1067,11 +1101,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       .snapshots(),
                   builder: (context, createdSnap) {
                     if (createdSnap.connectionState == ConnectionState.waiting) {
-                      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                      return const Scaffold(
+                          body: Center(child: CircularProgressIndicator()));
                     }
                     final createdDocs = createdSnap.data?.docs ?? [];
 
-                    // Construir eventos del calendario a partir de tareas
                     final map = <String, List<Map<String, dynamic>>>{};
                     void addEvt(DateTime d, String title, String desc) {
                       final k = DateFormat('yyyy-MM-dd').format(d);
@@ -1115,7 +1149,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         title: Text('Bienvenido, $saludo',
                             style: const TextStyle(
-                                fontFamily: kArial, fontSize: 20, fontWeight: FontWeight.w600)),
+                                fontFamily: kArial,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600)),
                         centerTitle: true,
                         actions: [
                           IconButton(
@@ -1133,12 +1169,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                     right: -2,
                                     top: -2,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 5, vertical: 1),
                                       decoration: BoxDecoration(
                                         color: Colors.red,
                                         borderRadius: BorderRadius.circular(10),
                                       ),
-                                      constraints: const BoxConstraints(minWidth: 18, minHeight: 16),
+                                      constraints: const BoxConstraints(
+                                          minWidth: 18, minHeight: 16),
                                       child: Text(
                                         unreadCount > 9 ? '9+' : '$unreadCount',
                                         textAlign: TextAlign.center,
@@ -1161,10 +1199,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Mis Apps
                             const Text('Mis Apps',
                                 style: TextStyle(
-                                    fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                                    fontFamily: kArial,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold)),
                             const SizedBox(height: 8),
                             _buildAppsSection(
                               empresaId: empresaId,
@@ -1173,11 +1212,11 @@ class _HomeScreenState extends State<HomeScreen> {
                               cedula: effectiveId,
                             ),
                             const SizedBox(height: 24),
-
-                            // Tareas del día (SIEMPRE visible)
                             const Text('Tareas del día',
                                 style: TextStyle(
-                                    fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                                    fontFamily: kArial,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold)),
                             const SizedBox(height: 8),
                             _buildTodayTasksSlider(
                               assignedToMe: assignedDocs,
@@ -1185,14 +1224,14 @@ class _HomeScreenState extends State<HomeScreen> {
                               myId: effectiveId,
                             ),
                             const SizedBox(height: 24),
-
-                            // Calendario (SIEMPRE visible)
                             const Text('Calendario',
                                 style: TextStyle(
-                                    fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                                    fontFamily: kArial,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold)),
                             const SizedBox(height: 8),
                             TableCalendar(
-                              locale: 'es_CO', // o 'es'
+                              locale: 'es_CO',
                               startingDayOfWeek: StartingDayOfWeek.monday,
                               firstDay: DateTime(2000),
                               lastDay: DateTime.now().add(const Duration(days: 365)),

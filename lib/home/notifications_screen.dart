@@ -5,11 +5,108 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 import 'assigned_tasks_screen.dart';
-import 'task_history_screen.dart'; // ✅ NUEVO
+import 'task_history_screen.dart';
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
+
+String? _processTabForNotifType(String raw) {
+  final t = raw.trim().toLowerCase();
+
+  const avances = {
+    'avance',
+    'progress',
+    'task_progress',
+    'task_avance',
+    'gestion_avance',
+    'avance_creado',
+    'avance_actualizado',
+  };
+
+  const novedades = {
+    'novedad',
+    'news',
+    'task_news',
+    'task_novedad',
+    'respuesta_novedad',
+    'novedad_creada',
+    'novedad_actualizada',
+  };
+
+  const finalizacion = {
+    'finalizacion',
+    'completed',
+    'task_completed',
+    'finalizado',
+    'task_finalizado',
+    'task_finalizada',
+  };
+
+  if (avances.contains(t)) return 'Avances';
+  if (novedades.contains(t)) return 'Novedades';
+  if (finalizacion.contains(t)) return 'Finalización';
+  return null;
+}
+
+Future<void> _openNotificationTask(
+    BuildContext context, {
+      required String type,
+      required String taskId,
+      required String cedula,
+    }) async {
+  final tabKey = _processTabForNotifType(type);
+
+  if (tabKey != null) {
+    int tabIndex = 0;
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(taskId)
+          .get();
+
+      final data = snap.data();
+      if (data != null) {
+        final creatorId =
+        (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
+        final assignedId =
+        (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString().trim();
+
+        if (creatorId.isNotEmpty && creatorId == cedula) {
+          tabIndex = 1;
+        } else if (assignedId.isNotEmpty && assignedId == cedula) {
+          tabIndex = 0;
+        } else {
+          tabIndex = 1;
+        }
+      }
+    } catch (_) {}
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TaskHistoryScreen(
+          currentUserId: cedula,
+          initialTabIndex: tabIndex,
+          highlightTaskId: taskId,
+          openProcessTabKey: tabKey,
+        ),
+      ),
+    );
+    return;
+  }
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => AssignedTasksScreen(
+        userId: cedula,
+        highlightTaskId: taskId,
+      ),
+    ),
+  );
+}
 
 class NotificationsScreen extends StatelessWidget {
   final String userId;
@@ -60,102 +157,9 @@ class _NotificationList extends StatelessWidget {
     final read = data['read'];
     final leido = data['leido'];
     final visto = data['visto'];
-    return (read is bool && read) || (leido is bool && leido) || (visto is bool && visto);
-  }
-
-  // ✅ Mapea type -> pestaña del Proceso (igual que tu HomeScreen)
-  String? _processTabForNotifType(String raw) {
-    final t = raw.trim().toLowerCase();
-
-    // Avances
-    const avances = {
-      'avance',
-      'progress',
-      'task_progress',
-      'gestion_avance',
-      'avance_creado',
-      'avance_actualizado',
-    };
-
-    // Novedades
-    const novedades = {
-      'novedad',
-      'news',
-      'task_news',
-      'respuesta_novedad',
-      'novedad_creada',
-      'novedad_actualizada',
-    };
-
-    // Finalización
-    const finalizacion = {
-      'finalizacion',
-      'completed',
-      'task_completed',
-      'finalizado',
-    };
-
-    if (avances.contains(t)) return 'Avances';
-    if (novedades.contains(t)) return 'Novedades';
-    if (finalizacion.contains(t)) return 'Finalización';
-    return null;
-  }
-
-  Future<void> _openNotificationTask({
-    required BuildContext context,
-    required String type,
-    required String taskId,
-    required String cedula,
-  }) async {
-    final tabKey = _processTabForNotifType(type);
-
-    // ✅ Si es avance/novedad/finalización => ir a historial y abrir proceso
-    if (tabKey != null) {
-      int tabIndex = 0; // 0 = Asignadas a mí, 1 = Yo asigné
-
-      try {
-        final snap = await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).get();
-        final data = snap.data();
-        if (data != null) {
-          final creatorId =
-          (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
-          final assignedId =
-          (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString().trim();
-
-          if (creatorId.isNotEmpty && creatorId == cedula) {
-            tabIndex = 1; // Yo asigné
-          } else if (assignedId.isNotEmpty && assignedId == cedula) {
-            tabIndex = 0; // Asignadas a mí
-          } else {
-            tabIndex = 1; // fallback
-          }
-        }
-      } catch (_) {}
-
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TaskHistoryScreen(
-            currentUserId: cedula,
-            initialTabIndex: tabIndex,
-            highlightTaskId: taskId,
-            openProcessTabKey: tabKey,
-          ),
-        ),
-      );
-      return;
-    }
-
-    // ✅ Si NO es avance/novedad => comportamiento original (Mis tareas asignadas)
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AssignedTasksScreen(
-          userId: cedula,
-          highlightTaskId: taskId,
-        ),
-      ),
-    );
+    return (read is bool && read) ||
+        (leido is bool && leido) ||
+        (visto is bool && visto);
   }
 
   @override
@@ -202,7 +206,6 @@ class _NotificationList extends StatelessWidget {
 
         final docs = snap.data?.docs ?? [];
 
-        // Evita duplicados exactos por taskId + createdAt (si createdAt es null, usa doc.id)
         final seen = <String>{};
         final uniqueDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         for (final d in docs) {
@@ -248,214 +251,92 @@ class _NotificationList extends StatelessWidget {
             final taskId = data['taskId'] as String?;
             final title = (data['title'] as String?) ?? '';
             final desc = (data['description'] as String?) ?? '';
+            final type = (data['type'] ?? '').toString(); // ✅ IMPORTANTE
             final dt = _parseCreatedAt(data['createdAt']);
             final when = dt != null ? DateFormat('dd/MM/yyyy HH:mm').format(dt) : '...';
             final isRead = _isRead(data);
 
-            final type = (data['type'] ?? '').toString(); // ✅ clave para decidir navegación
-
-            final fromId = (data['fromId'] as String?) ?? '';
-            final from = (data['fromName'] as String?) ?? 'Sistema';
-
-            return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              future: taskId == null
-                  ? null
-                  : FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).get(),
-              builder: (ctxTask, snapTask) {
-                final taskData = snapTask.data?.data();
-                final status =
-                (taskData?['status'] ?? taskData?['estado'] ?? 'pendiente').toString();
-                final progress =
-                (taskData?['progreso'] ?? taskData?['avance'] ?? '').toString();
-
-                return Card(
-                  elevation: 1.5,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  color: isRead ? Colors.white : const Color(0xFFE8F1FB),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(12),
-                    leading: CircleAvatar(
-                      backgroundColor: isRead ? Colors.grey.shade200 : const Color(0xFFCCE1F5),
-                      child: Icon(
-                        onlyUnread ? Icons.fiber_new : Icons.notifications,
-                        color: isRead ? Colors.black54 : kMarronOscuro,
+            return Card(
+              elevation: 1.5,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              color: isRead ? Colors.white : const Color(0xFFE8F1FB),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(12),
+                leading: CircleAvatar(
+                  backgroundColor: isRead ? Colors.grey.shade200 : const Color(0xFFCCE1F5),
+                  child: Icon(
+                    onlyUnread ? Icons.fiber_new : Icons.notifications,
+                    color: isRead ? Colors.black54 : kMarronOscuro,
+                  ),
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
                       ),
                     ),
-                    title: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              fontFamily: kArial,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    if (!isRead)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'NUEVA',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 10,
+                            color: Colors.white,
                           ),
                         ),
-                        if (!isRead)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.redAccent,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Text(
-                              'NUEVA',
-                              style: TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 10,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(when, style: const TextStyle(fontFamily: kArial)),
-                          const SizedBox(height: 4),
-                          Text(desc, style: const TextStyle(fontFamily: kArial)),
-                          if (status.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.timelapse, size: 14),
-                                  const SizedBox(width: 4),
-                                  Text('Estado: $status', style: const TextStyle(fontFamily: kArial)),
-                                ],
-                              ),
-                            ),
-                          if (progress.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.trending_up, size: 14),
-                                  const SizedBox(width: 4),
-                                  Text('Avance: $progress%', style: const TextStyle(fontFamily: kArial)),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 6),
-                          FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                            future: fromId.isEmpty
-                                ? null
-                                : FirebaseFirestore.instance
-                                .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-                                .doc(fromId)
-                                .get(),
-                            builder: (ctx2, snapOrg) {
-                              String cargo = '';
-                              if (snapOrg.connectionState == ConnectionState.done &&
-                                  snapOrg.hasData &&
-                                  snapOrg.data!.exists) {
-                                cargo = (snapOrg.data!.data()?['cargo'] as String?) ?? '';
-                              }
-                              return Text(
-                                'De: $from${cargo.isNotEmpty ? ' · $cargo' : ''}',
-                                style: const TextStyle(
-                                  fontFamily: kArial,
-                                  fontStyle: FontStyle.italic,
-                                  fontSize: 12,
-                                ),
-                              );
-                            },
-                          ),
-                        ],
                       ),
-                    ),
-
-                    // ✅ AQUÍ estaba el problema: siempre abría AssignedTasksScreen.
-                    trailing: taskId == null
-                        ? null
-                        : TextButton.icon(
-                      icon: const Icon(Icons.open_in_new),
-                      label: const Text('Ver tarea'),
-                      onPressed: () async {
-                        if (!isRead) {
-                          await doc.reference.update({'read': true});
-                        }
-                        await _openNotificationTask(
-                          context: context,
-                          type: type,
-                          taskId: taskId,
-                          cedula: userId,
-                        );
-                      },
-                    ),
-
-                    onTap: () async {
-                      if (!isRead) {
-                        await doc.reference.update({'read': true});
-                      }
-                      if (taskId != null) {
-                        // (Opcional) Mantengo tu lógica actual de marcar "visto"
-                        await FirebaseFirestore.instance
-                            .collection('TBL_TAREAS')
-                            .doc(taskId)
-                            .update({'status': 'visto'});
-
-                        showModalBottomSheet(
-                          context: context,
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                          ),
-                          builder: (_) => Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Detalle de la tarea',
-                                  style: TextStyle(
-                                    fontFamily: kArial,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  (taskData?['descripcion']?.toString() ?? desc),
-                                  style: const TextStyle(fontFamily: kArial),
-                                ),
-                                const SizedBox(height: 8),
-                                Text('Estado: $status', style: const TextStyle(fontFamily: kArial)),
-                                const SizedBox(height: 4),
-                                if (taskData != null && taskData['fecha_limite'] != null)
-                                  Text(
-                                    'Vence: ${DateFormat('dd/MM/yyyy').format((taskData['fecha_limite'] as Timestamp).toDate())}',
-                                    style: const TextStyle(fontFamily: kArial),
-                                  ),
-                                const SizedBox(height: 12),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: ElevatedButton.icon(
-                                    icon: const Icon(Icons.open_in_new),
-                                    label: const Text('Abrir tarea'),
-                                    onPressed: () async {
-                                      Navigator.pop(context);
-                                      await _openNotificationTask(
-                                        context: context,
-                                        type: type,
-                                        taskId: taskId,
-                                        cedula: userId,
-                                      );
-                                    },
-                                  ),
-                                )
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    },
+                  ],
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(when, style: const TextStyle(fontFamily: kArial)),
+                      const SizedBox(height: 4),
+                      Text(desc, style: const TextStyle(fontFamily: kArial)),
+                    ],
                   ),
-                );
-              },
+                ),
+                trailing: taskId == null
+                    ? null
+                    : TextButton.icon(
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('Ver detalle'),
+                  onPressed: () async {
+                    if (!isRead) {
+                      await doc.reference.update({'read': true});
+                    }
+                    await _openNotificationTask(
+                      context,
+                      type: type,
+                      taskId: taskId,
+                      cedula: userId,
+                    );
+                  },
+                ),
+                onTap: () async {
+                  if (!isRead) {
+                    await doc.reference.update({'read': true});
+                  }
+                  if (taskId != null) {
+                    await _openNotificationTask(
+                      context,
+                      type: type,
+                      taskId: taskId,
+                      cedula: userId,
+                    );
+                  }
+                },
+              ),
             );
           },
         );
