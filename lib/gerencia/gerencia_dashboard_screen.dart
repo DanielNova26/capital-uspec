@@ -745,25 +745,61 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Salud de tareas',
-            style: TextStyle(
-                fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 16)),
+        const Text(
+          'Salud de tareas',
+          style: TextStyle(
+            fontFamily: kArial,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            SizedBox(
-              width: 320,
-              height: 220,
-              child: _StatusPieChart(data: statusCount),
-            ),
-            SizedBox(
-              width: 320,
-              height: 220,
-              child: _AreaBarChart(data: sortedArea),
-            ),
-          ],
+
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth >= 720;
+
+            // Alturas recomendadas para que se vean "bonitas" como tu screenshot
+            const pieHeight = 260.0;
+            const barHeight = 220.0;
+
+            if (isWide) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: pieHeight,
+                      child: _StatusPieChart(data: statusCount),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SizedBox(
+                      height: barHeight,
+                      child: _AreaBarChart(data: sortedArea),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            // Mobile: full width + stacked
+            return Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  height: pieHeight,
+                  child: _StatusPieChart(data: statusCount),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: barHeight,
+                  child: _AreaBarChart(data: sortedArea),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
