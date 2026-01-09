@@ -2,11 +2,11 @@
 import 'dart:collection';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 const Color kBrand = Color(0xFF1E3A8A); // Indigo 800
 const String kArial = 'Arial';
@@ -61,14 +61,14 @@ String _resolvedEstado(Map<String, dynamic> m) {
   if (approved || raw == 'finalizado') return 'finalizado';
   if (raw == 'completada') return 'completada';
 
-  final due = _toDate(m['fecha_limite']); // <-- tu campo de vencimiento
+  final due = _toDate(m['fecha_limite']); // campo de vencimiento
   final days = _daysLeft(due);
   if (days != null && days < 0) return 'retrasado';
 
   return raw.isEmpty ? 'pendiente' : raw;
 }
 
-/// Extrae un mensaje/descripcion de múltiples claves posibles (MÁS ROBUSTO)
+/// Extrae un mensaje/descripcion de múltiples claves posibles (robusto)
 String _msgOf(Map<String, dynamic> m) {
   final keys = [
     // comunes
@@ -111,7 +111,6 @@ String _msgOf(Map<String, dynamic> m) {
 
 /// -------- Helpers de adjuntos y lectura básica --------
 
-/// Clave única para deduplicar adjuntos (evita 2 registros por el mismo archivo)
 String _attKey(Map<String, String> m) {
   final url = (m['url'] ?? '').trim();
   final path = (m['path'] ?? '').trim();
@@ -216,21 +215,6 @@ List<Map<String, String>> _attachmentsFromAny(dynamic listOrNull) {
   return _dedupeAtts(out);
 }
 
-/// Adjuntos de un avance (attachments + evidencias)
-List<Map<String, String>> _attachmentsFromAvance(Map<String, dynamic> m) {
-  final out = <Map<String, String>>[];
-  out.addAll(_attachmentsFromAny(m['attachments']));
-
-  final evid = (m['evidencias'] as List?)?.cast<dynamic>() ?? const [];
-  for (final e in evid) {
-    final url = e?.toString() ?? '';
-    if (url.isEmpty) continue;
-    final name = Uri.tryParse(url)?.pathSegments.last ?? 'evidencia';
-    out.add({'name': name, 'url': url, 'desc': 'Evidencia'});
-  }
-  return _dedupeAtts(out);
-}
-
 Future<bool> _openAttachment(Map<String, String> m) async {
   String? url = m['url'];
   if ((url == null || url.isEmpty) && (m['path']?.isNotEmpty ?? false)) {
@@ -242,12 +226,9 @@ Future<bool> _openAttachment(Map<String, String> m) async {
   }
   if (url == null || !url.startsWith('http')) return false;
 
-  if (await launchUrlString(url, mode: LaunchMode.externalApplication)) {
-    return true;
-  }
-  if (await launchUrlString(url, mode: LaunchMode.inAppWebView)) {
-    return true;
-  }
+  if (await launchUrlString(url, mode: LaunchMode.externalApplication)) return true;
+  if (await launchUrlString(url, mode: LaunchMode.inAppWebView)) return true;
+
   final docs =
       'https://docs.google.com/gview?embedded=1&url=${Uri.encodeComponent(url)}';
   return await launchUrlString(docs, mode: LaunchMode.inAppWebView);
@@ -297,13 +278,13 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
             'name': (mm['name'] ?? 'novedad').toString(),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
-            'desc': (mm['desc'] ?? mm['description'] ?? (msg.isEmpty ? 'Novedad' : msg)).toString(),
+            'desc': (mm['desc'] ??
+                mm['description'] ??
+                (msg.isEmpty ? 'Novedad' : msg))
+                .toString(),
           });
         }
       }
-
-      // Si no hay attachments pero sí hay mensaje, lo mostramos como “ítem” sin archivo? NO.
-      // (lo dejamos solo para archivos)
     }
     if (tmp.isNotEmpty) res['Novedades'] = tmp;
   } catch (_) {}
@@ -339,7 +320,10 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
             'name': (mm['name'] ?? 'avance').toString(),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
-            'desc': (mm['desc'] ?? mm['description'] ?? (msg.isEmpty ? 'Avance' : msg)).toString(),
+            'desc': (mm['desc'] ??
+                mm['description'] ??
+                (msg.isEmpty ? 'Avance' : msg))
+                .toString(),
           });
         } else if (e is String) {
           final name = Uri.tryParse(e)?.pathSegments.last ?? 'avance_${d.id}';
@@ -367,15 +351,23 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
       final att = (m['attachments'] as List?) ?? const [];
       for (final e in att) {
         if (e is String) {
-          final name = Uri.tryParse(e)?.pathSegments.last ?? 'finalizacion_${d.id}';
-          tmp.add({'name': name, 'url': e, 'desc': msg.isEmpty ? 'Finalización' : msg});
+          final name =
+              Uri.tryParse(e)?.pathSegments.last ?? 'finalizacion_${d.id}';
+          tmp.add({
+            'name': name,
+            'url': e,
+            'desc': msg.isEmpty ? 'Finalización' : msg
+          });
         } else if (e is Map) {
           final mm = Map<String, dynamic>.from(e);
           tmp.add({
             'name': (mm['name'] ?? 'finalizacion').toString(),
             'url': (mm['url'] ?? '').toString(),
             'path': (mm['path'] ?? '').toString(),
-            'desc': (mm['desc'] ?? mm['description'] ?? (msg.isEmpty ? 'Finalización' : msg)).toString(),
+            'desc': (mm['desc'] ??
+                mm['description'] ??
+                (msg.isEmpty ? 'Finalización' : msg))
+                .toString(),
           });
         }
       }
@@ -383,7 +375,7 @@ Future<Map<String, List<Map<String, String>>>> _collectAllAttachments(
     if (tmp.isNotEmpty) res['Finalización'] = tmp;
   } catch (_) {}
 
-  // ✅ Dedupe por pestaña + eliminar pestañas vacías
+  // Dedupe por pestaña + eliminar pestañas vacías
   res.updateAll((key, value) => _dedupeAtts(value));
   res.removeWhere((k, v) => v.isEmpty);
 
@@ -432,6 +424,8 @@ Future<Map<String, String>?> _latestNovedad(String taskId) async {
     case 'jpeg':
     case 'png':
     case 'gif':
+    case 'webp':
+    case 'bmp':
       return (Icons.image, 'Imagen');
     case 'mp4':
     case 'mov':
@@ -467,13 +461,13 @@ class _AttachmentsScreen extends StatelessWidget {
   Color _tabCardColor(String k) {
     switch (k) {
       case 'Novedades':
-        return const Color(0xFFE8EEFF); // light indigo
+        return const Color(0xFFE8EEFF);
       case 'Avances':
-        return const Color(0xFFEFF4FF); // even lighter indigo
+        return const Color(0xFFEFF4FF);
       case 'Finalización':
-        return const Color(0xFFE3F2FD); // light blue
+        return const Color(0xFFE3F2FD);
       default:
-        return const Color(0xFFF0F5FF); // default soft blue
+        return const Color(0xFFF0F5FF);
     }
   }
 
@@ -485,6 +479,7 @@ class _AttachmentsScreen extends StatelessWidget {
       final i = keys.indexOf(initialTabKey!);
       if (i >= 0) initIndex = i;
     }
+
     return DefaultTabController(
       length: keys.length,
       initialIndex: initIndex,
@@ -573,7 +568,6 @@ class _AttachmentsScreen extends StatelessWidget {
                         final cardColor = _tabCardColor(k);
                         final (iconData, label) = _iconAndLabelFor(name);
 
-                        // Animación sutil por item (stagger)
                         return TweenAnimationBuilder<double>(
                           tween: Tween(begin: 16, end: 0),
                           duration: Duration(milliseconds: 210 + (i * 18)),
@@ -619,8 +613,6 @@ class _AttachmentsScreen extends StatelessWidget {
                                 style: const TextStyle(
                                     fontSize: 12, color: Colors.black54),
                               ),
-
-                              // ✅ SOLO UN ICONO (sin miniatura) para evitar que parezca “2 archivos”
                               trailing: IconButton(
                                 tooltip: 'Abrir',
                                 icon: const Icon(Icons.launch),
@@ -635,8 +627,6 @@ class _AttachmentsScreen extends StatelessWidget {
                                   }
                                 },
                               ),
-
-                              // (opcional) también abre tocando la fila
                               onTap: () async {
                                 final ok = await _openAttachment(m);
                                 if (!ok && context.mounted) {
@@ -685,7 +675,9 @@ void _pushAttachmentsPage(
           .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
       final fade = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
       return FadeTransition(
-          opacity: fade, child: SlideTransition(position: slide, child: child));
+        opacity: fade,
+        child: SlideTransition(position: slide, child: child),
+      );
     },
   ));
 }
@@ -707,12 +699,14 @@ Future<void> _openAttachmentsPage(
   }
   final lastN = await _latestNovedad(taskId);
   if (context.mounted) {
-    _pushAttachmentsPage(context,
-        taskId: taskId,
-        taskData: taskData,
-        tabsMap: tabsMap,
-        lastNovedad: lastN,
-        initialTabKey: initialTabKey);
+    _pushAttachmentsPage(
+      context,
+      taskId: taskId,
+      taskData: taskData,
+      tabsMap: tabsMap,
+      lastNovedad: lastN,
+      initialTabKey: initialTabKey,
+    );
   }
 }
 
@@ -803,6 +797,12 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
     _loadAreas();
   }
 
+  @override
+  void dispose() {
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadAreas() async {
     try {
       final qs = await FirebaseFirestore.instance
@@ -881,14 +881,15 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         final q = _searchCtl.text.trim().toLowerCase();
         ordered = ordered.where((d) {
           final m = d.data();
-          final title =
-          ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
+          final title = ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
           final areaId = (m['areaId'] ?? '').toString();
           final estado = _resolvedEstado(m);
           final due = _toDate(m['fecha_limite']);
+
           if (q.isNotEmpty && !title.contains(q)) return false;
           if (_areaSel != 'todas' && areaId != _areaSel) return false;
           if (_estadoSel != 'todos' && estado != _estadoSel) return false;
+
           if (_from != null &&
               (due == null ||
                   due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
@@ -936,7 +937,6 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         ),
         child: Column(
           children: [
-            // Fila 1: búsqueda
             Row(
               children: [
                 Expanded(
@@ -959,7 +959,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
             ),
             const SizedBox(height: 10),
 
-            // Fila 2: Área + Estado
+            // Área + Estado
             Row(
               children: [
                 Expanded(
@@ -1006,7 +1006,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
 
             const SizedBox(height: 10),
 
-            // Fila 3: Rango de fechas
+            // Rango de fechas
             Row(
               children: [
                 OutlinedButton.icon(
@@ -1079,6 +1079,7 @@ class _AssignedTile extends StatelessWidget {
     if (estado == 'finalizado') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
+
     Color bg;
     if (d > 0) {
       bg = Colors.green.shade600;
@@ -1095,8 +1096,7 @@ class _AssignedTile extends StatelessWidget {
       ),
       child: Text(
         d.toString(),
-        style:
-        const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -1129,8 +1129,7 @@ class _AssignedTile extends StatelessWidget {
                     TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const Spacer(),
                 Text(created,
-                    style:
-                    const TextStyle(fontSize: 12, color: Colors.black54)),
+                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
               ]),
               const SizedBox(height: 10),
               Container(
@@ -1233,8 +1232,7 @@ class _AssignedTile extends StatelessWidget {
   );
 
   void _showQuickDetails(BuildContext context, Map<String, dynamic> m) {
-    final asignado =
-    (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
     final vence = _fmt(_toDate(m['fecha_limite']));
     final prioridad = (m['prioridad'] ?? '').toString();
 
@@ -1269,10 +1267,11 @@ class _AssignedTile extends StatelessWidget {
     child: Row(
       children: [
         SizedBox(
-            width: 100,
-            child: Text('$k:',
-                style: const TextStyle(
-                    fontWeight: FontWeight.w600, fontSize: 13))),
+          width: 100,
+          child: Text('$k:',
+              style: const TextStyle(
+                  fontWeight: FontWeight.w600, fontSize: 13)),
+        ),
         Expanded(child: Text(v, style: const TextStyle(fontSize: 13))),
       ],
     ),
@@ -1300,7 +1299,6 @@ class _AssignedTile extends StatelessWidget {
         final due = _toDate(m['fecha_limite']);
         final vence = _fmt(due);
 
-        // ✅ mostrar comentario/mensaje de novedad en tarjeta
         final novMsg = (lastNovedad == null) ? '' : _msgOf(lastNovedad!);
 
         return Card(
@@ -1311,8 +1309,12 @@ class _AssignedTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             onTap: () {
               if (lastNovedad != null) {
-                _showNovedadDialog(context,
-                    taskId: doc.id, taskData: m, novedad: lastNovedad!);
+                _showNovedadDialog(
+                  context,
+                  taskId: doc.id,
+                  taskData: m,
+                  novedad: lastNovedad!,
+                );
               } else {
                 _openAttachmentsPage(context, taskId: doc.id, taskData: m);
               }
@@ -1331,51 +1333,51 @@ class _AssignedTile extends StatelessWidget {
                 ),
                 Expanded(
                   child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (novMsg.isNotEmpty) ...[
                         Text(
-                          title,
-                          maxLines: 1,
+                          '🟠 $novMsg',
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
+                          style:
+                          const TextStyle(fontFamily: kArial, fontSize: 12),
                         ),
                         const SizedBox(height: 6),
-
-                        if (novMsg.isNotEmpty) ...[
-                          Text(
-                            '🟠 $novMsg',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontFamily: kArial, fontSize: 12),
-                          ),
-                          const SizedBox(height: 6),
-                        ],
-
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          children: [
-                            _chipEstado(estado),
-                            _pillSmall(Icons.schedule, vence),
-                            if (prioridad == 'ALTA') _pillSmall(Icons.flag, prioridad),
-                            if (hasNovedad)
-                              _pillActionSmall(
-                                Icons.campaign,
-                                'Novedad',
-                                    () => _showNovedadDialog(
-                                  context,
-                                  taskId: doc.id,
-                                  taskData: m,
-                                  novedad: lastNovedad!,
-                                ),
+                      ],
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          _chipEstado(estado),
+                          _pillSmall(Icons.schedule, vence),
+                          if (prioridad == 'ALTA') _pillSmall(Icons.flag, prioridad),
+                          if (hasNovedad)
+                            _pillActionSmall(
+                              Icons.campaign,
+                              'Novedad',
+                                  () => _showNovedadDialog(
+                                context,
+                                taskId: doc.id,
+                                taskData: m,
+                                novedad: lastNovedad!,
                               ),
-                          ],
-                        ),
-                      ]),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(width: 8),
                 _countdownBadge(due, estado),
@@ -1421,6 +1423,12 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   void initState() {
     super.initState();
     _loadAreas();
+  }
+
+  @override
+  void dispose() {
+    _searchCtl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAreas() async {
@@ -1492,7 +1500,8 @@ class _ICreatedTabState extends State<_ICreatedTab> {
           return t?.toDate().millisecondsSinceEpoch ?? 0;
         }
 
-        var ordered = [...docs]..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
+        var ordered = [...docs]
+          ..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
 
         final q = _searchCtl.text.trim().toLowerCase();
         ordered = ordered.where((d) {
@@ -1501,9 +1510,11 @@ class _ICreatedTabState extends State<_ICreatedTab> {
           final areaId = (m['areaId'] ?? '').toString();
           final estado = _resolvedEstado(m);
           final due = _toDate(m['fecha_limite']);
+
           if (q.isNotEmpty && !title.contains(q)) return false;
           if (_areaSel != 'todas' && areaId != _areaSel) return false;
           if (_estadoSel != 'todos' && estado != _estadoSel) return false;
+
           if (_from != null &&
               (due == null ||
                   due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
@@ -1580,7 +1591,8 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                     EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                   ),
                   items: _areasMap.entries
-                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                      .map((e) =>
+                      DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
                   onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
                 ),
@@ -1599,7 +1611,8 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                     EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                   ),
                   items: _estadosMap.entries
-                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                      .map((e) =>
+                      DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
                   onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
                 ),
@@ -1641,7 +1654,11 @@ class _CreatedTile extends StatelessWidget {
   _CreatedTile({required this.doc});
 
   Future<Map<String, dynamic>?> _latest(String sub) async {
-    final qs = await doc.reference.collection(sub).orderBy('createdAt', descending: true).limit(1).get();
+    final qs = await doc.reference
+        .collection(sub)
+        .orderBy('createdAt', descending: true)
+        .limit(1)
+        .get();
     if (qs.docs.isEmpty) return null;
     return qs.docs.first.data();
   }
@@ -1710,7 +1727,6 @@ class _CreatedTile extends StatelessWidget {
         final hasNovedad = lastN != null;
         final hasAvance = lastA != null;
 
-        // ✅ comentarios visibles (novedad/avance)
         final lastNMsg = lastN == null ? '' : _msgOf(lastN!);
         final lastAMsg = lastA == null ? '' : _msgOf(lastA!);
         final preview = lastNMsg.isNotEmpty
@@ -1760,7 +1776,8 @@ class _CreatedTile extends StatelessWidget {
                       Text('Asignado: ${asignado.isEmpty ? "—" : asignado}',
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontFamily: kArial, fontSize: 12)),
-                      _chipMini('Estado: ${estado.isEmpty ? "—" : estado}', _statusColor(estado)),
+                      _chipMini('Estado: ${estado.isEmpty ? "—" : estado}',
+                          _statusColor(estado)),
                       _pillMini('Vence: $vence'),
                       if (prioridad == 'ALTA') _pillMini('Prioridad: $prioridad'),
                       if (hasNovedad) _pillMini('Novedad'),
@@ -1771,8 +1788,13 @@ class _CreatedTile extends StatelessWidget {
               ),
             ),
             trailing: _countdownBadge(due, estado),
-            onTap: () => _openActions(context, doc,
-                lastN: lastN, lastA: lastA, resEstado: estado),
+            onTap: () => _openActions(
+              context,
+              doc,
+              lastN: lastN,
+              lastA: lastA,
+              resEstado: estado,
+            ),
           ),
         );
       },
@@ -1872,7 +1894,9 @@ class _CreatedTile extends StatelessWidget {
               leading: const Icon(Icons.report_problem_outlined),
               title: const Text('Responder novedad'),
               subtitle: Text(
-                lastN == null ? 'No hay novedad reciente (igual puedes responder).' : _msgOf(lastN!),
+                lastN == null
+                    ? 'No hay novedad reciente (igual puedes responder).'
+                    : _msgOf(lastN!),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1887,7 +1911,9 @@ class _CreatedTile extends StatelessWidget {
               leading: const Icon(Icons.trending_up),
               title: const Text('Gestionar avance'),
               subtitle: Text(
-                lastA == null ? 'No hay avance reciente (puedes gestionar el plazo).' : _msgOf(lastA!),
+                lastA == null
+                    ? 'No hay avance reciente (puedes gestionar el plazo).'
+                    : _msgOf(lastA!),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1898,7 +1924,6 @@ class _CreatedTile extends StatelessWidget {
             ),
             const Divider(height: 1),
 
-            // ✅ FINALIZAR: ahora abre un “sí/no” con icono y mensaje “X no ha dado por finalizada…”
             ListTile(
               dense: true,
               visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
@@ -1940,7 +1965,7 @@ class _CreatedTile extends StatelessWidget {
     );
   }
 
-  /// ✅ Confirma y aprueba finalización (con mensaje “X no ha dado por finalizada…” + Sí/No + icono)
+  /// Confirma y aprueba finalización (con mensaje “X no ha dado por finalizada…” + Sí/No + icono)
   Future<void> _confirmAndApproveFinalizacion(
       BuildContext context,
       QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -1958,21 +1983,22 @@ class _CreatedTile extends StatelessWidget {
     final assignedName =
     (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString().trim();
     final assignedId = (m['asignado_uid'] ?? '').toString().trim();
-    final who = assignedName.isNotEmpty ? assignedName : (assignedId.isNotEmpty ? assignedId : 'El asignado');
+    final who = assignedName.isNotEmpty
+        ? assignedName
+        : (assignedId.isNotEmpty ? assignedId : 'El asignado');
 
-    // ¿Hay solicitud/evidencia de finalización?
     bool hasFinalizacionRequest = false;
     try {
       final qs = await doc.reference.collection('finalizacion').limit(1).get();
       if (qs.docs.isNotEmpty) hasFinalizacionRequest = true;
     } catch (_) {}
 
-    // También considera campos root si los usas
-    final completedFlag = (m['completed'] == true) || (m['completada'] == true) || (m['finalizada'] == true);
+    final completedFlag = (m['completed'] == true) ||
+        (m['completada'] == true) ||
+        (m['finalizada'] == true);
     final completedAt = m['completedAt'] ?? m['completionAt'] ?? m['finalizedAt'];
     if (completedFlag || completedAt != null) hasFinalizacionRequest = true;
 
-    final title = 'Autorizar finalización';
     final message = hasFinalizacionRequest
         ? '¿Deseas autorizar la finalización de esta tarea?'
         : '$who no ha dado por finalizada la tarea.\n\n¿Deseas autorizar la finalización de todos modos?';
@@ -1997,7 +2023,10 @@ class _CreatedTile extends StatelessWidget {
           ElevatedButton.icon(
             icon: const Icon(Icons.check),
             label: const Text('Sí, autorizar'),
-            style: ElevatedButton.styleFrom(backgroundColor: kBrand, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kBrand,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(context, true),
           ),
         ],
@@ -2005,13 +2034,14 @@ class _CreatedTile extends StatelessWidget {
     );
 
     if (ok != true) return;
-
     await _aprobarFinalizacion(context, doc);
   }
 
   // ---------- Novedad ----------
   Future<void> _dialogResponderNovedad(
-      BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) async {
     final txtCtrl = TextEditingController();
     DateTime? nuevaFecha;
     bool aprueba = true;
@@ -2035,7 +2065,8 @@ class _CreatedTile extends StatelessWidget {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('¿Apruebas la novedad? Puedes asignar nueva fecha si apruebas.'),
+              const Text(
+                  '¿Apruebas la novedad? Puedes asignar nueva fecha si apruebas.'),
               const SizedBox(height: 8),
               RadioListTile<bool>(
                 dense: true,
@@ -2079,8 +2110,12 @@ class _CreatedTile extends StatelessWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Enviar')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar')),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Enviar')),
           ],
         ),
       ),
@@ -2107,15 +2142,17 @@ class _CreatedTile extends StatelessWidget {
 
     final assigned = (doc.data()['asignado_uid'] ?? '').toString();
     if (assigned.isNotEmpty) {
-      final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
-      await fn.call(<String, dynamic>{
-        'taskId': doc.id,
-        'title': 'Respuesta a novedad',
-        'body': aprueba == true
-            ? 'Se aprobó la novedad. ${nuevaFecha != null ? "Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}" : ""}'
-            : 'Se rechazó la novedad. Se mantiene el plazo.',
-        'creatorId': assigned,
-      });
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
+        await fn.call(<String, dynamic>{
+          'taskId': doc.id,
+          'title': 'Respuesta a novedad',
+          'body': aprueba == true
+              ? 'Se aprobó la novedad. ${nuevaFecha != null ? "Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}" : ""}'
+              : 'Se rechazó la novedad. Se mantiene el plazo.',
+          'creatorId': assigned,
+        });
+      } catch (_) {}
     }
 
     if (context.mounted) {
@@ -2222,7 +2259,9 @@ class _CreatedTile extends StatelessWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar')),
             ElevatedButton(
               onPressed: () {
                 if (opSel == 'nueva' && nuevaFecha == null) return;
@@ -2265,16 +2304,18 @@ class _CreatedTile extends StatelessWidget {
 
     final assigned = (doc.data()['asignado_uid'] ?? '').toString();
     if (assigned.isNotEmpty) {
-      final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
-      final body = (fechaFinal != null)
-          ? 'Nueva fecha: ${DateFormat('dd/MM/yyyy').format(fechaFinal)}'
-          : 'Se mantiene la fecha actual.';
-      await fn.call(<String, dynamic>{
-        'taskId': doc.id,
-        'title': 'Gestión de avance',
-        'body': body,
-        'creatorId': assigned,
-      });
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
+        final body = (fechaFinal != null)
+            ? 'Nueva fecha: ${DateFormat('dd/MM/yyyy').format(fechaFinal)}'
+            : 'Se mantiene la fecha actual.';
+        await fn.call(<String, dynamic>{
+          'taskId': doc.id,
+          'title': 'Gestión de avance',
+          'body': body,
+          'creatorId': assigned,
+        });
+      } catch (_) {}
     }
 
     if (context.mounted) {
@@ -2285,7 +2326,9 @@ class _CreatedTile extends StatelessWidget {
 
   // ---------- Finalización ----------
   Future<void> _aprobarFinalizacion(
-      BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) async {
     await doc.reference.update({
       'approved': true,
       'approvedAt': FieldValue.serverTimestamp(),
@@ -2296,13 +2339,15 @@ class _CreatedTile extends StatelessWidget {
 
     final assigned = (doc.data()['asignado_uid'] ?? '').toString();
     if (assigned.isNotEmpty) {
-      final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
-      await fn.call(<String, dynamic>{
-        'creatorId': assigned,
-        'taskId': doc.id,
-        'title': 'Tarea aprobada',
-        'body': 'La finalización fue aprobada.',
-      });
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
+        await fn.call(<String, dynamic>{
+          'creatorId': assigned,
+          'taskId': doc.id,
+          'title': 'Tarea aprobada',
+          'body': 'La finalización fue aprobada.',
+        });
+      } catch (_) {}
     }
 
     if (context.mounted) {
@@ -2313,7 +2358,9 @@ class _CreatedTile extends StatelessWidget {
 
   // ---------- Devolver ----------
   Future<void> _devolverTarea(
-      BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) async {
     DateTime? nuevaFecha;
     final motivoCtrl = TextEditingController();
 
@@ -2358,8 +2405,12 @@ class _CreatedTile extends StatelessWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Devolver')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Devolver')),
         ],
       ),
     );
@@ -2381,14 +2432,16 @@ class _CreatedTile extends StatelessWidget {
 
       final assigned = (doc.data()['asignado_uid'] ?? '').toString();
       if (assigned.isNotEmpty) {
-        final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
-        await fn.call(<String, dynamic>{
-          'taskId': doc.id,
-          'title': 'Tarea devuelta',
-          'body':
-          'Se devolvió la tarea. Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}. Motivo: ${motivoCtrl.text.trim()}',
-          'creatorId': assigned,
-        });
+        try {
+          final fn = FirebaseFunctions.instance.httpsCallable('notifyTaskNews');
+          await fn.call(<String, dynamic>{
+            'taskId': doc.id,
+            'title': 'Tarea devuelta',
+            'body':
+            'Se devolvió la tarea. Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}. Motivo: ${motivoCtrl.text.trim()}',
+            'creatorId': assigned,
+          });
+        } catch (_) {}
       }
 
       if (context.mounted) {
@@ -2398,7 +2451,8 @@ class _CreatedTile extends StatelessWidget {
     } else if (ok == true) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Debes indicar motivo y nueva fecha.')));
+          const SnackBar(content: Text('Debes indicar motivo y nueva fecha.')),
+        );
       }
     }
   }

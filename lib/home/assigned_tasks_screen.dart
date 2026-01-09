@@ -1,9 +1,17 @@
 // lib/home/assigned_tasks_screen.dart
 //
-// Lista de "Tareas asignadas" con adjuntos abribles y acciones.
-// Requiere: cloud_firestore, firebase_storage, intl, url_launcher.
+// Pantalla: "Mis tareas asignadas"
+// - Lista tareas asignadas al usuario (TBL_TAREAS.where('asignado_uid'==userId))
+// - Acciones: Completar / Reportar avance / Reportar novedad
+// - Adjuntos: abre URL o Storage path
+// - Opción B: Reasignación (directa si creador/jefe; si no, solicitud pendiente)
+// - Solicitud de finalización: queda pendiente para aprobación del creador/jefe
+//
+// Requiere:
+//   cloud_firestore, firebase_storage, intl, url_launcher
+//
+// Ajusta imports si tu estructura difiere.
 
-import 'dart:async';
 import 'dart:collection';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,44 +21,43 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:todo/state/empresa_scope.dart';
 
-// Servicio de tareas (reasignar). Ajusta la ruta si cambia:
-import '../services/task_service.dart' as svc;
-
-// Pantallas de acciones:
-import 'notify_avances_screen.dart' as avances_screen;
-import 'notify_novedades_screen.dart' as novedades_screen;
-import 'complete_task_screen.dart' as complete_screen;
+import 'complete_task_screen.dart';
+import 'notify_avances_screen.dart';
+import 'notify_novedades_screen.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
 class AssignedTasksScreen extends StatefulWidget {
   final String userId;
-  final String? highlightTaskId; // para abrir automáticamente una tarea
+  final String? highlightTaskId;
 
   const AssignedTasksScreen({
-    Key? key,
+    super.key,
     required this.userId,
     this.highlightTaskId,
-  }) : super(key: key);
+  });
 
   @override
   State<AssignedTasksScreen> createState() => _AssignedTasksScreenState();
 }
 
 class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
-  final _taskService = svc.TaskService();
-
+  // filtros
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'todas'; // todas | pendiente | en_progreso | completada
+  String _statusFilter = 'todas'; // todas | activas | finalizadas | pendiente | en_progreso | devuelta | retrasado | pendiente_aprobacion
   String _areaFilter = 'todas';
+
+  // bootstrap
   Set<String> _empresaIds = {};
   Map<String, String> _areas = const {'todas': 'Todas las áreas'};
   Map<String, dynamic> _userData = const {};
   late Future<void> _bootstrapFuture;
-  bool _didAutoOpen = false;
+
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
+
+  bool _didAutoOpen = false;
 
   @override
   void initState() {
@@ -69,16 +76,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     _syncEmpresa(scope.selectedEmpresaId);
   }
 
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    _empresaState?.removeListener(_onEmpresaChanged);
-    super.dispose();
-  }
-
-  void _onEmpresaChanged() {
-    _syncEmpresa(_empresaState?.selectedEmpresaId);
-  }
+  void _onEmpresaChanged() => _syncEmpresa(_empresaState?.selectedEmpresaId);
 
   void _syncEmpresa(String? empresaId) {
     final next = empresaId?.trim();
@@ -89,74 +87,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     });
   }
 
-  Future<void> _loadBootstrap() async {
-    try {
-      final userDoc = await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.userId)
-          .get();
-      final data = userDoc.data() ?? {};
-      final empresas = _extractEmpresas(data);
-      final filteredEmpresas = (_selectedEmpresaId?.isNotEmpty ?? false)
-          ? <String>{_selectedEmpresaId!}
-          : empresas;
-
-      final areas = <String, String>{'todas': 'Todas las áreas'};
-      if (filteredEmpresas.isNotEmpty) {
-        final list = filteredEmpresas.toList();
-        for (var i = 0; i < list.length; i += 10) {
-          final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
-          final snap = await FirebaseFirestore.instance
-              .collection('TBL_AREAS')
-              .where('empresaId', whereIn: chunk)
-              .get();
-          areas.addEntries(snap.docs.map((d) {
-            final m = d.data();
-            final id = (m['areaId'] ?? d.id).toString();
-            final nombre = (m['nombre'] ?? id).toString();
-            return MapEntry(id, nombre);
-          }));
-        }
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _empresaIds = filteredEmpresas;
-        _areas = areas;
-        _userData = data;
-        if (!_areas.keys.contains(_areaFilter)) {
-          _areaFilter = 'todas';
-        }
-      });
-    } catch (_) {}
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _empresaState?.removeListener(_onEmpresaChanged);
+    super.dispose();
   }
 
-  Set<String> _extractEmpresas(Map<String, dynamic> data) {
-    final out = <String>{};
-    final primary = (data['empresaId'] as String? ?? '').trim();
-    if (primary.isNotEmpty) out.add(primary);
-    final list = data['empresas'] as List<dynamic>? ?? const [];
-    for (final e in list) {
-      final id = (e ?? '').toString().trim();
-      if (id.isNotEmpty) out.add(id);
-    }
-    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
-    if (detalle != null) {
-      out.addAll(detalle.keys.where((k) => k.trim().isNotEmpty).map((k) => k.trim()));
-    }
-    return out;
-  }
-
-  String _currentUserName() {
-    final nombre = [
-      (_userData['nombres'] ?? _userData['primerNombre'] ?? '').toString(),
-      (_userData['apellidos'] ?? _userData['primerApellido'] ?? '').toString(),
-    ].where((e) => e.trim().isNotEmpty).join(' ').trim();
-    return nombre.isNotEmpty ? nombre : widget.userId;
-  }
-
-  // ---- Helpers de lectura segura ----
-
+  // -------------------------
+  // Helpers lectura segura
+  // -------------------------
   String _str(Map<String, dynamic> m, List<String> keys, {String def = ''}) {
     for (final k in keys) {
       final v = m[k];
@@ -183,11 +123,31 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return null;
   }
 
-  String _fmtTs(Timestamp? ts, {String pat = 'yyyy-MM-dd HH:mm'}) {
+  String _fmtTs(Timestamp? ts, {String pat = 'dd/MM/yyyy HH:mm'}) {
     if (ts == null) return '—';
     return DateFormat(pat).format(ts.toDate());
   }
 
+  int? _daysLeft(Timestamp? due) {
+    if (due == null) return null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final end = DateTime(due.toDate().year, due.toDate().month, due.toDate().day, 23, 59, 59);
+    return end.difference(today).inDays;
+  }
+
+  String _currentUserName() {
+    final nombre = [
+      (_userData['nombres'] ?? _userData['primerNombre'] ?? '').toString(),
+      (_userData['apellidos'] ?? _userData['primerApellido'] ?? '').toString(),
+    ].where((e) => e.trim().isNotEmpty).join(' ').trim();
+
+    return nombre.isNotEmpty ? nombre : widget.userId;
+  }
+
+  // -------------------------
+  // Estado y colores
+  // -------------------------
   Color _statusColor(String s) {
     switch (s) {
       case 'pendiente':
@@ -196,12 +156,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return Colors.blue.shade600;
       case 'completada':
         return Colors.green.shade600;
+      case 'finalizado':
+        return Colors.green.shade800;
       case 'devuelta':
         return Colors.purple.shade600;
       case 'retrasado':
         return Colors.red.shade700;
-      case 'finalizado':
-        return Colors.green.shade800;
+      case 'pendiente_aprobacion':
+        return Colors.teal.shade700;
       default:
         return Colors.grey.shade600;
     }
@@ -215,20 +177,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     );
   }
 
-  int? _daysLeft(Timestamp? due) {
-    if (due == null) return null;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final end = DateTime(due.toDate().year, due.toDate().month, due.toDate().day, 23, 59, 59);
-    return end.difference(today).inDays;
-  }
-
   String _resolvedStatus(Map<String, dynamic> data) {
     final raw = _str(data, ['estado', 'status']).toLowerCase();
+
     if (raw == 'finalizado') return 'finalizado';
     if (raw == 'completada') return 'completada';
     if (raw == 'devuelta') return 'devuelta';
+    if (raw == 'pendiente_aprobacion') return 'pendiente_aprobacion';
 
+    // si está vencida -> retrasado
     final due = _ts(data, ['fecha_limite', 'dueDate']);
     final days = _daysLeft(due);
     if (days != null && days < 0) return 'retrasado';
@@ -238,12 +195,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return raw.isEmpty ? 'pendiente' : raw;
   }
 
-  // ---- Adjuntos: unifica adjuntos/evidencias ----
-
+  // -------------------------
+  // Adjuntos: URL o Storage path
+  // -------------------------
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
     final out = <Map<String, String>>[];
 
-    // 1) adjuntos: lista de maps { name, url?, path? }
+    // adjuntos: lista de maps {name,url,path}
     final adj = (data['adjuntos'] as List?) ?? (data['attachments'] as List?);
     if (adj != null) {
       for (final e in adj) {
@@ -257,7 +215,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       }
     }
 
-    // 2) evidencias: lista de URLs (strings)
+    // evidencias: lista de urls string
     final evid = (data['evidencias'] as List?)?.cast<dynamic>() ?? const [];
     for (final e in evid) {
       final url = e?.toString() ?? '';
@@ -266,7 +224,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       out.add({'name': name, 'url': url});
     }
 
-    // 3) evidencias_paths: lista de paths en Storage
+    // evidencias_paths: lista de paths
     final evidPaths = (data['evidencias_paths'] as List?)?.cast<dynamic>() ?? const [];
     for (final p in evidPaths) {
       final path = p?.toString() ?? '';
@@ -290,176 +248,170 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     }
     if (url == null || !url.startsWith('http')) return false;
 
+    // primero externo
     final okExt = await launchUrlString(url, mode: LaunchMode.externalApplication);
     if (okExt) return true;
 
+    // luego in-app
     final okIn = await launchUrlString(url, mode: LaunchMode.inAppWebView);
     if (okIn) return true;
 
+    // fallback: google viewer
     final docs = 'https://docs.google.com/gview?embedded=1&url=${Uri.encodeComponent(url)}';
     return await launchUrlString(docs, mode: LaunchMode.inAppWebView);
   }
 
-  // ---- Acciones ----
+  // -------------------------
+  // Solicitud de finalización (pendiente)
+  // -------------------------
+  bool _finishPending(Map<String, dynamic> data) {
+    final st = _str(data, ['solicitud_finalizacion_estado']).toLowerCase();
+    return st == 'pendiente';
+  }
 
-  void _showActionsSheet(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data() ?? {};
-    final taskId = doc.id;
+  Future<void> _requestFinish(String taskId, Map<String, dynamic> data) async {
+    final now = Timestamp.now();
+    final byName = _currentUserName();
 
-    final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
-    final status = _str(data, ['estado', 'status']);
-    final assignedTo = _str(data, ['asignado_uid', 'assignedTo']);
-    final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
-    final areaId = _str(data, ['areaId']);
-    final attachments = _extractAttachments(data);
+    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
+      'estado': 'pendiente_aprobacion',
+      'solicitud_finalizacion_estado': 'pendiente',
+      'solicitud_finalizacion_at': now,
+      'solicitud_finalizacion_by_uid': widget.userId,
+      'solicitud_finalizacion_by_nombre': byName,
 
-    // ✅ claves para opción B
-    final creatorId = _str(data, ['creador_id', 'creatorId']);
-    final bossId = _str(data, ['jefe_uid', 'bossId', 'delegatedTo']);
-    final canDirect = widget.userId == creatorId || widget.userId == bossId;
+      // historial simple
+      'lastEventType': 'solicitud_finalizacion',
+      'lastEventAt': now,
+      'lastEventText': 'Solicitud de finalización enviada por $byName',
 
-    final isCompleted = status == 'completada';
+      'fecha_actualizacion': now,
+      'updatedAt': now,
+    });
+  }
 
-    showModalBottomSheet(
+  Future<void> _confirmRequestFinish(String taskId, Map<String, dynamic> data) async {
+    await showDialog<void>(
       context: context,
-      isScrollControlled: true,
-      builder: (_) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              title: Text(title, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold)),
-              subtitle: Text('ID: $taskId', style: const TextStyle(fontFamily: kArial)),
-              trailing: _statusChip(status),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Solicitar finalización', style: TextStyle(fontFamily: kArial)),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Icon(Icons.assignment_turned_in, color: Colors.teal),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Se enviará una solicitud para que el creador/jefe autorice la finalización.\n\n¿Deseas continuar?',
+                style: TextStyle(fontFamily: kArial),
+              ),
             ),
-            const Divider(height: 1),
-
-            if (!isCompleted) ...[
-              ListTile(
-                leading: const Icon(Icons.check_circle),
-                title: const Text('Completar tarea', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  try {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => complete_screen.CompleteTaskScreen(
-                        taskId: taskId,
-                        currentUserId: widget.userId,
-                      ),
-                    ));
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('No se pudo abrir la pantalla de completar: $e')),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.trending_up),
-                title: const Text('Reportar avance', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  try {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => avances_screen.NotifyAvancesScreen(
-                        taskId: taskId,
-                        currentUserId: widget.userId,
-                      ),
-                    ));
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('No se pudo abrir Avances: $e')),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.report_problem),
-                title: const Text('Reportar novedad', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  try {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => novedades_screen.NotifyNovedadesScreen(
-                        taskId: taskId,
-                        currentUserId: widget.userId,
-                      ),
-                    ));
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('No se pudo abrir Novedades: $e')),
-                    );
-                  }
-                },
-              ),
-              const Divider(height: 1),
-            ],
-
-            if (attachments.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text('Adjuntos', style: TextStyle(fontFamily: kArial, color: Colors.black54)),
-              ),
-              ...attachments.map((m) => ListTile(
-                leading: const Icon(Icons.attach_file),
-                title: Text(m['name'] ?? 'archivo', style: const TextStyle(fontFamily: kArial)),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  final ok = await _openAttachment(m);
-                  if (!ok && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('No se pudo abrir el archivo')),
-                    );
-                  }
-                },
-              )),
-              const Divider(height: 1),
-            ],
-
-            // ✅ Opción B: si NO es creador/jefe -> Solicitar reasignación
-            if (!isCompleted)
-              ListTile(
-                leading: const Icon(Icons.switch_account),
-                title: Text(
-                  canDirect ? 'Reasignar tarea' : 'Solicitar reasignación',
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-                subtitle: Text(
-                  'Actual asignado: ${assignedToName.isEmpty ? assignedTo : assignedToName}',
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _promptReassignPicker(
-                    taskId,
-                    currentAreaId: areaId,
-                    creatorId: creatorId,
-                    bossId: bossId,
-                  );
-                },
-              ),
-
-            const SizedBox(height: 8),
           ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await _requestFinish(taskId, data);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Solicitud enviada (pendiente de aprobación).')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            child: const Text('Enviar'),
+          ),
+        ],
       ),
     );
   }
 
-  // ---- Selector Departamento/Persona para Reasignar (Opción B) ----
+  // -------------------------
+  // Opción B: Reasignación
+  //  - Directa si user es creador/jefe
+  //  - Si no, solicitud pendiente en el doc
+  // -------------------------
+  bool _canDirectReassign(Map<String, dynamic> data) {
+    final creatorId = _str(data, ['creador_id', 'creatorId', 'creador_uid']);
+    final bossId = _str(data, ['jefe_uid', 'bossId', 'delegatedTo']);
+    return widget.userId == creatorId || widget.userId == bossId;
+  }
 
+  Future<void> _directReassign({
+    required String taskId,
+    required String newUid,
+    required String newName,
+    String? newAreaId,
+  }) async {
+    final now = Timestamp.now();
+    final byName = _currentUserName();
+
+    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
+      'asignado_uid': newUid,
+      'asignado_nombre': newName,
+      if (newAreaId != null && newAreaId.trim().isNotEmpty) 'areaId': newAreaId.trim(),
+
+      // limpiar solicitud pendiente si existía
+      'solicitud_reasignacion_estado': FieldValue.delete(),
+      'solicitud_reasignacion_at': FieldValue.delete(),
+      'solicitud_reasignacion_by_uid': FieldValue.delete(),
+      'solicitud_reasignacion_by_nombre': FieldValue.delete(),
+      'solicitud_reasignacion_to_uid': FieldValue.delete(),
+      'solicitud_reasignacion_to_nombre': FieldValue.delete(),
+      'solicitud_reasignacion_areaId': FieldValue.delete(),
+
+      'lastEventType': 'reasignada',
+      'lastEventAt': now,
+      'lastEventText': 'Reasignada por $byName a $newName',
+      'fecha_actualizacion': now,
+      'updatedAt': now,
+    });
+  }
+
+  Future<void> _requestReassign({
+    required String taskId,
+    required String newUid,
+    required String newName,
+    String? newAreaId,
+  }) async {
+    final now = Timestamp.now();
+    final byName = _currentUserName();
+
+    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
+      'solicitud_reasignacion_estado': 'pendiente',
+      'solicitud_reasignacion_at': now,
+      'solicitud_reasignacion_by_uid': widget.userId,
+      'solicitud_reasignacion_by_nombre': byName,
+      'solicitud_reasignacion_to_uid': newUid,
+      'solicitud_reasignacion_to_nombre': newName,
+      if (newAreaId != null && newAreaId.trim().isNotEmpty) 'solicitud_reasignacion_areaId': newAreaId.trim(),
+
+      'lastEventType': 'solicitud_reasignacion',
+      'lastEventAt': now,
+      'lastEventText': 'Solicitud de reasignación enviada por $byName a $newName',
+      'fecha_actualizacion': now,
+      'updatedAt': now,
+    });
+  }
+
+  // Selector Departamento/Persona (usando TBL_DEPARTAMENTOS si existe, si no, fallback TBL_USUARIOS)
   Future<void> _promptReassignPicker(
       String taskId, {
-        String? currentAreaId,
-        required String creatorId,
-        required String bossId,
+        required Map<String, dynamic> taskData,
       }) async {
-    final canDirect = widget.userId == creatorId || widget.userId == bossId;
+    final canDirect = _canDirectReassign(taskData);
 
     String? selectedDept;
     String? selectedUserUid;
     String? selectedUserName;
     String? selectedAreaId;
 
+    final currentAreaId = _str(taskData, ['areaId']);
     final departamentos = <Map<String, String>>[]; // {id, nombre}
     final personas = <Map<String, String>>[]; // {uid, nombre, dept}
 
@@ -484,15 +436,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
       // 2) Fallback: derivar departamentos desde TBL_USUARIOS
       try {
-        final usersSnap = await FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .limit(500)
-            .get();
+        final usersSnap = await FirebaseFirestore.instance.collection('TBL_USUARIOS').limit(500).get();
         final set = SplayTreeSet<String>();
         for (final u in usersSnap.docs) {
-          final dep = (u.data()['departamento'] ?? u.data()['dependencia'] ?? '')
-              .toString()
-              .trim();
+          final dep = (u.data()['departamento'] ?? u.data()['dependencia'] ?? '').toString().trim();
           if (dep.isNotEmpty) set.add(dep);
         }
         departamentos.addAll(set.map((e) => {'id': e, 'nombre': e}));
@@ -541,208 +488,199 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     await showDialog<void>(
       context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSB) => AlertDialog(
-            title: Text(
-              canDirect ? 'Reasignar tarea' : 'Solicitar reasignación',
-              style: const TextStyle(fontFamily: kArial),
-            ),
-            content: SizedBox(
-              width: 420,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_areas.isNotEmpty && _areas.length > 1) ...[
-                    Builder(
-                      builder: (_) {
-                        final items = _areas.entries
-                            .where((e) => e.key != 'todas')
-                            .map(
-                              (e) => DropdownMenuItem(
-                            value: e.key,
-                            child: Text(e.value, overflow: TextOverflow.ellipsis),
-                          ),
-                        )
-                            .toList();
-
-                        if ((currentAreaId?.isNotEmpty ?? false) &&
-                            !_areas.containsKey(currentAreaId) &&
-                            items.indexWhere((e) => e.value == currentAreaId) == -1) {
-                          items.insert(
-                            0,
-                            DropdownMenuItem(
-                              value: currentAreaId,
-                              child: Text(currentAreaId!, overflow: TextOverflow.ellipsis),
-                            ),
-                          );
-                        }
-
-                        return DropdownButtonFormField<String>(
-                          value: selectedAreaId ??
-                              (currentAreaId?.isNotEmpty == true ? currentAreaId : null),
-                          items: items,
-                          decoration: const InputDecoration(
-                            labelText: 'Área (opcional)',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (v) => setSB(() => selectedAreaId = v),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSB) => AlertDialog(
+          title: Text(canDirect ? 'Reasignar tarea' : 'Solicitar reasignación', style: const TextStyle(fontFamily: kArial)),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_areas.length > 1) ...[
                   DropdownButtonFormField<String>(
-                    value: selectedDept,
-                    items: departamentos
-                        .map(
-                          (d) => DropdownMenuItem(
-                        value: d['id'],
-                        child: Text(d['nombre'] ?? d['id']!, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
+                    value: selectedAreaId ?? (currentAreaId.isNotEmpty ? currentAreaId : null),
+                    items: _areas.entries
+                        .where((e) => e.key != 'todas')
+                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, overflow: TextOverflow.ellipsis)))
                         .toList(),
                     decoration: const InputDecoration(
-                      labelText: 'Departamento',
+                      labelText: 'Área (opcional)',
                       border: OutlineInputBorder(),
                     ),
-                    onChanged: (v) async {
-                      setSB(() {
-                        selectedDept = v;
-                        selectedUserUid = null;
-                        selectedUserName = null;
-                        personas.clear();
-                      });
-                      if (v != null) {
-                        await loadPersonas(v);
-                        setSB(() {});
-                      }
-                    },
+                    onChanged: (v) => setSB(() => selectedAreaId = v),
                   ),
                   const SizedBox(height: 10),
-
-                  DropdownButtonFormField<String>(
-                    value: selectedUserUid,
-                    items: personas
-                        .map(
-                          (p) => DropdownMenuItem(
-                        value: p['uid'],
-                        child: Text(p['nombre'] ?? p['uid']!, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                        .toList(),
-                    decoration: const InputDecoration(
-                      labelText: 'Persona',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (v) {
-                      setSB(() {
-                        selectedUserUid = v;
-                        selectedUserName =
-                            personas.firstWhere((e) => e['uid'] == v)['nombre'] ?? '';
-                      });
-                    },
-                  ),
-
-                  const SizedBox(height: 10),
-                  if (!canDirect)
-                    const Text(
-                      'Esta acción enviará una solicitud al creador/jefe para su aprobación.',
-                      style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
-                    ),
                 ],
-              ),
+                DropdownButtonFormField<String>(
+                  value: selectedDept,
+                  items: departamentos
+                      .map((d) => DropdownMenuItem(
+                    value: d['id'],
+                    child: Text(d['nombre'] ?? d['id']!, overflow: TextOverflow.ellipsis),
+                  ))
+                      .toList(),
+                  decoration: const InputDecoration(
+                    labelText: 'Departamento',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) async {
+                    setSB(() {
+                      selectedDept = v;
+                      selectedUserUid = null;
+                      selectedUserName = null;
+                      personas.clear();
+                    });
+                    if (v != null) {
+                      await loadPersonas(v);
+                      setSB(() {});
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  value: selectedUserUid,
+                  items: personas
+                      .map((p) => DropdownMenuItem(
+                    value: p['uid'],
+                    child: Text(p['nombre'] ?? p['uid']!, overflow: TextOverflow.ellipsis),
+                  ))
+                      .toList(),
+                  decoration: const InputDecoration(
+                    labelText: 'Persona',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) {
+                    setSB(() {
+                      selectedUserUid = v;
+                      selectedUserName = personas.firstWhere((e) => e['uid'] == v)['nombre'] ?? '';
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                if (!canDirect)
+                  const Text(
+                    'Esta acción enviará una solicitud al creador/jefe para su aprobación.',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                  ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar'),
-              ),
-              ElevatedButton(
-                onPressed: (selectedUserUid == null)
-                    ? null
-                    : () async {
-                  Navigator.pop(ctx);
-                  try {
-                    final byName = _currentUserName();
-
-                    if (canDirect) {
-                      // ✅ Reasignación directa (creador/jefe)
-                      await _taskService.reassignTask(
-                        taskId: taskId,
-                        newAssignedTo: selectedUserUid!,
-                        newAssignedToName: (selectedUserName == null || selectedUserName!.isEmpty)
-                            ? null
-                            : selectedUserName!,
-                        newAreaId: selectedAreaId ?? currentAreaId,
-                        byUserId: widget.userId,
-                        byUserName: byName,
-                      );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Tarea reasignada')),
-                        );
-                      }
-                    } else {
-                      // ✅ Solicitud pendiente (Opción B)
-                      await _taskService.requestReassignTask(
-                        taskId: taskId,
-                        requestedBy: widget.userId,
-                        requestedByName: byName,
-                        newAssignedTo: selectedUserUid!,
-                        newAssignedToName: (selectedUserName == null || selectedUserName!.isEmpty)
-                            ? null
-                            : selectedUserName!,
-                        newAreaId: selectedAreaId ?? currentAreaId,
-                        reason: 'Solicitud desde Mis tareas',
-                      );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Solicitud enviada (pendiente de aprobación)')),
-                        );
-                      }
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')),
-                      );
-                    }
-                  }
-                },
-                child: Text(canDirect ? 'Reasignar' : 'Solicitar'),
-              ),
-            ],
           ),
-        );
-      },
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: (selectedUserUid == null)
+                  ? null
+                  : () async {
+                Navigator.pop(ctx);
+                try {
+                  final uid = selectedUserUid!;
+                  final name = (selectedUserName ?? '').trim().isEmpty ? uid : selectedUserName!.trim();
+                  final areaToSet = (selectedAreaId ?? currentAreaId).trim().isEmpty ? null : (selectedAreaId ?? currentAreaId).trim();
+
+                  if (canDirect) {
+                    await _directReassign(taskId: taskId, newUid: uid, newName: name, newAreaId: areaToSet);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tarea reasignada')));
+                  } else {
+                    await _requestReassign(taskId: taskId, newUid: uid, newName: name, newAreaId: areaToSet);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Solicitud enviada (pendiente)')));
+                  }
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                }
+              },
+              child: Text(canDirect ? 'Reasignar' : 'Solicitar'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  // ---- Filtros/orden local ----
+  // -------------------------
+  // Bootstrap: empresas + áreas
+  // -------------------------
+  Set<String> _extractEmpresas(Map<String, dynamic> data) {
+    final out = <String>{};
+    final primary = (data['empresaId'] as String? ?? '').trim();
+    if (primary.isNotEmpty) out.add(primary);
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      ) {
+    final list = data['empresas'] as List<dynamic>? ?? const [];
+    for (final e in list) {
+      final id = (e ?? '').toString().trim();
+      if (id.isNotEmpty) out.add(id);
+    }
+
+    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+    if (detalle != null) {
+      out.addAll(detalle.keys.where((k) => k.trim().isNotEmpty).map((k) => k.trim()));
+    }
+    return out;
+  }
+
+  Future<void> _loadBootstrap() async {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(widget.userId).get();
+      final data = userDoc.data() ?? {};
+      final empresas = _extractEmpresas(data);
+      final filteredEmpresas = (_selectedEmpresaId?.isNotEmpty ?? false) ? <String>{_selectedEmpresaId!} : empresas;
+
+      final areas = <String, String>{'todas': 'Todas las áreas'};
+      if (filteredEmpresas.isNotEmpty) {
+        final list = filteredEmpresas.toList();
+        for (var i = 0; i < list.length; i += 10) {
+          final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+          final snap = await FirebaseFirestore.instance
+              .collection('TBL_AREAS')
+              .where('empresaId', whereIn: chunk)
+              .get();
+          areas.addEntries(snap.docs.map((d) {
+            final m = d.data();
+            final id = (m['areaId'] ?? d.id).toString();
+            final nombre = (m['nombre'] ?? id).toString();
+            return MapEntry(id, nombre);
+          }));
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _empresaIds = filteredEmpresas;
+        _areas = areas;
+        _userData = data;
+        if (!_areas.keys.contains(_areaFilter)) _areaFilter = 'todas';
+      });
+    } catch (_) {}
+  }
+
+  // -------------------------
+  // Stream tareas asignadas
+  // -------------------------
+  Stream<QuerySnapshot<Map<String, dynamic>>> _streamAssignedToMe() {
+    return FirebaseFirestore.instance
+        .collection('TBL_TAREAS')
+        .where('asignado_uid', isEqualTo: widget.userId)
+        .snapshots();
+  }
+
+  // -------------------------
+  // Filtrado local
+  // -------------------------
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
     final q = _searchCtrl.text.trim().toLowerCase();
 
     final filtered = docs.where((d) {
       final data = d.data();
       final title = _str(data, ['titulo', 'title']).toLowerCase();
-      final empresaTarea = _str(data, ['empresaId', 'empresa_id', 'empresa']);
       final desc = _str(data, ['descripcion', 'description']).toLowerCase();
-      final status = _resolvedStatus(data);
+      final empresaTarea = _str(data, ['empresaId', 'empresa_id', 'empresa']);
       final areaId = _str(data, ['areaId']);
+      final status = _resolvedStatus(data);
 
-      final matchEmpresa = _empresaIds.isEmpty ||
-          empresaTarea.isEmpty ||
-          _empresaIds.contains(empresaTarea);
-
-      final matchSearch = q.isEmpty ||
-          title.contains(q) ||
-          desc.contains(q) ||
-          d.id.toLowerCase().contains(q);
+      final matchEmpresa = _empresaIds.isEmpty || empresaTarea.isEmpty || _empresaIds.contains(empresaTarea);
+      final matchSearch = q.isEmpty || title.contains(q) || desc.contains(q) || d.id.toLowerCase().contains(q);
 
       final bool matchStatus;
       switch (_statusFilter) {
@@ -764,8 +702,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     }).toList();
 
     int tsOf(Map<String, dynamic> m) {
-      final ts = _ts(m, ['updatedAt', 'fecha_actualizacion']) ??
-          _ts(m, ['createdAt', 'fecha_creacion']);
+      final ts = _ts(m, ['updatedAt', 'fecha_actualizacion']) ?? _ts(m, ['createdAt', 'fecha_creacion']);
       return ts?.toDate().millisecondsSinceEpoch ?? 0;
     }
 
@@ -773,14 +710,217 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return filtered;
   }
 
-  // ---- Stream de tareas (sin orderBy para evitar índice) ----
-  Stream<QuerySnapshot<Map<String, dynamic>>> _streamAssignedTo(String userId) {
-    return FirebaseFirestore.instance
-        .collection('TBL_TAREAS')
-        .where('asignado_uid', isEqualTo: userId)
-        .snapshots();
+  // -------------------------
+  // Badge pendientes (opcional)
+  // -------------------------
+  int _pendingBadge(Map<String, dynamic> data) {
+    int n = 0;
+    if (_finishPending(data)) n += 1;
+
+    // si tú manejas contadores, aquí aparecen
+    final a = data['avances_pendientes'];
+    final b = data['novedades_pendientes'];
+    if (a is int) n += a;
+    if (b is int) n += b;
+
+    return n;
   }
 
+  // -------------------------
+  // Bottom Sheet Acciones
+  // -------------------------
+  void _showActionsSheet(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final taskId = doc.id;
+
+    final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
+    final status = _resolvedStatus(data);
+    final isDone = status == 'completada' || status == 'finalizado';
+    final finishPending = _finishPending(data);
+
+    final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
+    final attachments = _extractAttachments(data);
+
+    final finishBy = _str(data, ['solicitud_finalizacion_by_nombre']);
+    final finishAt = _ts(data, ['solicitud_finalizacion_at']);
+
+    final canDirect = _canDirectReassign(data);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              title: Text(title, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold)),
+              subtitle: Text('ID: $taskId', style: const TextStyle(fontFamily: kArial)),
+              trailing: _statusChip(status),
+            ),
+
+            if (assignedToName.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.person, size: 18, color: Colors.black54),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('Asignado: $assignedToName', style: const TextStyle(fontFamily: kArial, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+
+            if (finishPending) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline, color: Colors.teal),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Finalización pendiente de aprobación.\nSolicitó: ${finishBy.isEmpty ? "—" : finishBy}\nFecha: ${_fmtTs(finishAt)}',
+                        style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+            ],
+
+            // Acciones de trabajo (si NO está finalizada)
+            if (!isDone) ...[
+              // Completar tarea: si hay finalización pendiente, se bloquea (para que no dupliques flujo)
+              ListTile(
+                leading: Icon(finishPending ? Icons.hourglass_top : Icons.check_circle),
+                title: Text(
+                  finishPending ? 'Completar tarea (bloqueado)' : 'Completar tarea',
+                  style: const TextStyle(fontFamily: kArial),
+                ),
+                subtitle: Text(
+                  finishPending
+                      ? 'Ya existe una solicitud de finalización pendiente.'
+                      : 'Marca la tarea como completada o sube evidencias según tu flujo.',
+                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                ),
+                onTap: finishPending
+                    ? null
+                    : () async {
+                  Navigator.pop(context);
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => CompleteTaskScreen(
+                      taskId: taskId,
+                      currentUserId: widget.userId,
+                    ),
+                  ));
+                },
+              ),
+
+              // Solicitar finalización (flujo con aprobación)
+              ListTile(
+                leading: const Icon(Icons.verified_user, color: Colors.teal),
+                title: const Text('Solicitar finalización', style: TextStyle(fontFamily: kArial)),
+                subtitle: const Text(
+                  'El creador/jefe deberá aprobar con Sí/No.',
+                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                ),
+                onTap: finishPending
+                    ? null
+                    : () async {
+                  Navigator.pop(context);
+                  await _confirmRequestFinish(taskId, data);
+                },
+              ),
+
+              ListTile(
+                leading: const Icon(Icons.trending_up),
+                title: const Text('Reportar avance', style: TextStyle(fontFamily: kArial)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => NotifyAvancesScreen(
+                      taskId: taskId,
+                      currentUserId: widget.userId,
+                    ),
+                  ));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.campaign),
+                title: const Text('Reportar novedad', style: TextStyle(fontFamily: kArial)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => NotifyNovedadesScreen(
+                      taskId: taskId,
+                      currentUserId: widget.userId,
+                    ),
+                  ));
+                },
+              ),
+              const Divider(height: 1),
+            ],
+
+            // Adjuntos
+            if (attachments.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text('Adjuntos', style: TextStyle(fontFamily: kArial, color: Colors.black54)),
+              ),
+              ...attachments.map((m) => ListTile(
+                leading: const Icon(Icons.attach_file),
+                title: Text(m['name'] ?? 'archivo', style: const TextStyle(fontFamily: kArial)),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () async {
+                  final ok = await _openAttachment(m);
+                  if (!ok && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No se pudo abrir el archivo')),
+                    );
+                  }
+                },
+              )),
+              const Divider(height: 1),
+            ] else ...[
+              const ListTile(
+                leading: Icon(Icons.attach_file),
+                title: Text('Adjuntos', style: TextStyle(fontFamily: kArial)),
+                subtitle: Text('No hay adjuntos para esta tarea.', style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54)),
+              ),
+              const Divider(height: 1),
+            ],
+
+            // Opción B: Reasignar / Solicitar reasignación (si la tarea no está finalizada)
+            if (!isDone)
+              ListTile(
+                leading: const Icon(Icons.switch_account),
+                title: Text(canDirect ? 'Reasignar tarea' : 'Solicitar reasignación', style: const TextStyle(fontFamily: kArial)),
+                subtitle: Text(
+                  canDirect
+                      ? 'Tienes permisos para reasignar directamente.'
+                      : 'Se enviará solicitud al creador/jefe para aprobación.',
+                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _promptReassignPicker(taskId, taskData: data);
+                },
+              ),
+
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // -------------------------
+  // UI
+  // -------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -790,51 +930,32 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       ),
       body: FutureBuilder<void>(
         future: _bootstrapFuture,
-        builder: (context, bootSnap) {
-          final loadingBootstrap = bootSnap.connectionState == ConnectionState.waiting &&
-              _empresaIds.isEmpty &&
-              _userData.isEmpty;
-          if (loadingBootstrap) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        builder: (_, bootSnap) {
+          final loading = bootSnap.connectionState == ConnectionState.waiting && _userData.isEmpty;
+          if (loading) return const Center(child: CircularProgressIndicator());
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _streamAssignedTo(widget.userId),
-            builder: (context, snap) {
+            stream: _streamAssignedToMe(),
+            builder: (_, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snap.hasError) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      'Error: ${snap.error}',
-                      style: const TextStyle(fontFamily: kArial),
-                    ),
-                  ),
-                );
+                return Center(child: Text('Error: ${snap.error}', style: const TextStyle(fontFamily: kArial)));
               }
+
               final docs = snap.data?.docs ?? [];
 
+              // auto-open highlight
               if (!_didAutoOpen && widget.highlightTaskId != null && docs.isNotEmpty) {
-                QueryDocumentSnapshot<Map<String, dynamic>>? hit;
-                for (final d in docs) {
-                  if (d.id == widget.highlightTaskId) {
-                    hit = d;
-                    break;
-                  }
-                }
-                if (hit != null) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _showActionsSheet(hit!);
-                  });
+                final hit = docs.where((d) => d.id == widget.highlightTaskId).toList();
+                if (hit.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _showActionsSheet(hit.first));
                   _didAutoOpen = true;
                 }
               }
 
               final filtered = _applyFilters(docs);
-              final statusCounts = _statusCounts(filtered);
 
               return RefreshIndicator(
                 onRefresh: () async {
@@ -847,27 +968,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   children: [
                     _buildHeaderCard(),
                     const SizedBox(height: 12),
-                    _buildSummarySection(filtered, statusCounts),
-                    const SizedBox(height: 12),
-                    _buildSearchAndFilters(docs),
+                    _buildFiltersCard(docs),
                     const SizedBox(height: 12),
                     if (filtered.isEmpty)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text(
-                            'No hay tareas para mostrar',
-                            style: TextStyle(fontFamily: kArial),
-                          ),
-                        ),
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
                       )
-                    else ...[
-                      for (final d in filtered)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _buildTaskCard(d),
-                        ),
-                    ],
+                    else
+                      ...filtered.map((d) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _buildTaskCard(d),
+                      )),
                   ],
                 ),
               );
@@ -876,17 +988,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         },
       ),
     );
-  }
-
-  Map<String, int> _statusCounts(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      ) {
-    final out = <String, int>{};
-    for (final d in docs) {
-      final status = _resolvedStatus(d.data());
-      out[status] = (out[status] ?? 0) + 1;
-    }
-    return out;
   }
 
   Widget _buildHeaderCard() {
@@ -916,21 +1017,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 children: [
                   Text(
                     nombre.isEmpty ? widget.userId : nombre,
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 17,
-                    ),
+                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 17),
                   ),
                   Text(
                     cargo.isEmpty ? 'Responsable' : cargo,
                     style: const TextStyle(fontFamily: kArial, color: Colors.black54),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Resumen de mis tareas asignadas.',
-                    style: TextStyle(fontFamily: kArial, fontSize: 12),
-                  ),
+                  const Text('Resumen de mis tareas asignadas.', style: TextStyle(fontFamily: kArial, fontSize: 12)),
                 ],
               ),
             ),
@@ -940,145 +1034,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     );
   }
 
-  Widget _buildSummarySection(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      Map<String, int> counts,
-      ) {
-    final enProgreso = counts['en_progreso'] ?? 0;
-    final pendientes = counts['pendiente'] ?? 0;
-    final devueltas = counts['devuelta'] ?? 0;
-    final retrasadas = counts['retrasado'] ?? 0;
-    final finalizadas = (counts['completada'] ?? 0) + (counts['finalizado'] ?? 0);
-    final activas = tasks.length - finalizadas;
-
-    final cards = [
-      _MiniSummaryCard(
-        title: 'Activas',
-        value: '$activas',
-        icon: Icons.event_available,
-        color: Colors.blue.shade50,
-        isActive: _statusFilter == 'activas',
-        onTap: () => setState(() {
-          _statusFilter = _statusFilter == 'activas' ? 'todas' : 'activas';
-        }),
-      ),
-      _MiniSummaryCard(
-        title: 'En progreso',
-        value: '$enProgreso',
-        icon: Icons.timelapse,
-        color: Colors.orange.shade50,
-        isActive: _statusFilter == 'en_progreso',
-        onTap: () => setState(() {
-          _statusFilter = _statusFilter == 'en_progreso' ? 'todas' : 'en_progreso';
-        }),
-      ),
-      _MiniSummaryCard(
-        title: 'Finalizadas',
-        value: '$finalizadas',
-        icon: Icons.check_circle,
-        color: Colors.green.shade50,
-        isActive: _statusFilter == 'finalizadas',
-        onTap: () => setState(() {
-          _statusFilter = _statusFilter == 'finalizadas' ? 'todas' : 'finalizadas';
-        }),
-      ),
-      _MiniSummaryCard(
-        title: 'Devueltas',
-        value: '$devueltas',
-        icon: Icons.undo,
-        color: Colors.purple.shade50,
-        isActive: _statusFilter == 'devuelta',
-        onTap: () => setState(() {
-          _statusFilter = _statusFilter == 'devuelta' ? 'todas' : 'devuelta';
-        }),
-      ),
-      _MiniSummaryCard(
-        title: 'Retrasadas',
-        value: '$retrasadas',
-        icon: Icons.alarm,
-        color: Colors.red.shade50,
-        isActive: _statusFilter == 'retrasado',
-        onTap: () => setState(() {
-          _statusFilter = _statusFilter == 'retrasado' ? 'todas' : 'retrasado';
-        }),
-      ),
-      _MiniSummaryCard(
-        title: 'Pendientes',
-        value: '$pendientes',
-        icon: Icons.schedule,
-        color: Colors.yellow.shade50,
-        isActive: _statusFilter == 'pendiente',
-        onTap: () => setState(() {
-          _statusFilter = _statusFilter == 'pendiente' ? 'todas' : 'pendiente';
-        }),
-      ),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Resumen',
-          style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 8),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: cards.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 1.25,
-          ),
-          itemBuilder: (_, i) => cards[i],
-        ),
-        const SizedBox(height: 12),
-        _buildStatusDistribution(counts),
-      ],
-    );
-  }
-
-  Widget _buildStatusDistribution(Map<String, int> counts) {
-    if (counts.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: const [
-              Icon(Icons.insights, color: kMarronOscuro),
-              SizedBox(width: 8),
-              Text('Sin datos todavía', style: TextStyle(fontFamily: kArial)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final entries = counts.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: entries.map((e) {
-            final label = e.key.replaceAll('_', ' ');
-            return Chip(
-              label: Text('$label: ${e.value}', style: const TextStyle(fontFamily: kArial)),
-              backgroundColor: _statusColor(e.key).withOpacity(0.12),
-              side: BorderSide(color: _statusColor(e.key)),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchAndFilters(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  Widget _buildFiltersCard(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    // áreas presentes en tareas
     final areaIds = <String>{
       for (final d in docs)
         if (_str(d.data(), ['areaId']).isNotEmpty) _str(d.data(), ['areaId'])
@@ -1092,10 +1049,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         child: Text(_areas[id] ?? id, overflow: TextOverflow.ellipsis),
       ))
           .toList()
-        ..sort((a, b) => (a.child as Text)
-            .data!
-            .toLowerCase()
-            .compareTo((b.child as Text).data!.toLowerCase())),
+        ..sort((a, b) => (a.child as Text).data!.toLowerCase().compareTo((b.child as Text).data!.toLowerCase())),
     ];
 
     const statusItems = [
@@ -1103,6 +1057,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       DropdownMenuItem(value: 'activas', child: Text('Activas')),
       DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
       DropdownMenuItem(value: 'en_progreso', child: Text('En progreso')),
+      DropdownMenuItem(value: 'pendiente_aprobacion', child: Text('Pendiente aprobación')),
       DropdownMenuItem(value: 'finalizadas', child: Text('Finalizadas')),
       DropdownMenuItem(value: 'devuelta', child: Text('Devueltas')),
       DropdownMenuItem(value: 'retrasado', child: Text('Retrasadas')),
@@ -1134,14 +1089,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   child: DropdownButtonFormField<String>(
                     value: _statusFilter,
                     items: statusItems,
-                    decoration: const InputDecoration(
-                      labelText: 'Estado',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    onChanged: (v) => setState(() {
-                      _statusFilter = v ?? 'todas';
-                    }),
+                    decoration: const InputDecoration(labelText: 'Estado', border: OutlineInputBorder(), isDense: true),
+                    onChanged: (v) => setState(() => _statusFilter = v ?? 'todas'),
                   ),
                 ),
                 SizedBox(
@@ -1149,14 +1098,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   child: DropdownButtonFormField<String>(
                     value: _areaFilter,
                     items: areaItems,
-                    decoration: const InputDecoration(
-                      labelText: 'Área',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    onChanged: (v) => setState(() {
-                      _areaFilter = v ?? 'todas';
-                    }),
+                    decoration: const InputDecoration(labelText: 'Área', border: OutlineInputBorder(), isDense: true),
+                    onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
                   ),
                 ),
               ],
@@ -1173,10 +1116,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
     final desc = _str(data, ['descripcion', 'description']);
     final status = _resolvedStatus(data);
+
     final dueTs = _ts(data, ['fecha_limite', 'dueDate']);
     final createdTs = _ts(data, ['fecha_creacion', 'createdAt']);
     final updatedTs = _ts(data, ['fecha_actualizacion', 'updatedAt']);
-    final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
+    final areaId = _str(data, ['areaId']);
+
+    final badge = _pendingBadge(data);
 
     return Card(
       elevation: 2,
@@ -1189,23 +1135,34 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // header sin overflow
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: Text(
                       title,
-                      style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
+                      style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600, fontSize: 16),
                     ),
                   ),
                   _statusChip(status),
+                  if (badge > 0) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 26,
+                      height: 26,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: Colors.green.shade600, shape: BoxShape.circle),
+                      child: Text(
+                        '$badge',
+                        style: const TextStyle(color: Colors.white, fontFamily: kArial, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 6),
+
               if (desc.isNotEmpty) ...[
                 Text(
                   desc,
@@ -1213,91 +1170,27 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontFamily: kArial, color: Colors.black87),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
               ],
+
               Wrap(
                 spacing: 10,
-                runSpacing: 6,
+                runSpacing: 8,
                 children: [
                   _InfoPill(icon: Icons.schedule, label: 'Vence', value: _fmtTs(dueTs)),
                   _InfoPill(icon: Icons.event, label: 'Creada', value: _fmtTs(createdTs, pat: 'dd/MM/yyyy')),
                   _InfoPill(icon: Icons.update, label: 'Actualizada', value: _fmtTs(updatedTs)),
-                  if (assignedToName.isNotEmpty)
-                    _InfoPill(icon: Icons.person, label: 'Asignado', value: assignedToName),
+                  if (areaId.isNotEmpty) _InfoPill(icon: Icons.apartment, label: 'Área', value: _areas[areaId] ?? areaId),
                 ],
               ),
+
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton.icon(
-                    onPressed: () => _showActionsSheet(d),
-                    icon: const Icon(Icons.more_horiz),
-                    label: const Text('Acciones', style: TextStyle(fontFamily: kArial)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniSummaryCard extends StatelessWidget {
-  const _MiniSummaryCard({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-    this.isActive = false,
-    this.onTap,
-  });
-
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-  final bool isActive;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectiveColor = isActive ? color.withOpacity(0.95) : color;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: Card(
-        color: effectiveColor,
-        elevation: isActive ? 2.5 : 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Icon(icon, color: kMarronOscuro),
-                  if (isActive)
-                    const Icon(Icons.filter_alt, color: kMarronOscuro, size: 18),
-                ],
-              ),
-              Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontFamily: kArial, color: Colors.black54),
-              ),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _showActionsSheet(d),
+                  icon: const Icon(Icons.more_horiz),
+                  label: const Text('Acciones', style: TextStyle(fontFamily: kArial)),
                 ),
               ),
             ],
@@ -1308,6 +1201,9 @@ class _MiniSummaryCard extends StatelessWidget {
   }
 }
 
+// -------------------------
+// Componentes UI pequeños
+// -------------------------
 class _InfoPill extends StatelessWidget {
   final IconData icon;
   final String label;
