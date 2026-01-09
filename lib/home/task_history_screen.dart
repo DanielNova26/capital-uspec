@@ -730,7 +730,14 @@ Future<void> _openAttachmentsPage(
 /// Historial con 2 pestañas: Asignadas a mí / Yo asigné
 class TaskHistoryScreen extends StatefulWidget {
   final String currentUserId;
-  const TaskHistoryScreen({super.key, required this.currentUserId});
+  final int initialTabIndex;
+  final String? highlightTaskId;
+  const TaskHistoryScreen({
+    super.key,
+    required this.currentUserId,
+    this.initialTabIndex = 0,
+    this.highlightTaskId,
+  });
 
   @override
   State<TaskHistoryScreen> createState() => _TaskHistoryScreenState();
@@ -742,6 +749,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
+      initialIndex: widget.initialTabIndex.clamp(0, 1),
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: kBrand,
@@ -768,7 +776,10 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
         body: TabBarView(
           children: [
             _AssignedToMeTab(userId: widget.currentUserId),
-            _ICreatedTab(userId: widget.currentUserId),
+            _ICreatedTab(
+              userId: widget.currentUserId,
+              highlightTaskId: widget.highlightTaskId,
+            ),
           ],
         ),
       ),
@@ -1485,7 +1496,8 @@ class _AssignedTile extends StatelessWidget {
 
 class _ICreatedTab extends StatefulWidget {
   final String userId;
-  const _ICreatedTab({required this.userId});
+  final String? highlightTaskId;
+  const _ICreatedTab({required this.userId, this.highlightTaskId});
 
   @override
   State<_ICreatedTab> createState() => _ICreatedTabState();
@@ -1627,7 +1639,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
                 itemCount: ordered.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 6),
-                itemBuilder: (_, i) => _CreatedTile(doc: ordered[i]),
+                itemBuilder: (_, i) => _CreatedTile(
+                  doc: ordered[i],
+                  highlightTaskId: widget.highlightTaskId,
+                ),
               ),
             ),
           ],
@@ -1740,12 +1755,20 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   }
 }
 
-class _CreatedTile extends StatelessWidget {
+class _CreatedTile extends StatefulWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
-  _CreatedTile({required this.doc});
+  final String? highlightTaskId;
+  const _CreatedTile({required this.doc, this.highlightTaskId});
+
+  @override
+  State<_CreatedTile> createState() => _CreatedTileState();
+}
+
+class _CreatedTileState extends State<_CreatedTile> {
+  bool _didAutoOpen = false;
 
   Future<Map<String, dynamic>?> _latest(String sub) async {
-    final qs = await doc.reference
+    final qs = await widget.doc.reference
         .collection(sub)
         .orderBy('createdAt', descending: true)
         .limit(1)
@@ -1795,7 +1818,7 @@ class _CreatedTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final m = doc.data();
+    final m = widget.doc.data();
     final title = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
     final asignado = (m['asignado_nombre'] ?? '').toString();
     final estado = _resolvedEstado(m);
@@ -1862,6 +1885,22 @@ class _CreatedTile extends StatelessWidget {
             ? const Icon(Icons.error_outline, color: Colors.amber, size: 20)
             : const Icon(Icons.assignment_outlined, color: Colors.grey, size: 20));
 
+        if (!_didAutoOpen &&
+            widget.highlightTaskId != null &&
+            widget.highlightTaskId == widget.doc.id) {
+          _didAutoOpen = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _openActions(
+              context,
+              widget.doc,
+              lastN: lastN,
+              lastA: lastA,
+              resEstado: estado,
+            );
+          });
+        }
+
         return Card(
           elevation: hasNovedad ? 2 : 1,
           color: const Color(0xFFF0F5FF),
@@ -1916,7 +1955,7 @@ class _CreatedTile extends StatelessWidget {
             trailing: _countdownBadge(due, estado),
             onTap: () => _openActions(
               context,
-              doc,
+              widget.doc,
               lastN: lastN,
               lastA: lastA,
               resEstado: estado,

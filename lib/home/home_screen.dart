@@ -21,6 +21,7 @@ import '../gerencia/gerencia_dashboard_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart';
 import 'assigned_tasks_screen.dart';
+import 'task_history_screen.dart';
 
 const String kArial = 'Arial';
 
@@ -49,6 +50,37 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _seenNotifIds = <String>{};
   bool _notifsPrimed = false;
   String? _listeningUserId;
+  void _openNotificationTask({
+    required String type,
+    required String taskId,
+    required String cedula,
+  }) {
+    final normalized = type.trim().toLowerCase();
+    final goToHistory = normalized == 'avance' || normalized == 'novedad';
+    if (goToHistory) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TaskHistoryScreen(
+            currentUserId: cedula,
+            initialTabIndex: 1,
+            highlightTaskId: taskId,
+          ),
+        ),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AssignedTasksScreen(
+          userId: cedula,
+          highlightTaskId: taskId,
+        ),
+      ),
+    );
+  }
   Future<String?> _getFcmTokenWithRetries() async {
     Future<String?> _safeGetToken() async {
       try {
@@ -438,14 +470,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                   onPressed: () async {
                                     if (!mounted) return;
                                     Navigator.pop(context);
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => AssignedTasksScreen(
-                                          userId: cedula,
-                                          highlightTaskId: taskId,
-                                        ),
-                                      ),
+                                    _openNotificationTask(
+                                      type: type,
+                                      taskId: taskId,
+                                      cedula: cedula,
                                     );
                                   },
                                 ),
@@ -496,14 +524,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 label: const Text('Ver origen'),
                                 onPressed: () {
                                   Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => AssignedTasksScreen(
-                                        userId: cedula,
-                                        highlightTaskId: taskId,
-                                      ),
-                                    ),
+                                  _openNotificationTask(
+                                    type: type,
+                                    taskId: taskId,
+                                    cedula: cedula,
                                   );
                                 },
                               ),
