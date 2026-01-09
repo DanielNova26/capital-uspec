@@ -712,6 +712,113 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await _loadAll(forceEmpresaId: empresaId);
   }
 
+
+  // ---------------- MIGRACIONES: ELIMINAR TODAS LAS TAREAS (EMPRESA ACTIVA) ----------------
+  Future<bool> _confirmDeleteAllTasks(String empresaId) async {
+    final controller = TextEditingController();
+    String typed = '';
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx2, setLocal) {
+            final enabled = typed.trim().toUpperCase() == 'BORRAR';
+
+            return AlertDialog(
+              title: const Text('Eliminar todas las tareas', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Empresa activa: $empresaId',
+                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Esta acción eliminará TODAS las tareas de la empresa activa en TBL_TAREAS. '
+                        'No se puede deshacer.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Escribe BORRAR para confirmar:', style: TextStyle(fontFamily: kArial)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    style: const TextStyle(fontFamily: kArial),
+                    onChanged: (v) => setLocal(() => typed = v),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                  onPressed: enabled ? () => Navigator.pop(ctx, true) : null,
+                  icon: const Icon(Icons.delete_forever),
+                  label: const Text('Eliminar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    return ok == true;
+  }
+
+  Future<void> _deleteAllTasksForEmpresa() async {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+
+    final ok = await _confirmDeleteAllTasks(empresaId);
+    if (!ok) return;
+
+    setState(() => _loading = true);
+
+    const int batchLimit = 400;
+    int deleted = 0;
+
+    try {
+      while (true) {
+        final snap = await FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .where('empresaId', isEqualTo: empresaId)
+            .limit(batchLimit)
+            .get();
+        if (snap.docs.isEmpty) break;
+
+        final batch = FirebaseFirestore.instance.batch();
+        for (final doc in snap.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+        deleted += snap.docs.length;
+      }
+
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'deleteAllTasksForEmpresa',
+        scanned: deleted,
+        updated: deleted,
+        dryRun: false,
+        extra: {
+          'empresaId': empresaId,
+        },
+      );
+
+      _snack('Tareas eliminadas: $deleted');
+    } finally {
+      await _loadAll(forceEmpresaId: empresaId);
+    }
+  }
+
   // ---------------- LOGS ----------------
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadLogs() async {
     final empresaId = _empresaId ?? '';
@@ -1174,6 +1281,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        Card(
+          color: kAdminCard,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Eliminar todas las tareas (empresa activa)',
+                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Útil para reiniciar el entorno en periodo de prueba.',
+                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+                    onPressed: _deleteAllTasksForEmpresa,
+                    icon: const Icon(Icons.delete_forever),
+                    label: const Text(
+                      'Eliminar todas las tareas',
+                      style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+                    ),
+                  ),
                 ),
               ],
             ),
