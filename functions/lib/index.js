@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const admin = __importStar(require("firebase-admin"));
@@ -143,6 +143,23 @@ async function sendDataOnlyTo(tokens, data) {
     return { success: resp.successCount, failure: resp.failureCount };
 }
 // --------------------------- Triggers ---------------------------
+exports.onNotificationCreated = functions
+    .region("us-central1")
+    .firestore.document("TBL_NOTIFICACIONES/{userId}/notifications/{notifId}")
+    .onCreate(async (snap, ctx) => {
+    const data = (snap.data()) ?? {};
+    const userId = ctx.params.userId;
+    const isRead = (data.read ?? false);
+    if (isRead)
+        return;
+    const title = (data.title || "Notificación").toString();
+    const body = (data.description || data.body || "").toString();
+    const taskId = data.taskId ? String(data.taskId) : "";
+    const type = data.type ? String(data.type) : "";
+    const tokens = await getTokensFor(userId);
+    console.log("[onNotificationCreated] userId:", userId, "tokens:", tokens.length);
+    await sendPushTo(tokens, { title, body: body || title }, { taskId, type });
+});
 exports.onTaskCreated = functions
     .region("us-central1")
     .firestore.document("TBL_TAREAS/{taskId}")
@@ -162,10 +179,6 @@ exports.onTaskCreated = functions
     catch (e) {
         console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
-    const tokens = await getTokensFor(assignedId);
-    console.log("[onTaskCreated] tokens:", tokens.length);
-    const res = await sendPushTo(tokens, { title: "Nueva tarea asignada", body: description || title }, { taskId });
-    console.log("[onTaskCreated] FCM:", res);
     // Aviso silencioso al jefe
     const bossId = await resolveBossIdFor(assignedId, data);
     if (bossId && bossId !== assignedId) {
@@ -180,14 +193,6 @@ exports.onTaskCreated = functions
         catch (e) {
             console.error("[onTaskCreated] boss save notif error:", e);
         }
-        const bossTokens = await getTokensFor(bossId);
-        const dr = await sendDataOnlyTo(bossTokens, {
-            type: "task_assigned_report",
-            taskId,
-            assignedId,
-            silent: "1",
-        });
-        console.log("[onTaskCreated] FCM (boss silent):", dr);
     }
 });
 exports.onTaskUpdated = functions
@@ -218,10 +223,6 @@ exports.onTaskUpdated = functions
     catch (e) {
         console.error("[onTaskUpdated] saveInAppNotification error:", e);
     }
-    const tokens = await getTokensFor(newAssigned);
-    console.log("[onTaskUpdated] tokens:", tokens.length);
-    const res = await sendPushTo(tokens, { title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada", body: description || title }, { taskId });
-    console.log("[onTaskUpdated] FCM:", res);
     // Aviso silencioso al jefe
     const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
     if (bossId2 && bossId2 !== newAssigned) {
@@ -236,14 +237,6 @@ exports.onTaskUpdated = functions
         catch (e) {
             console.error("[onTaskUpdated] boss save notif error:", e);
         }
-        const bossTokens2 = await getTokensFor(bossId2);
-        const dr2 = await sendDataOnlyTo(bossTokens2, {
-            type: prevAssigned ? "task_reassigned_report" : "task_assigned_report",
-            taskId,
-            assignedId: newAssigned,
-            silent: "1",
-        });
-        console.log("[onTaskUpdated] FCM (boss silent):", dr2);
     }
 });
 // --------------------------- Endpoints de prueba ---------------------------
@@ -262,11 +255,7 @@ exports.sendTestPush = functions
     catch (e) {
         console.error("[sendTestPush] saveInAppNotification error:", e);
     }
-    const tokens = await getTokensFor(userId);
-    console.log("[sendTestPush] tokens:", tokens.length);
-    const res = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
-    console.log("[sendTestPush] FCM:", res);
-    return { ok: true, ...res };
+        return { ok: true };
 });
 exports.registerDeviceToken = functions
     .region("us-central1")
@@ -322,6 +311,8 @@ exports.sendTestPushHttp = functions
             catch (e) {
                 console.error("[sendTestPushHttp] saveInAppNotification ERROR:", e?.message);
             }
+                        res.json({ ok: true });
+                        return;
         }
         const tokens = await getTokensFor(userId);
         console.log("[sendTestPushHttp] tokens:", tokens.length);
@@ -353,16 +344,12 @@ exports.notifyTaskNews = functions
     .https.onCall(async (data, _context) => {
     const taskId = (data?.taskId || "").toString().trim();
     const creator = (data?.creatorId || "").toString().trim();
-    const boss = (data?.bossId || "").toString().trim();
-    const title = (data?.title || "Novedad en tarea").toString();
     const body = (data?.body || "").toString();
     if (!taskId)
         throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
     const recipients = [creator, boss].filter((x) => !!x && x.length > 0);
     await Promise.all(recipients.map(async (uid) => {
         await saveInAppNotification(uid, { title, description: body, taskId, type: "task_news" });
-        const tokens = await getTokensFor(uid);
-        await sendPushTo(tokens, { title, body }, { taskId, type: "task_news" });
-    }));
+            }));
     return { ok: true, count: recipients.length };
 });

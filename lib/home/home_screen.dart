@@ -11,6 +11,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/services/local_notification_service.dart';
 
 // Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart';
@@ -44,6 +45,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // Registro automático de FCM
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
+  final Set<String> _seenNotifIds = <String>{};
+  bool _notifsPrimed = false;
+  String? _listeningUserId;
   Future<String?> _getFcmTokenWithRetries() async {
     Future<String?> _safeGetToken() async {
       try {
@@ -169,7 +174,59 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _tokenSub?.cancel();
+    _notifSub?.cancel();
     super.dispose();
+  }
+
+  void _startNotifListener(String userId) {
+    if (userId.isEmpty) return;
+    if (_listeningUserId == userId && _notifSub != null) return;
+
+    _notifSub?.cancel();
+    _listeningUserId = userId;
+    _seenNotifIds.clear();
+    _notifsPrimed = false;
+
+    _notifSub = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(userId)
+        .collection('notifications')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snap) async {
+      if (!_notifsPrimed) {
+        for (final doc in snap.docs) {
+          _seenNotifIds.add(doc.id);
+        }
+        _notifsPrimed = true;
+        return;
+      }
+
+      for (final change in snap.docChanges) {
+        if (change.type != DocumentChangeType.added) continue;
+        final doc = change.doc;
+        if (!_seenNotifIds.add(doc.id)) continue;
+
+        final data = doc.data() ?? {};
+        final isRead = (data['read'] as bool?) ?? false;
+        if (isRead) continue;
+
+        final title = (data['title'] as String?)?.trim().isNotEmpty == true
+            ? data['title'].toString()
+            : 'Notificación';
+        final body = (data['description'] as String?)?.trim().isNotEmpty == true
+            ? data['description'].toString()
+            : (data['body']?.toString() ?? '');
+        final payload = data['taskId']?.toString();
+
+        await LocalNotificationService.instance.show(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          title: title,
+          body: body,
+          payload: payload,
+        );
+      }
+    });
   }
 
   // ========= Registro automático de FCM =========
@@ -831,6 +888,8 @@ class _HomeScreenState extends State<HomeScreen> {
         final assignedApps =
             (userData['apps'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? <String>[];
         final saludo = '$pNombre${(pApellido.isNotEmpty ? ' $pApellido' : '')}';
+
+        _startNotifListener(effectiveId);
 
         // 🔔 Registrar FCM automáticamente (una sola vez)
         if (!_didRegisterToken && effectiveId.isNotEmpty) {

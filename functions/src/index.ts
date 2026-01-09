@@ -141,6 +141,25 @@ async function sendDataOnlyTo(tokens: string[], data: Record<string, string>) {
 }
 
 // --------------------------- Triggers ---------------------------
+export const onNotificationCreated = functions
+  .region("us-central1")
+  .firestore.document("TBL_NOTIFICACIONES/{userId}/notifications/{notifId}")
+  .onCreate(async (snap: functions.firestore.DocumentSnapshot, ctx: functions.EventContext) => {
+    const data = (snap.data() as admin.firestore.DocumentData) ?? {};
+    const userId = ctx.params.userId as string;
+    const isRead = (data.read ?? false) as boolean;
+    if (isRead) return;
+
+    const title = (data.title || "Notificación").toString();
+    const body = (data.description || data.body || "").toString();
+    const taskId = data.taskId ? String(data.taskId) : "";
+    const type = data.type ? String(data.type) : "";
+
+    const tokens = await getTokensFor(userId);
+    console.log("[onNotificationCreated] userId:", userId, "tokens:", tokens.length);
+    await sendPushTo(tokens, { title, body: body || title }, { taskId, type });
+  });
+
 export const onTaskCreated = functions
   .region("us-central1")
   .firestore.document("TBL_TAREAS/{taskId}")
@@ -162,11 +181,6 @@ export const onTaskCreated = functions
       console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
 
-    const tokens = await getTokensFor(assignedId);
-    console.log("[onTaskCreated] tokens:", tokens.length);
-    const res = await sendPushTo(tokens, { title: "Nueva tarea asignada", body: description || title }, { taskId });
-    console.log("[onTaskCreated] FCM:", res);
-
     // Aviso silencioso al jefe
     const bossId = await resolveBossIdFor(assignedId, data);
     if (bossId && bossId !== assignedId) {
@@ -181,14 +195,6 @@ export const onTaskCreated = functions
         console.error("[onTaskCreated] boss save notif error:", e);
       }
 
-      const bossTokens = await getTokensFor(bossId);
-      const dr = await sendDataOnlyTo(bossTokens, {
-        type: "task_assigned_report",
-        taskId,
-        assignedId,
-        silent: "1",
-      });
-      console.log("[onTaskCreated] FCM (boss silent):", dr);
     }
   });
 
@@ -224,15 +230,6 @@ export const onTaskUpdated = functions
       console.error("[onTaskUpdated] saveInAppNotification error:", e);
     }
 
-    const tokens = await getTokensFor(newAssigned);
-    console.log("[onTaskUpdated] tokens:", tokens.length);
-    const res = await sendPushTo(
-      tokens,
-      { title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada", body: description || title },
-      { taskId }
-    );
-    console.log("[onTaskUpdated] FCM:", res);
-
     // Aviso silencioso al jefe
     const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
     if (bossId2 && bossId2 !== newAssigned) {
@@ -247,14 +244,6 @@ export const onTaskUpdated = functions
         console.error("[onTaskUpdated] boss save notif error:", e);
       }
 
-      const bossTokens2 = await getTokensFor(bossId2);
-      const dr2 = await sendDataOnlyTo(bossTokens2, {
-        type: prevAssigned ? "task_reassigned_report" : "task_assigned_report",
-        taskId,
-        assignedId: newAssigned,
-        silent: "1",
-      });
-      console.log("[onTaskUpdated] FCM (boss silent):", dr2);
     }
   });
 
@@ -273,12 +262,7 @@ export const sendTestPush = functions
     } catch (e) {
       console.error("[sendTestPush] saveInAppNotification error:", e);
     }
-
-    const tokens = await getTokensFor(userId);
-    console.log("[sendTestPush] tokens:", tokens.length);
-    const res = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
-    console.log("[sendTestPush] FCM:", res);
-    return { ok: true, ...res };
+    return { ok: true };
   });
 
 export const registerDeviceToken = functions
@@ -343,11 +327,15 @@ export const sendTestPushHttp = functions
           console.error("[sendTestPushHttp] saveInAppNotification ERROR:", (e as Error)?.message);
         }
       }
+        if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
+          const tokens = await getTokensFor(userId);
+          console.log("[sendTestPushHttp] tokens:", tokens.length);
+          const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
+          res.json({ ok: true, ...r });
+          return;
+        }
 
-      const tokens = await getTokensFor(userId);
-      console.log("[sendTestPushHttp] tokens:", tokens.length);
-      const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
-      res.json({ ok: true, ...r });
+        res.json({ ok: true });
     } catch (e) {
       console.error("[sendTestPushHttp] ERROR:", (e as Error)?.message);
       res.status(500).json({ error: "internal", message: (e as Error)?.message });
@@ -368,9 +356,6 @@ export const notifyTaskCompleted = functions
 
     await saveInAppNotification(creatorId, { title, description: body, taskId, type: "task_completed" });
 
-    const tokens = await getTokensFor(creatorId);
-    await sendPushTo(tokens, { title, body }, { taskId, type: "task_completed" });
-
     return { ok: true };
   });
 
@@ -390,8 +375,6 @@ export const notifyTaskNews = functions
     await Promise.all(
       recipients.map(async (uid) => {
         await saveInAppNotification(uid, { title, description: body, taskId, type: "task_news" });
-        const tokens = await getTokensFor(uid);
-        await sendPushTo(tokens, { title, body }, { taskId, type: "task_news" });
       })
     );
 

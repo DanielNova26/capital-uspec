@@ -6,12 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'firebase_options.dart';
 import 'state/empresa_scope.dart';
 import 'login/login_screen.dart';
+import 'services/local_notification_service.dart';
 
 /// ===== Handler de mensajes en segundo plano (Android) =====
 /// ¡NO lo muevas dentro de una clase!
@@ -19,72 +19,6 @@ import 'login/login_screen.dart';
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   // Aquí podrías registrar logs o preprocesar 'message.data'
-}
-
-/// ===== Servicio mínimo para notificaciones locales (foreground) =====
-class NotificationService {
-  NotificationService._();
-  static final instance = NotificationService._();
-
-  final _plugin = FlutterLocalNotificationsPlugin();
-
-  Future<void> init() async {
-    // Android: usa el ícono por defecto
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings();
-    const macos = DarwinInitializationSettings();
-    const init = InitializationSettings(
-      android: android,
-      iOS: ios,
-      macOS: macos,
-    );
-    await _plugin.initialize(
-      init,
-      onDidReceiveNotificationResponse: (resp) {
-        // Si envías un payload (p.ej. taskId) al crear la notificación,
-        // lo recibes aquí en resp.payload para navegar a detalle de tarea.
-      },
-    );
-
-    // Crea/asegura el canal (debe coincidir con tu Manifest)
-    const channel = AndroidNotificationChannel(
-      'tasks_high',
-      'Tareas',
-      description: 'Notificaciones de tareas',
-      importance: Importance.high,
-    );
-
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
-    // Opcional: mostrar alertas en foreground con el sistema (iOS/Android13+)
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-  }
-
-  Future<void> show({
-    required int id,
-    required String title,
-    required String body,
-    String? payload,
-  }) async {
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'tasks_high',
-        'Tareas',
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: DarwinNotificationDetails(),
-      macOS: DarwinNotificationDetails(),
-    );
-    await _plugin.show(id, title, body, details, payload: payload);
-  }
 }
 
 Future<void> _initFirebaseAndPushCore() async {
@@ -107,7 +41,7 @@ Future<void> _initFirebaseAndPushCore() async {
   );
 
   // Notificaciones locales
-  await NotificationService.instance.init();
+  await LocalNotificationService.instance.init();
 
   // FCM: handler en background
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -129,7 +63,7 @@ Future<void> _initFirebaseAndPushCore() async {
     final body  = m.notification?.body  ?? (m.data['body']  ?? '');
     final payload = m.data['taskId'];
 
-    NotificationService.instance.show(
+    LocalNotificationService.instance.show(
       id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title: title,
       body: body,
