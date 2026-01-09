@@ -732,11 +732,14 @@ class TaskHistoryScreen extends StatefulWidget {
   final String currentUserId;
   final int initialTabIndex;
   final String? highlightTaskId;
+  // 👇 NUEVO: qué pestaña abrir en Proceso
+  final String? openProcessTabKey;
   const TaskHistoryScreen({
     super.key,
     required this.currentUserId,
     this.initialTabIndex = 0,
     this.highlightTaskId,
+    this.openProcessTabKey, // 👈 NUEVO
   });
 
   @override
@@ -775,10 +778,15 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
         ),
         body: TabBarView(
           children: [
-            _AssignedToMeTab(userId: widget.currentUserId),
+            _AssignedToMeTab(
+              userId: widget.currentUserId,
+              highlightTaskId: widget.highlightTaskId,
+              openProcessTabKey: widget.openProcessTabKey,
+            ),
             _ICreatedTab(
               userId: widget.currentUserId,
               highlightTaskId: widget.highlightTaskId,
+              openProcessTabKey: widget.openProcessTabKey,
             ),
           ],
         ),
@@ -791,7 +799,14 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen>
 
 class _AssignedToMeTab extends StatefulWidget {
   final String userId;
-  const _AssignedToMeTab({required this.userId});
+  final String? highlightTaskId; // 👈 NUEVO
+  final String? openProcessTabKey; // 👈 NUEVO
+
+  const _AssignedToMeTab({
+    required this.userId,
+    this.highlightTaskId,
+    this.openProcessTabKey,
+  });
 
   @override
   State<_AssignedToMeTab> createState() => _AssignedToMeTabState();
@@ -799,6 +814,7 @@ class _AssignedToMeTab extends StatefulWidget {
 
 class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final _searchCtl = TextEditingController();
+  bool _didAutoOpen = false;
 
   // filtros
   String _areaSel = 'todas';
@@ -929,6 +945,26 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
           }
           return true;
         }).toList();
+
+        // ✅ Auto abrir desde notificación
+        if (!_didAutoOpen &&
+            widget.highlightTaskId != null &&
+            widget.highlightTaskId!.isNotEmpty) {
+          final idx = ordered.indexWhere((d) => d.id == widget.highlightTaskId);
+          if (idx >= 0) {
+            _didAutoOpen = true;
+            final doc = ordered[idx];
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (!mounted) return;
+              await _openAttachmentsPage(
+                context,
+                taskId: doc.id,
+                taskData: doc.data(),
+                initialTabKey: widget.openProcessTabKey,
+              );
+            });
+          }
+        }
 
         return Column(
           children: [
@@ -1497,7 +1533,13 @@ class _AssignedTile extends StatelessWidget {
 class _ICreatedTab extends StatefulWidget {
   final String userId;
   final String? highlightTaskId;
-  const _ICreatedTab({required this.userId, this.highlightTaskId});
+  final String? openProcessTabKey; // 👈 NUEVO
+
+  const _ICreatedTab({
+    required this.userId,
+    this.highlightTaskId,
+    this.openProcessTabKey,
+  });
 
   @override
   State<_ICreatedTab> createState() => _ICreatedTabState();
@@ -1642,6 +1684,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                 itemBuilder: (_, i) => _CreatedTile(
                   doc: ordered[i],
                   highlightTaskId: widget.highlightTaskId,
+                  openProcessTabKey: widget.openProcessTabKey, // 👈 NUEVO
                 ),
               ),
             ),
@@ -1758,7 +1801,13 @@ class _ICreatedTabState extends State<_ICreatedTab> {
 class _CreatedTile extends StatefulWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   final String? highlightTaskId;
-  const _CreatedTile({required this.doc, this.highlightTaskId});
+  final String? openProcessTabKey; // 👈 NUEVO
+
+  const _CreatedTile({
+    required this.doc,
+    this.highlightTaskId,
+    this.openProcessTabKey,
+  });
 
   @override
   State<_CreatedTile> createState() => _CreatedTileState();
@@ -1891,6 +1940,24 @@ class _CreatedTileState extends State<_CreatedTile> {
           _didAutoOpen = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            // ✅ Si venimos desde notificación, abrimos directamente el Proceso en la pestaña correcta
+            if (widget.openProcessTabKey != null &&
+                widget.openProcessTabKey!.isNotEmpty) {
+              _openAttachmentsPage(
+                context,
+                taskId: widget.doc.id,
+                taskData: widget.doc.data(),
+                initialTabKey: widget.openProcessTabKey,
+              );
+            } else {
+              _openActions(
+                context,
+                widget.doc,
+                lastN: lastN,
+                lastA: lastA,
+                resEstado: estado,
+              );
+            }
             _openActions(
               context,
               widget.doc,

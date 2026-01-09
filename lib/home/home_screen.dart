@@ -50,27 +50,100 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _seenNotifIds = <String>{};
   bool _notifsPrimed = false;
   String? _listeningUserId;
-  void _openNotificationTask({
+
+  // ✅ Mapea type -> pestaña del Proceso
+  String? _processTabForNotifType(String raw) {
+    final t = raw.trim().toLowerCase();
+
+    // Avances
+    const avances = {
+      'avance',
+      'progress',
+      'task_progress',
+      'gestion_avance',
+      'avance_creado',
+      'avance_actualizado',
+    };
+
+    // Novedades
+    const novedades = {
+      'novedad',
+      'news',
+      'task_news',
+      'respuesta_novedad',
+      'novedad_creada',
+      'novedad_actualizada',
+    };
+
+    // Finalización (por si luego lo usas)
+    const finalizacion = {
+      'finalizacion',
+      'completed',
+      'task_completed',
+      'finalizado',
+    };
+
+    if (avances.contains(t)) return 'Avances';
+    if (novedades.contains(t)) return 'Novedades';
+    if (finalizacion.contains(t)) return 'Finalización';
+
+    return null;
+  }
+
+  Future<void> _openNotificationTask({
     required String type,
     required String taskId,
     required String cedula,
-  }) {
-    final normalized = type.trim().toLowerCase();
-    final goToHistory = normalized == 'avance' || normalized == 'novedad';
-    if (goToHistory) {
+  }) async {
+    final tabKey = _processTabForNotifType(type);
+
+    // ✅ Si es avance/novedad/finalización => ir al historial y abrir proceso en la pestaña correcta
+    if (tabKey != null) {
+      int tabIndex =
+      0; // 0 = Asignadas a mí, 1 = Yo asigné (por defecto intentamos resolver)
+
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .doc(taskId)
+            .get();
+
+        final data = snap.data();
+        if (data != null) {
+          final creatorId =
+          (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
+          final assignedId = (data['asignado_uid'] ?? data['assignedTo'] ?? '')
+              .toString()
+              .trim();
+
+          if (creatorId.isNotEmpty && creatorId == cedula) {
+            tabIndex = 1; // Yo asigné
+          } else if (assignedId.isNotEmpty && assignedId == cedula) {
+            tabIndex = 0; // Asignadas a mí
+          } else {
+            // fallback: si no coincide, muéstralo en "Yo asigné"
+            tabIndex = 1;
+          }
+        }
+      } catch (_) {}
+
+      if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => TaskHistoryScreen(
             currentUserId: cedula,
-            initialTabIndex: 1,
+            initialTabIndex: tabIndex,
             highlightTaskId: taskId,
+            openProcessTabKey: tabKey, // 👈 NUEVO
           ),
         ),
       );
       return;
     }
 
+// ✅ Si NO es avance/novedad => comportamiento original (mis tareas asignadas)
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -470,7 +543,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   onPressed: () async {
                                     if (!mounted) return;
                                     Navigator.pop(context);
-                                    _openNotificationTask(
+                                    await _openNotificationTask(
                                       type: type,
                                       taskId: taskId,
                                       cedula: cedula,
@@ -522,9 +595,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               TextButton.icon(
                                 icon: const Icon(Icons.arrow_forward),
                                 label: const Text('Ver origen'),
-                                onPressed: () {
+                                onPressed: () async {
                                   Navigator.pop(context);
-                                  _openNotificationTask(
+                                  await _openNotificationTask(
                                     type: type,
                                     taskId: taskId,
                                     cedula: cedula,
