@@ -139,6 +139,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
+  bool _isRead(Map<String, dynamic> data) {
+    final read = data['read'];
+    final leido = data['leido'];
+    final visto = data['visto'];
+    return (read is bool && read) ||
+        (leido is bool && leido) ||
+        (visto is bool && visto);
+  }
+
   // Helpers de campos (alias tolerantes)
   String _titleOf(Map<String, dynamic> m) =>
       (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
@@ -286,11 +295,24 @@ class _HomeScreenState extends State<HomeScreen> {
     required List<Map<String, dynamic>> notifications,
   }) async {
     try {
-      final upd = notifications.map((n) => {...n, 'read': true}).toList();
-      await FirebaseFirestore.instance
-          .collection('TBL_NOTIFICACIONES')
-          .doc(cedula)
-          .set({'notifications': upd}, SetOptions(merge: true));
+      if (notifications.isEmpty) return;
+      final batch = FirebaseFirestore.instance.batch();
+      var hasUpdates = false;
+      for (final n in notifications) {
+        if (_isRead(n)) continue;
+        final id = (n['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+        final ref = FirebaseFirestore.instance
+            .collection('TBL_NOTIFICACIONES')
+            .doc(cedula)
+            .collection('notifications')
+            .doc(id);
+        batch.set(ref, {'read': true}, SetOptions(merge: true));
+        hasUpdates = true;
+      }
+      if (hasUpdates) {
+        await batch.commit();
+      }
     } catch (_) {}
   }
 
@@ -360,7 +382,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     final taskId = (n['taskId'] ?? '').toString();
                     final dt = _toDate(n['createdAt']);
                     final when = dt == null ? '' : DateFormat('dd/MM/yyyy HH:mm', 'es').format(dt);
-                    final unread = !(n['read'] as bool? ?? false);
+                    final unread = !_isRead(n);
 
                     return ListTile(
                       leading: Stack(
@@ -899,10 +921,12 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         }
 
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
               .collection('TBL_NOTIFICACIONES')
               .doc(effectiveId)
+              .collection('notifications')
+              .orderBy('createdAt', descending: true)
               .snapshots(),
           builder: (context, notifSnap) {
             if (notifSnap.connectionState == ConnectionState.waiting) {
@@ -911,10 +935,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Notificaciones
             final List<Map<String, dynamic>> notifications = [];
-            if (notifSnap.hasData && notifSnap.data!.exists) {
-              final raw = notifSnap.data!.data()!['notifications'] as List<dynamic>? ?? [];
-              for (final item in raw) {
-                if (item is Map<String, dynamic>) notifications.add(item);
+            if (notifSnap.hasData) {
+              for (final doc in notifSnap.data!.docs) {
+                notifications.add({
+                  ...doc.data(),
+                  'id': doc.id,
+                });
               }
             }
             notifications.sort((a, b) {
@@ -923,7 +949,7 @@ class _HomeScreenState extends State<HomeScreen> {
               return bd.compareTo(ad);
             });
             final unreadCount =
-                notifications.where((n) => !(n['read'] as bool? ?? false)).length;
+                notifications.where((n) => !_isRead(n)).length;
 
             // Tareas streams
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
