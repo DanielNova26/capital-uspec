@@ -815,6 +815,7 @@ class _AssignedToMeTab extends StatefulWidget {
 class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final _searchCtl = TextEditingController();
   bool _didAutoOpen = false;
+  bool _showFilters = false;
 
   // filtros
   String _areaSel = 'todas';
@@ -862,6 +863,14 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
     } catch (_) {}
   }
 
+  bool _hasActiveFilters() {
+    return _searchCtl.text.trim().isNotEmpty ||
+        _areaSel != 'todas' ||
+        _estadoSel != 'todos' ||
+        _from != null ||
+        _to != null;
+  }
+
   Query<Map<String, dynamic>> _query(String userId) {
     return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
@@ -882,6 +891,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
       setState(() {
         _from = range.start;
         _to = range.end;
+        _showFilters = true;
       });
     }
   }
@@ -894,15 +904,31 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        final hasActiveFilters = _hasActiveFilters();
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        if (docs.isEmpty && hasActiveFilters) {
           return Column(
             children: [
-              _filtersBar(),
+              _filtersSection(),
               const Expanded(
                 child: Center(
                   child: Text('No hay tareas asignadas.',
                       style: TextStyle(fontFamily: kArial)),
+                ),
+              ),
+            ],
+          );
+        }
+        if (!hasActiveFilters) {
+          return Column(
+            children: [
+              _filtersSection(),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'Aplica un filtro para mostrar las tareas.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                 ),
               ),
             ],
@@ -968,7 +994,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
 
         return Column(
           children: [
-            _filtersBar(),
+            _filtersSection(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
@@ -980,6 +1006,24 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
           ],
         );
       },
+    );
+  }
+
+  Widget _filtersSection() {
+    if (_showFilters) {
+      return _filtersBar();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.filter_list),
+          label: const Text('Mostrar filtros'),
+          style: OutlinedButton.styleFrom(foregroundColor: kBrand),
+          onPressed: () => setState(() => _showFilters = true),
+        ),
+      ),
     );
   }
 
@@ -1005,7 +1049,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                 Expanded(
                   child: TextField(
                     controller: _searchCtl,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() => _showFilters = true),
                     decoration: const InputDecoration(
                       isDense: true,
                       prefixIcon: Icon(Icons.search),
@@ -1041,7 +1085,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                         .map((e) =>
                         DropdownMenuItem(value: e.key, child: Text(e.value)))
                         .toList(),
-                    onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
+                    onChanged: (v) => setState(() {
+                      _areaSel = v ?? 'todas';
+                      _showFilters = true;
+                    }),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1061,7 +1108,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                         .map((e) =>
                         DropdownMenuItem(value: e.key, child: Text(e.value)))
                         .toList(),
-                    onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
+                    onChanged: (v) => setState(() {
+                      _estadoSel = v ?? 'todos';
+                      _showFilters = true;
+                    }),
                   ),
                 ),
               ],
@@ -1094,6 +1144,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                     onPressed: () => setState(() {
                       _from = null;
                       _to = null;
+                      _showFilters = true;
                     }),
                   ),
               ],
@@ -1547,6 +1598,7 @@ class _ICreatedTab extends StatefulWidget {
 
 class _ICreatedTabState extends State<_ICreatedTab> {
   final _searchCtl = TextEditingController();
+  bool _showFilters = false;
 
   String _areaSel = 'todas';
   String _estadoSel = 'todos';
@@ -1590,6 +1642,14 @@ class _ICreatedTabState extends State<_ICreatedTab> {
     } catch (_) {}
   }
 
+  bool _hasActiveFilters() {
+    return _searchCtl.text.trim().isNotEmpty ||
+        _areaSel != 'todas' ||
+        _estadoSel != 'todos' ||
+        _from != null ||
+        _to != null;
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
     return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
@@ -1610,6 +1670,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
       setState(() {
         _from = range.start;
         _to = range.end;
+        _showFilters = true;
       });
     }
   }
@@ -1622,15 +1683,31 @@ class _ICreatedTabState extends State<_ICreatedTab> {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        final hasActiveFilters = _hasActiveFilters();
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        if (docs.isEmpty && hasActiveFilters) {
           return Column(
             children: [
-              _filtersBar(),
+              _filtersSection(),
               const Expanded(
                 child: Center(
                   child: Text('No has creado tareas.',
                       style: TextStyle(fontFamily: kArial)),
+                ),
+              ),
+            ],
+          );
+        }
+        if (!hasActiveFilters) {
+          return Column(
+            children: [
+              _filtersSection(),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'Aplica un filtro para mostrar las tareas.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                 ),
               ),
             ],
@@ -1675,7 +1752,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
 
         return Column(
           children: [
-            _filtersBar(),
+            _filtersSection(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
@@ -1694,6 +1771,23 @@ class _ICreatedTabState extends State<_ICreatedTab> {
     );
   }
 
+  Widget _filtersSection() {
+    if (_showFilters) {
+      return _filtersBar();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.filter_list),
+          label: const Text('Mostrar filtros'),
+          onPressed: () => setState(() => _showFilters = true),
+        ),
+      ),
+    );
+  }
+
   Widget _filtersBar() {
     const pill = OutlineInputBorder(
       borderSide: BorderSide(color: Colors.black26),
@@ -1709,7 +1803,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
               Expanded(
                 child: TextField(
                   controller: _searchCtl,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) => setState(() => _showFilters = true),
                   decoration: const InputDecoration(
                     isDense: true,
                     prefixIcon: Icon(Icons.search),
@@ -1743,7 +1837,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                       .map((e) =>
                       DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
-                  onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
+                  onChanged: (v) => setState(() {
+                    _areaSel = v ?? 'todas';
+                    _showFilters = true;
+                  }),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1763,7 +1860,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                       .map((e) =>
                       DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
-                  onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
+                  onChanged: (v) => setState(() {
+                    _estadoSel = v ?? 'todos';
+                    _showFilters = true;
+                  }),
                 ),
               ),
             ],
@@ -1788,6 +1888,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                   onPressed: () => setState(() {
                     _from = null;
                     _to = null;
+                    _showFilters = true;
                   }),
                 ),
             ],

@@ -94,6 +94,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     super.dispose();
   }
 
+  bool _hasActiveFilters() {
+    return _searchCtrl.text.trim().isNotEmpty ||
+        _statusFilter != 'todas' ||
+        _areaFilter != 'todas';
+  }
+
   // -------------------------
   // Helpers lectura segura
   // -------------------------
@@ -945,6 +951,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               }
 
               final docs = snap.data?.docs ?? [];
+              final hasActiveFilters = _hasActiveFilters();
 
               // auto-open highlight
               if (!_didAutoOpen && widget.highlightTaskId != null && docs.isNotEmpty) {
@@ -970,6 +977,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     const SizedBox(height: 12),
                     _buildFiltersCard(docs),
                     const SizedBox(height: 12),
+                    if (!hasActiveFilters)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(
+                          child: Text(
+                            'Aplica un filtro para mostrar las tareas.',
+                            style: TextStyle(fontFamily: kArial),
+                          ),
+                        ),
+                      )
+                    else if (filtered.isEmpty)
                     if (filtered.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(24),

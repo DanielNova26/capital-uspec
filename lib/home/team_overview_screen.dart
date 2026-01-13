@@ -190,6 +190,11 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   @override
   void initState() {
     super.initState();
+    _filtroUsuarioCtl.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -209,8 +214,20 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   @override
   void dispose() {
+    _filtroUsuarioCtl.dispose();
     _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
+  }
+
+  bool _hasActiveFilters() {
+    return _searchCtl.text.trim().isNotEmpty ||
+        _areaSel != 'todas' ||
+        _estadoSel != 'todos' ||
+        _cargoSel != 'todos' ||
+        _centroSel != 'todos' ||
+        _filtroUsuarioCtl.value != 'todos' ||
+        _from != null ||
+        _to != null;
   }
 
   void _onEmpresaChanged() {
@@ -627,13 +644,18 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
           // Filtro cliente
           final filtered =
           ordered.where((d) => _pasaFiltrosCliente(d.data())).toList();
+          final hasActiveFilters = _hasActiveFilters();
 
           return Column(
             children: [
               _filtersBar(),
               const SizedBox(height: 6),
               Expanded(
-                child: filtered.isEmpty
+                child: !hasActiveFilters
+                    ? const Center(
+                    child: Text('Aplica un filtro para mostrar las tareas.',
+                        style: TextStyle(fontFamily: kArial)))
+                    : filtered.isEmpty
                     ? const Center(
                     child: Text('Sin tareas para los filtros seleccionados.',
                         style: TextStyle(fontFamily: kArial)))
