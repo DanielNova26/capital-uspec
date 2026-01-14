@@ -848,6 +848,9 @@ class _TaskTile extends StatelessWidget {
     final vence = _fmtDate(_toDate(m['fecha_limite']));
     final asignado =
     (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignadoPor = _firstStr(m, ['creador_nombre', 'creatorName']) ??
+        _firstStr(m, ['creador_id', 'creatorId']) ??
+        '';
     final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
     final updated = _fmtDateTime(_toDate(m['updatedAt'] ?? m['createdAt']));
 
@@ -888,6 +891,7 @@ class _TaskTile extends StatelessWidget {
               ),
               _pill('Vence: $vence'),
               if (asignado.isNotEmpty) _pill('Asignado: $asignado'),
+              if (asignadoPor.isNotEmpty) _pill('Asignado por: $asignadoPor'),
               if (prioridad == 'ALTA') _pill('Prioridad: $prioridad'),
               _pill('Act.: $updated'),
             ],
@@ -914,6 +918,7 @@ class _TaskTile extends StatelessWidget {
                     _kv('Estado', estado.isEmpty ? '—' : estado),
                     _kv('Vence', vence),
                     _kv('Asignado', asignado.isEmpty ? '—' : asignado),
+                    _kv('Asignado por', asignadoPor.isEmpty ? '—' : asignadoPor),
                     if (prioridad.isNotEmpty) _kv('Prioridad', prioridad),
                     _kv('Actualizado', updated),
                   ],

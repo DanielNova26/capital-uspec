@@ -272,6 +272,9 @@ class _TeamScreenState extends State<TeamScreen> {
     final titulo = (data['titulo'] ?? data['title'] ?? 'Sin título').toString();
     final estado = resolveTaskStatus(data);
     final asignado = (data['asignado_nombre'] ?? data['assignedToName'] ?? '').toString();
+    final asignadoPorNombre = (data['creador_nombre'] ?? data['creatorName'] ?? '').toString().trim();
+    final asignadoPorId = (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
+    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final due = _toDate(data['fecha_limite']);
 
     return Card(
@@ -321,6 +324,19 @@ class _TeamScreenState extends State<TeamScreen> {
                   ),
                 ],
               ),
+            if (asignadoPor.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.manage_accounts, size: 16, color: Colors.black54),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text('Asignado por: $asignadoPor',
+                        style: const TextStyle(fontFamily: kArial, color: Colors.black87)),
+                  ),
+                ],
+              ),
+            ],
             if (due != null) ...[
               const SizedBox(height: 6),
               Row(

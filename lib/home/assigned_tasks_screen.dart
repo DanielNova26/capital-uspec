@@ -740,11 +740,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final finishPending = _finishPending(data);
 
     final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
+    final assignedByName = _str(data, ['creador_nombre', 'creatorName']);
+    final assignedById = _str(data, ['creador_id', 'creatorId']);
+    final assignedBy = assignedByName.isNotEmpty ? assignedByName : assignedById;
     final attachments = _extractAttachments(data);
 
     final finishBy = _str(data, ['solicitud_finalizacion_by_nombre']);
     final finishAt = _ts(data, ['solicitud_finalizacion_at']);
-
     final canDirect = _canDirectReassign(data);
 
     showModalBottomSheet(
@@ -759,9 +761,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               trailing: _statusChip(status),
             ),
 
-            if (assignedToName.isNotEmpty)
+            if (assignedToName.isNotEmpty) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
                 child: Row(
                   children: [
                     const Icon(Icons.person, size: 18, color: Colors.black54),
@@ -772,6 +774,22 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.manage_accounts, size: 18, color: Colors.black54),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Asignado por: ${assignedBy.isEmpty ? "—" : assignedBy}',
+                        style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             if (finishPending) ...[
               Padding(

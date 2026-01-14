@@ -1406,6 +1406,9 @@ class _AssignedTile extends StatelessWidget {
 
   void _showQuickDetails(BuildContext context, Map<String, dynamic> m) {
     final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
+    final asignadoPorId = (m['creador_id'] ?? m['creatorId'] ?? '').toString().trim();
+    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final vence = _fmt(_toDate(m['fecha_limite']));
     final prioridad = (m['prioridad'] ?? '').toString();
 
@@ -1426,6 +1429,7 @@ class _AssignedTile extends StatelessWidget {
                       fontWeight: FontWeight.bold, fontSize: 15)),
               const SizedBox(height: 8),
               _kv('Asignado', asignado.isEmpty ? '—' : asignado),
+              _kv('Asignado por', asignadoPor.isEmpty ? '—' : asignadoPor),
               _kv('Vence', vence),
               if (prioridad.isNotEmpty) _kv('Prioridad', prioridad.toUpperCase()),
             ],
@@ -1956,7 +1960,10 @@ class _CreatedTileState extends State<_CreatedTile> {
   Widget build(BuildContext context) {
     final m = widget.doc.data();
     final title = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
-    final asignado = (m['asignado_nombre'] ?? '').toString();
+    final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
+    final asignadoPorId = (m['creador_id'] ?? m['creatorId'] ?? '').toString().trim();
+    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final estado = _resolvedEstado(m);
     final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
     final due = _toDate(m['fecha_limite']);
@@ -2050,8 +2057,6 @@ class _CreatedTileState extends State<_CreatedTile> {
             );
           });
         }
-
-
         return Card(
           elevation: hasNovedad ? 2 : 1,
           color: const Color(0xFFF0F5FF),
@@ -2090,6 +2095,9 @@ class _CreatedTileState extends State<_CreatedTile> {
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Text('Asignado: ${asignado.isEmpty ? "—" : asignado}',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: kArial, fontSize: 12)),
+                      Text('Asignado por: ${asignadoPor.isEmpty ? "—" : asignadoPor}',
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontFamily: kArial, fontSize: 12)),
                       _chipMini('Estado: ${estado.isEmpty ? "—" : estado}',
