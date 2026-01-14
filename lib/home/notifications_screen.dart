@@ -162,6 +162,16 @@ class _NotificationList extends StatelessWidget {
         (visto is bool && visto);
   }
 
+  Future<void> _markTaskSeen(String taskId) async {
+    if (taskId.trim().isEmpty) return;
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(taskId)
+          .set({'visto': true}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final stream = FirebaseFirestore.instance
@@ -315,6 +325,9 @@ class _NotificationList extends StatelessWidget {
                     if (!isRead) {
                       await doc.reference.update({'read': true});
                     }
+                    if (taskId != null) {
+                      await _markTaskSeen(taskId);
+                    }
                     await _openNotificationTask(
                       context,
                       type: type,
@@ -328,6 +341,7 @@ class _NotificationList extends StatelessWidget {
                     await doc.reference.update({'read': true});
                   }
                   if (taskId != null) {
+                    await _markTaskSeen(taskId);
                     await _openNotificationTask(
                       context,
                       type: type,

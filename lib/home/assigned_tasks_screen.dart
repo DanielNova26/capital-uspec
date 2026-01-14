@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/task_status.dart';
 
 import 'complete_task_screen.dart';
 import 'notify_avances_screen.dart';
@@ -45,7 +46,7 @@ class AssignedTasksScreen extends StatefulWidget {
 class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // filtros
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'todas'; // todas | activas | finalizadas | pendiente | en_progreso | devuelta | retrasado | pendiente_aprobacion
+  String _statusFilter = 'todas'; // todas | activas | visto | en_progreso | reasignado | completada | devuelta | finalizada | retrasado
   String _areaFilter = 'todas';
 
   // bootstrap
@@ -154,52 +155,40 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // -------------------------
   // Estado y colores
   // -------------------------
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'pendiente':
-        return Colors.orange.shade600;
-      case 'en_progreso':
-        return Colors.blue.shade600;
-      case 'completada':
-        return Colors.green.shade600;
-      case 'finalizado':
-        return Colors.green.shade800;
-      case 'devuelta':
-        return Colors.purple.shade600;
-      case 'retrasado':
-        return Colors.red.shade700;
-      case 'pendiente_aprobacion':
-        return Colors.teal.shade700;
-      default:
-        return Colors.grey.shade600;
-    }
-  }
+  Color _statusColor(String s) => taskStatusColor(s);
 
   Widget _statusChip(String status) {
-    final txt = status.isEmpty ? 'sin_estado' : status;
+    final txt = _statusLabel(status);
     return Chip(
       label: Text(txt, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
       backgroundColor: _statusColor(status),
     );
   }
 
-  String _resolvedStatus(Map<String, dynamic> data) {
-    final raw = _str(data, ['estado', 'status']).toLowerCase();
-
-    if (raw == 'finalizado') return 'finalizado';
-    if (raw == 'completada') return 'completada';
-    if (raw == 'devuelta') return 'devuelta';
-    if (raw == 'pendiente_aprobacion') return 'pendiente_aprobacion';
-
-    // si está vencida -> retrasado
-    final due = _ts(data, ['fecha_limite', 'dueDate']);
-    final days = _daysLeft(due);
-    if (days != null && days < 0) return 'retrasado';
-
-    if (raw == 'en_progreso') return 'en_progreso';
-    if (raw == 'pendiente') return 'pendiente';
-    return raw.isEmpty ? 'pendiente' : raw;
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'activas':
+        return 'Activa';
+      case 'visto':
+        return 'Vista';
+      case 'en_progreso':
+        return 'En progreso';
+      case 'reasignado':
+        return 'Reasignada';
+      case 'completada':
+        return 'Completada';
+      case 'devuelta':
+        return 'Devuelta';
+      case 'finalizada':
+        return 'Finalizada';
+      case 'retrasado':
+        return 'Retrasada';
+      default:
+        return status.isEmpty ? 'sin_estado' : status;
+    }
   }
+
+  String _resolvedStatus(Map<String, dynamic> data) => resolveTaskStatus(data);
 
   // -------------------------
   // Adjuntos: URL o Storage path
@@ -370,6 +359,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'solicitud_reasignacion_to_uid': FieldValue.delete(),
       'solicitud_reasignacion_to_nombre': FieldValue.delete(),
       'solicitud_reasignacion_areaId': FieldValue.delete(),
+      'reasignado': false,
 
       'lastEventType': 'reasignada',
       'lastEventAt': now,
@@ -396,6 +386,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'solicitud_reasignacion_to_uid': newUid,
       'solicitud_reasignacion_to_nombre': newName,
       if (newAreaId != null && newAreaId.trim().isNotEmpty) 'solicitud_reasignacion_areaId': newAreaId.trim(),
+      'reasignado': true,
 
       'lastEventType': 'solicitud_reasignacion',
       'lastEventAt': now,
@@ -403,6 +394,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'fecha_actualizacion': now,
       'updatedAt': now,
     });
+  }
+
+  Future<void> _markTaskSeen(String taskId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(taskId)
+          .set({'visto': true}, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   // Selector Departamento/Persona (usando TBL_DEPARTAMENTOS si existe, si no, fallback TBL_USUARIOS)
@@ -690,12 +690,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
       final bool matchStatus;
       switch (_statusFilter) {
-        case 'activas':
-          matchStatus = status != 'completada' && status != 'finalizado';
-          break;
-        case 'finalizadas':
-          matchStatus = status == 'completada' || status == 'finalizado';
-          break;
         case 'todas':
           matchStatus = true;
           break;
@@ -738,10 +732,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   void _showActionsSheet(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     final taskId = doc.id;
+    _markTaskSeen(taskId);
 
     final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
     final status = _resolvedStatus(data);
-    final isDone = status == 'completada' || status == 'finalizado';
+    final isDone = status == 'completada' || status == 'finalizada';
     final finishPending = _finishPending(data);
 
     final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
@@ -988,16 +983,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         ),
                       )
                     else if (filtered.isEmpty)
-                    if (filtered.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
-                      )
-                    else
-                      ...filtered.map((d) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildTaskCard(d),
-                      )),
+                      if (filtered.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
+                        )
+                      else
+                        ...filtered.map((d) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildTaskCard(d),
+                        )),
                   ],
                 ),
               );
@@ -1073,11 +1068,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     const statusItems = [
       DropdownMenuItem(value: 'todas', child: Text('Todas')),
       DropdownMenuItem(value: 'activas', child: Text('Activas')),
-      DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
+      DropdownMenuItem(value: 'visto', child: Text('Vistas')),
       DropdownMenuItem(value: 'en_progreso', child: Text('En progreso')),
-      DropdownMenuItem(value: 'pendiente_aprobacion', child: Text('Pendiente aprobación')),
-      DropdownMenuItem(value: 'finalizadas', child: Text('Finalizadas')),
+      DropdownMenuItem(value: 'reasignado', child: Text('Reasignadas')),
+      DropdownMenuItem(value: 'completada', child: Text('Completadas')),
       DropdownMenuItem(value: 'devuelta', child: Text('Devueltas')),
+      DropdownMenuItem(value: 'finalizada', child: Text('Finalizadas')),
       DropdownMenuItem(value: 'retrasado', child: Text('Retrasadas')),
     ];
 

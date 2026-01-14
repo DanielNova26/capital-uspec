@@ -7,6 +7,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:todo/utils/task_status.dart';
 
 const Color kBrand = Color(0xFF1E3A8A); // Indigo 800
 const String kArial = 'Arial';
@@ -30,43 +31,14 @@ int? _daysLeft(DateTime? due) {
   return end.difference(today).inDays;
 }
 
-Color _statusColor(String s) {
-  switch (s) {
-    case 'pendiente':
-      return Colors.orange.shade600;
-    case 'en_progreso':
-      return Colors.blue.shade600;
-    case 'completada':
-      return Colors.green.shade700;
-    case 'finalizado':
-      return Colors.green.shade800;
-    case 'devuelta':
-      return Colors.purple.shade600;
-    case 'retrasado':
-      return Colors.red.shade700;
-    default:
-      return Colors.grey.shade600;
-  }
-}
+Color _statusColor(String s) => taskStatusColor(s);
 
 /// Estado efectivo con prioridad:
-/// 1) finalizado (o approved == true)
+/// 1) finalizada (o approved == true)
 /// 2) completada
 /// 3) retrasado (si vencida y no finalizada/completada)
 /// 4) el estado que tenga o 'pendiente'
-String _resolvedEstado(Map<String, dynamic> m) {
-  final approved = m['approved'] == true;
-  final raw = (m['estado'] ?? m['status'] ?? '').toString().trim().toLowerCase();
-
-  if (approved || raw == 'finalizado') return 'finalizado';
-  if (raw == 'completada') return 'completada';
-
-  final due = _toDate(m['fecha_limite']); // campo de vencimiento
-  final days = _daysLeft(due);
-  if (days != null && days < 0) return 'retrasado';
-
-  return raw.isEmpty ? 'pendiente' : raw;
-}
+String _resolvedEstado(Map<String, dynamic> m) => resolveTaskStatus(m);
 
 /// Extrae un mensaje/descripcion de múltiples claves posibles (robusto)
 String _msgOf(Map<String, dynamic> m) {
@@ -700,6 +672,15 @@ void _pushAttachmentsPage(
   ));
 }
 
+Future<void> _markTaskSeen(String taskId) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('TBL_TAREAS')
+        .doc(taskId)
+        .set({'visto': true}, SetOptions(merge: true));
+  } catch (_) {}
+}
+
 /// Abre la pantalla de adjuntos (colecta y navega con animación).
 Future<void> _openAttachmentsPage(
     BuildContext context, {
@@ -707,6 +688,7 @@ Future<void> _openAttachmentsPage(
       required Map<String, dynamic> taskData,
       String? initialTabKey,
     }) async {
+  await _markTaskSeen(taskId);
   final tabsMap = await _collectAllAttachments(taskId, taskData);
   if (tabsMap.isEmpty || tabsMap.values.every((l) => l.isEmpty)) {
     if (context.mounted) {
@@ -827,12 +809,14 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final Map<String, String> _areasMap = {'todas': 'Todas'};
   final Map<String, String> _estadosMap = {
     'todos': 'Todos',
-    'pendiente': 'Pendiente',
+    'activas': 'Activas',
+    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'completada': 'Completada',
-    'finalizado': 'Finalizada',
-    'devuelta': 'Devuelta',
-    'retrasado': 'Retrasado',
+    'reasignado': 'Reasignadas',
+    'completada': 'Completadas',
+    'devuelta': 'Devueltas',
+    'finalizada': 'Finalizadas',
+    'retrasado': 'Retrasadas',
   };
 
   @override
@@ -1190,7 +1174,7 @@ class _AssignedTile extends StatelessWidget {
   }
 
   Widget _countdownBadge(DateTime? due, String estado) {
-    if (estado == 'finalizado') return const SizedBox.shrink();
+    if (estado == 'finalizada') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
 
@@ -1608,12 +1592,14 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   final Map<String, String> _areasMap = {'todas': 'Todas'};
   final Map<String, String> _estadosMap = const {
     'todos': 'Todos',
-    'pendiente': 'Pendiente',
+    'activas': 'Activas',
+    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'completada': 'Completada',
-    'finalizado': 'Finalizada',
-    'devuelta': 'Devuelta',
-    'retrasado': 'Retrasado',
+    'reasignado': 'Reasignadas',
+    'completada': 'Completadas',
+    'devuelta': 'Devueltas',
+    'finalizada': 'Finalizadas',
+    'retrasado': 'Retrasadas',
   };
 
   @override
@@ -1947,7 +1933,7 @@ class _CreatedTileState extends State<_CreatedTile> {
   );
 
   Widget _countdownBadge(DateTime? due, String estado) {
-    if (estado == 'finalizado') return const SizedBox.shrink();
+    if (estado == 'finalizada') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
     Color bg;
@@ -2029,7 +2015,7 @@ class _CreatedTileState extends State<_CreatedTile> {
           }
         }
 
-        final leading = estado == 'finalizado'
+        final leading = estado == 'finalizada'
             ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
             : (hasNovedad
             ? const Icon(Icons.error_outline, color: Colors.amber, size: 20)
@@ -2140,7 +2126,7 @@ class _CreatedTileState extends State<_CreatedTile> {
       }) async {
     final m = doc.data();
 
-    if (resEstado == 'finalizado') {
+    if (resEstado == 'finalizada') {
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -2162,9 +2148,9 @@ class _CreatedTileState extends State<_CreatedTile> {
                   labelPadding: const EdgeInsets.symmetric(horizontal: 6),
                   visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  label: const Text('finalizado',
+                  label: const Text('finalizada',
                       style: TextStyle(color: Colors.white, fontSize: 11)),
-                  backgroundColor: _statusColor('finalizado'),
+                  backgroundColor: _statusColor('finalizada'),
                 ),
               ),
               const Divider(height: 1),
@@ -2302,7 +2288,7 @@ class _CreatedTileState extends State<_CreatedTile> {
       ) async {
     final m = doc.data();
     final estado = _resolvedEstado(m);
-    if (estado == 'finalizado') {
+    if (estado == 'finalizada') {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Ya está finalizada.')));
@@ -2685,8 +2671,8 @@ class _CreatedTileState extends State<_CreatedTile> {
     await doc.reference.update({
       'approved': true,
       'approvedAt': FieldValue.serverTimestamp(),
-      'estado': 'finalizado',
-      'status': 'finalizado',
+      'estado': 'finalizada',
+      'status': 'finalizada',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 

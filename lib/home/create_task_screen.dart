@@ -1239,6 +1239,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'fecha_creacion': FieldValue.serverTimestamp(),
         'fecha_limite': _deadline == null ? null : Timestamp.fromDate(_deadline!),
         'estado': 'pendiente',
+        'visto': false,
+        'reasignado': false,
 
         // ✅ IDs consistentes para filtros
         'centroId': _centroId!.trim(),

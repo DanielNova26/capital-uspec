@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/task_status.dart';
 
 /// ====== Paleta unificada (tema teal) ======
 const Color kTeal = Color(0xFF0F766E);       // AppBar, acentos
@@ -28,20 +29,7 @@ String _fmtDate(DateTime? d) =>
 String _fmtDateTime(DateTime? d) =>
     d == null ? '—' : DateFormat('dd/MM/yyyy HH:mm').format(d);
 
-Color _statusColor(String s) {
-  switch (s) {
-    case 'pendiente':
-      return Colors.orange.shade600;
-    case 'en_progreso':
-      return kTeal;
-    case 'completada':
-      return Colors.green.shade700;
-    case 'devuelta':
-      return Colors.purple.shade600;
-    default:
-      return Colors.grey.shade600;
-  }
-}
+Color _statusColor(String s) => taskStatusColor(s);
 
 /// Primer valor no vacío como String desde un Map
 String? _firstStr(Map<String, dynamic> m, List<String> keys) {
@@ -168,10 +156,14 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   final Map<String, String> _areas = {'todas': 'Todas las áreas'};
   final Map<String, String> _estados = const {
     'todos': 'Todos',
-    'pendiente': 'Pendiente',
+    'activas': 'Activas',
+    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'completada': 'Completada',
-    'devuelta': 'Devuelta',
+    'reasignado': 'Reasignadas',
+    'completada': 'Completadas',
+    'devuelta': 'Devueltas',
+    'finalizada': 'Finalizadas',
+    'retrasado': 'Retrasadas',
   };
   final Map<String, String> _cargos = {'todos': 'Todos los cargos'};
   final Map<String, String> _centros = {'todos': 'Todos los centros'};
@@ -505,7 +497,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
     final titulo =
     ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
-    final estado = (m['estado'] ?? m['status'] ?? '').toString();
+    final estado = resolveTaskStatus(m);
     final due = _toDate(m['fecha_limite']);
 
     // 1) Búsqueda
@@ -839,11 +831,20 @@ class _TaskTile extends StatelessWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   const _TaskTile({required this.doc});
 
+  Future<void> _markTaskSeen() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(doc.id)
+          .set({'visto': true}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = doc.data();
     final titulo = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
-    final estado = (m['estado'] ?? m['status'] ?? '').toString();
+    final estado = resolveTaskStatus(m);
     final vence = _fmtDate(_toDate(m['fecha_limite']));
     final asignado =
     (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
@@ -893,6 +894,7 @@ class _TaskTile extends StatelessWidget {
           ),
         ),
         onTap: () {
+          _markTaskSeen();
           showModalBottomSheet(
             context: context,
             isScrollControlled: true,

@@ -12,6 +12,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/local_notification_service.dart';
+import 'package:todo/utils/task_status.dart';
 
 // Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart';
@@ -99,6 +100,14 @@ class _HomeScreenState extends State<HomeScreen> {
     required String taskId,
     required String cedula,
   }) async {
+    if (taskId.trim().isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .doc(taskId)
+            .set({'visto': true}, SetOptions(merge: true));
+      } catch (_) {}
+    }
     final tabKey = _processTabForNotifType(type);
 
     // ✅ Si es avance/novedad/finalización => ir al historial y abrir proceso en la pestaña correcta
@@ -258,8 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _dueOf(Map<String, dynamic> m) =>
       _toDate(m['fecha_limite'] ?? m['dueDate']);
 
-  String _estadoOf(Map<String, dynamic> m) =>
-      (m['estado'] ?? m['status'] ?? '').toString();
+  String _estadoOf(Map<String, dynamic> m) => resolveTaskStatus(m);
 
   String _assignedUidOf(Map<String, dynamic> m) =>
       (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString();
@@ -409,6 +417,12 @@ class _HomeScreenState extends State<HomeScreen> {
             .collection('notifications')
             .doc(id);
         batch.set(ref, {'read': true}, SetOptions(merge: true));
+        final taskId = (n['taskId'] ?? '').toString();
+        if (taskId.isNotEmpty) {
+          final taskRef =
+          FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId);
+          batch.set(taskRef, {'visto': true}, SetOptions(merge: true));
+        }
         hasUpdates = true;
       }
       if (hasUpdates) {

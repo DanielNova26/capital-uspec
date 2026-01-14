@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:todo/utils/task_status.dart';
 
 const Color kBrand = Color(0xFF1E3A8A);
 const String kArial = 'Arial';
@@ -23,38 +24,9 @@ int? _daysLeft(DateTime? due) {
   return end.difference(today).inDays;
 }
 
-String _resolvedEstado(Map<String, dynamic> m) {
-  final approved = m['approved'] == true;
-  final raw = (m['estado'] ?? m['status'] ?? '').toString().trim().toLowerCase();
+String _resolvedEstado(Map<String, dynamic> m) => resolveTaskStatus(m);
 
-  if (approved || raw == 'finalizado') return 'finalizado';
-  if (raw == 'completada') return 'completada';
-
-  final due = _toDate(m['fecha_limite']);
-  final days = _daysLeft(due);
-  if (days != null && days < 0) return 'retrasado';
-
-  return raw.isEmpty ? 'pendiente' : raw;
-}
-
-Color _statusColor(String estado) {
-  switch (estado) {
-    case 'pendiente':
-      return Colors.orange.shade600;
-    case 'en_progreso':
-      return Colors.blue.shade600;
-    case 'completada':
-      return Colors.green.shade700;
-    case 'finalizado':
-      return Colors.green.shade800;
-    case 'devuelta':
-      return Colors.purple.shade600;
-    case 'retrasado':
-      return Colors.red.shade700;
-    default:
-      return Colors.grey.shade600;
-  }
-}
+Color _statusColor(String estado) => taskStatusColor(estado);
 
 double _scoreForTask(Map<String, dynamic> task) {
   final estado = _resolvedEstado(task);
@@ -63,7 +35,7 @@ double _scoreForTask(Map<String, dynamic> task) {
 
   double score = 10;
   switch (estado) {
-    case 'finalizado':
+    case 'finalizada':
       score += 30;
       break;
     case 'completada':
@@ -71,6 +43,9 @@ double _scoreForTask(Map<String, dynamic> task) {
       break;
     case 'en_progreso':
       score += 14;
+      break;
+    case 'reasignado':
+      score += 6;
       break;
     case 'devuelta':
       score -= 8;
@@ -128,7 +103,7 @@ class _PersonScore {
     final score = _scoreForTask(task);
 
     puntos += score;
-    if (estado == 'completada' || estado == 'finalizado') {
+    if (estado == 'completada' || estado == 'finalizada') {
       completadas++;
     }
     if (estado == 'devuelta') devueltas++;
@@ -504,12 +479,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
       final bool statusMatch;
       switch (_statusFilter) {
-        case 'activas':
-          statusMatch = estado != 'completada' && estado != 'finalizado';
-          break;
-        case 'finalizadas':
-          statusMatch = estado == 'completada' || estado == 'finalizado';
-          break;
         case 'todas':
           statusMatch = true;
           break;
@@ -574,10 +543,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final statusOptions = const [
       ['todas', 'Todas'],
       ['activas', 'Activas'],
-      ['pendiente', 'Pendiente'],
+      ['visto', 'Vistas'],
       ['en_progreso', 'En progreso'],
-      ['finalizadas', 'Finalizadas'],
+      ['reasignado', 'Reasignadas'],
+      ['completada', 'Completadas'],
       ['devuelta', 'Devueltas'],
+      ['finalizada', 'Finalizadas'],
       ['retrasado', 'Retrasadas'],
     ];
 
@@ -661,7 +632,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final total = tasks.length;
     final finalizadas = tasks.where((t) {
       final estado = _resolvedEstado(t.data());
-      return estado == 'completada' || estado == 'finalizado';
+      return estado == 'completada' || estado == 'finalizada';
     }).length;
     final devueltas =
         tasks.where((t) => _resolvedEstado(t.data()) == 'devuelta').length;
@@ -690,8 +661,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         value: '$finalizadas',
         icon: Icons.check_circle,
         color: Colors.green.shade50,
-        isActive: activeStatus == 'finalizadas',
-        onTap: () => toggle('finalizadas'),
+        isActive: activeStatus == 'finalizada',
+        onTap: () => toggle('finalizada'),
       ),
       _SummaryCard(
         title: 'Devueltas',
