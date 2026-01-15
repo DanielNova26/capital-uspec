@@ -321,7 +321,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'La tarea se marcará como completada sin adjuntos.\n\n¿Deseas continuar?',
+                'Esta tarea no requiere adjuntos.\n\nSe marcará como completada.\n\n¿Deseas continuar?',
                 style: TextStyle(fontFamily: kArial),
               ),
             ),
@@ -362,7 +362,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Se enviará una solicitud para que el creador/jefe autorice la finalización.\n\n¿Deseas continuar?',
+                'Esta tarea no requiere adjuntos.\n\nSe enviará una solicitud para que el creador/jefe autorice la finalización.\n\n¿Deseas continuar?',
                 style: TextStyle(fontFamily: kArial),
               ),
             ),

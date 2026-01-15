@@ -1421,9 +1421,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         SwitchListTile.adaptive(
                           value: _requiresAttachment,
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('Requiere adjunto para finalizar'),
+                          title: const Text('Requiere adjunto para completar/finalizar'),
                           subtitle: const Text(
-                            'Si está activado, el cierre debe incluir evidencias.',
+                            'Si está activado, se solicitarán evidencias al completar o finalizar.',
                             style: TextStyle(fontSize: 12),
                           ),
                           onChanged: (v) => setState(() => _requiresAttachment = v),
