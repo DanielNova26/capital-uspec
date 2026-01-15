@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/task_status.dart';
 
 import 'complete_task_screen.dart';
 import 'notify_avances_screen.dart';
@@ -45,7 +46,7 @@ class AssignedTasksScreen extends StatefulWidget {
 class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // filtros
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'todas'; // todas | activas | finalizadas | pendiente | en_progreso | devuelta | retrasado | pendiente_aprobacion
+  String _statusFilter = 'todas'; // todas | activas | visto | en_progreso | reasignado | completada | devuelta | finalizada | retrasado
   String _areaFilter = 'todas';
 
   // bootstrap
@@ -92,6 +93,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     _searchCtrl.dispose();
     _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
+  }
+
+  bool _hasActiveFilters() {
+    return _searchCtrl.text.trim().isNotEmpty ||
+        _statusFilter != 'todas' ||
+        _areaFilter != 'todas';
   }
 
   // -------------------------
@@ -148,58 +155,57 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // -------------------------
   // Estado y colores
   // -------------------------
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'pendiente':
-        return Colors.orange.shade600;
-      case 'en_progreso':
-        return Colors.blue.shade600;
-      case 'completada':
-        return Colors.green.shade600;
-      case 'finalizado':
-        return Colors.green.shade800;
-      case 'devuelta':
-        return Colors.purple.shade600;
-      case 'retrasado':
-        return Colors.red.shade700;
-      case 'pendiente_aprobacion':
-        return Colors.teal.shade700;
-      default:
-        return Colors.grey.shade600;
-    }
-  }
+  Color _statusColor(String s) => taskStatusColor(s);
 
   Widget _statusChip(String status) {
-    final txt = status.isEmpty ? 'sin_estado' : status;
+    final txt = _statusLabel(status);
     return Chip(
       label: Text(txt, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
       backgroundColor: _statusColor(status),
     );
   }
 
-  String _resolvedStatus(Map<String, dynamic> data) {
-    final raw = _str(data, ['estado', 'status']).toLowerCase();
-
-    if (raw == 'finalizado') return 'finalizado';
-    if (raw == 'completada') return 'completada';
-    if (raw == 'devuelta') return 'devuelta';
-    if (raw == 'pendiente_aprobacion') return 'pendiente_aprobacion';
-
-    // si está vencida -> retrasado
-    final due = _ts(data, ['fecha_limite', 'dueDate']);
-    final days = _daysLeft(due);
-    if (days != null && days < 0) return 'retrasado';
-
-    if (raw == 'en_progreso') return 'en_progreso';
-    if (raw == 'pendiente') return 'pendiente';
-    return raw.isEmpty ? 'pendiente' : raw;
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'activas':
+        return 'Activa';
+      case 'visto':
+        return 'Vista';
+      case 'en_progreso':
+        return 'En progreso';
+      case 'reasignado':
+        return 'Reasignada';
+      case 'completada':
+        return 'Completada';
+      case 'devuelta':
+        return 'Devuelta';
+      case 'finalizada':
+        return 'Finalizada';
+      case 'retrasado':
+        return 'Retrasada';
+      default:
+        return status.isEmpty ? 'sin_estado' : status;
+    }
   }
+
+  String _resolvedStatus(Map<String, dynamic> data) => resolveTaskStatus(data);
 
   // -------------------------
   // Adjuntos: URL o Storage path
   // -------------------------
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
     final out = <Map<String, String>>[];
+    final seen = <String>{};
+
+    void addAttachment(Map<String, String> att) {
+      final url = (att['url'] ?? '').trim();
+      final path = (att['path'] ?? '').trim();
+      final name = (att['name'] ?? '').trim();
+      final key = url.isNotEmpty ? url : (path.isNotEmpty ? path : name);
+      if (key.isEmpty || seen.contains(key)) return;
+      seen.add(key);
+      out.add(att);
+    }
 
     // adjuntos: lista de maps {name,url,path}
     final adj = (data['adjuntos'] as List?) ?? (data['attachments'] as List?);
@@ -210,7 +216,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           final name = (m['name'] ?? m['filename'] ?? 'archivo').toString();
           final url = (m['url'] ?? '').toString();
           final path = (m['path'] ?? '').toString();
-          out.add({'name': name, 'url': url, 'path': path});
+          addAttachment({'name': name, 'url': url, 'path': path});
         }
       }
     }
@@ -221,7 +227,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final url = e?.toString() ?? '';
       if (url.isEmpty) continue;
       final name = Uri.tryParse(url)?.pathSegments.last ?? 'evidencia';
-      out.add({'name': name, 'url': url});
+      addAttachment({'name': name, 'url': url});
     }
 
     // evidencias_paths: lista de paths
@@ -230,7 +236,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final path = p?.toString() ?? '';
       if (path.isEmpty) continue;
       final name = path.split('/').last;
-      out.add({'name': name, 'path': path});
+      addAttachment({'name': name, 'path': path});
     }
 
     return out;
@@ -269,6 +275,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return st == 'pendiente';
   }
 
+  bool _requiresAttachment(Map<String, dynamic> data) {
+    final raw = data['requiere_adjunto'] ?? data['requiereAdjunto'];
+    if (raw == null) return true;
+    if (raw is bool) return raw;
+    final normalized = raw.toString().toLowerCase().trim();
+    return normalized == 'true' || normalized == 'si';
+  }
+
   Future<void> _requestFinish(String taskId, Map<String, dynamic> data) async {
     final now = Timestamp.now();
     final byName = _currentUserName();
@@ -290,6 +304,63 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     });
   }
 
+  Future<void> _quickCompleteTask(String taskId) async {
+    final now = Timestamp.now();
+    final byName = _currentUserName();
+
+    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
+      'estado': 'completada',
+      'fecha_completada': now,
+      'actualizada_en': now,
+      'fecha_actualizacion': now,
+      'updatedAt': now,
+      'lastEventType': 'completada',
+      'lastEventAt': now,
+      'lastEventText': 'Tarea completada por $byName',
+    });
+  }
+
+  Future<void> _confirmQuickComplete(String taskId) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Completar tarea', style: TextStyle(fontFamily: kArial)),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Esta tarea no requiere adjuntos.\n\nSe marcará como completada.\n\n¿Deseas continuar?',
+                style: TextStyle(fontFamily: kArial),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await _quickCompleteTask(taskId);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Tarea completada.')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _confirmRequestFinish(String taskId, Map<String, dynamic> data) async {
     await showDialog<void>(
       context: context,
@@ -302,7 +373,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Se enviará una solicitud para que el creador/jefe autorice la finalización.\n\n¿Deseas continuar?',
+                'Esta tarea no requiere adjuntos.\n\nSe enviará una solicitud para que el creador/jefe autorice la finalización.\n\n¿Deseas continuar?',
                 style: TextStyle(fontFamily: kArial),
               ),
             ),
@@ -364,6 +435,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'solicitud_reasignacion_to_uid': FieldValue.delete(),
       'solicitud_reasignacion_to_nombre': FieldValue.delete(),
       'solicitud_reasignacion_areaId': FieldValue.delete(),
+      'reasignado': false,
 
       'lastEventType': 'reasignada',
       'lastEventAt': now,
@@ -390,6 +462,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'solicitud_reasignacion_to_uid': newUid,
       'solicitud_reasignacion_to_nombre': newName,
       if (newAreaId != null && newAreaId.trim().isNotEmpty) 'solicitud_reasignacion_areaId': newAreaId.trim(),
+      'reasignado': true,
 
       'lastEventType': 'solicitud_reasignacion',
       'lastEventAt': now,
@@ -397,6 +470,15 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'fecha_actualizacion': now,
       'updatedAt': now,
     });
+  }
+
+  Future<void> _markTaskSeen(String taskId) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(taskId)
+          .set({'visto': true}, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   // Selector Departamento/Persona (usando TBL_DEPARTAMENTOS si existe, si no, fallback TBL_USUARIOS)
@@ -684,12 +766,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
       final bool matchStatus;
       switch (_statusFilter) {
-        case 'activas':
-          matchStatus = status != 'completada' && status != 'finalizado';
-          break;
-        case 'finalizadas':
-          matchStatus = status == 'completada' || status == 'finalizado';
-          break;
         case 'todas':
           matchStatus = true;
           break;
@@ -732,18 +808,23 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   void _showActionsSheet(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     final taskId = doc.id;
+    _markTaskSeen(taskId);
 
     final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
     final status = _resolvedStatus(data);
-    final isDone = status == 'completada' || status == 'finalizado';
+    final isDone = status == 'completada' || status == 'finalizada';
     final finishPending = _finishPending(data);
+    final requiresAttachment = _requiresAttachment(data);
+    final lockEdits = finishPending;
 
     final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
+    final assignedByName = _str(data, ['creador_nombre', 'creatorName']);
+    final assignedById = _str(data, ['creador_id', 'creatorId', 'creador_uid']);
+    final assignedBy = assignedByName.isNotEmpty ? assignedByName : assignedById;
     final attachments = _extractAttachments(data);
 
     final finishBy = _str(data, ['solicitud_finalizacion_by_nombre']);
     final finishAt = _ts(data, ['solicitud_finalizacion_at']);
-
     final canDirect = _canDirectReassign(data);
 
     showModalBottomSheet(
@@ -758,9 +839,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               trailing: _statusChip(status),
             ),
 
-            if (assignedToName.isNotEmpty)
+            if (assignedToName.isNotEmpty) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
                 child: Row(
                   children: [
                     const Icon(Icons.person, size: 18, color: Colors.black54),
@@ -771,6 +852,22 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                   ],
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.manage_accounts, size: 18, color: Colors.black54),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Asignado por: ${assignedBy.isEmpty ? "—" : assignedBy}',
+                        style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             if (finishPending) ...[
               Padding(
@@ -804,19 +901,26 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 subtitle: Text(
                   finishPending
                       ? 'Ya existe una solicitud de finalización pendiente.'
-                      : 'Marca la tarea como completada o sube evidencias según tu flujo.',
+                      : requiresAttachment
+                      ? 'Debes adjuntar evidencias para completar.'
+                      : 'Se marcará como completada sin adjuntos.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
+                enabled: !lockEdits,
                 onTap: finishPending
                     ? null
                     : () async {
                   Navigator.pop(context);
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => CompleteTaskScreen(
-                      taskId: taskId,
-                      currentUserId: widget.userId,
-                    ),
-                  ));
+                  if (requiresAttachment) {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => CompleteTaskScreen(
+                        taskId: taskId,
+                        currentUserId: widget.userId,
+                      ),
+                    ));
+                    return;
+                  }
+                  await _confirmQuickComplete(taskId);
                 },
               ),
 
@@ -824,14 +928,28 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ListTile(
                 leading: const Icon(Icons.verified_user, color: Colors.teal),
                 title: const Text('Solicitar finalización', style: TextStyle(fontFamily: kArial)),
-                subtitle: const Text(
-                  'El creador/jefe deberá aprobar con Sí/No.',
-                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                subtitle: Text(
+                  requiresAttachment
+                      ? 'Debes adjuntar evidencias para solicitar la finalización.'
+                      : 'El creador/jefe deberá aprobar con Sí/No.',
+                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
+                enabled: !lockEdits,
                 onTap: finishPending
                     ? null
                     : () async {
                   Navigator.pop(context);
+                  if (requiresAttachment) {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => CompleteTaskScreen(
+                        taskId: taskId,
+                        currentUserId: widget.userId,
+                        requestFinish: true,
+                        requestFinishByName: _currentUserName(),
+                      ),
+                    ));
+                    return;
+                  }
                   await _confirmRequestFinish(taskId, data);
                 },
               ),
@@ -839,7 +957,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ListTile(
                 leading: const Icon(Icons.trending_up),
                 title: const Text('Reportar avance', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
+                enabled: !lockEdits,
+                onTap: lockEdits
+                    ? null
+                    : () async {
                   Navigator.pop(context);
                   await Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => NotifyAvancesScreen(
@@ -852,7 +973,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ListTile(
                 leading: const Icon(Icons.campaign),
                 title: const Text('Reportar novedad', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
+                enabled: !lockEdits,
+                onTap: lockEdits
+                    ? null
+                    : () async {
                   Navigator.pop(context);
                   await Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => NotifyNovedadesScreen(
@@ -905,7 +1029,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       : 'Se enviará solicitud al creador/jefe para aprobación.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
-                onTap: () async {
+                enabled: !lockEdits,
+                onTap: lockEdits
+                    ? null
+                    : () async {
                   Navigator.pop(context);
                   await _promptReassignPicker(taskId, taskData: data);
                 },
@@ -945,6 +1072,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               }
 
               final docs = snap.data?.docs ?? [];
+              final hasActiveFilters = _hasActiveFilters();
 
               // auto-open highlight
               if (!_didAutoOpen && widget.highlightTaskId != null && docs.isNotEmpty) {
@@ -970,16 +1098,27 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     const SizedBox(height: 12),
                     _buildFiltersCard(docs),
                     const SizedBox(height: 12),
-                    if (filtered.isEmpty)
+                    if (!hasActiveFilters)
                       const Padding(
                         padding: EdgeInsets.all(24),
-                        child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
+                        child: Center(
+                          child: Text(
+                            'Aplica un filtro para mostrar las tareas.',
+                            style: TextStyle(fontFamily: kArial),
+                          ),
+                        ),
                       )
-                    else
-                      ...filtered.map((d) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildTaskCard(d),
-                      )),
+                    else if (filtered.isEmpty)
+                      if (filtered.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
+                        )
+                      else
+                        ...filtered.map((d) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildTaskCard(d),
+                        )),
                   ],
                 ),
               );
@@ -1055,11 +1194,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     const statusItems = [
       DropdownMenuItem(value: 'todas', child: Text('Todas')),
       DropdownMenuItem(value: 'activas', child: Text('Activas')),
-      DropdownMenuItem(value: 'pendiente', child: Text('Pendiente')),
+      DropdownMenuItem(value: 'visto', child: Text('Vistas')),
       DropdownMenuItem(value: 'en_progreso', child: Text('En progreso')),
-      DropdownMenuItem(value: 'pendiente_aprobacion', child: Text('Pendiente aprobación')),
-      DropdownMenuItem(value: 'finalizadas', child: Text('Finalizadas')),
+      DropdownMenuItem(value: 'reasignado', child: Text('Reasignadas')),
+      DropdownMenuItem(value: 'completada', child: Text('Completadas')),
       DropdownMenuItem(value: 'devuelta', child: Text('Devueltas')),
+      DropdownMenuItem(value: 'finalizada', child: Text('Finalizadas')),
       DropdownMenuItem(value: 'retrasado', child: Text('Retrasadas')),
     ];
 

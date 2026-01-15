@@ -12,6 +12,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/local_notification_service.dart';
+import 'package:todo/utils/task_status.dart';
 
 // Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart';
@@ -99,6 +100,14 @@ class _HomeScreenState extends State<HomeScreen> {
     required String taskId,
     required String cedula,
   }) async {
+    if (taskId.trim().isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .doc(taskId)
+            .set({'visto': true}, SetOptions(merge: true));
+      } catch (_) {}
+    }
     final tabKey = _processTabForNotifType(type);
 
     // ✅ Si es avance/novedad/finalización => ir al historial y abrir proceso en la pestaña correcta
@@ -258,8 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _dueOf(Map<String, dynamic> m) =>
       _toDate(m['fecha_limite'] ?? m['dueDate']);
 
-  String _estadoOf(Map<String, dynamic> m) =>
-      (m['estado'] ?? m['status'] ?? '').toString();
+  String _estadoOf(Map<String, dynamic> m) => resolveTaskStatus(m);
 
   String _assignedUidOf(Map<String, dynamic> m) =>
       (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString();
@@ -268,10 +276,44 @@ class _HomeScreenState extends State<HomeScreen> {
       (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
 
   String _creatorIdOf(Map<String, dynamic> m) =>
-      (m['creador_id'] ?? m['creatorId'] ?? '').toString();
+      (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString();
 
   String _creatorNameOf(Map<String, dynamic> m) =>
       (m['creador_nombre'] ?? m['creatorName'] ?? '').toString();
+
+  String _creatorDisplayOf(Map<String, dynamic> m) {
+    final name = _creatorNameOf(m).trim();
+    if (name.isNotEmpty) return name;
+    final id = _creatorIdOf(m).trim();
+    return id;
+  }
+
+  String _notifFromOf(Map<String, dynamic> n) =>
+      (n['fromName'] ?? n['fromId'] ?? '').toString().trim();
+
+  String _notifFromLabel(String type) {
+    final t = type.trim().toLowerCase();
+    if (t == 'task_assigned' ||
+        t == 'task_reassigned' ||
+        t == 'task_reassigned_info' ||
+        t == 'task_reassigned_out') {
+      return 'Asignado por';
+    }
+    if (t == 'avance' ||
+        t == 'progress' ||
+        t == 'task_progress' ||
+        t == 'task_avance') {
+      return 'Reportado por';
+    }
+    if (t == 'novedad' ||
+        t == 'news' ||
+        t == 'task_news' ||
+        t == 'task_novedad' ||
+        t == 'respuesta_novedad') {
+      return 'Reportado por';
+    }
+    return 'De';
+  }
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
@@ -409,6 +451,12 @@ class _HomeScreenState extends State<HomeScreen> {
             .collection('notifications')
             .doc(id);
         batch.set(ref, {'read': true}, SetOptions(merge: true));
+        final taskId = (n['taskId'] ?? '').toString();
+        if (taskId.isNotEmpty) {
+          final taskRef =
+          FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId);
+          batch.set(taskRef, {'visto': true}, SetOptions(merge: true));
+        }
         hasUpdates = true;
       }
       if (hasUpdates) {
@@ -488,6 +536,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     final body = (n['description'] ?? '').toString();
                     final type = (n['type'] ?? '').toString();
                     final typeLabel = _mapNotificationType(type);
+                    final from = _notifFromOf(n);
+                    final fromLabel = _notifFromLabel(type);
                     final taskId = (n['taskId'] ?? '').toString();
                     final dt = _toDate(n['createdAt']);
                     final when = dt == null
@@ -524,6 +574,17 @@ class _HomeScreenState extends State<HomeScreen> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontFamily: kArial)),
+                          if (from.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              '$fromLabel: $from',
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 12,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 6),
                           Wrap(
                             spacing: 8,
@@ -838,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> {
         'type': 'yo',
         'title': _titleOf(m),
         'due': due,
-        'to': _creatorNameOf(m),
+        'to': _creatorDisplayOf(m),
         'estado': _estadoOf(m),
       });
     }
@@ -1119,7 +1180,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         addEvt(
                           due,
                           _titleOf(m),
-                          'Yo entrego • Para: ${_creatorNameOf(m).isNotEmpty ? _creatorNameOf(m) : "—"}',
+                          'Yo entrego • Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "—"}',
                         );
                       }
                     }

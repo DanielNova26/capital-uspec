@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/task_status.dart';
 
 /// ====== Paleta unificada (tema teal) ======
 const Color kTeal = Color(0xFF0F766E);       // AppBar, acentos
@@ -28,20 +29,7 @@ String _fmtDate(DateTime? d) =>
 String _fmtDateTime(DateTime? d) =>
     d == null ? '—' : DateFormat('dd/MM/yyyy HH:mm').format(d);
 
-Color _statusColor(String s) {
-  switch (s) {
-    case 'pendiente':
-      return Colors.orange.shade600;
-    case 'en_progreso':
-      return kTeal;
-    case 'completada':
-      return Colors.green.shade700;
-    case 'devuelta':
-      return Colors.purple.shade600;
-    default:
-      return Colors.grey.shade600;
-  }
-}
+Color _statusColor(String s) => taskStatusColor(s);
 
 /// Primer valor no vacío como String desde un Map
 String? _firstStr(Map<String, dynamic> m, List<String> keys) {
@@ -168,10 +156,14 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   final Map<String, String> _areas = {'todas': 'Todas las áreas'};
   final Map<String, String> _estados = const {
     'todos': 'Todos',
-    'pendiente': 'Pendiente',
+    'activas': 'Activas',
+    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'completada': 'Completada',
-    'devuelta': 'Devuelta',
+    'reasignado': 'Reasignadas',
+    'completada': 'Completadas',
+    'devuelta': 'Devueltas',
+    'finalizada': 'Finalizadas',
+    'retrasado': 'Retrasadas',
   };
   final Map<String, String> _cargos = {'todos': 'Todos los cargos'};
   final Map<String, String> _centros = {'todos': 'Todos los centros'};
@@ -190,6 +182,11 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   @override
   void initState() {
     super.initState();
+    _filtroUsuarioCtl.addListener(() {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -209,8 +206,20 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   @override
   void dispose() {
+    _filtroUsuarioCtl.dispose();
     _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
+  }
+
+  bool _hasActiveFilters() {
+    return _searchCtl.text.trim().isNotEmpty ||
+        _areaSel != 'todas' ||
+        _estadoSel != 'todos' ||
+        _cargoSel != 'todos' ||
+        _centroSel != 'todos' ||
+        _filtroUsuarioCtl.value != 'todos' ||
+        _from != null ||
+        _to != null;
   }
 
   void _onEmpresaChanged() {
@@ -488,7 +497,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
     final titulo =
     ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
-    final estado = (m['estado'] ?? m['status'] ?? '').toString();
+    final estado = resolveTaskStatus(m);
     final due = _toDate(m['fecha_limite']);
 
     // 1) Búsqueda
@@ -627,13 +636,18 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
           // Filtro cliente
           final filtered =
           ordered.where((d) => _pasaFiltrosCliente(d.data())).toList();
+          final hasActiveFilters = _hasActiveFilters();
 
           return Column(
             children: [
               _filtersBar(),
               const SizedBox(height: 6),
               Expanded(
-                child: filtered.isEmpty
+                child: !hasActiveFilters
+                    ? const Center(
+                    child: Text('Aplica un filtro para mostrar las tareas.',
+                        style: TextStyle(fontFamily: kArial)))
+                    : filtered.isEmpty
                     ? const Center(
                     child: Text('Sin tareas para los filtros seleccionados.',
                         style: TextStyle(fontFamily: kArial)))
@@ -817,14 +831,26 @@ class _TaskTile extends StatelessWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   const _TaskTile({required this.doc});
 
+  Future<void> _markTaskSeen() async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(doc.id)
+          .set({'visto': true}, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = doc.data();
     final titulo = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
-    final estado = (m['estado'] ?? m['status'] ?? '').toString();
+    final estado = resolveTaskStatus(m);
     final vence = _fmtDate(_toDate(m['fecha_limite']));
     final asignado =
     (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignadoPor = _firstStr(m, ['creador_nombre', 'creatorName']) ??
+        _firstStr(m, ['creador_id', 'creatorId', 'creador_uid']) ??
+        '';
     final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
     final updated = _fmtDateTime(_toDate(m['updatedAt'] ?? m['createdAt']));
 
@@ -865,12 +891,14 @@ class _TaskTile extends StatelessWidget {
               ),
               _pill('Vence: $vence'),
               if (asignado.isNotEmpty) _pill('Asignado: $asignado'),
+              if (asignadoPor.isNotEmpty) _pill('Asignado por: $asignadoPor'),
               if (prioridad == 'ALTA') _pill('Prioridad: $prioridad'),
               _pill('Act.: $updated'),
             ],
           ),
         ),
         onTap: () {
+          _markTaskSeen();
           showModalBottomSheet(
             context: context,
             isScrollControlled: true,
@@ -890,6 +918,7 @@ class _TaskTile extends StatelessWidget {
                     _kv('Estado', estado.isEmpty ? '—' : estado),
                     _kv('Vence', vence),
                     _kv('Asignado', asignado.isEmpty ? '—' : asignado),
+                    _kv('Asignado por', asignadoPor.isEmpty ? '—' : asignadoPor),
                     if (prioridad.isNotEmpty) _kv('Prioridad', prioridad),
                     _kv('Actualizado', updated),
                   ],

@@ -224,6 +224,8 @@ class TaskService {
       'descripcion': descripcion,
       'estado': estado,
       'prioridad': prioridad,
+      'visto': false,
+      'reasignado': false,
 
       'asignado_uid': asignadoUid,
       'asignado_nombre': asignadoNombre ?? '',
@@ -448,7 +450,8 @@ class TaskService {
       // estado recomendado al reasignar
       'estado': 'pendiente',
       'status': 'pendiente',
-
+      'reasignado': false,
+      
       // trazabilidad
       'reasignada_en': FieldValue.serverTimestamp(),
       'reasignada_desde_uid': prevAssignedUid,

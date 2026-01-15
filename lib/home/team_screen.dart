@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/task_status.dart';
 
 const Color kTeal = Color(0xFF0F766E);
 const String kArial = 'Arial';
@@ -269,8 +270,12 @@ class _TeamScreenState extends State<TeamScreen> {
   Widget _taskTile(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     final titulo = (data['titulo'] ?? data['title'] ?? 'Sin título').toString();
-    final estado = (data['estado'] ?? data['status'] ?? 'pendiente').toString();
+    final estado = resolveTaskStatus(data);
     final asignado = (data['asignado_nombre'] ?? data['assignedToName'] ?? '').toString();
+    final asignadoPorNombre = (data['creador_nombre'] ?? data['creatorName'] ?? '').toString().trim();
+    final asignadoPorId =
+    (data['creador_id'] ?? data['creatorId'] ?? data['creador_uid'] ?? '').toString().trim();
+    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final due = _toDate(data['fecha_limite']);
 
     return Card(
@@ -295,7 +300,7 @@ class _TeamScreenState extends State<TeamScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: _estadoColor(estado).withOpacity(.1),
+                    color: taskStatusColor(estado).withOpacity(.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
@@ -303,7 +308,7 @@ class _TeamScreenState extends State<TeamScreen> {
                     style: TextStyle(
                         fontFamily: kArial,
                         fontWeight: FontWeight.w600,
-                        color: _estadoColor(estado)),
+                        color: taskStatusColor(estado)),
                   ),
                 ),
               ],
@@ -320,6 +325,19 @@ class _TeamScreenState extends State<TeamScreen> {
                   ),
                 ],
               ),
+            if (asignadoPor.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.manage_accounts, size: 16, color: Colors.black54),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text('Asignado por: $asignadoPor',
+                        style: const TextStyle(fontFamily: kArial, color: Colors.black87)),
+                  ),
+                ],
+              ),
+            ],
             if (due != null) ...[
               const SizedBox(height: 6),
               Row(
@@ -344,21 +362,6 @@ class _TeamScreenState extends State<TeamScreen> {
     return full.isEmpty ? fallback : full;
   }
 
-  Color _estadoColor(String estado) {
-    switch (estado) {
-      case 'completada':
-      case 'finalizado':
-        return Colors.green.shade700;
-      case 'en_progreso':
-        return Colors.blue.shade600;
-      case 'devuelta':
-        return Colors.purple.shade600;
-      case 'retrasado':
-        return Colors.red.shade700;
-      default:
-        return Colors.orange.shade700;
-    }
-  }
 }
 
 DateTime? _toDate(dynamic v) {

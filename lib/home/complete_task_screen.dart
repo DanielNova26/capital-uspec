@@ -30,7 +30,15 @@ const String kArial = 'Arial';
 class CompleteTaskScreen extends StatefulWidget {
   final String taskId;
   final String currentUserId;
-  const CompleteTaskScreen({Key? key, required this.taskId, required this.currentUserId}) : super(key: key);
+  final bool requestFinish;
+  final String? requestFinishByName;
+  const CompleteTaskScreen({
+    Key? key,
+    required this.taskId,
+    required this.currentUserId,
+    this.requestFinish = false,
+    this.requestFinishByName,
+  }) : super(key: key);
 
   @override
   State<CompleteTaskScreen> createState() => _CompleteTaskScreenState();
@@ -327,6 +335,27 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         final data = snap.data() ?? {};
         final currentAdj = (data['adjuntos'] as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         final currentEvid = (data['evidencias'] as List<dynamic>? ?? []).cast<String>();
+        final now = Timestamp.now();
+
+        if (widget.requestFinish) {
+          final byName = (widget.requestFinishByName ?? data['asignado_nombre'] ?? '').toString();
+          trx.update(tareaRef, {
+            'estado': 'pendiente_aprobacion',
+            'solicitud_finalizacion_estado': 'pendiente',
+            'solicitud_finalizacion_at': now,
+            'solicitud_finalizacion_by_uid': widget.currentUserId,
+            'solicitud_finalizacion_by_nombre': byName,
+            'lastEventType': 'solicitud_finalizacion',
+            'lastEventAt': now,
+            'lastEventText': 'Solicitud de finalización enviada por $byName',
+            'fecha_actualizacion': now,
+            'updatedAt': now,
+            'adjuntos': [...currentAdj, ...nuevosAdjuntos],
+            'evidencias': [...currentEvid, ...nuevasEvidenciasUrls],
+            'actualizada_en': now,
+          });
+          return;
+        }
 
         trx.update(tareaRef, {
           'estado': 'completada',
@@ -338,7 +367,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       });
 
       // 3) Notificar al creador (callable)
-      if (creadorId.isNotEmpty) {
+      if (!widget.requestFinish && creadorId.isNotEmpty) {
         final fun = FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
         await fun.call(<String, dynamic>{
           'taskId': widget.taskId,
@@ -349,7 +378,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('¡Tarea completada!')));
+        final msg = widget.requestFinish
+            ? 'Solicitud de finalización enviada.'
+            : '¡Tarea completada!';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         Navigator.pop(context, true);
       }
     } catch (e) {
@@ -370,7 +402,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       backgroundColor: const Color(0xFFF7FBF7),
       appBar: AppBar(
         backgroundColor: kMarronOscuro,
-        title: Text(_taskTitle ?? 'Completar tarea', style: const TextStyle(fontFamily: kArial)),
+        title: Text(
+          _taskTitle ?? (widget.requestFinish ? 'Finalizar tarea' : 'Completar tarea'),
+          style: const TextStyle(fontFamily: kArial),
+        ),
       ),
       body: SafeArea(
         child: Column(
@@ -512,7 +547,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                   ),
                   child: _busy
                       ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('Enviar evidencias', style: TextStyle(fontFamily: kArial)),
+        : Text(
+    widget.requestFinish ? 'Enviar evidencias y solicitar finalización' : 'Enviar evidencias',
+    style: const TextStyle(fontFamily: kArial),
+    ),
                 ),
               ),
             ),

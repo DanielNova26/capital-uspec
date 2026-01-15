@@ -7,6 +7,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:todo/utils/task_status.dart';
 
 const Color kBrand = Color(0xFF1E3A8A); // Indigo 800
 const String kArial = 'Arial';
@@ -30,43 +31,14 @@ int? _daysLeft(DateTime? due) {
   return end.difference(today).inDays;
 }
 
-Color _statusColor(String s) {
-  switch (s) {
-    case 'pendiente':
-      return Colors.orange.shade600;
-    case 'en_progreso':
-      return Colors.blue.shade600;
-    case 'completada':
-      return Colors.green.shade700;
-    case 'finalizado':
-      return Colors.green.shade800;
-    case 'devuelta':
-      return Colors.purple.shade600;
-    case 'retrasado':
-      return Colors.red.shade700;
-    default:
-      return Colors.grey.shade600;
-  }
-}
+Color _statusColor(String s) => taskStatusColor(s);
 
 /// Estado efectivo con prioridad:
-/// 1) finalizado (o approved == true)
+/// 1) finalizada (o approved == true)
 /// 2) completada
 /// 3) retrasado (si vencida y no finalizada/completada)
 /// 4) el estado que tenga o 'pendiente'
-String _resolvedEstado(Map<String, dynamic> m) {
-  final approved = m['approved'] == true;
-  final raw = (m['estado'] ?? m['status'] ?? '').toString().trim().toLowerCase();
-
-  if (approved || raw == 'finalizado') return 'finalizado';
-  if (raw == 'completada') return 'completada';
-
-  final due = _toDate(m['fecha_limite']); // campo de vencimiento
-  final days = _daysLeft(due);
-  if (days != null && days < 0) return 'retrasado';
-
-  return raw.isEmpty ? 'pendiente' : raw;
-}
+String _resolvedEstado(Map<String, dynamic> m) => resolveTaskStatus(m);
 
 /// Extrae un mensaje/descripcion de múltiples claves posibles (robusto)
 String _msgOf(Map<String, dynamic> m) {
@@ -700,6 +672,15 @@ void _pushAttachmentsPage(
   ));
 }
 
+Future<void> _markTaskSeen(String taskId) async {
+  try {
+    await FirebaseFirestore.instance
+        .collection('TBL_TAREAS')
+        .doc(taskId)
+        .set({'visto': true}, SetOptions(merge: true));
+  } catch (_) {}
+}
+
 /// Abre la pantalla de adjuntos (colecta y navega con animación).
 Future<void> _openAttachmentsPage(
     BuildContext context, {
@@ -707,6 +688,7 @@ Future<void> _openAttachmentsPage(
       required Map<String, dynamic> taskData,
       String? initialTabKey,
     }) async {
+  await _markTaskSeen(taskId);
   final tabsMap = await _collectAllAttachments(taskId, taskData);
   if (tabsMap.isEmpty || tabsMap.values.every((l) => l.isEmpty)) {
     if (context.mounted) {
@@ -815,6 +797,7 @@ class _AssignedToMeTab extends StatefulWidget {
 class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final _searchCtl = TextEditingController();
   bool _didAutoOpen = false;
+  bool _showFilters = false;
 
   // filtros
   String _areaSel = 'todas';
@@ -826,12 +809,14 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final Map<String, String> _areasMap = {'todas': 'Todas'};
   final Map<String, String> _estadosMap = {
     'todos': 'Todos',
-    'pendiente': 'Pendiente',
+    'activas': 'Activas',
+    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'completada': 'Completada',
-    'finalizado': 'Finalizada',
-    'devuelta': 'Devuelta',
-    'retrasado': 'Retrasado',
+    'reasignado': 'Reasignadas',
+    'completada': 'Completadas',
+    'devuelta': 'Devueltas',
+    'finalizada': 'Finalizadas',
+    'retrasado': 'Retrasadas',
   };
 
   @override
@@ -862,6 +847,14 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
     } catch (_) {}
   }
 
+  bool _hasActiveFilters() {
+    return _searchCtl.text.trim().isNotEmpty ||
+        _areaSel != 'todas' ||
+        _estadoSel != 'todos' ||
+        _from != null ||
+        _to != null;
+  }
+
   Query<Map<String, dynamic>> _query(String userId) {
     return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
@@ -882,6 +875,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
       setState(() {
         _from = range.start;
         _to = range.end;
+        _showFilters = true;
       });
     }
   }
@@ -894,15 +888,31 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        final hasActiveFilters = _hasActiveFilters();
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        if (docs.isEmpty && hasActiveFilters) {
           return Column(
             children: [
-              _filtersBar(),
+              _filtersSection(),
               const Expanded(
                 child: Center(
                   child: Text('No hay tareas asignadas.',
                       style: TextStyle(fontFamily: kArial)),
+                ),
+              ),
+            ],
+          );
+        }
+        if (!hasActiveFilters) {
+          return Column(
+            children: [
+              _filtersSection(),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'Aplica un filtro para mostrar las tareas.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                 ),
               ),
             ],
@@ -968,7 +978,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
 
         return Column(
           children: [
-            _filtersBar(),
+            _filtersSection(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
@@ -980,6 +990,24 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
           ],
         );
       },
+    );
+  }
+
+  Widget _filtersSection() {
+    if (_showFilters) {
+      return _filtersBar();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.filter_list),
+          label: const Text('Mostrar filtros'),
+          style: OutlinedButton.styleFrom(foregroundColor: kBrand),
+          onPressed: () => setState(() => _showFilters = true),
+        ),
+      ),
     );
   }
 
@@ -1005,7 +1033,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                 Expanded(
                   child: TextField(
                     controller: _searchCtl,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => setState(() => _showFilters = true),
                     decoration: const InputDecoration(
                       isDense: true,
                       prefixIcon: Icon(Icons.search),
@@ -1041,7 +1069,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                         .map((e) =>
                         DropdownMenuItem(value: e.key, child: Text(e.value)))
                         .toList(),
-                    onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
+                    onChanged: (v) => setState(() {
+                      _areaSel = v ?? 'todas';
+                      _showFilters = true;
+                    }),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1061,7 +1092,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                         .map((e) =>
                         DropdownMenuItem(value: e.key, child: Text(e.value)))
                         .toList(),
-                    onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
+                    onChanged: (v) => setState(() {
+                      _estadoSel = v ?? 'todos';
+                      _showFilters = true;
+                    }),
                   ),
                 ),
               ],
@@ -1094,6 +1128,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                     onPressed: () => setState(() {
                       _from = null;
                       _to = null;
+                      _showFilters = true;
                     }),
                   ),
               ],
@@ -1139,7 +1174,7 @@ class _AssignedTile extends StatelessWidget {
   }
 
   Widget _countdownBadge(DateTime? due, String estado) {
-    if (estado == 'finalizado') return const SizedBox.shrink();
+    if (estado == 'finalizada') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
 
@@ -1371,6 +1406,10 @@ class _AssignedTile extends StatelessWidget {
 
   void _showQuickDetails(BuildContext context, Map<String, dynamic> m) {
     final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
+    final asignadoPorId =
+    (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString().trim();
+    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final vence = _fmt(_toDate(m['fecha_limite']));
     final prioridad = (m['prioridad'] ?? '').toString();
 
@@ -1391,6 +1430,7 @@ class _AssignedTile extends StatelessWidget {
                       fontWeight: FontWeight.bold, fontSize: 15)),
               const SizedBox(height: 8),
               _kv('Asignado', asignado.isEmpty ? '—' : asignado),
+              _kv('Asignado por', asignadoPor.isEmpty ? '—' : asignadoPor),
               _kv('Vence', vence),
               if (prioridad.isNotEmpty) _kv('Prioridad', prioridad.toUpperCase()),
             ],
@@ -1547,6 +1587,7 @@ class _ICreatedTab extends StatefulWidget {
 
 class _ICreatedTabState extends State<_ICreatedTab> {
   final _searchCtl = TextEditingController();
+  bool _showFilters = false;
 
   String _areaSel = 'todas';
   String _estadoSel = 'todos';
@@ -1556,12 +1597,14 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   final Map<String, String> _areasMap = {'todas': 'Todas'};
   final Map<String, String> _estadosMap = const {
     'todos': 'Todos',
-    'pendiente': 'Pendiente',
+    'activas': 'Activas',
+    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'completada': 'Completada',
-    'finalizado': 'Finalizada',
-    'devuelta': 'Devuelta',
-    'retrasado': 'Retrasado',
+    'reasignado': 'Reasignadas',
+    'completada': 'Completadas',
+    'devuelta': 'Devueltas',
+    'finalizada': 'Finalizadas',
+    'retrasado': 'Retrasadas',
   };
 
   @override
@@ -1590,6 +1633,14 @@ class _ICreatedTabState extends State<_ICreatedTab> {
     } catch (_) {}
   }
 
+  bool _hasActiveFilters() {
+    return _searchCtl.text.trim().isNotEmpty ||
+        _areaSel != 'todas' ||
+        _estadoSel != 'todos' ||
+        _from != null ||
+        _to != null;
+  }
+
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
     return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
@@ -1610,6 +1661,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
       setState(() {
         _from = range.start;
         _to = range.end;
+        _showFilters = true;
       });
     }
   }
@@ -1622,15 +1674,31 @@ class _ICreatedTabState extends State<_ICreatedTab> {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        final hasActiveFilters = _hasActiveFilters();
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
+        if (docs.isEmpty && hasActiveFilters) {
           return Column(
             children: [
-              _filtersBar(),
+              _filtersSection(),
               const Expanded(
                 child: Center(
                   child: Text('No has creado tareas.',
                       style: TextStyle(fontFamily: kArial)),
+                ),
+              ),
+            ],
+          );
+        }
+        if (!hasActiveFilters) {
+          return Column(
+            children: [
+              _filtersSection(),
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'Aplica un filtro para mostrar las tareas.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                 ),
               ),
             ],
@@ -1675,7 +1743,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
 
         return Column(
           children: [
-            _filtersBar(),
+            _filtersSection(),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
@@ -1694,6 +1762,23 @@ class _ICreatedTabState extends State<_ICreatedTab> {
     );
   }
 
+  Widget _filtersSection() {
+    if (_showFilters) {
+      return _filtersBar();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.filter_list),
+          label: const Text('Mostrar filtros'),
+          onPressed: () => setState(() => _showFilters = true),
+        ),
+      ),
+    );
+  }
+
   Widget _filtersBar() {
     const pill = OutlineInputBorder(
       borderSide: BorderSide(color: Colors.black26),
@@ -1709,7 +1794,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
               Expanded(
                 child: TextField(
                   controller: _searchCtl,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) => setState(() => _showFilters = true),
                   decoration: const InputDecoration(
                     isDense: true,
                     prefixIcon: Icon(Icons.search),
@@ -1743,7 +1828,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                       .map((e) =>
                       DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
-                  onChanged: (v) => setState(() => _areaSel = v ?? 'todas'),
+                  onChanged: (v) => setState(() {
+                    _areaSel = v ?? 'todas';
+                    _showFilters = true;
+                  }),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1763,7 +1851,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                       .map((e) =>
                       DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
-                  onChanged: (v) => setState(() => _estadoSel = v ?? 'todos'),
+                  onChanged: (v) => setState(() {
+                    _estadoSel = v ?? 'todos';
+                    _showFilters = true;
+                  }),
                 ),
               ),
             ],
@@ -1788,6 +1879,7 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                   onPressed: () => setState(() {
                     _from = null;
                     _to = null;
+                    _showFilters = true;
                   }),
                 ),
             ],
@@ -1846,7 +1938,7 @@ class _CreatedTileState extends State<_CreatedTile> {
   );
 
   Widget _countdownBadge(DateTime? due, String estado) {
-    if (estado == 'finalizado') return const SizedBox.shrink();
+    if (estado == 'finalizada') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
     Color bg;
@@ -1869,7 +1961,10 @@ class _CreatedTileState extends State<_CreatedTile> {
   Widget build(BuildContext context) {
     final m = widget.doc.data();
     final title = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
-    final asignado = (m['asignado_nombre'] ?? '').toString();
+    final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
+    final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
+    final asignadoPorId =
+    (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString().trim();    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final estado = _resolvedEstado(m);
     final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
     final due = _toDate(m['fecha_limite']);
@@ -1928,7 +2023,7 @@ class _CreatedTileState extends State<_CreatedTile> {
           }
         }
 
-        final leading = estado == 'finalizado'
+        final leading = estado == 'finalizada'
             ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
             : (hasNovedad
             ? const Icon(Icons.error_outline, color: Colors.amber, size: 20)
@@ -1963,8 +2058,6 @@ class _CreatedTileState extends State<_CreatedTile> {
             );
           });
         }
-
-
         return Card(
           elevation: hasNovedad ? 2 : 1,
           color: const Color(0xFFF0F5FF),
@@ -2005,6 +2098,9 @@ class _CreatedTileState extends State<_CreatedTile> {
                       Text('Asignado: ${asignado.isEmpty ? "—" : asignado}',
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontFamily: kArial, fontSize: 12)),
+                      Text('Asignado por: ${asignadoPor.isEmpty ? "—" : asignadoPor}',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontFamily: kArial, fontSize: 12)),
                       _chipMini('Estado: ${estado.isEmpty ? "—" : estado}',
                           _statusColor(estado)),
                       _pillMini('Vence: $vence'),
@@ -2039,7 +2135,7 @@ class _CreatedTileState extends State<_CreatedTile> {
       }) async {
     final m = doc.data();
 
-    if (resEstado == 'finalizado') {
+    if (resEstado == 'finalizada') {
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -2061,9 +2157,9 @@ class _CreatedTileState extends State<_CreatedTile> {
                   labelPadding: const EdgeInsets.symmetric(horizontal: 6),
                   visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  label: const Text('finalizado',
+                  label: const Text('finalizada',
                       style: TextStyle(color: Colors.white, fontSize: 11)),
-                  backgroundColor: _statusColor('finalizado'),
+                  backgroundColor: _statusColor('finalizada'),
                 ),
               ),
               const Divider(height: 1),
@@ -2201,7 +2297,7 @@ class _CreatedTileState extends State<_CreatedTile> {
       ) async {
     final m = doc.data();
     final estado = _resolvedEstado(m);
-    if (estado == 'finalizado') {
+    if (estado == 'finalizada') {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Ya está finalizada.')));
@@ -2584,8 +2680,8 @@ class _CreatedTileState extends State<_CreatedTile> {
     await doc.reference.update({
       'approved': true,
       'approvedAt': FieldValue.serverTimestamp(),
-      'estado': 'finalizado',
-      'status': 'finalizado',
+      'estado': 'finalizada',
+      'status': 'finalizada',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 

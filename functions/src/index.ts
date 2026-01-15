@@ -28,6 +28,17 @@ function getBossId(d: admin.firestore.DocumentData | undefined | null): string |
   return (d as any).jefe_uid || (d as any).jefeId || (d as any).jefe || null;
 }
 
+function getCreatorId(d: admin.firestore.DocumentData | undefined | null): string | null {
+  if (!d) return null;
+  return (
+    (d as any).creador_id ||
+    (d as any).creatorId ||
+    (d as any).creador_uid ||
+    (d as any).creadorUid ||
+    null
+  );
+}
+
 function getTaskTitle(d: admin.firestore.DocumentData | undefined | null): string {
   if (!d) return "Nueva tarea";
   return ((d as any).title || (d as any).titulo || "Nueva tarea").toString();
@@ -45,6 +56,87 @@ async function resolveBossIdFor(assignedId: string, fromTask?: admin.firestore.D
   const u = await db.collection("TBL_USUARIOS").doc(assignedId).get();
   const jid = u.exists ? (u.get("jefeId") || u.get("jefe_uid") || u.get("jefe")) : null;
   return jid ? String(jid) : null;
+}
+
+function isTrue(v: unknown): boolean {
+  return v === true;
+}
+
+function hasPendingReassign(d: admin.firestore.DocumentData | undefined | null): boolean {
+  if (!d) return false;
+  const raw = ((d as any).solicitud_reasignacion_estado ?? "")
+    .toString()
+    .trim()
+    .toLowerCase();
+  return isTrue((d as any).reasignado) || isTrue((d as any).reasignacion_pendiente) || raw === "pendiente";
+}
+
+function taskToDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof admin.firestore.Timestamp) return value.toDate();
+  if (value instanceof Date) return value;
+  if (typeof value === "number") return new Date(value);
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return new Date(parsed);
+  }
+  return null;
+}
+
+function taskDaysLeft(due: Date | null): number | null {
+  if (!due) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(due.getFullYear(), due.getMonth(), due.getDate(), 23, 59, 59);
+  const diffMs = end.getTime() - today.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function resolveTaskStatus(d: admin.firestore.DocumentData | undefined | null): string {
+  const raw = ((d as any)?.estado ?? (d as any)?.status ?? "")
+    .toString()
+    .trim()
+    .toLowerCase();
+  const approved = isTrue((d as any)?.approved);
+
+  if (approved || raw === "finalizado" || raw === "finalizada") return "finalizada";
+  if (raw === "completada" || raw === "pendiente_aprobacion") return "completada";
+  if (raw === "devuelta") return "devuelta";
+  if (hasPendingReassign(d) || raw === "reasignado") return "reasignado";
+
+  const due = taskToDate((d as any)?.fecha_limite ?? (d as any)?.dueDate);
+  const days = taskDaysLeft(due);
+  if (raw === "retrasado" || (days !== null && days < 0)) return "retrasado";
+
+  if (raw === "en_progreso") return "en_progreso";
+
+  const visto = isTrue((d as any)?.visto);
+  if (visto || raw === "visto") return "visto";
+
+  return "activas";
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "activas":
+      return "activa";
+    case "visto":
+      return "vista";
+    case "en_progreso":
+      return "en progreso";
+    case "reasignado":
+      return "reasignada";
+    case "completada":
+      return "completada";
+    case "finalizada":
+      return "finalizada";
+    case "devuelta":
+      return "devuelta";
+    case "retrasado":
+      return "retrasada";
+    default:
+      return status;
+  }
 }
 
 /**
@@ -207,41 +299,72 @@ export const onTaskUpdated = functions
     const prevAssigned = getAssignedId(before || null);
     const newAssigned = getAssignedId(after || null);
 
-    if (!newAssigned || newAssigned === prevAssigned) {
-      console.log("[onTaskUpdated] asignado sin cambios");
-      return;
-    }
-
     const taskId = ctx.params.taskId as string;
     const title = getTaskTitle(after || null);
     const description = getTaskDescription(after || null);
+    const statusBefore = resolveTaskStatus(before || null);
+    const statusAfter = resolveTaskStatus(after || null);
+    const statusChanged = statusBefore !== statusAfter;
+
     console.log("[onTaskUpdated] taskId:", taskId, "prev:", prevAssigned, "new:", newAssigned);
 
-    // Notif al nuevo asignado
-    try {
-      await saveInAppNotification(newAssigned, {
-        title,
-        description,
-        taskId,
-        type: prevAssigned ? "task_reassigned" : "task_assigned",
-      });
-    } catch (e) {
-      console.error("[onTaskUpdated] saveInAppNotification error:", e);
-    }
-
-    // Aviso silencioso al jefe
-    const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
-    if (bossId2 && bossId2 !== newAssigned) {
+    if (newAssigned && newAssigned !== prevAssigned) {
+      // Notif al nuevo asignado
       try {
-        await saveInAppNotification(bossId2, {
-          title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada",
-          description: `${title} (ahora para ${(after as any)?.asignado_nombre || newAssigned})`,
+        await saveInAppNotification(newAssigned, {
+          title,
+          description,
           taskId,
-          type: "task_reassigned_report",
+          type: prevAssigned ? "task_reassigned" : "task_assigned",
         });
       } catch (e) {
-        console.error("[onTaskUpdated] boss save notif error:", e);
+        console.error("[onTaskUpdated] saveInAppNotification error:", e);
       }
+
+      // Aviso silencioso al jefe
+      const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
+      if (bossId2 && bossId2 !== newAssigned) {
+        try {
+          await saveInAppNotification(bossId2, {
+            title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada",
+            description: `${title} (ahora para ${(after as any)?.asignado_nombre || newAssigned})`,
+            taskId,
+            type: "task_reassigned_report",
+          });
+        } catch (e) {
+          console.error("[onTaskUpdated] boss save notif error:", e);
+        }
+      }
+    }
+
+    if (statusChanged) {
+      const label = statusLabel(statusAfter);
+      const notifTitle = `Estado de tarea: ${label}`;
+      const notifBody = `${title} · ${label}`;
+      const recipients = new Set<string>();
+      const creatorId = getCreatorId(after || null);
+      const bossId = getBossId(after || null);
+
+      if (newAssigned) recipients.add(newAssigned);
+      if (creatorId) recipients.add(creatorId);
+      if (bossId) recipients.add(bossId);
+
+      if (recipients.size === 0) return;
+
+      await Promise.all(
+        Array.from(recipients).map(async (uid) => {
+          try {
+            await saveInAppNotification(uid, {
+              title: notifTitle,
+              description: notifBody,
+              taskId,
+              type: `task_status_${statusAfter}`,
+            });
+          } catch (e) {
+            console.error("[onTaskUpdated] status notif error:", e);
+          }
+        })
+      );
     }
   });
 
