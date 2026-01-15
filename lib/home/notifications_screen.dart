@@ -162,6 +162,35 @@ class _NotificationList extends StatelessWidget {
         (visto is bool && visto);
   }
 
+  String _fromOf(Map<String, dynamic> data) {
+    final from = (data['fromName'] ?? data['fromId'] ?? '').toString().trim();
+    return from;
+  }
+
+  String _fromLabel(String type) {
+    final t = type.trim().toLowerCase();
+    if (t == 'task_assigned' ||
+        t == 'task_reassigned' ||
+        t == 'task_reassigned_info' ||
+        t == 'task_reassigned_out') {
+      return 'Asignado por';
+    }
+    if (t == 'avance' ||
+        t == 'progress' ||
+        t == 'task_progress' ||
+        t == 'task_avance') {
+      return 'Reportado por';
+    }
+    if (t == 'novedad' ||
+        t == 'news' ||
+        t == 'task_news' ||
+        t == 'task_novedad' ||
+        t == 'respuesta_novedad') {
+      return 'Reportado por';
+    }
+    return 'De';
+  }
+
   Future<void> _markTaskSeen(String taskId) async {
     if (taskId.trim().isEmpty) return;
     try {
@@ -262,6 +291,8 @@ class _NotificationList extends StatelessWidget {
             final title = (data['title'] as String?) ?? '';
             final desc = (data['description'] as String?) ?? '';
             final type = (data['type'] ?? '').toString(); // ✅ IMPORTANTE
+            final from = _fromOf(data);
+            final fromLabel = _fromLabel(type);
             final dt = _parseCreatedAt(data['createdAt']);
             final when = dt != null ? DateFormat('dd/MM/yyyy HH:mm').format(dt) : '...';
             final isRead = _isRead(data);
@@ -313,6 +344,17 @@ class _NotificationList extends StatelessWidget {
                       Text(when, style: const TextStyle(fontFamily: kArial)),
                       const SizedBox(height: 4),
                       Text(desc, style: const TextStyle(fontFamily: kArial)),
+                      if (from.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '$fromLabel: $from',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

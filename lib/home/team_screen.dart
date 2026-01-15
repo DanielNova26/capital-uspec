@@ -273,7 +273,8 @@ class _TeamScreenState extends State<TeamScreen> {
     final estado = resolveTaskStatus(data);
     final asignado = (data['asignado_nombre'] ?? data['assignedToName'] ?? '').toString();
     final asignadoPorNombre = (data['creador_nombre'] ?? data['creatorName'] ?? '').toString().trim();
-    final asignadoPorId = (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
+    final asignadoPorId =
+    (data['creador_id'] ?? data['creatorId'] ?? data['creador_uid'] ?? '').toString().trim();
     final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final due = _toDate(data['fecha_limite']);
 

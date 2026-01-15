@@ -1407,7 +1407,8 @@ class _AssignedTile extends StatelessWidget {
   void _showQuickDetails(BuildContext context, Map<String, dynamic> m) {
     final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
     final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
-    final asignadoPorId = (m['creador_id'] ?? m['creatorId'] ?? '').toString().trim();
+    final asignadoPorId =
+    (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString().trim();
     final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final vence = _fmt(_toDate(m['fecha_limite']));
     final prioridad = (m['prioridad'] ?? '').toString();
@@ -1962,8 +1963,8 @@ class _CreatedTileState extends State<_CreatedTile> {
     final title = (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
     final asignado = (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
     final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
-    final asignadoPorId = (m['creador_id'] ?? m['creatorId'] ?? '').toString().trim();
-    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
+    final asignadoPorId =
+    (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString().trim();    final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
     final estado = _resolvedEstado(m);
     final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
     final due = _toDate(m['fecha_limite']);

@@ -232,6 +232,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   final _descCtl = TextEditingController();
   String _priority = 'media';
   DateTime? _deadline;
+  bool _requiresAttachment = true;
 
   // ==================== Selecciones ====================
   String? _centroId;
@@ -1241,6 +1242,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'estado': 'pendiente',
         'visto': false,
         'reasignado': false,
+        'requiere_adjunto': _requiresAttachment,
 
         // ✅ IDs consistentes para filtros
         'centroId': _centroId!.trim(),
@@ -1414,6 +1416,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.subject),
                           ),
+                        ),
+                        const SizedBox(height: 12),
+                        SwitchListTile.adaptive(
+                          value: _requiresAttachment,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Requiere adjunto para finalizar'),
+                          subtitle: const Text(
+                            'Si está activado, el cierre debe incluir evidencias.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          onChanged: (v) => setState(() => _requiresAttachment = v),
                         ),
                         const SizedBox(height: 12),
 

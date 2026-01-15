@@ -849,7 +849,7 @@ class _TaskTile extends StatelessWidget {
     final asignado =
     (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
     final asignadoPor = _firstStr(m, ['creador_nombre', 'creatorName']) ??
-        _firstStr(m, ['creador_id', 'creatorId']) ??
+        _firstStr(m, ['creador_id', 'creatorId', 'creador_uid']) ??
         '';
     final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
     final updated = _fmtDateTime(_toDate(m['updatedAt'] ?? m['createdAt']));

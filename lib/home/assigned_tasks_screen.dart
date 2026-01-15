@@ -264,6 +264,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return st == 'pendiente';
   }
 
+  bool _requiresAttachment(Map<String, dynamic> data) {
+    final raw = data['requiere_adjunto'] ?? data['requiereAdjunto'];
+    if (raw == null) return true;
+    if (raw is bool) return raw;
+    final normalized = raw.toString().toLowerCase().trim();
+    return normalized == 'true' || normalized == 'si';
+  }
+
   Future<void> _requestFinish(String taskId, Map<String, dynamic> data) async {
     final now = Timestamp.now();
     final byName = _currentUserName();
@@ -283,6 +291,63 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       'fecha_actualizacion': now,
       'updatedAt': now,
     });
+  }
+
+  Future<void> _quickCompleteTask(String taskId) async {
+    final now = Timestamp.now();
+    final byName = _currentUserName();
+
+    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
+      'estado': 'completada',
+      'fecha_completada': now,
+      'actualizada_en': now,
+      'fecha_actualizacion': now,
+      'updatedAt': now,
+      'lastEventType': 'completada',
+      'lastEventAt': now,
+      'lastEventText': 'Tarea completada por $byName',
+    });
+  }
+
+  Future<void> _confirmQuickComplete(String taskId) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Completar tarea', style: TextStyle(fontFamily: kArial)),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'La tarea se marcará como completada sin adjuntos.\n\n¿Deseas continuar?',
+                style: TextStyle(fontFamily: kArial),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await _quickCompleteTask(taskId);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Tarea completada.')),
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+              }
+            },
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _confirmRequestFinish(String taskId, Map<String, dynamic> data) async {
@@ -738,10 +803,11 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final status = _resolvedStatus(data);
     final isDone = status == 'completada' || status == 'finalizada';
     final finishPending = _finishPending(data);
+    final requiresAttachment = _requiresAttachment(data);
 
     final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
     final assignedByName = _str(data, ['creador_nombre', 'creatorName']);
-    final assignedById = _str(data, ['creador_id', 'creatorId']);
+    final assignedById = _str(data, ['creador_id', 'creatorId', 'creador_uid']);
     final assignedBy = assignedByName.isNotEmpty ? assignedByName : assignedById;
     final attachments = _extractAttachments(data);
 
@@ -823,19 +889,25 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 subtitle: Text(
                   finishPending
                       ? 'Ya existe una solicitud de finalización pendiente.'
-                      : 'Marca la tarea como completada o sube evidencias según tu flujo.',
+                      : requiresAttachment
+                      ? 'Debes adjuntar evidencias para completar.'
+                      : 'Se marcará como completada sin adjuntos.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
                 onTap: finishPending
                     ? null
                     : () async {
                   Navigator.pop(context);
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => CompleteTaskScreen(
-                      taskId: taskId,
-                      currentUserId: widget.userId,
-                    ),
-                  ));
+                  if (requiresAttachment) {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => CompleteTaskScreen(
+                        taskId: taskId,
+                        currentUserId: widget.userId,
+                      ),
+                    ));
+                    return;
+                  }
+                  await _confirmQuickComplete(taskId);
                 },
               ),
 
@@ -843,14 +915,27 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ListTile(
                 leading: const Icon(Icons.verified_user, color: Colors.teal),
                 title: const Text('Solicitar finalización', style: TextStyle(fontFamily: kArial)),
-                subtitle: const Text(
-                  'El creador/jefe deberá aprobar con Sí/No.',
-                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                subtitle: Text(
+                  requiresAttachment
+                      ? 'Debes adjuntar evidencias para solicitar la finalización.'
+                      : 'El creador/jefe deberá aprobar con Sí/No.',
+                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
                 onTap: finishPending
                     ? null
                     : () async {
                   Navigator.pop(context);
+                  if (requiresAttachment) {
+                    await Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => CompleteTaskScreen(
+                        taskId: taskId,
+                        currentUserId: widget.userId,
+                        requestFinish: true,
+                        requestFinishByName: _currentUserName(),
+                      ),
+                    ));
+                    return;
+                  }
                   await _confirmRequestFinish(taskId, data);
                 },
               ),
