@@ -95,12 +95,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     super.dispose();
   }
 
-  bool _hasActiveFilters() {
-    return _searchCtrl.text.trim().isNotEmpty ||
-        _statusFilter != 'todas' ||
-        _areaFilter != 'todas';
-  }
-
   // -------------------------
   // Helpers lectura segura
   // -------------------------
@@ -267,9 +261,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return await launchUrlString(docs, mode: LaunchMode.inAppWebView);
   }
 
-  // -------------------------
-  // Solicitud de finalización (pendiente)
-  // -------------------------
   bool _finishPending(Map<String, dynamic> data) {
     final st = _str(data, ['solicitud_finalizacion_estado']).toLowerCase();
     return st == 'pendiente';
@@ -281,27 +272,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     if (raw is bool) return raw;
     final normalized = raw.toString().toLowerCase().trim();
     return normalized == 'true' || normalized == 'si';
-  }
-
-  Future<void> _requestFinish(String taskId, Map<String, dynamic> data) async {
-    final now = Timestamp.now();
-    final byName = _currentUserName();
-
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
-      'estado': 'pendiente_aprobacion',
-      'solicitud_finalizacion_estado': 'pendiente',
-      'solicitud_finalizacion_at': now,
-      'solicitud_finalizacion_by_uid': widget.userId,
-      'solicitud_finalizacion_by_nombre': byName,
-
-      // historial simple
-      'lastEventType': 'solicitud_finalizacion',
-      'lastEventAt': now,
-      'lastEventText': 'Solicitud de finalización enviada por $byName',
-
-      'fecha_actualizacion': now,
-      'updatedAt': now,
-    });
   }
 
   Future<void> _quickCompleteTask(String taskId) async {
@@ -355,47 +325,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               }
             },
             child: const Text('Confirmar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _confirmRequestFinish(String taskId, Map<String, dynamic> data) async {
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Solicitar finalización', style: TextStyle(fontFamily: kArial)),
-        content: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Icon(Icons.assignment_turned_in, color: Colors.teal),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Esta tarea no requiere adjuntos.\n\nSe enviará una solicitud para que el creador/jefe autorice la finalización.\n\n¿Deseas continuar?',
-                style: TextStyle(fontFamily: kArial),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                await _requestFinish(taskId, data);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Solicitud enviada (pendiente de aprobación).')),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-              }
-            },
-            child: const Text('Enviar'),
           ),
         ],
       ),
@@ -924,36 +853,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 },
               ),
 
-              // Solicitar finalización (flujo con aprobación)
-              ListTile(
-                leading: const Icon(Icons.verified_user, color: Colors.teal),
-                title: const Text('Solicitar finalización', style: TextStyle(fontFamily: kArial)),
-                subtitle: Text(
-                  requiresAttachment
-                      ? 'Debes adjuntar evidencias para solicitar la finalización.'
-                      : 'El creador/jefe deberá aprobar con Sí/No.',
-                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
-                ),
-                enabled: !lockEdits,
-                onTap: finishPending
-                    ? null
-                    : () async {
-                  Navigator.pop(context);
-                  if (requiresAttachment) {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => CompleteTaskScreen(
-                        taskId: taskId,
-                        currentUserId: widget.userId,
-                        requestFinish: true,
-                        requestFinishByName: _currentUserName(),
-                      ),
-                    ));
-                    return;
-                  }
-                  await _confirmRequestFinish(taskId, data);
-                },
-              ),
-
               ListTile(
                 leading: const Icon(Icons.trending_up),
                 title: const Text('Reportar avance', style: TextStyle(fontFamily: kArial)),
@@ -1072,7 +971,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               }
 
               final docs = snap.data?.docs ?? [];
-              final hasActiveFilters = _hasActiveFilters();
 
               // auto-open highlight
               if (!_didAutoOpen && widget.highlightTaskId != null && docs.isNotEmpty) {
@@ -1098,27 +996,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     const SizedBox(height: 12),
                     _buildFiltersCard(docs),
                     const SizedBox(height: 12),
-                    if (!hasActiveFilters)
+                    if (filtered.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(24),
-                        child: Center(
-                          child: Text(
-                            'Aplica un filtro para mostrar las tareas.',
-                            style: TextStyle(fontFamily: kArial),
-                          ),
-                        ),
+                        child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
                       )
-                    else if (filtered.isEmpty)
-                      if (filtered.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
-                        )
-                      else
-                        ...filtered.map((d) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _buildTaskCard(d),
-                        )),
+                    else
+                      ...filtered.map((d) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _buildTaskCard(d),
+                      )),
                   ],
                 ),
               );

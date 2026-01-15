@@ -847,14 +847,6 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
     } catch (_) {}
   }
 
-  bool _hasActiveFilters() {
-    return _searchCtl.text.trim().isNotEmpty ||
-        _areaSel != 'todas' ||
-        _estadoSel != 'todos' ||
-        _from != null ||
-        _to != null;
-  }
-
   Query<Map<String, dynamic>> _query(String userId) {
     return FirebaseFirestore.instance
         .collection('TBL_TAREAS')
@@ -888,9 +880,8 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final hasActiveFilters = _hasActiveFilters();
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty && hasActiveFilters) {
+        if (docs.isEmpty) {
           return Column(
             children: [
               _filtersSection(),
@@ -903,22 +894,6 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
             ],
           );
         }
-        if (!hasActiveFilters) {
-          return Column(
-            children: [
-              _filtersSection(),
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    'Aplica un filtro para mostrar las tareas.',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                ),
-              ),
-            ],
-          );
-        }
-
         int tsOf(Map<String, dynamic> m) {
           final t = (m['updatedAt'] as Timestamp?) ??
               (m['fecha_actualizacion'] as Timestamp?) ??
@@ -960,10 +935,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         if (!_didAutoOpen &&
             widget.highlightTaskId != null &&
             widget.highlightTaskId!.isNotEmpty) {
-          final idx = ordered.indexWhere((d) => d.id == widget.highlightTaskId);
+          final idx = docs.indexWhere((d) => d.id == widget.highlightTaskId);
           if (idx >= 0) {
             _didAutoOpen = true;
-            final doc = ordered[idx];
+            final doc = docs[idx];
             WidgetsBinding.instance.addPostFrameCallback((_) async {
               if (!mounted) return;
               await _openAttachmentsPage(
@@ -980,7 +955,12 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
           children: [
             _filtersSection(),
             Expanded(
-              child: ListView.separated(
+              child: ordered.isEmpty
+                  ? const Center(
+                child: Text('No hay tareas para mostrar.',
+                    style: TextStyle(fontFamily: kArial)),
+              )
+                  : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
                 itemCount: ordered.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 6),
@@ -1476,6 +1456,10 @@ class _AssignedTile extends StatelessWidget {
         final prioridad = (m['prioridad'] ?? '').toString().toUpperCase();
         final due = _toDate(m['fecha_limite']);
         final vence = _fmt(due);
+        final asignadoPorNombre = (m['creador_nombre'] ?? m['creatorName'] ?? '').toString().trim();
+        final asignadoPorId =
+        (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString().trim();
+        final asignadoPor = asignadoPorNombre.isNotEmpty ? asignadoPorNombre : asignadoPorId;
 
         final novMsg = (lastNovedad == null) ? '' : _msgOf(lastNovedad!);
 
@@ -1540,6 +1524,8 @@ class _AssignedTile extends StatelessWidget {
                         children: [
                           _chipEstado(estado),
                           _pillSmall(Icons.schedule, vence),
+                          _pillSmall(Icons.manage_accounts,
+                              'Asignó: ${asignadoPor.isEmpty ? "—" : asignadoPor}'),
                           if (prioridad == 'ALTA') _pillSmall(Icons.flag, prioridad),
                           if (hasNovedad)
                             _pillActionSmall(
@@ -2712,61 +2698,67 @@ class _CreatedTileState extends State<_CreatedTile> {
     DateTime? nuevaFecha;
     final motivoCtrl = TextEditingController();
 
-    Future<void> pickFecha() async {
-      final now = DateTime.now();
-      final d = await showDatePicker(
-        context: context,
-        initialDate: now,
-        firstDate: now,
-        lastDate: now.add(const Duration(days: 365)),
-      );
-      if (d != null) nuevaFecha = d;
-    }
-
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Devolver tarea'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Explica por qué se devuelve y asigna nueva fecha de entrega.'),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: pickFecha,
-              icon: const Icon(Icons.calendar_month),
-              label: Text(
-                nuevaFecha == null
-                    ? 'Elegir nueva fecha'
-                    : 'Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}',
-              ),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Future<void> pickFecha() async {
+            final now = DateTime.now();
+            final d = await showDatePicker(
+              context: context,
+              initialDate: now,
+              firstDate: now,
+              lastDate: now.add(const Duration(days: 365)),
+            );
+            if (d != null) {
+              setDialogState(() => nuevaFecha = d);
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('Devolver tarea'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Explica por qué se devuelve y asigna nueva fecha de entrega.'),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: pickFecha,
+                  icon: const Icon(Icons.calendar_month),
+                  label: Text(
+                    nuevaFecha == null
+                        ? 'Elegir nueva fecha'
+                        : 'Nueva fecha: ${DateFormat('dd/MM/yyyy').format(nuevaFecha!)}',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: motivoCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Motivo (requerido)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: motivoCtrl,
-              decoration: const InputDecoration(
-                hintText: 'Motivo (requerido)',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar')),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Devolver')),
-        ],
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancelar')),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Devolver')),
+            ],
+          );
+        },
       ),
     );
 
     if (ok == true && nuevaFecha != null && motivoCtrl.text.trim().isNotEmpty) {
       await doc.reference.update({
-        'estado': 'en_progreso',
-        'status': 'en_progreso',
+        'estado': 'devuelta',
+        'status': 'devuelta',
         'fecha_limite': Timestamp.fromDate(nuevaFecha!),
         'updatedAt': FieldValue.serverTimestamp(),
       });

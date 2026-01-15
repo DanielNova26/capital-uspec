@@ -847,6 +847,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _mapNotificationType(String raw) {
     final type = raw.trim().toLowerCase();
+    if (type.startsWith('task_status_')) {
+      final status = type.replaceFirst('task_status_', '').replaceAll('_', ' ').trim();
+      if (status.isEmpty) return '';
+      return status[0].toUpperCase() + status.substring(1);
+    }
     switch (type) {
       case 'avance':
       case 'progress':

@@ -280,10 +280,13 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
         backgroundColor: kMarronOscuro,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-          child: Column(
-            children: [
+    child: GestureDetector(
+    behavior: HitTestBehavior.translucent,
+    onTap: () => FocusScope.of(context).unfocus(),
+    child: SingleChildScrollView(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+    child: Column(
+    children: [
               if (_error != null)
                 _BannerMsg(
                   msg: _error!,
@@ -447,6 +450,7 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
                 ),
               ),
             ],
+    ),
           ),
         ),
       ),

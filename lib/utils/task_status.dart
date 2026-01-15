@@ -40,12 +40,13 @@ String resolveTaskStatus(Map<String, dynamic> data) {
 
   if (approved || raw == 'finalizado' || raw == 'finalizada') return 'finalizada';
   if (raw == 'completada' || raw == 'pendiente_aprobacion') return 'completada';
-  if (raw == 'devuelta') return 'devuelta';
   if (_hasPendingReassign(data) || raw == 'reasignado') return 'reasignado';
 
   final due = taskToDate(data['fecha_limite'] ?? data['dueDate']);
   final days = taskDaysLeft(due);
   if (raw == 'retrasado' || (days != null && days < 0)) return 'retrasado';
+
+  if (raw == 'devuelta') return 'devuelta';
 
   if (raw == 'en_progreso') return 'en_progreso';
 

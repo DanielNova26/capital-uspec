@@ -296,6 +296,13 @@ class TaskService {
       final creadorId = _s(t, ['creador_id', 'creatorId']);
       final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
       final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+      final currentEstado = (t['estado'] ?? t['status'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final nextEstado = (currentEstado == 'pendiente' || currentEstado == 'devuelta')
+          ? 'en_progreso'
+          : (t['estado'] ?? t['status'] ?? '');
 
       trx.set(doc, {
         'id': doc.id,
@@ -309,12 +316,16 @@ class TaskService {
         'createdAt': Timestamp.now(),
       });
 
-      trx.update(taskRef, {
+      final updateData = <String, dynamic>{
         'updatedAt': FieldValue.serverTimestamp(),
         'fecha_actualizacion': FieldValue.serverTimestamp(),
         'actualizada_en': FieldValue.serverTimestamp(),
-        'estado': (t['estado']?.toString() == 'pendiente') ? 'en_progreso' : t['estado'],
-      });
+      };
+      if (nextEstado is String && nextEstado.isNotEmpty) {
+        updateData['estado'] = nextEstado;
+        updateData['status'] = nextEstado;
+      }
+      trx.update(taskRef, updateData);
 
       final recipients = <String>[];
       if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
@@ -360,6 +371,13 @@ class TaskService {
       final creadorId = _s(t, ['creador_id', 'creatorId']);
       final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
       final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+      final currentEstado = (t['estado'] ?? t['status'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final nextEstado = currentEstado == 'devuelta'
+          ? 'en_progreso'
+          : (t['estado'] ?? t['status'] ?? '');
 
       trx.set(doc, {
         'id': doc.id,
@@ -372,11 +390,16 @@ class TaskService {
         'createdAt': Timestamp.now(),
       });
 
-      trx.update(taskRef, {
+      final updateData = <String, dynamic>{
         'updatedAt': FieldValue.serverTimestamp(),
         'fecha_actualizacion': FieldValue.serverTimestamp(),
         'actualizada_en': FieldValue.serverTimestamp(),
-      });
+      };
+      if (nextEstado is String && nextEstado.isNotEmpty) {
+        updateData['estado'] = nextEstado;
+        updateData['status'] = nextEstado;
+      }
+      trx.update(taskRef, updateData);
 
       final recipients = <String>[];
       if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
