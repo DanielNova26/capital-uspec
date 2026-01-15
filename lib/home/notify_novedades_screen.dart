@@ -331,8 +331,11 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         title: const Text('Notificar novedades', style: TextStyle(fontFamily: kArial)),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
+    child: GestureDetector(
+    behavior: HitTestBehavior.translucent,
+    onTap: () => FocusScope.of(context).unfocus(),
+    child: Column(
+    children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Container(
@@ -481,31 +484,32 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                 child: Text(_error!, style: const TextStyle(color: Colors.red)),
               ),
 
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _busy || !_canSend ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kMarronOscuro,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                    elevation: 4,
-                  ),
-                  child: _busy
-                      ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                      : const Text('Enviar novedad', style: TextStyle(fontFamily: kArial)),
-                ),
-              ),
-            ),
-          ],
-        ),
+    Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+    child: SizedBox(
+    width: double.infinity,
+    child: ElevatedButton(
+    onPressed: _busy || !_canSend ? null : _submit,
+    style: ElevatedButton.styleFrom(
+    backgroundColor: kMarronOscuro,
+    foregroundColor: Colors.white,
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    elevation: 4,
+    ),
+    child: _busy
+    ? const SizedBox(
+    height: 22,
+    width: 22,
+    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+    )
+        : const Text('Enviar novedad', style: TextStyle(fontFamily: kArial)),
+    ),
+    ),
+    ),
+    ],
+    ),
+    ),
       ),
     );
   }
