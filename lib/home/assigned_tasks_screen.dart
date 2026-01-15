@@ -195,6 +195,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // -------------------------
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
     final out = <Map<String, String>>[];
+    final seen = <String>{};
+
+    void addAttachment(Map<String, String> att) {
+      final url = (att['url'] ?? '').trim();
+      final path = (att['path'] ?? '').trim();
+      final name = (att['name'] ?? '').trim();
+      final key = url.isNotEmpty ? url : (path.isNotEmpty ? path : name);
+      if (key.isEmpty || seen.contains(key)) return;
+      seen.add(key);
+      out.add(att);
+    }
 
     // adjuntos: lista de maps {name,url,path}
     final adj = (data['adjuntos'] as List?) ?? (data['attachments'] as List?);
@@ -205,7 +216,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           final name = (m['name'] ?? m['filename'] ?? 'archivo').toString();
           final url = (m['url'] ?? '').toString();
           final path = (m['path'] ?? '').toString();
-          out.add({'name': name, 'url': url, 'path': path});
+          addAttachment({'name': name, 'url': url, 'path': path});
         }
       }
     }
@@ -216,7 +227,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final url = e?.toString() ?? '';
       if (url.isEmpty) continue;
       final name = Uri.tryParse(url)?.pathSegments.last ?? 'evidencia';
-      out.add({'name': name, 'url': url});
+      addAttachment({'name': name, 'url': url});
     }
 
     // evidencias_paths: lista de paths
@@ -225,7 +236,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final path = p?.toString() ?? '';
       if (path.isEmpty) continue;
       final name = path.split('/').last;
-      out.add({'name': name, 'path': path});
+      addAttachment({'name': name, 'path': path});
     }
 
     return out;
@@ -804,6 +815,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final isDone = status == 'completada' || status == 'finalizada';
     final finishPending = _finishPending(data);
     final requiresAttachment = _requiresAttachment(data);
+    final lockEdits = finishPending;
 
     final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
     final assignedByName = _str(data, ['creador_nombre', 'creatorName']);
@@ -894,6 +906,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       : 'Se marcará como completada sin adjuntos.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
+                enabled: !lockEdits,
                 onTap: finishPending
                     ? null
                     : () async {
@@ -921,6 +934,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       : 'El creador/jefe deberá aprobar con Sí/No.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
+                enabled: !lockEdits,
                 onTap: finishPending
                     ? null
                     : () async {
@@ -943,7 +957,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ListTile(
                 leading: const Icon(Icons.trending_up),
                 title: const Text('Reportar avance', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
+                enabled: !lockEdits,
+                onTap: lockEdits
+                    ? null
+                    : () async {
                   Navigator.pop(context);
                   await Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => NotifyAvancesScreen(
@@ -956,7 +973,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ListTile(
                 leading: const Icon(Icons.campaign),
                 title: const Text('Reportar novedad', style: TextStyle(fontFamily: kArial)),
-                onTap: () async {
+                enabled: !lockEdits,
+                onTap: lockEdits
+                    ? null
+                    : () async {
                   Navigator.pop(context);
                   await Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => NotifyNovedadesScreen(
@@ -1009,7 +1029,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       : 'Se enviará solicitud al creador/jefe para aprobación.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
-                onTap: () async {
+                enabled: !lockEdits,
+                onTap: lockEdits
+                    ? null
+                    : () async {
                   Navigator.pop(context);
                   await _promptReassignPicker(taskId, taskData: data);
                 },
