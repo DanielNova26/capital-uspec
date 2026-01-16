@@ -271,6 +271,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             final personScores = _buildScores(filteredTasks, bootstrap);
             final statusCount = _statusDistribution(filteredTasks);
             final areaScores = _aggregateTasksByArea(filteredTasks, bootstrap);
+            final assigningAreaCounts = _aggregateAssignmentsByCreatorArea(filteredTasks, bootstrap);
 
             return DefaultTabController(
               length: 2,
@@ -282,8 +283,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                     style: TextStyle(fontFamily: kArial),
                   ),
                   bottom: const TabBar(
+                      labelColor: Colors.white,
+                      unselectedLabelColor: Colors.white70,
+                      indicatorColor: Colors.white,
                     tabs: [
-                      Tab(text: 'Dashboard'),
+                    Tab(text: 'Dashboard'),
                       Tab(text: 'Puntos'),
                     ],
                   ),
@@ -302,6 +306,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                       personScores: personScores,
                       statusCount: statusCount,
                       areaScores: areaScores,
+                      assigningAreaCounts: assigningAreaCounts,
                     ),
                     _buildPointsTab(
                       bootstrap: bootstrap,
@@ -325,6 +330,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     required Map<String, _PersonScore> personScores,
     required Map<String, int> statusCount,
     required Map<String, double> areaScores,
+    required Map<String, int> assigningAreaCounts,
   }) {
     return RefreshIndicator(
       onRefresh: () async {
@@ -353,7 +359,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             const SizedBox(height: 8),
             _buildEmpresaSelector(bootstrap.empresas),
             const SizedBox(height: 12),
-            _buildCharts(statusCount, areaScores),
+            _buildCharts(statusCount, areaScores, assigningAreaCounts),
           ],
         ),
       ),
@@ -699,8 +705,14 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     );
   }
 
-  Widget _buildCharts(Map<String, int> statusCount, Map<String, double> areaScores) {
+  Widget _buildCharts(
+      Map<String, int> statusCount,
+      Map<String, double> areaScores,
+      Map<String, int> assigningAreaCounts,
+      ) {
     final sortedArea = areaScores.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topAssigningArea = assigningAreaCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     return Column(
@@ -735,10 +747,16 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: SizedBox(
-                      height: barHeight,
-                      child: _AreaBarChart(data: sortedArea),
-                    ),
+                  child: Column(
+                  children: [
+                  SizedBox(
+            height: barHeight,
+            child: _AreaBarChart(data: sortedArea),
+            ),
+            const SizedBox(height: 12),
+            _TopAssigningAreaCard(topAreas: topAssigningArea),
+                  ],
+                  ),
                   ),
                 ],
               );
@@ -758,7 +776,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   height: barHeight,
                   child: _AreaBarChart(data: sortedArea),
                 ),
-              ],
+              const SizedBox(height: 12),
+            _TopAssigningAreaCard(topAreas: topAssigningArea),
+            ],
             );
           },
         ),
@@ -849,6 +869,22 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final data = d.data();
       final areaId = (data['areaId'] ?? '').toString();
       final areaName = bootstrap.areas[areaId] ?? 'Área no definida';
+      out[areaName] = (out[areaName] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  Map<String, int> _aggregateAssignmentsByCreatorArea(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+      _Bootstrap bootstrap,
+      ) {
+    final out = <String, int>{};
+    for (final d in tasks) {
+      final data = d.data();
+      final creatorId = (data['creador_id'] ?? data['creatorId'] ?? data['creador_uid'] ?? '').toString();
+      final creator = bootstrap.users[creatorId];
+      final creatorAreaId = (creator?['areaId'] ?? creator?['area'] ?? '').toString();
+      final areaName = bootstrap.areas[creatorAreaId] ?? 'Área no definida';
       out[areaName] = (out[areaName] ?? 0) + 1;
     }
     return out;
@@ -1108,6 +1144,64 @@ class _AreaBarChart extends StatelessWidget {
                     ],
                   );
                 },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TopAssigningAreaCard extends StatelessWidget {
+  const _TopAssigningAreaCard({required this.topAreas});
+
+  final List<MapEntry<String, int>> topAreas;
+
+  @override
+  Widget build(BuildContext context) {
+    if (topAreas.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Text('Área que más asigna: sin datos',
+              style: TextStyle(fontFamily: kArial)),
+        ),
+      );
+    }
+
+    final top = topAreas.first;
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.how_to_reg, color: kBrand),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Área que más asigna',
+                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    top.key,
+                    style: const TextStyle(fontFamily: kArial),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              top.value.toString(),
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ],
