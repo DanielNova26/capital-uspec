@@ -34,6 +34,8 @@ class _TeamScreenState extends State<TeamScreen> {
   bool _bootstrapped = false;
   final List<Map<String, String>> _miEquipo = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _tareas = [];
+  Map<String, String> _areas = {'__sin_area__': 'Sin área'};
+  String? _selectedUserId;
 
   @override
   void didChangeDependencies() {
@@ -67,6 +69,7 @@ class _TeamScreenState extends State<TeamScreen> {
   Future<void> _bootstrap() async {
     setState(() => _loading = true);
     await _loadEmpresaDesdeUsuario();
+    await _loadAreas();
     await _loadEquipo();
     await _loadTareas();
     if (mounted) setState(() => _loading = false);
@@ -79,6 +82,23 @@ class _TeamScreenState extends State<TeamScreen> {
       final empresa = (data?['empresaId'] ?? data?['empresa'] ?? '').toString();
       if (empresa.isNotEmpty) {
         _empresaId ??= empresa;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadAreas() async {
+    _areas = {'__sin_area__': 'Sin área'};
+    if (_empresaId == null || _empresaId!.isEmpty) return;
+    try {
+      final snap = await _db
+          .collection('TBL_AREAS')
+          .where('empresaId', isEqualTo: _empresaId)
+          .get();
+      for (final d in snap.docs) {
+        final data = d.data();
+        final id = (data['areaId'] ?? d.id).toString();
+        final nombre = (data['nombre'] ?? id).toString();
+        _areas[id] = nombre;
       }
     } catch (_) {}
   }
@@ -96,6 +116,7 @@ class _TeamScreenState extends State<TeamScreen> {
         'uid': widget.currentUserId,
         'nombre': _nombreDeUsuario(selfData, fallback: widget.currentUserId),
         'cargo': (selfData['cargo'] ?? '').toString(),
+        'areaId': (selfData['areaId'] ?? selfData['area'] ?? '').toString(),
       });
 
       // 2) Subordinados directos (según estructura organizacional)
@@ -121,6 +142,7 @@ class _TeamScreenState extends State<TeamScreen> {
               'uid': d.id,
               'nombre': _nombreDeUsuario(data, fallback: d.id),
               'cargo': (data['cargo'] ?? '').toString(),
+              'areaId': (data['areaId'] ?? data['area'] ?? '').toString(),
             });
           }
         }
@@ -155,6 +177,33 @@ class _TeamScreenState extends State<TeamScreen> {
     });
   }
 
+  String _areaKeyForMember(Map<String, String> member) {
+    final raw = (member['areaId'] ?? '').trim();
+    return raw.isEmpty ? '__sin_area__' : raw;
+  }
+
+  String _areaLabel(String areaId) {
+    if (areaId == '__sin_area__') return 'Sin área';
+    return _areas[areaId] ?? areaId;
+  }
+
+  String _memberLabel(Map<String, String> member) {
+    final nombre = (member['nombre'] ?? '').trim();
+    final cargo = (member['cargo'] ?? '').trim();
+    return cargo.isEmpty ? nombre : '$nombre · $cargo';
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _tasksForSelectedUser() {
+    final targetId = _selectedUserId ?? '';
+    if (targetId.isEmpty) return [];
+    return _tareas.where((doc) {
+      final data = doc.data();
+      final assignedId =
+      (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString().trim();
+      return assignedId == targetId;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -171,6 +220,8 @@ class _TeamScreenState extends State<TeamScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
             _buildTeamSummary(),
+            const SizedBox(height: 12),
+            _buildMemberSelector(),
             const SizedBox(height: 12),
             _buildTaskList(),
           ],
@@ -208,28 +259,143 @@ class _TeamScreenState extends State<TeamScreen> {
             const Text('Integrantes',
                 style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
+            ..._buildMembersByArea(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildMembersByArea() {
+    final grouped = <String, List<Map<String, String>>>{};
+    for (final member in _miEquipo) {
+      final key = _areaKeyForMember(member);
+      grouped.putIfAbsent(key, () => []).add(member);
+    }
+
+    final keys = grouped.keys.toList()
+      ..sort((a, b) => _areaLabel(a).toLowerCase().compareTo(_areaLabel(b).toLowerCase()));
+
+    return keys.map((areaKey) {
+      final members = grouped[areaKey] ?? [];
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _areaLabel(areaKey),
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _miEquipo
-                  .map(
-                    (m) => Chip(
-                  backgroundColor: kTeal.withOpacity(.1),
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-                  label: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(m['nombre'] ?? '',
-                          style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600)),
-                      if ((m['cargo'] ?? '').isNotEmpty)
-                        Text(m['cargo']!,
-                            style: const TextStyle(fontFamily: kArial, fontSize: 12)),
-                    ],
+              children: members.map(_memberCard).toList(),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _memberCard(Map<String, String> member) {
+    final isSelected = _selectedUserId == member['uid'];
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => setState(() => _selectedUserId = member['uid']),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? kTeal.withOpacity(.12) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? kTeal : Colors.grey.shade300,
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.person, size: 16, color: isSelected ? kTeal : Colors.black54),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    member['nombre'] ?? '',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected ? kTeal : Colors.black87,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
+                ),
+              ],
+            ),
+            if ((member['cargo'] ?? '').isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                member['cargo'] ?? '',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: isSelected ? kTeal : Colors.black54,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMemberSelector() {
+    if (_miEquipo.isEmpty) return const SizedBox.shrink();
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Selecciona un integrante',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _selectedUserId,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Elige un integrante',
+                isDense: true,
+              ),
+              items: _miEquipo
+                  .map(
+                    (m) => DropdownMenuItem(
+                  value: m['uid'],
+                  child: Text(_memberLabel(m), overflow: TextOverflow.ellipsis),
                 ),
               )
                   .toList(),
+              onChanged: (v) => setState(() => _selectedUserId = v),
             ),
           ],
         ),
@@ -256,13 +422,50 @@ class _TeamScreenState extends State<TeamScreen> {
       );
     }
 
+    if (_selectedUserId == null || _selectedUserId!.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text('Selecciona un integrante',
+                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600)),
+              SizedBox(height: 6),
+              Text('Elige un usuario para visualizar sus tareas asignadas.',
+                  style: TextStyle(fontFamily: kArial)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final tasks = _tasksForSelectedUser();
+    if (tasks.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text('Sin tareas para este integrante',
+                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600)),
+              SizedBox(height: 6),
+              Text('No hay tareas asignadas para el usuario seleccionado.',
+                  style: TextStyle(fontFamily: kArial)),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Actividades del equipo',
             style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        ..._tareas.map(_taskTile).toList(),
+        ...tasks.map(_taskTile).toList(),
       ],
     );
   }

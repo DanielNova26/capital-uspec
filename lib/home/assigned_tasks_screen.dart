@@ -48,6 +48,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   final _searchCtrl = TextEditingController();
   String _statusFilter = 'todas'; // todas | activas | visto | en_progreso | reasignado | completada | devuelta | finalizada | retrasado
   String _areaFilter = 'todas';
+  bool _groupByArea = true;
+  final Map<String, bool> _areaExpanded = {};
 
   // bootstrap
   Set<String> _empresaIds = {};
@@ -135,6 +137,27 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final today = DateTime(now.year, now.month, now.day);
     final end = DateTime(due.toDate().year, due.toDate().month, due.toDate().day, 23, 59, 59);
     return end.difference(today).inDays;
+  }
+
+  String _areaKeyFor(Map<String, dynamic> data) {
+    final areaId = _str(data, ['areaId']);
+    return areaId.isEmpty ? '__sin_area__' : areaId;
+  }
+
+  String _areaLabelFor(String areaKey) {
+    if (areaKey == '__sin_area__') return 'Sin área';
+    return _areas[areaKey] ?? areaKey;
+  }
+
+  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupTasksByArea(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) {
+    final grouped = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+    for (final doc in docs) {
+      final key = _areaKeyFor(doc.data());
+      grouped.putIfAbsent(key, () => []).add(doc);
+    }
+    return grouped;
   }
 
   String _currentUserName() {
@@ -1001,11 +1024,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                         padding: EdgeInsets.all(24),
                         child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
                       )
+                    else if (_groupByArea)
+                      ..._buildGroupedTaskSections(filtered)
                     else
                       ...filtered.map((d) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildTaskCard(d),
-                      )),
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _buildTaskCard(d),
+              )),
                   ],
                 ),
               );
@@ -1131,10 +1156,60 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            SwitchListTile.adaptive(
+              value: _groupByArea,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Agrupar por área', style: TextStyle(fontFamily: kArial)),
+              subtitle: const Text(
+                'Reduce el desplazamiento mostrando secciones colapsables.',
+                style: TextStyle(fontFamily: kArial, fontSize: 12),
+              ),
+              onChanged: (v) => setState(() => _groupByArea = v),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  List<Widget> _buildGroupedTaskSections(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      ) {
+    final grouped = _groupTasksByArea(docs);
+    final keys = grouped.keys.toList()
+      ..sort((a, b) => _areaLabelFor(a).toLowerCase().compareTo(_areaLabelFor(b).toLowerCase()));
+
+    return keys.map((areaKey) {
+      final tasks = grouped[areaKey] ?? [];
+      final label = _areaLabelFor(areaKey);
+      final expanded = _areaExpanded[areaKey] ?? (keys.first == areaKey);
+
+      return Card(
+        elevation: 1.5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ExpansionTile(
+          key: PageStorageKey('area-$areaKey'),
+          initiallyExpanded: expanded,
+          onExpansionChanged: (value) => setState(() => _areaExpanded[areaKey] = value),
+          title: Text(
+            label,
+            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            '${tasks.length} ${tasks.length == 1 ? "tarea" : "tareas"}',
+            style: const TextStyle(fontFamily: kArial, fontSize: 12),
+          ),
+          children: [
+            for (final task in tasks)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: _buildTaskCard(task),
+              ),
+          ],
+        ),
+      );
+    }).toList();
   }
 
   Widget _buildTaskCard(QueryDocumentSnapshot<Map<String, dynamic>> d) {
