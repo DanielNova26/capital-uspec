@@ -798,6 +798,7 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final _searchCtl = TextEditingController();
   bool _didAutoOpen = false;
   bool _showFilters = false;
+  late final bool _onlyHighlight;
 
   // filtros
   String _areaSel = 'todas';
@@ -822,6 +823,8 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   @override
   void initState() {
     super.initState();
+    _onlyHighlight =
+        widget.highlightTaskId != null && widget.highlightTaskId!.isNotEmpty;
     _loadAreas();
   }
 
@@ -872,6 +875,16 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
     }
   }
 
+  void _setTodayFilter() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    setState(() {
+      _from = today;
+      _to = today;
+      _showFilters = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -905,31 +918,40 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
         var ordered = [...docs]
           ..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
 
-        // Filtros (cliente)
-        final q = _searchCtl.text.trim().toLowerCase();
-        ordered = ordered.where((d) {
-          final m = d.data();
-          final title = ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
-          final areaId = (m['areaId'] ?? '').toString();
-          final estado = _resolvedEstado(m);
-          final due = _toDate(m['fecha_limite']);
+        if (_onlyHighlight) {
+          ordered = ordered
+              .where((d) => d.id == widget.highlightTaskId)
+              .toList();
+        } else {
+          // Filtros (cliente)
+          final q = _searchCtl.text.trim().toLowerCase();
+          ordered = ordered.where((d) {
+            final m = d.data();
+            final title =
+            ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
+            final areaId = (m['areaId'] ?? '').toString();
+            final estado = _resolvedEstado(m);
+            final due = _toDate(m['fecha_limite']);
 
-          if (q.isNotEmpty && !title.contains(q)) return false;
-          if (_areaSel != 'todas' && areaId != _areaSel) return false;
-          if (_estadoSel != 'todos' && estado != _estadoSel) return false;
+            if (q.isNotEmpty && !title.contains(q)) return false;
+            if (_areaSel != 'todas' && areaId != _areaSel) return false;
+            if (_estadoSel != 'todos' && estado != _estadoSel) return false;
 
-          if (_from != null &&
-              (due == null ||
-                  due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
-            return false;
-          }
-          if (_to != null &&
-              (due == null ||
-                  due.isAfter(DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
-            return false;
-          }
-          return true;
-        }).toList();
+            if (_from != null &&
+                (due == null ||
+                    due.isBefore(
+                        DateTime(_from!.year, _from!.month, _from!.day)))) {
+              return false;
+            }
+            if (_to != null &&
+                (due == null ||
+                    due.isAfter(DateTime(
+                        _to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
+              return false;
+            }
+            return true;
+          }).toList();
+        }
 
         // ✅ Auto abrir desde notificación
         if (!_didAutoOpen &&
@@ -1098,6 +1120,13 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
                     side: const BorderSide(color: kBrand),
                   ),
                   onPressed: _pickDateRange,
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  icon: const Icon(Icons.today, size: 18),
+                  label: const Text('Hoy'),
+                  style: TextButton.styleFrom(foregroundColor: kBrand),
+                  onPressed: _setTodayFilter,
                 ),
                 const SizedBox(width: 8),
                 if (_from != null || _to != null)
@@ -1574,6 +1603,7 @@ class _ICreatedTab extends StatefulWidget {
 class _ICreatedTabState extends State<_ICreatedTab> {
   final _searchCtl = TextEditingController();
   bool _showFilters = false;
+  late final bool _onlyHighlight;
 
   String _areaSel = 'todas';
   String _estadoSel = 'todos';
@@ -1596,6 +1626,8 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   @override
   void initState() {
     super.initState();
+    _onlyHighlight =
+        widget.highlightTaskId != null && widget.highlightTaskId!.isNotEmpty;
     _loadAreas();
   }
 
@@ -1652,6 +1684,16 @@ class _ICreatedTabState extends State<_ICreatedTab> {
     }
   }
 
+  void _setTodayFilter() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    setState(() {
+      _from = today;
+      _to = today;
+      _showFilters = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -1662,20 +1704,20 @@ class _ICreatedTabState extends State<_ICreatedTab> {
         }
         final hasActiveFilters = _hasActiveFilters();
         final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty && hasActiveFilters) {
+        if (docs.isEmpty) {
           return Column(
             children: [
               _filtersSection(),
               const Expanded(
                 child: Center(
-                  child: Text('No has creado tareas.',
+                  child: Text('No hay tareas para mostrar.',
                       style: TextStyle(fontFamily: kArial)),
                 ),
               ),
             ],
           );
         }
-        if (!hasActiveFilters) {
+        if (!hasActiveFilters && !_onlyHighlight) {
           return Column(
             children: [
               _filtersSection(),
@@ -1702,36 +1744,50 @@ class _ICreatedTabState extends State<_ICreatedTab> {
         var ordered = [...docs]
           ..sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
 
-        final q = _searchCtl.text.trim().toLowerCase();
-        ordered = ordered.where((d) {
-          final m = d.data();
-          final title = ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
-          final areaId = (m['areaId'] ?? '').toString();
-          final estado = _resolvedEstado(m);
-          final due = _toDate(m['fecha_limite']);
+        if (_onlyHighlight) {
+          ordered = ordered
+              .where((d) => d.id == widget.highlightTaskId)
+              .toList();
+        } else {
+          final q = _searchCtl.text.trim().toLowerCase();
+          ordered = ordered.where((d) {
+            final m = d.data();
+            final title =
+            ((m['titulo'] ?? m['title'] ?? '') as String).toLowerCase();
+            final areaId = (m['areaId'] ?? '').toString();
+            final estado = _resolvedEstado(m);
+            final due = _toDate(m['fecha_limite']);
 
-          if (q.isNotEmpty && !title.contains(q)) return false;
-          if (_areaSel != 'todas' && areaId != _areaSel) return false;
-          if (_estadoSel != 'todos' && estado != _estadoSel) return false;
+            if (q.isNotEmpty && !title.contains(q)) return false;
+            if (_areaSel != 'todas' && areaId != _areaSel) return false;
+            if (_estadoSel != 'todos' && estado != _estadoSel) return false;
 
-          if (_from != null &&
-              (due == null ||
-                  due.isBefore(DateTime(_from!.year, _from!.month, _from!.day)))) {
-            return false;
-          }
-          if (_to != null &&
-              (due == null ||
-                  due.isAfter(DateTime(_to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
-            return false;
-          }
-          return true;
-        }).toList();
+            if (_from != null &&
+                (due == null ||
+                    due.isBefore(
+                        DateTime(_from!.year, _from!.month, _from!.day)))) {
+              return false;
+            }
+            if (_to != null &&
+                (due == null ||
+                    due.isAfter(DateTime(
+                        _to!.year, _to!.month, _to!.day, 23, 59, 59)))) {
+              return false;
+            }
+            return true;
+          }).toList();
+        }
 
         return Column(
           children: [
             _filtersSection(),
             Expanded(
-              child: ListView.separated(
+              child: ordered.isEmpty
+                  ? const Center(
+                child: Text('No hay tareas para mostrar.',
+                    style: TextStyle(fontFamily: kArial)),
+              )
+                  : ListView.separated(
                 padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
                 itemCount: ordered.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 6),
@@ -1856,6 +1912,12 @@ class _ICreatedTabState extends State<_ICreatedTab> {
                       : '${_from == null ? '—' : DateFormat('dd/MM').format(_from!)}  →  ${_to == null ? '—' : DateFormat('dd/MM').format(_to!)}',
                 ),
                 onPressed: _pickDateRange,
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.today, size: 18),
+                label: const Text('Hoy'),
+                onPressed: _setTodayFilter,
               ),
               const SizedBox(width: 8),
               if (_from != null || _to != null)

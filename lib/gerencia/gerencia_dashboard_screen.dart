@@ -126,7 +126,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   late Future<_Bootstrap> _bootstrapFuture;
   String _statusFilter = 'todas';
   String _areaFilter = 'todas';
-  String _personaFilter = 'todas';
   String? _empresaActiva;
   Map<String, String> _empresaNombres = {};
 
@@ -223,7 +222,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       userDoc: userData,
       users: users,
       areas: areas,
-        empresaId: empresaPrincipal,
+      empresaId: empresaPrincipal,
       empresas: empresas,
     );
   }
@@ -268,61 +267,126 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             }
 
             final tasks = tasksSnap.data?.docs ?? [];
-            final filteredTasks = _applyFilters(tasks, bootstrap, empresasFiltro);            final personScores = _buildScores(filteredTasks, bootstrap);
+            final filteredTasks = _applyFilters(tasks, bootstrap, empresasFiltro);
+            final personScores = _buildScores(filteredTasks, bootstrap);
             final statusCount = _statusDistribution(filteredTasks);
-            final areaScores = _aggregateByArea(personScores.values);
+            final areaScores = _aggregateTasksByArea(filteredTasks, bootstrap);
 
-            return Scaffold(
-              appBar: AppBar(
-                backgroundColor: kBrand,
-                title: const Text(
-                  'Gerencia',
-                  style: TextStyle(fontFamily: kArial),
-                ),
-              ),
-              body: tasks.isEmpty
-                  ? const Center(
-                child: Text('Aún no hay tareas para analizar.',
-                    style: TextStyle(fontFamily: kArial)),
-              )
-                  : RefreshIndicator(
-                onRefresh: () async {
-                  setState(() {
-                    _bootstrapFuture = _loadBootstrap();
-                  });
-                },
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildHeader(bootstrap.userDoc),
-                      const SizedBox(height: 8),
-                      _buildFilters(bootstrap, tasks),
-                      const SizedBox(height: 8),
-                      _buildEmpresaSelector(bootstrap.empresas),
-                      const SizedBox(height: 12),
-                      _buildSummaryCards(
-                        filteredTasks,
-                        personScores,
-                        activeStatus: _statusFilter,
-                        onSelectStatus: (value) => setState(() {
-                          _statusFilter = value == _statusFilter ? 'todas' : value;
-                        }),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildCharts(statusCount, areaScores),
-                      const SizedBox(height: 12),
-                      _buildRankingTable(personScores.values.toList()),
+            return DefaultTabController(
+              length: 2,
+              child: Scaffold(
+                appBar: AppBar(
+                  backgroundColor: kBrand,
+                  title: const Text(
+                    'Gerencia',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
+                  bottom: const TabBar(
+                    tabs: [
+                      Tab(text: 'Dashboard'),
+                      Tab(text: 'Puntos'),
                     ],
                   ),
+                ),
+                body: tasks.isEmpty
+                    ? const Center(
+                  child: Text('Aún no hay tareas para analizar.',
+                      style: TextStyle(fontFamily: kArial)),
+                )
+                    : TabBarView(
+                  children: [
+                    _buildDashboardTab(
+                      bootstrap: bootstrap,
+                      tasks: tasks,
+                      filteredTasks: filteredTasks,
+                      personScores: personScores,
+                      statusCount: statusCount,
+                      areaScores: areaScores,
+                    ),
+                    _buildPointsTab(
+                      bootstrap: bootstrap,
+                      tasks: tasks,
+                      personScores: personScores,
+                    ),
+                  ],
                 ),
               ),
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildDashboardTab({
+    required _Bootstrap bootstrap,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> filteredTasks,
+    required Map<String, _PersonScore> personScores,
+    required Map<String, int> statusCount,
+    required Map<String, double> areaScores,
+  }) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        setState(() {
+          _bootstrapFuture = _loadBootstrap();
+        });
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(bootstrap.userDoc),
+            const SizedBox(height: 8),
+            _buildSummaryCards(
+              filteredTasks,
+              personScores,
+              activeStatus: _statusFilter,
+              onSelectStatus: (value) => setState(() {
+                _statusFilter = value == _statusFilter ? 'todas' : value;
+              }),
+            ),
+            const SizedBox(height: 8),
+            _buildAreaFilter(bootstrap, tasks),
+            const SizedBox(height: 8),
+            _buildEmpresaSelector(bootstrap.empresas),
+            const SizedBox(height: 12),
+            _buildCharts(statusCount, areaScores),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPointsTab({
+    required _Bootstrap bootstrap,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    required Map<String, _PersonScore> personScores,
+  }) {
+    return RefreshIndicator(
+      onRefresh: () async {
+        setState(() {
+          _bootstrapFuture = _loadBootstrap();
+        });
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(bootstrap.userDoc),
+            const SizedBox(height: 8),
+            _buildAreaFilter(bootstrap, tasks),
+            const SizedBox(height: 8),
+            _buildEmpresaSelector(bootstrap.empresas),
+            const SizedBox(height: 12),
+            _buildRankingTable(personScores.values.toList()),
+          ],
+        ),
+      ),
     );
   }
 
@@ -445,7 +509,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   _empresaActiva = v;
                   _statusFilter = 'todas';
                   _areaFilter = 'todas';
-                  _personaFilter = 'todas';
                 });
               },
             ),
@@ -468,7 +531,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final data = d.data();
       final estado = _resolvedEstado(data);
       final areaId = (data['areaId'] ?? '').toString();
-      final personaId = (data['asignado_uid'] ?? '').toString();
       final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '').toString();
 
       if (empresasFiltro.isNotEmpty &&
@@ -482,18 +544,19 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         case 'todas':
           statusMatch = true;
           break;
+        case 'activas':
+          statusMatch = estado != 'completada' && estado != 'finalizada';
+          break;
         default:
           statusMatch = estado == _statusFilter;
       }
 
       final areaMatch = _areaFilter == 'todas' || areaId == _areaFilter;
-      final personaMatch =
-          _personaFilter == 'todas' || personaId == _personaFilter;
-      return statusMatch && areaMatch && personaMatch;
+      return statusMatch && areaMatch;
     }).toList();
   }
 
-  Widget _buildFilters(
+  Widget _buildAreaFilter(
       _Bootstrap bootstrap,
       List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
       ) {
@@ -502,18 +565,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         if ((t.data()['areaId'] ?? '').toString().isNotEmpty)
           (t.data()['areaId'] ?? '').toString(),
     };
-    final personaMap = <String, String>{'todas': 'Todo el equipo'};
-
-    for (final t in tasks) {
-      final data = t.data();
-      final uid = (data['asignado_uid'] ?? '').toString();
-      if (uid.isEmpty || personaMap.containsKey(uid)) continue;
-      final user = bootstrap.users[uid];
-      final nombre = user != null
-          ? _nombreDeUsuario(user)
-          : (data['asignado_nombre'] ?? uid).toString();
-      personaMap[uid] = nombre;
-    }
 
     final areaItems = [
       const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
@@ -529,29 +580,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             .compareTo((b.child as Text).data!.toLowerCase())),
     ];
 
-    final personaEntries = personaMap.entries.toList()
-      ..sort((a, b) {
-        if (a.key == 'todas') return -1;
-        if (b.key == 'todas') return 1;
-        return a.value.toLowerCase().compareTo(b.value.toLowerCase());
-      });
-
-    final personaItems = personaEntries
-        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-        .toList();
-
-    final statusOptions = const [
-      ['todas', 'Todas'],
-      ['activas', 'Activas'],
-      ['visto', 'Vistas'],
-      ['en_progreso', 'En progreso'],
-      ['reasignado', 'Reasignadas'],
-      ['completada', 'Completadas'],
-      ['devuelta', 'Devueltas'],
-      ['finalizada', 'Finalizadas'],
-      ['retrasado', 'Retrasadas'],
-    ];
-
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
@@ -559,63 +587,21 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Filtros',
+            const Text('Área',
                 style: TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.w600,
                     fontSize: 14)),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: statusOptions.map((opt) {
-                final value = opt[0]!;
-                final label = opt[1]!;
-                final selected = _statusFilter == value;
-                return ChoiceChip(
-                  label: Text(label, style: const TextStyle(fontFamily: kArial)),
-                  selected: selected,
-                  selectedColor: kBrand.withOpacity(0.12),
-                  onSelected: (_) {
-                    setState(() {
-                      _statusFilter = selected ? 'todas' : value;
-                    });
-                  },
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                SizedBox(
-                  width: 260,
-                  child: DropdownButtonFormField<String>(
-                    value: _areaFilter,
-                    decoration: const InputDecoration(
-                      labelText: 'Área',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: areaItems,
-                    onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
-                  ),
-                ),
-                SizedBox(
-                  width: 260,
-                  child: DropdownButtonFormField<String>(
-                    value: _personaFilter,
-                    decoration: const InputDecoration(
-                      labelText: 'Persona',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: personaItems,
-                    onChanged: (v) => setState(() => _personaFilter = v ?? 'todas'),
-                  ),
-                ),
-              ],
+            DropdownButtonFormField<String>(
+              value: _areaFilter,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por área',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: areaItems,
+              onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
             ),
           ],
         ),
@@ -630,6 +616,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         required void Function(String value) onSelectStatus,
       }) {
     final total = tasks.length;
+    final activas = tasks.where((t) {
+      final estado = _resolvedEstado(t.data());
+      return estado != 'completada' && estado != 'finalizada';
+    }).length;
     final finalizadas = tasks.where((t) {
       final estado = _resolvedEstado(t.data());
       return estado == 'completada' || estado == 'finalizada';
@@ -650,7 +640,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final cards = [
       _SummaryCard(
         title: 'Tareas activas',
-        value: '$total',
+        value: '$activas',
         icon: Icons.assignment,
         color: Colors.blue.shade50,
         isActive: activeStatus == 'activas',
@@ -691,8 +681,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth > 720;
-        final crossAxisCount = isWide ? 3 : 2;
-        final aspect = isWide ? 1.7 : 1.25;
+        final crossAxisCount = isWide ? 4 : 2;
+        final aspect = isWide ? 2.2 : 1.45;
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -850,10 +840,16 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     return out;
   }
 
-  Map<String, double> _aggregateByArea(Iterable<_PersonScore> personScores) {
+  Map<String, double> _aggregateTasksByArea(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+      _Bootstrap bootstrap,
+      ) {
     final out = <String, double>{};
-    for (final p in personScores) {
-      out[p.area] = (out[p.area] ?? 0) + p.puntos;
+    for (final d in tasks) {
+      final data = d.data();
+      final areaId = (data['areaId'] ?? '').toString();
+      final areaName = bootstrap.areas[areaId] ?? 'Área no definida';
+      out[areaName] = (out[areaName] ?? 0) + 1;
     }
     return out;
   }
@@ -903,7 +899,7 @@ class _SummaryCard extends StatelessWidget {
         elevation: isActive ? 2.5 : 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -911,20 +907,21 @@ class _SummaryCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Icon(icon, color: kBrand),
+                  Icon(icon, color: kBrand, size: 18),
                   if (isActive)
-                    const Icon(Icons.filter_alt, color: kBrand, size: 18),
+                    const Icon(Icons.filter_alt, color: kBrand, size: 16),
                 ],
               ),
               Text(title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style:
-                  const TextStyle(fontFamily: kArial, color: Colors.black54)),
+                  const TextStyle(
+                      fontFamily: kArial, color: Colors.black54, fontSize: 12)),
               Text(
                 value,
                 style: const TextStyle(
-                    fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 20),
+                    fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 18),
               ),
             ],
           ),
@@ -1070,7 +1067,7 @@ class _AreaBarChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Puntos acumulados por área',
+            const Text('Tareas asignadas por área',
                 style: TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.bold,
@@ -1094,7 +1091,7 @@ class _AreaBarChart extends StatelessWidget {
                                 style: const TextStyle(fontFamily: kArial)),
                           ),
                           const SizedBox(width: 8),
-                          Text(entry.value.toStringAsFixed(1),
+                          Text(entry.value.toStringAsFixed(0),
                               style: const TextStyle(fontFamily: kArial)),
                         ],
                       ),
