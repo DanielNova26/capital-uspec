@@ -200,14 +200,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       for (var i = 0; i < list.length; i += 10) {
         final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
 
-        final snapPrimary = await _db
-            .collection('TBL_USUARIOS')
-            .where('empresaId', whereIn: chunk)
-            .get();
-        for (final d in snapPrimary.docs) {
-          users[d.id] = d.data();
-        }
-
         final snapArray = await _db
             .collection('TBL_USUARIOS')
             .where('empresas', arrayContainsAny: chunk)

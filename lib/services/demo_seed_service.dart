@@ -233,7 +233,11 @@ class DemoSeedService {
       'Dashboard de Gerencia',
       'Control visual de tareas y desempeño.',
     );
-
+    await _setApp(
+      'GestionDocumental',
+      'Gestión Documental',
+      'Control de versiones, firmas y estados de documentos.',
+    );
     // Role demo
     batch.set(
       _db.collection('TBL_ROLES').doc('${empresaId}_desarrollador'),
@@ -309,6 +313,7 @@ class DemoSeedService {
           'AdminDashboard',
           'TalentoHumanoDashboard',
           'GerenciaDashboard',
+          'GestionDocumental',
         ],
         'password': reviewerPassword,
         'needsPasswordChange': false,

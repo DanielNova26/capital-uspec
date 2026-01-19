@@ -90,18 +90,9 @@ class AdminRepository {
 
   // ---------------- USUARIOS ----------------
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadUsersByEmpresa(String empresaId) async {
-    // Soporta:
-    // - usuario.empresaId == empresaId
-    // - usuario.empresas array contiene empresaId
-    final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-
-    final snap1 = await _db.collection('TBL_USUARIOS').where('empresaId', isEqualTo: empresaId).get();
-    for (final d in snap1.docs) map[d.id] = d;
-
-    final snap2 = await _db.collection('TBL_USUARIOS').where('empresas', arrayContains: empresaId).get();
-    for (final d in snap2.docs) map[d.id] = d;
-
-    final out = map.values.toList();
+    // Multiempresa: filtrar por membresía real usando el array 'empresas'.
+    final snap = await _db.collection('TBL_USUARIOS').where('empresas', arrayContains: empresaId).get();
+    final out = snap.docs.toList();
     out.sort((a, b) => a.id.compareTo(b.id));
     return out;
   }

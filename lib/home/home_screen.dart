@@ -738,12 +738,14 @@ class _HomeScreenState extends State<HomeScreen> {
           final isTH = appIdLower == 'talentohumanodashboard';
           final isAdmin = appIdLower == 'admindashboard';
           final isGerencia = appIdLower == 'gerenciadashboard';
+          final isDoc = appIdLower == 'gestiondocumental';
           final visibleByRole = role == 'desarrollador';
           final visibleByAssign = assignedLower.contains(appIdLower);
 
           return (isTH && (visibleByRole || visibleByAssign)) ||
               (isAdmin && (visibleByRole || visibleByAssign)) ||
-              (isGerencia && (visibleByRole || visibleByAssign));
+              (isGerencia && (visibleByRole || visibleByAssign)) ||
+              (isDoc && (visibleByRole || visibleByAssign));
         }).map((doc) {
           final data = doc.data();
           final appId = (data['appId'] as String?)?.trim() ?? '';
@@ -762,6 +764,9 @@ class _HomeScreenState extends State<HomeScreen> {
             case 'gerenciadashboard':
               icon = const Icon(Icons.domain, size: 32, color: Colors.white);
               break;
+          case 'gestiondocumental':
+          icon = const Icon(Icons.folder_shared, size: 32, color: Colors.white);
+          break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
           }
@@ -792,6 +797,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                         builder: (_) =>
                             GerenciaDashboardScreen(userId: cedula)),
+                  );
+                  break;
+                case 'gestiondocumental':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          DocumentManagementScreen(currentUserId: cedula),
+                    ),
                   );
                   break;
                 default:

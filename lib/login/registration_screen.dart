@@ -10,6 +10,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';            // para formatear fecha en español
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:todo/utils/user_company.dart';
 import 'preview_screen.dart';
 
 
@@ -181,15 +182,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     DocumentSnapshot<Map<String, dynamic>> doc =
     await usuariosCol.doc(widget.cedula).get();
     if (doc.exists) {
-      final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
-      if (empresaDoc != widget.empresaId) {
+      final data = doc.data() ?? {};
+    if (!userBelongsToEmpresa(data, widget.empresaId)) {
         doc = await usuariosCol.doc().get();
       }
     }
     if (!doc.exists) {
       final query = await usuariosCol
           .where('cedula', isEqualTo: widget.cedula)
-          .where('empresaId', isEqualTo: widget.empresaId)
+          .where('empresas', arrayContains: widget.empresaId)
           .limit(1)
           .get();
       if (query.docs.isNotEmpty) {
