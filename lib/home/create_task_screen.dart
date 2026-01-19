@@ -28,7 +28,6 @@ const String kGoogleMapsApiKey = 'AIzaSyD8posdo50hmD8PLPD9kR6IebNYfi6PkPs';
 /// Colecciones
 const String kCollUsuarios = 'TBL_USUARIOS';
 const String kCollAreas = 'TBL_AREAS';
-const String kCollCentros = 'TBL_CENTROS_COSTOS';
 const String kCollTareas = 'TBL_TAREAS';
 
 /// Claves posibles para token FCM en el doc de usuario
@@ -83,67 +82,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ],
   );
 
-  String _centroDe(Map<String, dynamic> data) => _firstNonEmpty(
-    data,
-    const [
-      'centroId',
-      'centro_id',
-      'centro',
-      'centroCostosId',
-      'centro_costos_id',
-      'centroCostos',
-      'centro_costos',
-      'centroNombre',
-      'centro_nombre',
-    ],
-  );
-
   String _norm(String s) => s.trim().toLowerCase();
-
-  // ===================== RESOLUCIÓN ROBUSTA (IDs por nombre/código) =====================
-  String? _resolveCentroIdFromUser(Map<String, dynamic> u) {
-    // 1) si ya viene centroId real
-    final direct = _firstNonEmpty(u, const [
-      'centroId',
-      'centro_id',
-      'centro',
-      'centroCostosId',
-      'centro_costos_id',
-    ]);
-    if (direct.isNotEmpty && _centros.any((c) => c['id'] == direct)) return direct;
-
-    // 2) si viene por nombre (centro_costos) o por codigo
-    final nombre = _firstNonEmpty(u, const [
-      'centro_costos',
-      'centroCostos',
-      'centroNombre',
-      'centro_nombre',
-    ]);
-    final codigo = _firstNonEmpty(u, const [
-      'codigo',
-      'codigoCentro',
-      'centroCodigo',
-      'centro_codigo',
-    ]);
-
-    if (codigo.isNotEmpty) {
-      final hit = _centros.firstWhere(
-            (c) => _norm(c['codigo'] ?? '') == _norm(codigo),
-        orElse: () => {},
-      );
-      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
-    }
-
-    if (nombre.isNotEmpty) {
-      final hit = _centros.firstWhere(
-            (c) => _norm(c['nombre'] ?? '') == _norm(nombre),
-        orElse: () => {},
-      );
-      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
-    }
-
-    return null;
-  }
 
   String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
     // 1) si ya viene areaId real
@@ -173,13 +112,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
 
     return null;
-  }
-
-  String? _nombreCentroPorId(String? id) {
-    if (id == null || id.trim().isEmpty) return null;
-    final hit = _centros.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
-    final n = (hit['nombre'] ?? '').trim();
-    return n.isEmpty ? null : n;
   }
 
   String? _nombreAreaPorId(String? id) {
@@ -235,7 +167,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   bool _requiresAttachment = true;
 
   // ==================== Selecciones ====================
-  String? _centroId;
   String? _areaId;
   String _cargoFiltro = 'todos';
   String? _asignadoUid;
@@ -243,9 +174,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _jefeUid;
   String? _jefeNombre;
   String? _empresaId;
-  String? _miAreaId;
-  String? _miCentroRaw; // puede venir como nombre o id
-  String? _miCentroId; // ya resuelto a id real cuando haya catálogo
   String? _currentUid;
 
   // Estructura organizacional (por uid)
@@ -253,7 +181,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
-  List<Map<String, String>> _centros = []; // [{id,nombre,codigo}]
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
 
@@ -271,66 +198,23 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   EmpresaState? _empresaState;
 
   // ==================== GETTERS DE FILTROS ====================
-  List<Map<String, String>> get _centrosOrdenados {
-    final lista = [..._centros];
-    lista.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-    return lista;
-  }
-
-  /// Áreas filtradas por Centro:
-  /// - Si TBL_AREAS trae centroId -> filtra directo.
-  /// - Si NO trae centroId -> deriva qué áreas existen por usuarios del centro.
   List<Map<String, String>> get _areasFiltradas {
     final all = [..._areas]..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-
-    if (_centroId == null || _centroId!.trim().isEmpty) return all;
-
-    final anyAreaHasCentro = all.any((a) => (a['centroId'] ?? '').trim().isNotEmpty);
-    if (anyAreaHasCentro) {
-      final direct = all.where((a) => (a['centroId'] ?? '').trim() == _centroId!.trim()).toList();
-      return direct.isEmpty ? all : direct;
-    }
-
-    // Derivado por usuarios: (centro seleccionado) -> áreas que tienen usuarios en ese centro
-    final areaIds = <String>{};
-    for (final u in _usuarios.values) {
-      final estado = (u['estado'] ?? '').toString().toLowerCase();
-      if (estado != 'activo') continue;
-      final centroId = (_resolveCentroIdFromUser(u) ?? _centroDe(u)).trim();
-      if (centroId != _centroId!.trim()) continue;
-      final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
-      if (areaId.isNotEmpty) areaIds.add(areaId);
-    }
-
-    final derived = all.where((a) => areaIds.contains((a['id'] ?? '').trim())).toList();
-    return derived.isEmpty ? all : (derived..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? '')));
+    return all;
   }
 
-  /// Cargos disponibles según Centro/Área (derivado de usuarios)
   List<String> get _cargosFiltrados {
     final cargos = <String>{};
-
     for (final u in _usuarios.values) {
       final estado = (u['estado'] ?? '').toString().toLowerCase();
       if (estado != 'activo') continue;
-
-      if (_currentUid != null && (_usuarios[_currentUid] != null)) {
-        // nada especial
-      }
-
-      final centroId = (_resolveCentroIdFromUser(u) ?? _centroDe(u)).trim();
       final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
       final cargo = (u['cargo'] ?? '').toString().trim();
-
-      if (_centroId != null && _centroId!.trim().isNotEmpty && centroId.isNotEmpty) {
-        if (centroId != _centroId!.trim()) continue;
-      }
       if (_areaId != null && _areaId!.trim().isNotEmpty && areaId.isNotEmpty) {
         if (areaId != _areaId!.trim()) continue;
       }
       if (cargo.isNotEmpty) cargos.add(cargo);
     }
-
     final lista = cargos.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return ['todos', ...lista];
   }
@@ -346,21 +230,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (estado != 'activo') continue;
       if (_currentUid != null && uid == _currentUid) continue;
 
-      final centroId = (_resolveCentroIdFromUser(u) ?? _centroDe(u)).trim();
+      // 1) filtra por área
       final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
       final cargo = (u['cargo'] ?? '').toString().trim();
 
-      // 1) filtra por centro
-      if (_centroId != null && _centroId!.trim().isNotEmpty) {
-        if (centroId.isNotEmpty && centroId != _centroId!.trim()) continue;
-      }
-
-      // 2) filtra por área
       if (_areaId != null && _areaId!.trim().isNotEmpty) {
         if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
       }
 
-      // 3) filtra por cargo
+      // ) filtra por cargo
       if (_cargoFiltro != 'todos' && _cargoFiltro.trim().isNotEmpty) {
         if (cargo.toLowerCase() != _cargoFiltro.toLowerCase()) continue;
       }
@@ -368,7 +246,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       list.add({
         'uid': uid,
         'nombre': _nombreDeUsuario(u),
-        'centroId': centroId,
         'areaId': areaId,
         'cargo': cargo,
         'jefeId': (u['jefeId'] ?? u['jefe_uid'] ?? '').toString(),
@@ -430,25 +307,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     // IMPORTANT: primero catálogos, luego usuarios (para poder resolver ids por nombre/código)
     await Future.wait([
       _getMyPosition(),
-      _loadCentros(),
       _loadAreas(),
     ]);
     await _loadUsuarios();
-
-    // Resolver mi centro cuando ya existe catálogo
-    if ((_miCentroRaw ?? '').trim().isNotEmpty) {
-      _miCentroId ??= _resolveCentroIdFromUser({
-        'centroId': _miCentroRaw,
-        'centro_costos': _miCentroRaw,
-        'codigo': _miCentroRaw,
-      });
-      // Si me llegó un centroId real y existe en catálogo:
-      if (_miCentroId == null && _centros.any((c) => c['id'] == _miCentroRaw!.trim())) {
-        _miCentroId = _miCentroRaw!.trim();
-      }
-    }
-
-    _ensureCentroYArea();
 
     if (mounted) setState(() {});
   }
@@ -467,8 +328,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final emp = _empresaDe(data);
       if (emp.trim().isNotEmpty) _empresaId = emp.trim();
 
-      _miAreaId = _areaDe(data).trim();
-      _miCentroRaw = _centroDe(data).trim();
     } catch (_) {}
   }
 
@@ -485,12 +344,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         ..clear()
         ..addEntries(qs.docs.map((d) => MapEntry(d.id, d.data())));
 
-      if ((_miAreaId ?? '').isEmpty && _currentUid != null) {
-        final me = _estructura[_currentUid!];
-        if (me != null) {
-          _miAreaId = _areaDe(me).trim();
-        }
-      }
     } catch (_) {
       _estructura.clear();
     }
@@ -559,37 +412,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   // ==================== CARGA DE CATÁLOGOS ====================
-  Future<void> _loadCentros() async {
-    try {
-      final qs = await _queryByEmpresa(kCollCentros, limit: 1000);
-      _centros = qs.docs
-          .map((d) {
-        final m = d.data();
-        if (!_empresaCoincide(m)) return null;
-
-        final id = (m['centroId'] ?? d.id).toString().trim();
-        final nombre = (m['nombre'] ?? id).toString().trim();
-        final codigo = (m['codigo'] ?? '').toString().trim();
-
-        if (id.isEmpty) return null;
-        return {
-          'id': id,
-          'nombre': nombre.isEmpty ? id : nombre,
-          'codigo': codigo, // ✅ para resolver por código
-        };
-      })
-          .whereType<Map<String, String>>()
-          .toList()
-        ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
-
-      if (_centroId != null && !_centros.any((c) => c['id'] == _centroId)) {
-        _centroId = null;
-      }
-    } catch (_) {
-      _centroId = null;
-    }
-  }
-
   Future<void> _loadAreas() async {
     final qs = await _queryByEmpresa(kCollAreas, limit: 1000);
 
@@ -659,33 +481,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   // ==================== NORMALIZACIÓN DE CASCADA ====================
-  void _ensureCentroYArea() {
-    // Centro: si no hay centro elegido, intenta el del usuario
-    if ((_centroId ?? '').trim().isEmpty) {
-      if ((_miCentroId ?? '').trim().isNotEmpty && _centros.any((c) => c['id'] == _miCentroId)) {
-        _centroId = _miCentroId;
-      }
-    }
-
-    // Área: si no hay área elegida, intenta la del usuario si existe dentro del filtro
-    if ((_areaId ?? '').trim().isEmpty) {
-      final list = _areasFiltradas;
-      if ((_miAreaId ?? '').trim().isNotEmpty && list.any((a) => a['id'] == _miAreaId)) {
-        _areaId = _miAreaId;
-      }
-    }
-
-    // Si el área actual no pertenece al set filtrado del centro, limpiar
+  void _ensureAreaDisponible() {
     if (_areaId != null && _areaId!.trim().isNotEmpty) {
       final list = _areasFiltradas;
       if (!list.any((a) => a['id'] == _areaId)) {
         _areaId = null;
-        _cargoFiltro = 'todos';
         _alElegirAsignado(null);
       }
     }
 
-    // Si el cargo seleccionado ya no aplica, reset
     if (_cargoFiltro != 'todos') {
       final cargos = _cargosFiltrados;
       if (!cargos.any((c) => c.toLowerCase() == _cargoFiltro.toLowerCase())) {
@@ -1114,18 +918,24 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== GUARDAR ====================
   Future<void> _saveTask() async {
-    _ensureCentroYArea();
+    _ensureAreaDisponible();
 
     if (!_formKey.currentState!.validate()) return;
-    if (_centroId == null || _centroId!.trim().isEmpty) {
+    if (_areaId == null || _areaId!.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona el centro de costos.')),
+        const SnackBar(content: Text('Selecciona el área.')),
       );
       return;
     }
-    if (_areaId == null || _areaId!.trim().isEmpty) {
+    if (_deadline == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona el departamento (área).')),
+        const SnackBar(content: Text('Selecciona la fecha límite.')),
+      );
+      return;
+    }
+    if (_cargoFiltro == 'todos') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecciona el cargo.')),
       );
       return;
     }
@@ -1245,8 +1055,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'requiere_adjunto': _requiresAttachment,
 
         // ✅ IDs consistentes para filtros
-        'centroId': _centroId!.trim(),
-        'centroNombre': _nombreCentroPorId(_centroId),
         'areaId': _areaId!.trim(),
         'areaNombre': _nombreAreaPorId(_areaId),
         'cargoFiltro': _cargoFiltro,
@@ -1341,7 +1149,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final scheme = theme.colorScheme;
 
     // Mantén cascada limpia en cada build (por si cambió data)
-    _ensureCentroYArea();
+    _ensureAreaDisponible();
 
     return Scaffold(
       appBar: AppBar(
@@ -1360,8 +1168,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  _chipInfo(Icons.apartment, _nombreCentroPorId(_centroId) ?? 'Centro: —',
-                      color: scheme.primary),
                   _chipInfo(Icons.account_tree_outlined, _nombreAreaPorId(_areaId) ?? 'Área: —',
                       color: scheme.secondary),
                   _chipInfo(
@@ -1416,6 +1222,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.subject),
                           ),
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Ingresa una descripción'
+                              : null,
                         ),
                         const SizedBox(height: 12),
                         SwitchListTile.adaptive(
@@ -1471,51 +1280,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // Centro de costos (primer filtro)
-                        DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          value: _centroId,
-                          decoration: const InputDecoration(
-                            labelText: 'Centro de costos',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.apartment),
-                          ),
-                          items: _centrosOrdenados
-                              .map(
-                                (c) => DropdownMenuItem(
-                              value: c['id'],
-                              child: Text(
-                                '${c['nombre'] ?? c['id'] ?? '—'}'
-                                    '${(c['codigo'] ?? '').trim().isEmpty ? '' : '  (${c['codigo']})'}',
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
-                              ),
-                            ),
-                          )
-                              .toList(),
-                          onChanged: (v) {
-                            setState(() {
-                              _centroId = v?.trim();
-                              // cascada: al cambiar centro, limpiamos área/cargo/asignado
-                              _areaId = null;
-                              _cargoFiltro = 'todos';
-                              _alElegirAsignado(null);
-                              _ensureCentroYArea();
-                            });
-                          },
-                          validator: (v) => (v == null || v.trim().isEmpty)
-                              ? 'Selecciona el centro de costos'
-                              : null,
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // Área (segundo filtro, ya depende del centro)
+                        // Área (primer filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _areaId,
                           decoration: const InputDecoration(
-                            labelText: 'Departamento (Área)',
+                            labelText: 'Área',
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.account_tree_outlined),
                           ),
@@ -1534,10 +1304,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           onChanged: (v) {
                             setState(() {
                               _areaId = v?.trim();
-                              // cascada: al cambiar área, limpiar cargo/asignado
                               _cargoFiltro = 'todos';
                               _alElegirAsignado(null);
-                              _ensureCentroYArea();
                             });
                           },
                           validator: (v) => (v == null || v.trim().isEmpty) ? 'Selecciona el área' : null,
@@ -1545,7 +1313,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
                         const SizedBox(height: 12),
 
-                        // Cargo (tercer filtro)
+                        // Cargo (segundo filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _cargoFiltro,
@@ -1559,7 +1327,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                 (c) => DropdownMenuItem(
                               value: c,
                               child: Text(
-                                c == 'todos' ? 'Todos los cargos' : c,
+                                c == 'todos' ? 'Selecciona un cargo' : c,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -1568,14 +1336,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           onChanged: (v) {
                             setState(() {
                               _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
-                              // cascada: al cambiar cargo, limpiar asignado si ya no aplica
-                              if (_asignadoUid != null) {
-                                final ok = _empleadosFiltrados.any((e) => e['uid'] == _asignadoUid);
-                                if (!ok) _alElegirAsignado(null);
-                              }
-                              _ensureCentroYArea();
+                              _alElegirAsignado(null);
+                              _ensureAreaDisponible();
                             });
                           },
+                          validator: (v) => (v == null || v == 'todos') ? 'Selecciona el cargo' : null,
+
                         ),
 
                         const SizedBox(height: 12),
