@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/user_company.dart';
 
 // Ajusta este import según tu estructura real (mayúsculas/minúsculas).
 import '../login/login_screen.dart';
@@ -263,9 +264,18 @@ class AppDrawer extends StatelessWidget {
               final primerApellido = parts.length > 1 ? parts[1] : '';
 
               // Cargo
-              final cargo =
-              ((estruct?['cargo'] as String?) ?? (user?['cargo'] as String?) ?? '')
-                  .trim();
+              final scopeEmpresa = EmpresaScope.of(context).selectedEmpresaId;
+              final cargoScoped = user == null
+                  ? ''
+                  : resolveScopedStringWithFallbacks(
+                user,
+                scopeEmpresa,
+                const ['cargo'],
+                const ['cargo'],
+              ).trim();
+              final cargo = cargoScoped.isNotEmpty
+                  ? cargoScoped
+                  : ((estruct?['cargo'] as String?) ?? '').trim();
 
               // Foto
               final fotoUrl = ((user?['fotoUrl'] as String?) ??

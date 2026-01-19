@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/utils/user_company.dart';
 
 /// ====== Paleta unificada (tema teal) ======
 const Color kTeal = Color(0xFF0F766E);       // AppBar, acentos
@@ -300,27 +301,33 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
             .doc(widget.currentUserId)
             .get();
         final mu = u.data() ?? {};
-        final cargoU =
-        (mu['cargo'] ?? mu['rol'] ?? mu['role'] ?? '').toString();
+        final scopeEmpresa = _empresaId ?? _selectedEmpresaId;
+        final cargoU = resolveScopedStringWithFallbacks(
+          mu,
+          scopeEmpresa,
+          const ['cargo'],
+          const ['cargo', 'rol', 'role'],
+        );
         final cargoIdU = (mu['cargoId'] ?? '').toString().toLowerCase();
-        final areaU = (mu['areaId'] ?? mu['area'] ?? '').toString();
-        final centroU = (mu['centroId'] ?? mu['centro'] ?? '').toString();
-        final empresaU = (mu['empresaId'] ?? '').toString().trim();
-        final empresasLista = mu['empresas'] as List<dynamic>? ?? [];
+        final areaU = resolveScopedStringWithFallbacks(
+          mu,
+          scopeEmpresa,
+          const ['areaId', 'area'],
+          const ['areaId', 'area'],
+        );
+        final centroU = resolveScopedStringWithFallbacks(
+          mu,
+          scopeEmpresa,
+          const ['centroId', 'centro'],
+          const ['centroId', 'centro'],
+        );
+        final empresasU = _empresasDe(mu);
 
         if ((_miAreaId ?? '').isEmpty) _miAreaId = areaU;
         if ((_miCentro ?? '').isEmpty) _miCentro = centroU;
         if ((_miCargo ?? '').isEmpty) _miCargo = cargoU;
-        if ((_empresaId ?? '').isEmpty && empresaU.isNotEmpty) {
-          _empresaId = empresaU;
-        } else if ((_empresaId ?? '').isEmpty) {
-          for (final e in empresasLista) {
-            final id = (e ?? '').toString().trim();
-            if (id.isNotEmpty) {
-              _empresaId = id;
-              break;
-            }
-          }
+        if ((_empresaId ?? '').isEmpty && empresasU.isNotEmpty) {
+          _empresaId = empresasU.first;
         }
 
         final isGerenteById = cargoIdU.contains('gerente');

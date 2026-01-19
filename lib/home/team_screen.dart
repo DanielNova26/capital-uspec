@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/utils/user_company.dart';
 
 const Color kTeal = Color(0xFF0F766E);
 const String kArial = 'Arial';
@@ -79,9 +80,21 @@ class _TeamScreenState extends State<TeamScreen> {
     try {
       final doc = await _db.collection('TBL_USUARIOS').doc(widget.currentUserId).get();
       final data = doc.data();
-      final empresa = (data?['empresaId'] ?? data?['empresa'] ?? '').toString();
-      if (empresa.isNotEmpty) {
-        _empresaId ??= empresa;
+      final empresas = <String>{};
+      final list = data?['empresas'] as List<dynamic>? ?? const [];
+      for (final e in list) {
+        final id = (e ?? '').toString().trim();
+        if (id.isNotEmpty) empresas.add(id);
+      }
+      final detalle = data?['empresasDetalle'] as Map<String, dynamic>?;
+      if (detalle != null) {
+        empresas.addAll(detalle.keys.map((k) => k.trim()).where((k) => k.isNotEmpty));
+      }
+      final fallback = (data?['empresaId'] ?? data?['empresa'] ?? '').toString().trim();
+      if (empresas.isNotEmpty) {
+        _empresaId ??= empresas.first;
+      } else if (fallback.isNotEmpty) {
+        _empresaId ??= fallback;
       }
     } catch (_) {}
   }
@@ -108,23 +121,28 @@ class _TeamScreenState extends State<TeamScreen> {
     try {
       final List<Map<String, String>> miembros = [];
       final scopeEmpresa = _empresaId;
+      debugScopedLog('[TeamScreen] scopeEmpresa=$scopeEmpresa');
 
       // 1) Usuario actual
       final selfDoc = await _db.collection('TBL_USUARIOS').doc(widget.currentUserId).get();
       final selfData = selfDoc.data() ?? {};
+      final selfCargo = resolveScopedString(selfData, scopeEmpresa, 'cargo', 'cargo');
+      final selfAreaId = resolveScopedStringWithFallbacks(
+        selfData,
+        scopeEmpresa,
+        const ['areaId', 'area'],
+        const ['areaId', 'area'],
+      );
       miembros.add({
         'uid': widget.currentUserId,
         'nombre': _nombreDeUsuario(selfData, fallback: widget.currentUserId),
-        'cargo': (selfData['cargo'] ?? '').toString(),
-        'areaId': (selfData['areaId'] ?? selfData['area'] ?? '').toString(),
+        'cargo': selfCargo,
+        'areaId': selfAreaId,
       });
 
       // 2) Subordinados directos (según estructura organizacional)
       Query<Map<String, dynamic>> q =
       _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').where('jefeId', isEqualTo: widget.currentUserId);
-      if (scopeEmpresa != null && scopeEmpresa.isNotEmpty) {
-        q = q.where('empresaId', isEqualTo: scopeEmpresa);
-      }
       final snap = await q.get();
       final subordinateIds = snap.docs.map((d) => d.id).toSet();
 
@@ -133,16 +151,23 @@ class _TeamScreenState extends State<TeamScreen> {
           final chunk = subordinateIds.skip(i).take(10).toList();
           Query<Map<String, dynamic>> uq = _db.collection('TBL_USUARIOS').where(FieldPath.documentId, whereIn: chunk);
           if (scopeEmpresa != null && scopeEmpresa.isNotEmpty) {
-            uq = uq.where('empresaId', isEqualTo: scopeEmpresa);
+            uq = uq.where('empresas', arrayContains: scopeEmpresa);
           }
           final usersSnap = await uq.get();
           for (final d in usersSnap.docs) {
             final data = d.data();
+            final cargo = resolveScopedString(data, scopeEmpresa, 'cargo', 'cargo');
+            final areaId = resolveScopedStringWithFallbacks(
+              data,
+              scopeEmpresa,
+              const ['areaId', 'area'],
+              const ['areaId', 'area'],
+            );
             miembros.add({
               'uid': d.id,
               'nombre': _nombreDeUsuario(data, fallback: d.id),
-              'cargo': (data['cargo'] ?? '').toString(),
-              'areaId': (data['areaId'] ?? data['area'] ?? '').toString(),
+              'cargo': cargo,
+              'areaId': areaId,
             });
           }
         }
@@ -151,6 +176,7 @@ class _TeamScreenState extends State<TeamScreen> {
       _miEquipo
         ..clear()
         ..addAll(miembros);
+      debugScopedLog('[TeamScreen] miembros=${_miEquipo.length}');
     } catch (_) {}
   }
 

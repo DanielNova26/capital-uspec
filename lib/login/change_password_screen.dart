@@ -3,6 +3,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'login_screen.dart'; // Ajusta si tu LoginScreen está en otra carpeta
+import 'package:todo/utils/user_company.dart';
 
 const String kArial = 'Arial';
 
@@ -63,9 +64,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           .doc(widget.usuario)
           .get();
 
-      final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
-      if (doc.exists && empresaDoc == widget.empresaId) {
-        final data = doc.data() as Map<String, dynamic>;
+      final data = doc.data();
+      if (doc.exists && data != null && userBelongsToEmpresa(data, widget.empresaId)) {
         setState(() {
           _nombre = (data['nombres'] as String?)?.trim();
         });
@@ -102,8 +102,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           .doc(widget.usuario);
 
       final doc = await docRef.get();
-      final empresaDoc = (doc.data()?['empresaId'] as String?)?.trim() ?? '';
-      if (!doc.exists || empresaDoc != widget.empresaId) {
+      final data = doc.data();
+      if (!doc.exists || data == null || !userBelongsToEmpresa(data, widget.empresaId)) {
         setState(() {
           _isLoading = false;
           _errorMessage = 'No se pudo validar la empresa del usuario.';

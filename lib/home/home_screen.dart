@@ -19,6 +19,7 @@ import '../admin/admin_dashboard_screen.dart';
 // Import relativo al Talento Humano Dashboard
 import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
+import 'document_management_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart';
 import 'assigned_tasks_screen.dart';
@@ -737,12 +738,14 @@ class _HomeScreenState extends State<HomeScreen> {
           final isTH = appIdLower == 'talentohumanodashboard';
           final isAdmin = appIdLower == 'admindashboard';
           final isGerencia = appIdLower == 'gerenciadashboard';
+          final isDoc = appIdLower == 'gestiondocumental';
           final visibleByRole = role == 'desarrollador';
           final visibleByAssign = assignedLower.contains(appIdLower);
 
           return (isTH && (visibleByRole || visibleByAssign)) ||
               (isAdmin && (visibleByRole || visibleByAssign)) ||
-              (isGerencia && (visibleByRole || visibleByAssign));
+              (isGerencia && (visibleByRole || visibleByAssign)) ||
+              (isDoc && (visibleByRole || visibleByAssign));
         }).map((doc) {
           final data = doc.data();
           final appId = (data['appId'] as String?)?.trim() ?? '';
@@ -761,6 +764,9 @@ class _HomeScreenState extends State<HomeScreen> {
             case 'gerenciadashboard':
               icon = const Icon(Icons.domain, size: 32, color: Colors.white);
               break;
+          case 'gestiondocumental':
+          icon = const Icon(Icons.folder_shared, size: 32, color: Colors.white);
+          break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
           }
@@ -791,6 +797,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                         builder: (_) =>
                             GerenciaDashboardScreen(userId: cedula)),
+                  );
+                  break;
+                case 'gestiondocumental':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          DocumentManagementScreen(currentUserId: cedula),
+                    ),
                   );
                   break;
                 default:
@@ -850,6 +865,59 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildDocumentManagementCard({required String cedula}) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DocumentManagementScreen(currentUserId: cedula),
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: scheme.primary.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.primary.withOpacity(0.2)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: scheme.primary,
+              child: Icon(Icons.folder_shared, color: scheme.onPrimary),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Gestión documental',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Sube Word, controla estados y firmas digitales.',
+                    style: TextStyle(fontFamily: kArial, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: scheme.primary),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1283,6 +1351,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               empresaId: empresaId,
                               role: role,
                               assignedApps: assignedApps,
+                              cedula: effectiveId,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildDocumentManagementCard(
                               cedula: effectiveId,
                             ),
                             const SizedBox(height: 24),
