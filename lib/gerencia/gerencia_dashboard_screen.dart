@@ -35,22 +35,16 @@ double _scoreForTask(Map<String, dynamic> task) {
 
   double score = 10;
   switch (estado) {
-    case 'finalizada':
+    case 'finalizado':
       score += 30;
       break;
-    case 'completada':
-      score += 24;
+    case 'por_aprobar':
+      score += 20;
       break;
     case 'en_progreso':
       score += 14;
       break;
-    case 'reasignado':
-      score += 6;
-      break;
-    case 'devuelta':
-      score -= 8;
-      break;
-    case 'retrasado':
+    case 'retrasada':
       score -= 6;
       break;
     default:
@@ -89,8 +83,8 @@ class _PersonScore {
   final String displayName;
   final String area;
   int total = 0;
-  int completadas = 0;
-  int devueltas = 0;
+  int finalizadas = 0;
+  int porAprobar = 0;
   int retrasadas = 0;
   int aTiempo = 0;
   double puntos = 0;
@@ -103,12 +97,12 @@ class _PersonScore {
     final score = _scoreForTask(task);
 
     puntos += score;
-    if (estado == 'completada' || estado == 'finalizada') {
-      completadas++;
+    if (estado == 'finalizado') {
+      finalizadas++;
     }
-    if (estado == 'devuelta') devueltas++;
-    if (estado == 'retrasado') retrasadas++;
-    if (days != null && days >= 0 && estado != 'devuelta') aTiempo++;
+    if (estado == 'por_aprobar') porAprobar++;
+    if (estado == 'retrasada') retrasadas++;
+    if (days != null && days >= 0) aTiempo++;
   }
 }
 
@@ -542,9 +536,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         case 'todas':
           statusMatch = true;
           break;
-        case 'activas':
-          statusMatch = estado != 'completada' && estado != 'finalizada';
-          break;
         default:
           statusMatch = estado == _statusFilter;
       }
@@ -614,18 +605,14 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         required void Function(String value) onSelectStatus,
       }) {
     final total = tasks.length;
-    final activas = tasks.where((t) {
-      final estado = _resolvedEstado(t.data());
-      return estado != 'completada' && estado != 'finalizada';
-    }).length;
-    final finalizadas = tasks.where((t) {
-      final estado = _resolvedEstado(t.data());
-      return estado == 'completada' || estado == 'finalizada';
-    }).length;
-    final devueltas =
-        tasks.where((t) => _resolvedEstado(t.data()) == 'devuelta').length;
+    final enProgreso =
+        tasks.where((t) => _resolvedEstado(t.data()) == 'en_progreso').length;
+    final porAprobar =
+        tasks.where((t) => _resolvedEstado(t.data()) == 'por_aprobar').length;
+    final finalizadas =
+        tasks.where((t) => _resolvedEstado(t.data()) == 'finalizado').length;
     final retrasadas =
-        tasks.where((t) => _resolvedEstado(t.data()) == 'retrasado').length;
+        tasks.where((t) => _resolvedEstado(t.data()) == 'retrasada').length;
     final promedioPuntos = scores.values.isEmpty
         ? 0
         : scores.values.map((e) => e.puntos).reduce((a, b) => a + b) /
@@ -637,36 +624,36 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
     final cards = [
       _SummaryCard(
-        title: 'Tareas activas',
-        value: '$activas',
+        title: 'En progreso',
+        value: '$enProgreso',
         icon: Icons.assignment,
         color: Colors.blue.shade50,
-        isActive: activeStatus == 'activas',
-        onTap: () => toggle('activas'),
+        isActive: activeStatus == 'en_progreso',
+        onTap: () => toggle('en_progreso'),
+      ),
+      _SummaryCard(
+        title: 'Por aprobar',
+        value: '$porAprobar',
+        icon: Icons.hourglass_top,
+        color: Colors.orange.shade50,
+        isActive: activeStatus == 'por_aprobar',
+        onTap: () => toggle('por_aprobar'),
       ),
       _SummaryCard(
         title: 'Finalizadas',
         value: '$finalizadas',
         icon: Icons.check_circle,
         color: Colors.green.shade50,
-        isActive: activeStatus == 'finalizada',
-        onTap: () => toggle('finalizada'),
-      ),
-      _SummaryCard(
-        title: 'Devueltas',
-        value: '$devueltas',
-        icon: Icons.undo,
-        color: Colors.purple.shade50,
-        isActive: activeStatus == 'devuelta',
-        onTap: () => toggle('devuelta'),
+        isActive: activeStatus == 'finalizado',
+        onTap: () => toggle('finalizado'),
       ),
       _SummaryCard(
         title: 'Retrasadas',
         value: '$retrasadas',
         icon: Icons.alarm,
         color: Colors.red.shade50,
-        isActive: activeStatus == 'retrasado',
-        onTap: () => toggle('retrasado'),
+        isActive: activeStatus == 'retrasada',
+        onTap: () => toggle('retrasada'),
       ),
       _SummaryCard(
         title: 'Promedio de puntos',
@@ -798,7 +785,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               DataColumn(label: Text('Tareas', style: TextStyle(fontFamily: kArial))),
               DataColumn(label: Text('A tiempo', style: TextStyle(fontFamily: kArial))),
               DataColumn(label: Text('Retrasadas', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('Devueltas', style: TextStyle(fontFamily: kArial))),
+              DataColumn(label: Text('Por aprobar', style: TextStyle(fontFamily: kArial))),
               DataColumn(label: Text('Puntos', style: TextStyle(fontFamily: kArial))),
             ],
             rows: rows
@@ -809,7 +796,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                 DataCell(Text('${r.total}', style: const TextStyle(fontFamily: kArial))),
                 DataCell(Text('${r.aTiempo}', style: const TextStyle(fontFamily: kArial))),
                 DataCell(Text('${r.retrasadas}', style: const TextStyle(fontFamily: kArial))),
-                DataCell(Text('${r.devueltas}', style: const TextStyle(fontFamily: kArial))),
+                    DataCell(Text('${r.porAprobar}', style: const TextStyle(fontFamily: kArial))),
                 DataCell(Text(r.puntos.toStringAsFixed(1),
                     style: const TextStyle(fontFamily: kArial))),
               ]),

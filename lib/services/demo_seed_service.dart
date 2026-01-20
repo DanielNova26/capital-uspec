@@ -573,7 +573,7 @@ class DemoSeedService {
         'titulo': 'Actualizar tablero de indicadores',
         'descripcion':
         'Sube las métricas de cumplimiento del trimestre y comparte al equipo.',
-        'estado': 'pendiente',
+        'estado': 'en_progreso',
         'prioridad': 'media',
         'asignado_uid': reviewerCedula,
         'asignado_nombre': '$reviewerNombres $reviewerApellidos',
@@ -596,7 +596,7 @@ class DemoSeedService {
       {
         'titulo': 'Capacitación en protocolos de seguridad',
         'descripcion': 'Coordina con Talento Humano la sesión virtual del viernes.',
-        'estado': 'completada',
+        'estado': 'finalizado',
         'prioridad': 'alta',
         'asignado_uid': coordinadorCedula,
         'asignado_nombre': coordinadorNombreCompleto,

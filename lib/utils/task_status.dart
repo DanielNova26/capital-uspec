@@ -37,42 +37,54 @@ String resolveTaskStatus(Map<String, dynamic> data) {
       .trim()
       .toLowerCase();
   final approved = _isTrue(data['approved']);
+  final finishRequest = (data['solicitud_finalizacion_estado'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
 
-  if (approved || raw == 'finalizado' || raw == 'finalizada') return 'finalizada';
-  if (raw == 'completada' || raw == 'pendiente_aprobacion') return 'completada';
-  if (_hasPendingReassign(data) || raw == 'reasignado') return 'reasignado';
+  if (approved ||
+      raw == 'finalizado' ||
+      raw == 'finalizada' ||
+      raw == 'completada') {
+    return 'finalizado';
+  }
+
+  if (raw == 'por_aprobar' ||
+      raw == 'pendiente_aprobacion' ||
+      finishRequest == 'pendiente') {
+    return 'por_aprobar';
+  }
 
   final due = taskToDate(data['fecha_limite'] ?? data['dueDate']);
   final days = taskDaysLeft(due);
-  if (raw == 'retrasado' || (days != null && days < 0)) return 'retrasado';
+  if (raw == 'retrasada' ||
+      raw == 'retrasado' ||
+      (days != null && days < 0)) {
+    return 'retrasada';
+  }
 
-  if (raw == 'devuelta') return 'devuelta';
+  if (_hasPendingReassign(data) ||
+      raw == 'reasignado' ||
+      raw == 'devuelta' ||
+      raw == 'visto' ||
+      raw == 'activas' ||
+      raw == 'activo' ||
+      raw == 'pendiente') {
+    return 'en_progreso';
+  }
 
-  if (raw == 'en_progreso') return 'en_progreso';
-
-  final visto = _isTrue(data['visto']);
-  if (visto || raw == 'visto') return 'visto';
-
-  return 'activas';
+  return 'en_progreso';
 }
 
 Color taskStatusColor(String status) {
   switch (status) {
-    case 'activas':
-      return Colors.orange.shade600;
-    case 'visto':
-      return Colors.blueGrey.shade500;
     case 'en_progreso':
       return Colors.blue.shade600;
-    case 'reasignado':
-      return Colors.teal.shade600;
-    case 'completada':
-      return Colors.green.shade700;
-    case 'finalizada':
+    case 'por_aprobar':
+      return Colors.orange.shade700;
+    case 'finalizado':
       return Colors.green.shade800;
-    case 'devuelta':
-      return Colors.purple.shade600;
-    case 'retrasado':
+    case 'retrasada':
       return Colors.red.shade700;
     default:
       return Colors.grey.shade600;

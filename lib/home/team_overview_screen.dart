@@ -157,14 +157,10 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   final Map<String, String> _areas = {'todas': 'Todas las áreas'};
   final Map<String, String> _estados = const {
     'todos': 'Todos',
-    'activas': 'Activas',
-    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'reasignado': 'Reasignadas',
-    'completada': 'Completadas',
-    'devuelta': 'Devueltas',
-    'finalizada': 'Finalizadas',
-    'retrasado': 'Retrasadas',
+    'por_aprobar': 'Por aprobar',
+    'finalizado': 'Finalizado',
+    'retrasada': 'Retrasada',
   };
   final Map<String, String> _cargos = {'todos': 'Todos los cargos'};
   final Map<String, String> _centros = {'todos': 'Todos los centros'};

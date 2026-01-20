@@ -21,6 +21,7 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:todo/utils/task_status.dart';
 
 import '../services/task_service.dart';
 
@@ -316,7 +317,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final estado = (_task?['estado'] ?? '').toString();
+    final estado = _task == null ? '' : resolveTaskStatus(_task!);
     final due = _task?['fecha_limite'];
 
     String fmtDue(dynamic ts) {
@@ -371,14 +372,9 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
                               children: [
                                 Chip(
                                   label: Text(
-                                    estado.isEmpty ? 'pendiente' : estado,
+                                    estado.isEmpty ? 'en_progreso' : estado,
                                     style: const TextStyle(color: Colors.white, fontFamily: kArial),
                                   ),
-                                  backgroundColor: estado == 'completada'
-                                      ? Colors.green.shade600
-                                      : estado == 'pendiente'
-                                      ? Colors.orange.shade700
-                                      : Colors.blueGrey.shade700,
                                 ),
                                 Chip(
                                   label: Text(

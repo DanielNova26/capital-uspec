@@ -46,7 +46,7 @@ class AssignedTasksScreen extends StatefulWidget {
 class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // filtros
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'todas'; // todas | activas | visto | en_progreso | reasignado | completada | devuelta | finalizada | retrasado
+  String _statusFilter = 'todas'; // todas | en_progreso | por_aprobar | finalizado | retrasada
   String _areaFilter = 'todas';
   bool _groupByArea = true;
   final Map<String, bool> _areaExpanded = {};
@@ -184,21 +184,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   String _statusLabel(String status) {
     switch (status) {
-      case 'activas':
-        return 'Activa';
-      case 'visto':
-        return 'Vista';
       case 'en_progreso':
         return 'En progreso';
-      case 'reasignado':
-        return 'Reasignada';
-      case 'completada':
-        return 'Completada';
-      case 'devuelta':
-        return 'Devuelta';
-      case 'finalizada':
-        return 'Finalizada';
-      case 'retrasado':
+      case 'por_aprobar':
+        return 'Por aprobar';
+      case 'finalizado':
+        return 'Finalizado';
+      case 'retrasada':
         return 'Retrasada';
       default:
         return status.isEmpty ? 'sin_estado' : status;
@@ -302,14 +294,18 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final byName = _currentUserName();
 
     await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
-      'estado': 'completada',
-      'fecha_completada': now,
+      'estado': 'por_aprobar',
+      'status': 'por_aprobar',
+      'solicitud_finalizacion_estado': 'pendiente',
+      'solicitud_finalizacion_at': now,
+      'solicitud_finalizacion_by_uid': widget.userId,
+      'solicitud_finalizacion_by_nombre': byName,
       'actualizada_en': now,
       'fecha_actualizacion': now,
       'updatedAt': now,
-      'lastEventType': 'completada',
+      'lastEventType': 'solicitud_finalizacion',
       'lastEventAt': now,
-      'lastEventText': 'Tarea completada por $byName',
+      'lastEventText': 'Solicitud de finalización enviada por $byName',
     });
   }
 
@@ -325,7 +321,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Esta tarea no requiere adjuntos.\n\nSe marcará como completada.\n\n¿Deseas continuar?',
+                'Esta tarea no requiere adjuntos.\n\nSe enviará a aprobación.\n\n¿Deseas continuar?',
                 style: TextStyle(fontFamily: kArial),
               ),
             ),
@@ -340,7 +336,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 await _quickCompleteTask(taskId);
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Tarea completada.')),
+                  const SnackBar(content: Text('Solicitud enviada para aprobación.')),
                 );
               } catch (e) {
                 if (!mounted) return;
@@ -764,7 +760,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
     final status = _resolvedStatus(data);
-    final isDone = status == 'completada' || status == 'finalizada';
+    final isDone = status == 'finalizado';
     final finishPending = _finishPending(data);
     final requiresAttachment = _requiresAttachment(data);
     final lockEdits = finishPending;
@@ -841,7 +837,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               const Divider(height: 1),
             ],
 
-            // Acciones de trabajo (si NO está finalizada)
+            // Acciones de trabajo (si NO está finalizado)
             if (!isDone) ...[
               // Completar tarea: si hay finalización pendiente, se bloquea (para que no dupliques flujo)
               ListTile(
@@ -855,7 +851,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       ? 'Ya existe una solicitud de finalización pendiente.'
                       : requiresAttachment
                       ? 'Debes adjuntar evidencias para completar.'
-                      : 'Se marcará como completada sin adjuntos.',
+                      : 'Se enviará a aprobación sin adjuntos.',
                   style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
                 ),
                 enabled: !lockEdits,
@@ -868,6 +864,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                       builder: (_) => CompleteTaskScreen(
                         taskId: taskId,
                         currentUserId: widget.userId,
+                        requestFinish: true,
+                        requestFinishByName: _currentUserName(),
                       ),
                     ));
                     return;
@@ -940,7 +938,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               const Divider(height: 1),
             ],
 
-            // Opción B: Reasignar / Solicitar reasignación (si la tarea no está finalizada)
+            // Opción B: Reasignar / Solicitar reasignación (si la tarea no está finalizado)
             if (!isDone)
               ListTile(
                 leading: const Icon(Icons.switch_account),
@@ -1105,14 +1103,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     const statusItems = [
       DropdownMenuItem(value: 'todas', child: Text('Todas')),
-      DropdownMenuItem(value: 'activas', child: Text('Activas')),
-      DropdownMenuItem(value: 'visto', child: Text('Vistas')),
       DropdownMenuItem(value: 'en_progreso', child: Text('En progreso')),
-      DropdownMenuItem(value: 'reasignado', child: Text('Reasignadas')),
-      DropdownMenuItem(value: 'completada', child: Text('Completadas')),
-      DropdownMenuItem(value: 'devuelta', child: Text('Devueltas')),
-      DropdownMenuItem(value: 'finalizada', child: Text('Finalizadas')),
-      DropdownMenuItem(value: 'retrasado', child: Text('Retrasadas')),
+      DropdownMenuItem(value: 'por_aprobar', child: Text('Por aprobar')),
+      DropdownMenuItem(value: 'finalizado', child: Text('Finalizado')),
+      DropdownMenuItem(value: 'retrasada', child: Text('Retrasada')),
     ];
 
     return Card(

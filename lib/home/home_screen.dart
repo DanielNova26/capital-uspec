@@ -58,11 +58,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final t = raw.trim().toLowerCase();
     if (t.startsWith('task_status_')) {
       final status = t.replaceFirst('task_status_', '').trim();
-      if (status == 'finalizada' || status == 'finalizado' || status == 'completada') {
+      if (status == 'finalizada' ||
+          status == 'finalizado' ||
+          status == 'completada' ||
+          status == 'por_aprobar') {
         return 'Finalización';
       }
       if (status == 'en_progreso') return 'Avances';
-      if (status == 'devuelta') return 'Novedades';
     }
 
     // Avances (incluye tus types reales)
@@ -1048,17 +1050,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _chipEstado(String estado, ColorScheme scheme) {
     Color color;
     switch (estado) {
-      case 'pendiente':
-        color = Colors.orange.shade700;
-        break;
       case 'en_progreso':
         color = Colors.blue.shade700;
         break;
-      case 'completada':
+      case 'por_aprobar':
+        color = Colors.orange.shade700;
+        break;
+      case 'finalizado':
         color = Colors.green.shade700;
         break;
-      case 'devuelta':
-        color = Colors.purple.shade700;
+      case 'retrasada':
+        color = Colors.red.shade700;
         break;
       default:
         color = scheme.outline;

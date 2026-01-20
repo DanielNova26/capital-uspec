@@ -340,7 +340,8 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         if (widget.requestFinish) {
           final byName = (widget.requestFinishByName ?? data['asignado_nombre'] ?? '').toString();
           trx.update(tareaRef, {
-            'estado': 'pendiente_aprobacion',
+            'estado': 'por_aprobar',
+            'status': 'por_aprobar',
             'solicitud_finalizacion_estado': 'pendiente',
             'solicitud_finalizacion_at': now,
             'solicitud_finalizacion_by_uid': widget.currentUserId,
@@ -358,29 +359,35 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         }
 
         trx.update(tareaRef, {
-          'estado': 'completada',
+          'estado': 'finalizado',
+          'status': 'finalizado',
           'fecha_completada': FieldValue.serverTimestamp(), // OK top-level
           'adjuntos': [...currentAdj, ...nuevosAdjuntos],
           'evidencias': [...currentEvid, ...nuevasEvidenciasUrls],
           'actualizada_en': FieldValue.serverTimestamp(),
+          'lastEventType': 'finalizado',
+          'lastEventAt': now,
+          'lastEventText': 'Tarea finalizada por ${data['asignado_nombre'] ?? ''}',
         });
       });
 
       // 3) Notificar al creador (callable)
-      if (!widget.requestFinish && creadorId.isNotEmpty) {
+      if (creadorId.isNotEmpty) {
         final fun = FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
         await fun.call(<String, dynamic>{
           'taskId': widget.taskId,
           'creatorId': creadorId,
-          'title': 'Tarea completada',
-          'body': '${_taskTitle ?? 'Tarea'} fue completada por $asignadoNombre',
+          'title': widget.requestFinish ? 'Solicitud de finalización' : 'Tarea finalizada',
+          'body': widget.requestFinish
+              ? '${_taskTitle ?? 'Tarea'} fue enviada para aprobación por $asignadoNombre'
+              : '${_taskTitle ?? 'Tarea'} fue finalizada por $asignadoNombre',
         });
       }
 
       if (mounted) {
         final msg = widget.requestFinish
             ? 'Solicitud de finalización enviada.'
-            : '¡Tarea completada!';
+            : '¡Tarea finalizada!';
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         Navigator.pop(context, true);
       }
@@ -437,10 +444,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                               spacing: 8,
                               runSpacing: 6,
                               children: [
-                                _chip(estado.isEmpty ? 'pendiente' : estado,
-                                    color: estado == 'completada'
+                                _chip(estado.isEmpty ? 'en_progreso' : estado,
+                                    color: estado == 'finalizado'
                                         ? Colors.green.shade600
-                                        : (estado == 'pendiente'
+                                        : (estado == 'por_aprobar'
                                         ? Colors.orange.shade700
                                         : Colors.blueGrey.shade700)),
                                 _chip('Vence: ${_fmtDueDate(due)}', color: Colors.blue.shade600),

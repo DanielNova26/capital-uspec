@@ -34,10 +34,10 @@ int? _daysLeft(DateTime? due) {
 Color _statusColor(String s) => taskStatusColor(s);
 
 /// Estado efectivo con prioridad:
-/// 1) finalizada (o approved == true)
-/// 2) completada
-/// 3) retrasado (si vencida y no finalizada/completada)
-/// 4) el estado que tenga o 'pendiente'
+/// 1) finalizado (o approved == true)
+/// 2) por_aprobar
+/// 3) retrasada (si vencida y no finalizado)
+/// 4) en_progreso
 String _resolvedEstado(Map<String, dynamic> m) => resolveTaskStatus(m);
 
 /// Extrae un mensaje/descripcion de múltiples claves posibles (robusto)
@@ -810,14 +810,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   final Map<String, String> _areasMap = {'todas': 'Todas'};
   final Map<String, String> _estadosMap = {
     'todos': 'Todos',
-    'activas': 'Activas',
-    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'reasignado': 'Reasignadas',
-    'completada': 'Completadas',
-    'devuelta': 'Devueltas',
-    'finalizada': 'Finalizadas',
-    'retrasado': 'Retrasadas',
+    'por_aprobar': 'Por aprobar',
+    'finalizado': 'Finalizado',
+    'retrasada': 'Retrasada',
   };
 
   @override
@@ -1183,7 +1179,7 @@ class _AssignedTile extends StatelessWidget {
   }
 
   Widget _countdownBadge(DateTime? due, String estado) {
-    if (estado == 'finalizada') return const SizedBox.shrink();
+    if (estado == 'finalizado') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
 
@@ -1613,14 +1609,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   final Map<String, String> _areasMap = {'todas': 'Todas'};
   final Map<String, String> _estadosMap = const {
     'todos': 'Todos',
-    'activas': 'Activas',
-    'visto': 'Vistas',
     'en_progreso': 'En progreso',
-    'reasignado': 'Reasignadas',
-    'completada': 'Completadas',
-    'devuelta': 'Devueltas',
-    'finalizada': 'Finalizadas',
-    'retrasado': 'Retrasadas',
+    'por_aprobar': 'Por aprobar',
+    'finalizado': 'Finalizado',
+    'retrasada': 'Retrasada',
   };
 
   @override
@@ -1986,7 +1978,7 @@ class _CreatedTileState extends State<_CreatedTile> {
   );
 
   Widget _countdownBadge(DateTime? due, String estado) {
-    if (estado == 'finalizada') return const SizedBox.shrink();
+    if (estado == 'finalizado') return const SizedBox.shrink();
     final d = _daysLeft(due);
     if (d == null) return const SizedBox.shrink();
     Color bg;
@@ -2071,7 +2063,7 @@ class _CreatedTileState extends State<_CreatedTile> {
           }
         }
 
-        final leading = estado == 'finalizada'
+        final leading = estado == 'finalizado'
             ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
             : (hasNovedad
             ? const Icon(Icons.error_outline, color: Colors.amber, size: 20)
@@ -2183,7 +2175,7 @@ class _CreatedTileState extends State<_CreatedTile> {
       }) async {
     final m = doc.data();
 
-    if (resEstado == 'finalizada') {
+    if (resEstado == 'finalizado') {
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -2205,9 +2197,9 @@ class _CreatedTileState extends State<_CreatedTile> {
                   labelPadding: const EdgeInsets.symmetric(horizontal: 6),
                   visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  label: const Text('finalizada',
+                  label: const Text('finalizado',
                       style: TextStyle(color: Colors.white, fontSize: 11)),
-                  backgroundColor: _statusColor('finalizada'),
+                  backgroundColor: _statusColor('finalizado'),
                 ),
               ),
               const Divider(height: 1),
@@ -2345,10 +2337,10 @@ class _CreatedTileState extends State<_CreatedTile> {
       ) async {
     final m = doc.data();
     final estado = _resolvedEstado(m);
-    if (estado == 'finalizada') {
+    if (estado == 'finalizado') {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Ya está finalizada.')));
+            .showSnackBar(const SnackBar(content: Text('Ya está finalizado.')));
       }
       return;
     }
@@ -2368,7 +2360,8 @@ class _CreatedTileState extends State<_CreatedTile> {
 
     final completedFlag = (m['completed'] == true) ||
         (m['completada'] == true) ||
-        (m['finalizada'] == true);
+        (m['finalizada'] == true) ||
+        (m['finalizado'] == true);
     final completedAt = m['completedAt'] ?? m['completionAt'] ?? m['finalizedAt'];
     if (completedFlag || completedAt != null) hasFinalizacionRequest = true;
 
@@ -2728,8 +2721,9 @@ class _CreatedTileState extends State<_CreatedTile> {
     await doc.reference.update({
       'approved': true,
       'approvedAt': FieldValue.serverTimestamp(),
-      'estado': 'finalizada',
-      'status': 'finalizada',
+      'estado': 'finalizado',
+      'status': 'finalizado',
+      'solicitud_finalizacion_estado': 'aprobado',
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
@@ -2819,8 +2813,8 @@ class _CreatedTileState extends State<_CreatedTile> {
 
     if (ok == true && nuevaFecha != null && motivoCtrl.text.trim().isNotEmpty) {
       await doc.reference.update({
-        'estado': 'devuelta',
-        'status': 'devuelta',
+        'estado': 'en_progreso',
+        'status': 'en_progreso',
         'fecha_limite': Timestamp.fromDate(nuevaFecha!),
         'updatedAt': FieldValue.serverTimestamp(),
       });

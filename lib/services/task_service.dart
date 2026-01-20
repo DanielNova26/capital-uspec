@@ -178,7 +178,7 @@ class TaskService {
   Future<String> createTaskEs({
     required String titulo,
     String descripcion = '',
-    String estado = 'pendiente',
+    String estado = 'en_progreso',
     String prioridad = 'media',
 
     // asignación
@@ -300,7 +300,12 @@ class TaskService {
           .toString()
           .trim()
           .toLowerCase();
-      final nextEstado = (currentEstado == 'pendiente' || currentEstado == 'devuelta')
+      final nextEstado = (currentEstado.isEmpty ||
+          currentEstado == 'pendiente' ||
+          currentEstado == 'devuelta' ||
+          currentEstado == 'visto' ||
+          currentEstado == 'activas' ||
+          currentEstado == 'reasignado')
           ? 'en_progreso'
           : (t['estado'] ?? t['status'] ?? '');
 
@@ -375,7 +380,11 @@ class TaskService {
           .toString()
           .trim()
           .toLowerCase();
-      final nextEstado = currentEstado == 'devuelta'
+      final nextEstado = (currentEstado.isEmpty ||
+          currentEstado == 'devuelta' ||
+          currentEstado == 'visto' ||
+          currentEstado == 'activas' ||
+          currentEstado == 'reasignado')
           ? 'en_progreso'
           : (t['estado'] ?? t['status'] ?? '');
 
@@ -471,8 +480,8 @@ class TaskService {
       if (newAreaId != null && newAreaId.trim().isNotEmpty) 'areaId': newAreaId.trim(),
 
       // estado recomendado al reasignar
-      'estado': 'pendiente',
-      'status': 'pendiente',
+      'estado': 'en_progreso',
+      'status': 'en_progreso',
       'reasignado': false,
       
       // trazabilidad
@@ -618,7 +627,7 @@ class TaskService {
     return {
       'title': str(['titulo', 'title']),
       'description': str(['descripcion', 'description']),
-      'status': str(['estado', 'status'], def: 'pendiente'),
+      'status': str(['estado', 'status'], def: 'en_progreso'),
       'assignedTo': str(['asignado_uid', 'assignedTo']),
       'assignedToName': str(['asignado_nombre', 'assignedToName']),
       'creatorId': str(['creador_id', 'creatorId']),

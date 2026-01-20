@@ -1049,7 +1049,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'prioridad': _priority,
         'fecha_creacion': FieldValue.serverTimestamp(),
         'fecha_limite': _deadline == null ? null : Timestamp.fromDate(_deadline!),
-        'estado': 'pendiente',
+        'estado': 'en_progreso',
         'visto': false,
         'reasignado': false,
         'requiere_adjunto': _requiresAttachment,

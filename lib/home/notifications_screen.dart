@@ -15,11 +15,13 @@ String? _processTabForNotifType(String raw) {
   final t = raw.trim().toLowerCase();
   if (t.startsWith('task_status_')) {
     final status = t.replaceFirst('task_status_', '').trim();
-    if (status == 'finalizada' || status == 'finalizado' || status == 'completada') {
+    if (status == 'finalizada' ||
+        status == 'finalizado' ||
+        status == 'completada' ||
+        status == 'por_aprobar') {
       return 'Finalización';
     }
     if (status == 'en_progreso') return 'Avances';
-    if (status == 'devuelta') return 'Novedades';
   }
 
   const avances = {
