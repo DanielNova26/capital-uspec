@@ -333,16 +333,40 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _loadEstructura() async {
     try {
-      Query<Map<String, dynamic>> ref =
+      final baseRef =
       FirebaseFirestore.instance.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
+      QuerySnapshot<Map<String, dynamic>> qs;
       if (_empresaId != null && _empresaId!.isNotEmpty) {
-        ref = ref.where('empresaId', isEqualTo: _empresaId);
+        try {
+          qs = await baseRef.where('empresas', arrayContains: _empresaId).get();
+          if (qs.docs.isEmpty) {
+            qs = await baseRef.where('empresaId', isEqualTo: _empresaId).get();
+          }
+        } catch (_) {
+          qs = await baseRef.where('empresaId', isEqualTo: _empresaId).get();
+        }
+      } else {
+        qs = await baseRef.get();
       }
 
-      final qs = await ref.get();
-      _estructura
-        ..clear()
-        ..addEntries(qs.docs.map((d) => MapEntry(d.id, d.data())));
+      _estructura.clear();
+      for (final d in qs.docs) {
+        final data = Map<String, dynamic>.from(d.data());
+        if (_empresaId != null && _empresaId!.isNotEmpty) {
+          final detalle = data['empresasDetalle'];
+          if (detalle is Map && detalle[_empresaId] is Map) {
+            final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
+            data.addAll(det);
+            data['empresaId'] = _empresaId;
+          } else {
+            final rootEmpresa = _empresaDe(data).trim();
+            if (rootEmpresa.isNotEmpty && rootEmpresa != _empresaId) {
+              continue;
+            }
+          }
+        }
+        _estructura[d.id] = data;
+      }
 
     } catch (_) {
       _estructura.clear();

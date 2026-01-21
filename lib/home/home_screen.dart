@@ -20,6 +20,7 @@ import '../admin/admin_dashboard_screen.dart';
 import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart';
+import '../nutricion/nutricion_dashboard_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart';
 import 'assigned_tasks_screen.dart';
@@ -741,6 +742,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final isAdmin = appIdLower == 'admindashboard';
           final isGerencia = appIdLower == 'gerenciadashboard';
           final isDoc = appIdLower == 'gestiondocumental';
+          final isNutricion = appIdLower == 'nutriciondashboard';
           final visibleByRole = role == 'desarrollador';
           final visibleByAssign = assignedLower.contains(appIdLower);
           final visibleDocByAssign = isDoc && visibleByAssign;
@@ -748,6 +750,7 @@ class _HomeScreenState extends State<HomeScreen> {
           return (isTH && (visibleByRole || visibleByAssign)) ||
               (isAdmin && (visibleByRole || visibleByAssign)) ||
               (isGerencia && (visibleByRole || visibleByAssign)) ||
+              (isNutricion && (visibleByRole || visibleByAssign)) ||
               visibleDocByAssign;
         }).map((doc) {
           final data = doc.data();
@@ -768,7 +771,12 @@ class _HomeScreenState extends State<HomeScreen> {
               icon = const Icon(Icons.domain, size: 32, color: Colors.white);
               break;
           case 'gestiondocumental':
-          icon = const Icon(Icons.folder_shared, size: 32, color: Colors.white);
+          icon =
+          const Icon(Icons.folder_shared, size: 32, color: Colors.white);
+          break;
+          case 'nutriciondashboard':
+          icon = const Icon(Icons.restaurant_menu,
+          size: 32, color: Colors.white);
           break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
@@ -808,6 +816,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                       builder: (_) =>
                           DocumentManagementScreen(currentUserId: cedula),
+                    ),
+                  );
+                  break;
+                case 'nutriciondashboard':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => NutricionDashboardScreen(
+                        userId: cedula,
+                        empresaId: empresaId,
+                      ),
                     ),
                   );
                   break;
