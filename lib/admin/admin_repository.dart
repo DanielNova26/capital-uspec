@@ -141,6 +141,20 @@ class AdminRepository {
   }
 
   // ---------------- APPS ----------------
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadAppsByEmpresa(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_APPS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final out = snap.docs.toList();
+    out.sort((a, b) {
+      final an = (a.data()['nombre'] ?? a.id).toString();
+      final bn = (b.data()['nombre'] ?? b.id).toString();
+      return an.compareTo(bn);
+    });
+    return out;
+  }
+
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadEnabledAppsByEmpresa(String empresaId) async {
     final snap = await _db
         .collection('TBL_APPS')
@@ -154,6 +168,39 @@ class AdminRepository {
       return an.compareTo(bn);
     });
     return out;
+  }
+
+  Future<void> upsertApp({
+    required String empresaId,
+    required String appId,
+    required String nombre,
+    String? descripcion,
+    bool enabled = true,
+    bool isNew = false,
+  }) async {
+    final docId = '${empresaId}_$appId';
+    final payload = <String, dynamic>{
+      'empresaId': empresaId,
+      'appId': appId,
+      'nombre': nombre,
+      'descripcion': descripcion,
+      'enabled': enabled,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (isNew) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+    }
+    await _db.collection('TBL_APPS').doc(docId).set(
+      payload,
+      SetOptions(merge: true),
+    );
+  }
+
+  Future<void> setAppEnabled(String docId, bool enabled) async {
+    await _db.collection('TBL_APPS').doc(docId).set({
+      'enabled': enabled,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   // ---------------- CATALOGO: CENTROS ----------------

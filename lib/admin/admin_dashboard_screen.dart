@@ -33,6 +33,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // Apps / Usuarios
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _users = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _apps = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _appsAdmin = [];
   Map<String, Set<String>> _userApps = {};
 
   // Catálogos
@@ -79,6 +80,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     final users = await _repo.loadUsersByEmpresa(selected);
     final apps = await _repo.loadEnabledAppsByEmpresa(selected);
+    final appsAdmin = await _repo.loadAppsByEmpresa(selected);
     final centros = await _repo.loadCentros(selected);
     final areas = await _repo.loadAreas(selected);
     final cargos = await _repo.loadCargos(selected);
@@ -89,6 +91,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
       _users = users;
       _apps = apps;
+      _appsAdmin = appsAdmin;
 
       _centros = centros;
       _areas = areas;
@@ -845,7 +848,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
       child: DefaultTabController(
-        length: 4,
+        length: 5,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
@@ -854,6 +857,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               labelStyle: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
               tabs: [
                 Tab(icon: Icon(Icons.people_alt), text: 'Usuarios'),
+                Tab(icon: Icon(Icons.apps), text: 'Apps'),
                 Tab(icon: Icon(Icons.account_tree), text: 'Catálogos'),
                 Tab(icon: Icon(Icons.construction), text: 'Migraciones'),
                 Tab(icon: Icon(Icons.history), text: 'Logs'),
@@ -870,6 +874,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 child: TabBarView(
                   children: [
                     _tabUsuarios(),
+                    _tabApps(),
                     _tabCatalogos(),
                     _tabMigraciones(),
                     _tabLogs(),
@@ -1036,6 +1041,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  // ---------------- TAB: APPS ----------------
+  Widget _tabApps() {
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        _sectionHeader(title: 'Apps (TBL_APPS)', onAdd: () => _dialogApp()),
+        const SizedBox(height: 8),
+        if (_appsAdmin.isEmpty)
+          const Text(
+            'No hay apps registradas.',
+            style: TextStyle(fontFamily: kArial, fontSize: 12),
+          )
+        else
+          ..._appsAdmin.map((aDoc) {
+            final a = aDoc.data();
+            final appId = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
+            final nombre = _safe(a['nombre']).isNotEmpty ? _safe(a['nombre']) : appId;
+            final descripcion = _safe(a['descripcion']);
+            final enabled = (a['enabled'] as bool?) ?? true;
+
+            return _catalogTile(
+              title: nombre,
+              subtitle: appId,
+              enabled: enabled,
+              trailing2: descripcion.isNotEmpty
+                  ? Text(
+                descripcion,
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 11,
+                  color: Colors.black54,
+                ),
+              )
+                  : null,
+              onEdit: () => _dialogApp(existing: aDoc),
+              onToggle: (v) async {
+                await _repo.setAppEnabled(aDoc.id, v);
+                _snack('App actualizada');
+                await _loadAll(forceEmpresaId: _empresaId);
+              },
+            );
+          }),
+      ],
+    );
+  }
+
   // ---------------- TAB: CATALOGOS ----------------
   Widget _tabCatalogos() {
     final centros = _centros.toList();
@@ -1096,6 +1147,132 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           },
         )),
       ],
+    );
+  }
+
+  Future<void> _dialogApp({
+    QueryDocumentSnapshot<Map<String, dynamic>>? existing,
+  }) async {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+
+    final data = existing?.data() ?? <String, dynamic>{};
+    final existingAppId =
+    _safe(data['appId']).isNotEmpty ? _safe(data['appId']) : existing?.id ?? '';
+    String appId = existingAppId;
+    String nombre = _safe(data['nombre']);
+    String descripcion = _safe(data['descripcion']);
+    bool enabled = (data['enabled'] as bool?) ?? true;
+    final isNew = existing == null;
+
+    await showDialog(
+      context: context,
+      builder: (_) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: Text(
+                isNew ? 'Agregar app' : 'Editar app',
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                  color: kAdminPrimary,
+                ),
+              ),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      initialValue: appId,
+                      readOnly: !isNew,
+                      decoration: const InputDecoration(
+                        labelText: 'appId (Ej: NutricionDashboard)',
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: kArial),
+                      onChanged: (v) => appId = v.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      initialValue: nombre,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre visible',
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: kArial),
+                      onChanged: (v) => nombre = v.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      initialValue: descripcion,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Descripción',
+                        border: OutlineInputBorder(),
+                      ),
+                      style: const TextStyle(fontFamily: kArial),
+                      onChanged: (v) => descripcion = v.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      value: enabled,
+                      activeColor: kAdminAccent,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Habilitada',
+                        style: TextStyle(fontFamily: kArial),
+                      ),
+                      onChanged: (v) => setLocal(() => enabled = v),
+                    ),
+                    if (isNew)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Se guardará con docId: empresaId_appId',
+                          style: TextStyle(fontFamily: kArial, fontSize: 11, color: Colors.black54),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.save),
+                  style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                  onPressed: () async {
+                    if (appId.trim().isEmpty || nombre.trim().isEmpty) {
+                      _snack('appId y nombre son obligatorios');
+                      return;
+                    }
+                    await _repo.upsertApp(
+                      empresaId: empresaId,
+                      appId: appId.trim(),
+                      nombre: nombre.trim(),
+                      descripcion: descripcion.trim().isEmpty ? null : descripcion.trim(),
+                      enabled: enabled,
+                      isNew: isNew,
+                    );
+                    if (!mounted) return;
+                    Navigator.pop(ctx);
+                    _snack(isNew ? 'App creada' : 'App actualizada');
+                    await _loadAll(forceEmpresaId: _empresaId);
+                  },
+                  label: const Text(
+                    'Guardar',
+                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
