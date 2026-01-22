@@ -880,15 +880,26 @@ class SeederService {
   String _s(dynamic v) => (v == null) ? '' : v.toString().trim();
   String _digits(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
-  String _normKey(String s) => s.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
+  String _normKey(String s) =>
+      _stripDiacritics(s).toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
 
   String _idFromName(String s) {
-    final base = s
+    final base = _stripDiacritics(s)
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
         .replaceAll(RegExp(r'_+'), '_')
         .replaceAll(RegExp(r'^_|_$'), '');
     return base.isEmpty ? 'item_${Random().nextInt(999999)}' : base;
+  }
+
+  String _stripDiacritics(String s) {
+    const src = 'áéíóúÁÉÍÓÚäëïöüÄËÏÖÜñÑçÇ';
+    const dst = 'aeiouAEIOUaeiouAEIOUnNcC';
+    var out = s;
+    for (int i = 0; i < src.length; i++) {
+      out = out.replaceAll(src[i], dst[i]);
+    }
+    return out;
   }
 
   String _pretty(String appId) {

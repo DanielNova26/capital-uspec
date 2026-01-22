@@ -149,7 +149,7 @@ class SeedExcelParser {
       'apellidos'     : pick(['apellidos', 'primer_apellido', 'apellido']),
       'nombreCompleto': pick(['nombrecompleto', 'nombre_completo']),
       'correo'        : pick(['correo', 'email']),
-      'area'          : pick(['area', 'área']),
+      'area'          : pick(['area', 'área', 'areadepartamento', 'area_departamento', 'departamento', 'depto']),
       'cargo'         : pick(['cargo', 'puesto']),
       'centroCostos'  : pick(['centrocostos', 'centro_costos', 'centro', 'cc']),
       'jefeId'        : pick(['jefeid', 'jefe_id', 'id_jefe']),
@@ -168,7 +168,7 @@ class SeedExcelParser {
       }
       return '';
     }
-    final nombre = pick(['nombre', 'area', 'descripcion', 'descripción']);
+    final nombre = pick(['nombre', 'area', 'área', 'areadepartamento', 'area_departamento', 'descripcion', 'descripción']);
     return {
       'nombre'     : nombre,
       'descripcion': pick(['descripcion', 'descripción', 'detalle']),
@@ -187,7 +187,7 @@ class SeedExcelParser {
     final nombre = pick(['nombre', 'cargo', 'descripcion', 'descripción']);
     return {
       'nombre'     : nombre,
-      'area'       : pick(['area', 'área']),
+      'area'       : pick(['area', 'área', 'areadepartamento', 'area_departamento', 'departamento', 'depto']),
       'descripcion': pick(['descripcion', 'descripción', 'detalle']),
       'activo'     : pick(['activo', 'habilitado', 'enabled']),
     };
