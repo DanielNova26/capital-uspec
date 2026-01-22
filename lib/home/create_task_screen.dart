@@ -29,6 +29,7 @@ const String kGoogleMapsApiKey = 'AIzaSyD8posdo50hmD8PLPD9kR6IebNYfi6PkPs';
 const String kCollUsuarios = 'TBL_USUARIOS';
 const String kCollAreas = 'TBL_AREAS';
 const String kCollTareas = 'TBL_TAREAS';
+const String kCollCargos = 'TBL_CARGOS';
 
 /// Claves posibles para token FCM en el doc de usuario
 const List<String> kTokenKeys = [
@@ -121,6 +122,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return n.isEmpty ? null : n;
   }
 
+  String? _nombreCargoPorId(String? id) {
+    if (id == null || id.trim().isEmpty) return null;
+    final hit = _cargos.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
+    final n = (hit['nombre'] ?? '').trim();
+    return n.isEmpty ? null : n;
+  }
+
   // ==================== TOKEN HELPERS PROFUNDOS ====================
   bool _hasAnyToken(Map<String, dynamic>? userData) {
     if (userData == null) return false;
@@ -181,6 +189,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
+  List<Map<String, String>> _cargos = []; // [{id,nombre,areaId?,enabled?}]
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
 
@@ -204,16 +213,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   List<String> get _cargosFiltrados {
+    if (_areaId == null || _areaId!.trim().isEmpty) {
+      return ['todos'];
+    }
     final cargos = <String>{};
-    for (final u in _usuarios.values) {
-      final estado = (u['estado'] ?? '').toString().toLowerCase();
-      if (estado != 'activo') continue;
-      final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
-      final cargo = (u['cargo'] ?? '').toString().trim();
+    for (final cargo in _cargos) {
+      final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
+      if (!enabled) continue;
+      final areaId = (cargo['areaId'] ?? '').trim();
+      final nombre = (cargo['nombre'] ?? '').trim();
       if (_areaId != null && _areaId!.trim().isNotEmpty && areaId.isNotEmpty) {
         if (areaId != _areaId!.trim()) continue;
       }
-      if (cargo.isNotEmpty) cargos.add(cargo);
+      if (nombre.isNotEmpty) cargos.add(nombre);
     }
     final lista = cargos.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return ['todos', ...lista];
@@ -235,7 +247,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final cargo = (u['cargo'] ?? '').toString().trim();
 
       if (_areaId != null && _areaId!.trim().isNotEmpty) {
-        if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
+        if (areaId != _areaId!.trim()) continue;
       }
 
       // ) filtra por cargo
@@ -308,6 +320,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     await Future.wait([
       _getMyPosition(),
       _loadAreas(),
+      _loadCargos(),
     ]);
     await _loadUsuarios();
 
@@ -418,6 +431,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return col.limit(limit).get();
     }
 
+    try {
+      final snap = await col.where('empresas', arrayContains: _empresaId).limit(limit).get();
+      if (snap.docs.isNotEmpty) return snap;
+    } catch (_) {}
+
     const keys = ['empresaId', 'empresa_id', 'empresa'];
     for (final k in keys) {
       try {
@@ -453,19 +471,51 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
-    // Fallback: áreas desde estructura organizacional si no están en TBL_AREAS
-    final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
-    for (final entry in _estructura.entries) {
-      final estr = entry.value;
-      final id = (estr['areaId'] ?? '').toString().trim();
-      if (id.isEmpty || existingIds.contains(id)) continue;
-      final nombre = (estr['area'] ?? estr['areaNombre'] ?? id).toString().trim();
-      final centroId = (estr['centroId'] ?? estr['centro'] ?? '').toString().trim();
-      _areas.add({'id': id, 'nombre': nombre.isEmpty ? id : nombre, 'centroId': centroId});
-      existingIds.add(id);
+    // Fallback: solo si TBL_AREAS está vacío
+    if (_areas.isEmpty) {
+      final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
+      for (final entry in _estructura.entries) {
+        final estr = entry.value;
+        final id = (estr['areaId'] ?? '').toString().trim();
+        if (id.isEmpty || existingIds.contains(id)) continue;
+        final nombre = (estr['area'] ?? estr['areaNombre'] ?? id).toString().trim();
+        final centroId = (estr['centroId'] ?? estr['centro'] ?? '').toString().trim();
+        _areas.add({'id': id, 'nombre': nombre.isEmpty ? id : nombre, 'centroId': centroId});
+        existingIds.add(id);
+      }
     }
 
     _areas.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+  }
+
+  Future<void> _loadCargos() async {
+    try {
+      final qs = await _queryByEmpresa(kCollCargos, limit: 1000);
+
+      _cargos = qs.docs
+          .map((d) {
+        final m = d.data();
+        if (!_empresaCoincide(m)) return null;
+        final id = (_firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim().isEmpty)
+            ? d.id
+            : _firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim();
+        final nombre = (m['nombre'] ?? '—').toString().trim();
+        final areaId = (m['areaId'] ?? m['area_id'] ?? '').toString().trim();
+        final enabled = (m['enabled'] as bool?) ?? true;
+        return {
+          'id': id,
+          'nombre': nombre.isEmpty ? '—' : nombre,
+          'areaId': areaId,
+          'enabled': enabled.toString(),
+        };
+      })
+          .whereType<Map<String, String>>()
+          .where((m) => (m['id'] ?? '').trim().isNotEmpty)
+          .toList()
+        ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    } catch (_) {
+      _cargos = [];
+    }
   }
 
   Future<void> _loadUsuarios() async {
@@ -489,11 +539,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           // Completar desde estructura (si falta)
           _fill('areaId', estr['areaId']);
           _fill('area', estr['area'] ?? estr['areaNombre']);
+          _fill('cargoId', estr['cargoId']);
           _fill('centroId', estr['centroId'] ?? estr['centro']);
           _fill('centro_costos', estr['centro_costos'] ?? estr['centroCostos']);
           _fill('centroCostos', estr['centroCostos']);
+          _fill('cargo', estr['cargo']);
           _fill('jefeId', estr['jefeId'] ?? estr['jefe_uid']);
           _fill('jefeNombre', estr['jefeNombre'] ?? estr['jefe_nombre']);
+        }
+
+        final cargoId = (data['cargoId'] ?? '').toString().trim();
+        if ((data['cargo'] ?? '').toString().trim().isEmpty && cargoId.isNotEmpty) {
+          final nombreCargo = _nombreCargoPorId(cargoId);
+          if (nombreCargo != null && nombreCargo.trim().isNotEmpty) {
+            data['cargo'] = nombreCargo.trim();
+          }
         }
 
         if (!_empresaCoincide(data)) continue;
@@ -1168,6 +1228,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final bool hasAssigneeToken =
     _asignadoUid == null ? true : _hasAnyToken(_usuarios[_asignadoUid!]);
     final bool hasBossToken = _jefeUid == null ? true : _hasAnyToken(_usuarios[_jefeUid!]);
+    final bool areaSeleccionada = _areaId != null && _areaId!.trim().isNotEmpty;
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -1357,15 +1418,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             ),
                           )
                               .toList(),
-                          onChanged: (v) {
+                          onChanged: areaSeleccionada
+                              ? (v) {
                             setState(() {
                               _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
                               _alElegirAsignado(null);
                               _ensureAreaDisponible();
                             });
+                          }
+                              : null,
+                          validator: (v) {
+                            if (!areaSeleccionada) return null;
+                            return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
                           },
-                          validator: (v) => (v == null || v == 'todos') ? 'Selecciona el cargo' : null,
-
                         ),
 
                         const SizedBox(height: 12),
