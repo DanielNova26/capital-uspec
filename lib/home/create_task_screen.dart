@@ -83,6 +83,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ],
   );
 
+  String _cedulaDe(Map<String, dynamic> data) => _firstNonEmpty(
+    data,
+    const [
+      'cedula',
+      'cédula',
+      'documento',
+      'documentoId',
+      'docId',
+      'idNumber',
+    ],
+  );
+
   String _norm(String s) => s.trim().toLowerCase();
 
   String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
@@ -217,15 +229,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return ['todos'];
     }
     final cargos = <String>{};
-    for (final cargo in _cargos) {
-      final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
-      if (!enabled) continue;
-      final areaId = (cargo['areaId'] ?? '').trim();
-      final nombre = (cargo['nombre'] ?? '').trim();
-      if (_areaId != null && _areaId!.trim().isNotEmpty && areaId.isNotEmpty) {
-        if (areaId != _areaId!.trim()) continue;
+    for (final estr in _estructura.values) {
+      final areaId = (estr['areaId'] ?? '').toString().trim();
+      if (areaId.isEmpty || areaId != _areaId!.trim()) continue;
+      final cargo = (estr['cargo'] ?? estr['cargoNombre'] ?? '').toString().trim();
+      if (cargo.isNotEmpty) cargos.add(cargo);
+    }
+    if (cargos.isEmpty) {
+      for (final cargo in _cargos) {
+        final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
+        if (!enabled) continue;
+        final areaId = (cargo['areaId'] ?? '').trim();
+        final nombre = (cargo['nombre'] ?? '').trim();
+        if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
+        if (nombre.isNotEmpty) cargos.add(nombre);
       }
-      if (nombre.isNotEmpty) cargos.add(nombre);
     }
     final lista = cargos.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return ['todos', ...lista];
@@ -233,6 +251,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   List<Map<String, String>> get _empleadosFiltrados {
     final list = <Map<String, String>>[];
+    final areaActiva = _areaId?.trim() ?? '';
+    final cargoActivo = _cargoFiltro.trim().toLowerCase();
+    final cedulasPermitidas = <String>{};
+    if (areaActiva.isNotEmpty) {
+      for (final estr in _estructura.values) {
+        final areaId = (estr['areaId'] ?? '').toString().trim();
+        if (areaId.isEmpty || areaId != areaActiva) continue;
+        final cargo = (estr['cargo'] ?? estr['cargoNombre'] ?? '').toString().trim();
+        if (cargoActivo != 'todos' && cargoActivo.isNotEmpty) {
+          if (cargo.toLowerCase() != cargoActivo) continue;
+        }
+        final cedula = _cedulaDe(estr).trim();
+        if (cedula.isNotEmpty) cedulasPermitidas.add(cedula);
+      }
+    }
 
     for (final entry in _usuarios.entries) {
       final uid = entry.key;
@@ -242,15 +275,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (estado != 'activo') continue;
       if (_currentUid != null && uid == _currentUid) continue;
 
-      // 1) filtra por área
+      // 1) filtra por área / estructura
       final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
       final cargo = (u['cargo'] ?? '').toString().trim();
+      final cedula = _cedulaDe(u).trim();
 
-      if (_areaId != null && _areaId!.trim().isNotEmpty) {
-        if (areaId != _areaId!.trim()) continue;
+      if (areaActiva.isNotEmpty) {
+        if (cedulasPermitidas.isNotEmpty) {
+          if (cedula.isEmpty || !cedulasPermitidas.contains(cedula)) continue;
+        } else if (areaId != areaActiva) {
+          continue;
+        }
       }
 
-      // ) filtra por cargo
+      // 2) filtra por cargo (si aún aplica)
       if (_cargoFiltro != 'todos' && _cargoFiltro.trim().isNotEmpty) {
         if (cargo.toLowerCase() != _cargoFiltro.toLowerCase()) continue;
       }
@@ -365,6 +403,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _estructura.clear();
       for (final d in qs.docs) {
         final data = Map<String, dynamic>.from(d.data());
+        if ((data['cedula'] ?? '').toString().trim().isEmpty) {
+          data['cedula'] = d.id;
+        }
         if (_empresaId != null && _empresaId!.isNotEmpty) {
           final detalle = data['empresasDetalle'];
           if (detalle is Map && detalle[_empresaId] is Map) {
@@ -471,7 +512,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
-    // Fallback: solo si TBL_AREAS está vacío
+// Fallback: solo si TBL_AREAS está vacío
     if (_areas.isEmpty) {
       final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
       for (final entry in _estructura.entries) {
@@ -527,6 +568,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         final data = Map<String, dynamic>.from(d.data());
         final estr = _estructura[d.id];
 
+        if ((data['cedula'] ?? '').toString().trim().isEmpty) {
+          data['cedula'] = d.id;
+        }
+
         if (estr != null) {
           bool _isEmpty(String key) =>
               (data[key] == null || data[key].toString().trim().isEmpty);
@@ -544,6 +589,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           _fill('centro_costos', estr['centro_costos'] ?? estr['centroCostos']);
           _fill('centroCostos', estr['centroCostos']);
           _fill('cargo', estr['cargo']);
+          _fill('cedula', estr['cedula']);
           _fill('jefeId', estr['jefeId'] ?? estr['jefe_uid']);
           _fill('jefeNombre', estr['jefeNombre'] ?? estr['jefe_nombre']);
         }

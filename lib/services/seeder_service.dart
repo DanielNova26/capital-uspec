@@ -79,7 +79,7 @@ class SeederService {
     // 2) Catálogos por empresa desde hojas + inferencia PERSONAL
     final inferred   = _inferCatalogsFromPersonal(wb.personal);
     final areasAll   = _mergeCatalogByName(_normalizeNombreFallback(wb.areas), inferred.areas);
-    final cargosAll  = _mergeCatalogByName(_normalizeNombreFallback(wb.cargos), inferred.cargos);
+    final cargosAll  = _mergeCargosByName(_normalizeNombreFallback(wb.cargos), inferred.cargos);
     final centrosAll = _mergeCentros(wb.centrosCostos, inferred.centros);
 
     // Índices para IDs consistentes
@@ -199,6 +199,27 @@ class SeederService {
       if (nombre.isEmpty) continue;
       final key = _normKey(nombre);
       out[key] = {'nombre': nombre, if (_s(r['descripcion']).isNotEmpty) 'descripcion': _s(r['descripcion'])};
+    }
+    return out.values.toList();
+  }
+
+  List<Map<String, dynamic>> _mergeCargosByName(
+      List<Map<String, dynamic>> a,
+      List<Map<String, dynamic>> b,
+      ) {
+    final out = <String, Map<String, dynamic>>{};
+    for (final r in [...a, ...b]) {
+      final nombre = _s(r['nombre']).isNotEmpty ? _s(r['nombre']) : _s(r['descripcion']);
+      if (nombre.isEmpty) continue;
+      final key = _normKey(nombre);
+      final existing = out[key] ?? {'nombre': nombre};
+      final area = _s(r['area']);
+      final descripcion = _s(r['descripcion']);
+      if (descripcion.isNotEmpty) existing['descripcion'] = descripcion;
+      if (area.isNotEmpty && (_s(existing['area']).isEmpty)) {
+        existing['area'] = area;
+      }
+      out[key] = existing;
     }
     return out.values.toList();
   }
