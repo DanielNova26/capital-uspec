@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../services/nutricion_service.dart';
 
@@ -68,6 +69,118 @@ class NutricionAtencionActions {
           },
           diagnosticoNutricional: diagnosticoCtrl.text.trim(),
           observaciones: observacionesCtrl.text.trim(),
+        );
+      },
+    );
+  }
+
+  static Future<void> registrarHistoriaClinica(
+      BuildContext context, {
+        required String empresaId,
+        String? pacienteId,
+        String? pacienteNombre,
+        String? pacienteDocumento,
+      }) async {
+    final observacionesCtrl = TextEditingController();
+    final picker = ImagePicker();
+    XFile? certificado;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final header = _buildPacienteHeader(
+              pacienteNombre: pacienteNombre,
+              pacienteDocumento: pacienteDocumento,
+            );
+            return AlertDialog(
+              title: const Text('Historia clínica y hábitos'),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      if (header != null) ...[
+                        header,
+                        const SizedBox(height: 12),
+                      ] else ...[
+                        const Text('Selecciona un paciente para continuar.'),
+                        const SizedBox(height: 12),
+                      ],
+                      TextField(
+                        controller: observacionesCtrl,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          labelText: 'Observaciones',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Certificado médico (opcional)',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final picked = await picker.pickImage(
+                                source: ImageSource.camera,
+                                imageQuality: 85,
+                              );
+                              if (picked == null) return;
+                              setState(() => certificado = picked);
+                            },
+                            icon: const Icon(Icons.photo_camera),
+                            label: const Text('Tomar foto'),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              certificado?.name ?? 'Sin foto adjunta',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final resolvedPacienteId = pacienteId ?? '';
+                    if (resolvedPacienteId.isEmpty) {
+                      return;
+                    }
+                    await _service.registrarValoracion(
+                      empresaId: empresaId,
+                      pacienteId: resolvedPacienteId,
+                      respuestas: {
+                        'formato': 'historia_clinica',
+                        if (certificado != null)
+                          'certificadoLocalPath': certificado!.path,
+                      },
+                      observaciones: observacionesCtrl.text.trim(),
+                    );
+                    if (!context.mounted) return;
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
         );
       },
     );

@@ -415,10 +415,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                   _buildChecklistTile(
                     'Historia clínica y hábitos',
                     'Alergias, tratamientos y frecuencia alimentaria.',
-                    onTap: () => NutricionAtencionActions.registrarPaciente(
-                      context,
-                      empresaId: widget.empresaId,
-                    ),
+                      onTap: () => NutricionAtencionActions.registrarHistoriaClinica(
+                        context,
+                        empresaId: widget.empresaId,
+                        pacienteId: _selectedPaciente?.id,
+                        pacienteNombre: _selectedPaciente?.nombre,
+                        pacienteDocumento: _selectedPaciente?.documento,
+                      ),
                   ),
                   _buildChecklistTile(
                     'Diagnóstico nutricional',
