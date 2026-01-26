@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../atencion/nutricion_atencion_actions.dart';
 import '../../services/nutricion_service.dart';
 
 class NutricionMenusScreen extends StatefulWidget {
@@ -249,248 +250,51 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
   }
 
   Future<void> _openRegistrarPaciente(BuildContext context) async {
-    final nombreCtrl = TextEditingController();
-    final documentoCtrl = TextEditingController();
-    final diagnosticoCtrl = TextEditingController();
-    await _simpleFormDialog(
+    await NutricionAtencionActions.registrarPaciente(
       context,
-      title: 'Registrar paciente',
-      fields: [
-        _FormFieldConfig('Nombre completo', nombreCtrl),
-        _FormFieldConfig('Documento', documentoCtrl),
-        _FormFieldConfig('Diagnóstico médico', diagnosticoCtrl),
-      ],
-      onSave: () async {
-        await _service.crearPaciente(
-          empresaId: widget.empresaId,
-          data: {
-            'nombre': nombreCtrl.text.trim(),
-            'documento': documentoCtrl.text.trim(),
-            'diagnosticoMedico': diagnosticoCtrl.text.trim(),
-            'fechaNacimiento': null,
-            'sexo': null,
-          },
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
 
   Future<void> _openRegistrarValoracion(BuildContext context) async {
-    final pacienteCtrl = TextEditingController();
-    final diagnosticoCtrl = TextEditingController();
-    final observacionesCtrl = TextEditingController();
-    await _simpleFormDialog(
+    await NutricionAtencionActions.registrarValoracion(
       context,
-      title: 'Registrar valoración',
-      fields: [
-        _FormFieldConfig('Paciente ID', pacienteCtrl),
-        _FormFieldConfig('Diagnóstico nutricional', diagnosticoCtrl),
-        _FormFieldConfig('Observaciones', observacionesCtrl, maxLines: 3),
-      ],
-      onSave: () async {
-        await _service.registrarValoracion(
-          empresaId: widget.empresaId,
-          pacienteId: pacienteCtrl.text.trim(),
-          respuestas: {
-            'formato': 'default',
-          },
-          diagnosticoNutricional: diagnosticoCtrl.text.trim(),
-          observaciones: observacionesCtrl.text.trim(),
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
 
   Future<void> _openRegistrarMedicion(BuildContext context) async {
-    final pacienteCtrl = TextEditingController();
-    final pesoCtrl = TextEditingController();
-    final tallaCtrl = TextEditingController();
-    await _simpleFormDialog(
+    await NutricionAtencionActions.registrarMedicion(
       context,
-      title: 'Registrar mediciones',
-      fields: [
-        _FormFieldConfig('Paciente ID', pacienteCtrl),
-        _FormFieldConfig('Peso (kg)', pesoCtrl, keyboardType: TextInputType.number),
-        _FormFieldConfig('Talla (cm)', tallaCtrl, keyboardType: TextInputType.number),
-      ],
-      onSave: () async {
-        final peso = double.tryParse(pesoCtrl.text.replaceAll(',', '.')) ?? 0;
-        final talla = double.tryParse(tallaCtrl.text.replaceAll(',', '.')) ?? 0;
-        await _service.registrarMedicion(
-          empresaId: widget.empresaId,
-          pacienteId: pacienteCtrl.text.trim(),
-          pesoKg: peso,
-          tallaCm: talla,
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
 
   Future<void> _openAsignarDieta(BuildContext context) async {
-    final pacienteCtrl = TextEditingController();
-    final dietaCtrl = TextEditingController();
-    await _simpleFormDialog(
+    await NutricionAtencionActions.asignarDieta(
       context,
-      title: 'Asignar dieta',
-      fields: [
-        _FormFieldConfig('Paciente ID', pacienteCtrl),
-        _FormFieldConfig('Dieta ID', dietaCtrl),
-      ],
-      onSave: () async {
-        await _service.guardarAsignacionDieta(
-          empresaId: widget.empresaId,
-          pacienteId: pacienteCtrl.text.trim(),
-          dietaId: dietaCtrl.text.trim(),
-          fechaInicio: DateTime.now(),
-          permanente: false,
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
 
   Future<void> _openGenerarCarnet(BuildContext context) async {
-    final pacienteCtrl = TextEditingController();
-    final asignacionCtrl = TextEditingController();
-    final plantillaCtrl = TextEditingController();
-    await _simpleFormDialog(
+    await NutricionAtencionActions.generarCarnet(
       context,
-      title: 'Generar carnet',
-      fields: [
-        _FormFieldConfig('Paciente ID', pacienteCtrl),
-        _FormFieldConfig('Asignación ID', asignacionCtrl),
-        _FormFieldConfig('Plantilla ID', plantillaCtrl),
-      ],
-      onSave: () async {
-        await _service.generarCarnet(
-          empresaId: widget.empresaId,
-          pacienteId: pacienteCtrl.text.trim(),
-          asignacionId: asignacionCtrl.text.trim(),
-          plantillaId: plantillaCtrl.text.trim(),
-          tiemposComida: const {},
-          etiquetaDieta: 'Dieta asignada',
-          vigencia: 'vigente',
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
 
   Future<void> _openDerivarMenu(BuildContext context) async {
-    final pacienteCtrl = TextEditingController();
-    final menuCtrl = TextEditingController();
-    final dietaCtrl = TextEditingController();
-    await _simpleFormDialog(
+    await NutricionAtencionActions.derivarMenu(
       context,
-      title: 'Derivar menú',
-      fields: [
-        _FormFieldConfig('Paciente ID', pacienteCtrl),
-        _FormFieldConfig('Menú ID', menuCtrl),
-        _FormFieldConfig('Dieta ID', dietaCtrl),
-      ],
-      onSave: () async {
-        await _service.generarDerivacion(
-          empresaId: widget.empresaId,
-          pacienteId: pacienteCtrl.text.trim(),
-          menuId: menuCtrl.text.trim(),
-          dietaId: dietaCtrl.text.trim(),
-          reglasAplicadas: const {},
-          tablaComponentes: const {},
-          tablaConsumo: const {},
-          kcalFinal: 0,
-          porcionesFinal: 0,
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
 
   Future<void> _openProgramarAlerta(BuildContext context) async {
-    final pacienteCtrl = TextEditingController();
-    final asignacionCtrl = TextEditingController();
-    final frecuenciaCtrl = TextEditingController(text: '30 días');
-    await _simpleFormDialog(
+    await NutricionAtencionActions.programarAlerta(
       context,
-      title: 'Programar alerta',
-      fields: [
-        _FormFieldConfig('Paciente ID', pacienteCtrl),
-        _FormFieldConfig('Asignación ID', asignacionCtrl),
-        _FormFieldConfig('Frecuencia', frecuenciaCtrl),
-      ],
-      onSave: () async {
-        await _service.programarAlerta(
-          empresaId: widget.empresaId,
-          pacienteId: pacienteCtrl.text.trim(),
-          asignacionId: asignacionCtrl.text.trim(),
-          tipo: 'revaloracion',
-          frecuencia: frecuenciaCtrl.text.trim(),
-          proximaFecha: DateTime.now().add(const Duration(days: 30)),
-        );
-      },
+      empresaId: widget.empresaId,
     );
   }
-
-  Future<void> _simpleFormDialog(
-      BuildContext context, {
-        required String title,
-        required List<_FormFieldConfig> fields,
-        required Future<void> Function() onSave,
-      }) async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(title),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                children: fields
-                    .map(
-                      (field) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: TextField(
-                      controller: field.controller,
-                      maxLines: field.maxLines,
-                      keyboardType: field.keyboardType,
-                      decoration: InputDecoration(
-                        labelText: field.label,
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                  ),
-                )
-                    .toList(),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                await onSave();
-                if (!mounted) return;
-                Navigator.of(context).pop();
-              },
-              child: const Text('Guardar'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _FormFieldConfig {
-  final String label;
-  final TextEditingController controller;
-  final int maxLines;
-  final TextInputType? keyboardType;
-
-  _FormFieldConfig(
-      this.label,
-      this.controller, {
-        this.maxLines = 1,
-        this.keyboardType,
-      });
 }
