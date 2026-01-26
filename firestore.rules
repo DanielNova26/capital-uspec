@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /TBL_PACIENTES/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_VALORACIONES_NUTRICION/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_MEDICIONES_NUTRICION/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_PATOLOGIAS/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_DIETAS/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_ASIGNACIONES_DIETA/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_CARNETS_NUTRICION/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_MENUS/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_DERIVACIONES_NUTRICION/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /TBL_ALERTAS_NUTRICION/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

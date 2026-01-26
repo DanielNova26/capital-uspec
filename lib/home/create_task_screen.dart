@@ -83,6 +83,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ],
   );
 
+  String _cargoIdDe(Map<String, dynamic> data) =>
+      _firstNonEmpty(data, const ['cargoId', 'cargo_id']);
+
+  String _cargoNombreDe(Map<String, dynamic> data) => _firstNonEmpty(
+    data,
+    const [
+      'cargo',
+      'cargoNombre',
+      'cargo_nombre',
+      'puesto',
+      'descripcion',
+    ],
+  );
+
   String _cedulaDe(Map<String, dynamic> data) => _firstNonEmpty(
     data,
     const [
@@ -136,7 +150,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   String? _nombreCargoPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
-    final hit = _cargos.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
+    final hit = _cargosFiltrados.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
     final n = (hit['nombre'] ?? '').trim();
     return n.isEmpty ? null : n;
   }
@@ -224,16 +238,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return all;
   }
 
-  List<String> get _cargosFiltrados {
+  List<Map<String, String>> get _cargosFiltrados {
     if (_areaId == null || _areaId!.trim().isEmpty) {
-      return ['todos'];
+      return const [{'id': 'todos', 'nombre': 'Selecciona un cargo'}];
     }
-    final cargos = <String>{};
+    final cargos = <String, String>{};
     for (final estr in _estructura.values) {
       final areaId = (estr['areaId'] ?? '').toString().trim();
       if (areaId.isEmpty || areaId != _areaId!.trim()) continue;
-      final cargo = (estr['cargo'] ?? estr['cargoNombre'] ?? '').toString().trim();
-      if (cargo.isNotEmpty) cargos.add(cargo);
+      final cargoId = _cargoIdDe(estr);
+      final cargoNombre = _cargoNombreDe(estr);
+      final key = (cargoId.isNotEmpty ? cargoId : cargoNombre).trim();
+      if (key.isEmpty) continue;
+      cargos[key] = cargoNombre.isNotEmpty ? cargoNombre : key;
     }
     if (cargos.isEmpty) {
       for (final cargo in _cargos) {
@@ -242,25 +259,37 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         final areaId = (cargo['areaId'] ?? '').trim();
         final nombre = (cargo['nombre'] ?? '').trim();
         if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
-        if (nombre.isNotEmpty) cargos.add(nombre);
+        final key = (cargo['id'] ?? '').trim().isEmpty ? nombre : cargo['id']!.trim();
+        if (key.isNotEmpty) cargos[key] = nombre.isNotEmpty ? nombre : key;
       }
     }
-    final lista = cargos.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return ['todos', ...lista];
+    final lista = cargos.entries.toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    return [
+      const {'id': 'todos', 'nombre': 'Selecciona un cargo'},
+      ...lista.map((e) => {'id': e.key, 'nombre': e.value}),
+    ];
   }
 
   List<Map<String, String>> get _empleadosFiltrados {
     final list = <Map<String, String>>[];
     final areaActiva = _areaId?.trim() ?? '';
-    final cargoActivo = _cargoFiltro.trim().toLowerCase();
     final cedulasPermitidas = <String>{};
+    final cargoActivoId = _cargoFiltro.trim();
+    final cargoActivoNombre =
+    (_nombreCargoPorId(_cargoFiltro) ?? '').trim().toLowerCase();
     if (areaActiva.isNotEmpty) {
       for (final estr in _estructura.values) {
         final areaId = (estr['areaId'] ?? '').toString().trim();
         if (areaId.isEmpty || areaId != areaActiva) continue;
-        final cargo = (estr['cargo'] ?? estr['cargoNombre'] ?? '').toString().trim();
-        if (cargoActivo != 'todos' && cargoActivo.isNotEmpty) {
-          if (cargo.toLowerCase() != cargoActivo) continue;
+        final cargoId = _cargoIdDe(estr);
+        final cargoNombre = _cargoNombreDe(estr).trim().toLowerCase();
+        if (cargoActivoId != 'todos' && cargoActivoId.isNotEmpty) {
+          if (cargoId.isNotEmpty) {
+            if (cargoId != cargoActivoId) continue;
+          } else if (cargoActivoNombre.isNotEmpty) {
+            if (cargoNombre != cargoActivoNombre) continue;
+          }
         }
         final cedula = _cedulaDe(estr).trim();
         if (cedula.isNotEmpty) cedulasPermitidas.add(cedula);
@@ -277,7 +306,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       // 1) filtra por área / estructura
       final areaId = (_resolveAreaIdFromUser(u) ?? _areaDe(u)).trim();
-      final cargo = (u['cargo'] ?? '').toString().trim();
+      final cargoId = _cargoIdDe(u).trim();
+      final cargo = _cargoNombreDe(u).trim();
       final cedula = _cedulaDe(u).trim();
 
       if (areaActiva.isNotEmpty) {
@@ -290,7 +320,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       // 2) filtra por cargo (si aún aplica)
       if (_cargoFiltro != 'todos' && _cargoFiltro.trim().isNotEmpty) {
-        if (cargo.toLowerCase() != _cargoFiltro.toLowerCase()) continue;
+        if (cargoId.isNotEmpty) {
+          if (cargoId != _cargoFiltro.trim()) continue;
+        } else if (cargo.isNotEmpty) {
+          if (cargo.toLowerCase() != cargoActivoNombre) continue;
+        } else {
+          continue;
+        }
       }
 
       list.add({
@@ -512,7 +548,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
-// Fallback: solo si TBL_AREAS está vacío
+    // Fallback: solo si TBL_AREAS está vacío
     if (_areas.isEmpty) {
       final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
       for (final entry in _estructura.entries) {
@@ -622,7 +658,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     if (_cargoFiltro != 'todos') {
       final cargos = _cargosFiltrados;
-      if (!cargos.any((c) => c.toLowerCase() == _cargoFiltro.toLowerCase())) {
+      if (!cargos.any((c) => c['id'] == _cargoFiltro)) {
         _cargoFiltro = 'todos';
         _alElegirAsignado(null);
       }
@@ -1456,27 +1492,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           items: _cargosFiltrados
                               .map(
                                 (c) => DropdownMenuItem(
-                              value: c,
-                              child: Text(
-                                c == 'todos' ? 'Selecciona un cargo' : c,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
+                                  value: c['id'],
+                                  child: Text(
+                                    c['nombre'] ?? 'Selecciona un cargo',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
                           )
                               .toList(),
-                          onChanged: areaSeleccionada
-                              ? (v) {
-                            setState(() {
-                              _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
-                              _alElegirAsignado(null);
-                              _ensureAreaDisponible();
-                            });
-                          }
-                              : null,
-                          validator: (v) {
-                            if (!areaSeleccionada) return null;
-                            return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
-                          },
+                            onChanged: areaSeleccionada
+                                ? (v) {
+                              setState(() {
+                                _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
+                                _alElegirAsignado(null);
+                                _ensureAreaDisponible();
+                              });
+                            }
+                                : null,
+                            validator: (v) {
+                              if (!areaSeleccionada) return null;
+                              return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
+                            },
+
                         ),
 
                         const SizedBox(height: 12),

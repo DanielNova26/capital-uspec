@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import 'catalogos/nutricion_catalogos_screen.dart';
+import 'firmas/nutricion_firmas_screen.dart';
+import 'menus/nutricion_menus_screen.dart';
+import 'reportes/nutricion_reportes_screen.dart';
+
 class NutricionDashboardScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
@@ -83,9 +88,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                       items: _establecimientos
                           .map(
                             (item) => DropdownMenuItem(
-                          value: item,
-                          child: Text(item),
-                        ),
+                              value: item,
+                              child: Text(item),
+                            ),
                       )
                           .toList(),
                       onChanged: (value) {
@@ -112,52 +117,23 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
             Expanded(
               child: TabBarView(
                 children: [
-                  _buildPlaceholder(
-                    title: 'Menús semanales',
-                    description:
-                    'Crea y versiona menús por establecimiento y semana.',
-                  ),
-                  _buildPlaceholder(
-                    title: 'Catálogos',
-                    description:
-                    'Administra preparaciones, dietas terapéuticas y sustituciones.',
-                  ),
-                  _buildPlaceholder(
-                    title: 'Firmas y sellos',
-                    description:
-                    'Carga firma/sello, firma menús y genera PDF.',
-                  ),
-                  _buildPlaceholder(
-                    title: 'Reportes',
-                    description: 'Auditoría y análisis de cumplimiento.',
-                  ),
+                NutricionMenusScreen(
+                userId: widget.userId,
+                empresaId: widget.empresaId,
+                establecimiento: _selectedEstablecimiento,
+                semana: _weekStart,
+              ),
+                NutricionCatalogosScreen(empresaId: widget.empresaId),
+                NutricionFirmasScreen(
+                  empresaId: widget.empresaId,
+                  userId: widget.userId,
+                ),
+                NutricionReportesScreen(empresaId: widget.empresaId),
                 ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildPlaceholder({
-    required String title,
-    required String description,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(description),
-          const SizedBox(height: 16),
-          const Text(
-            'Pendiente de implementación detallada.',
-            style: TextStyle(color: Colors.black54),
-          ),
-        ],
       ),
     );
   }
