@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -17,6 +18,9 @@ class NutricionService {
   static const String _collDerivaciones = 'TBL_DERIVACIONES_NUTRICION';
   static const String _collAlertas = 'TBL_ALERTAS_NUTRICION';
 
+  // ✅ Nueva tabla para plantillas (ingredientes)
+  static const String _collPlantillasMenus = 'TBL_PLANTILLAS_MENUS';
+
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
 
@@ -24,19 +28,99 @@ class NutricionService {
       : _db = db ?? FirebaseFirestore.instance,
         _storage = storage ?? FirebaseStorage.instance;
 
+  // ---------------------------------------------------------------------------
+  // MENUS (con fallback si falta índice)
+  // ---------------------------------------------------------------------------
   Stream<List<Map<String, dynamic>>> streamMenus({
     required String empresaId,
     required String establecimiento,
     required DateTime semana,
   }) {
-    return _db
-        .collection(_collMenus)
-        .where('empresaId', isEqualTo: empresaId)
-        .where('establecimiento', isEqualTo: establecimiento)
-        .where('semana', isEqualTo: _formatSemana(semana))
-        .orderBy('creadoEn', descending: true)
-        .snapshots()
-        .map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+    final controller = StreamController<List<Map<String, dynamic>>>.broadcast();
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    bool started = false;
+
+    void emitError(Object e, StackTrace st) {
+      if (!controller.isClosed) controller.addError(e, st);
+    }
+
+    Future<void> start() async {
+      if (started) return;
+      started = true;
+
+      final semanaKey = _formatSemana(semana);
+
+      final qIndexed = _db
+          .collection(_collMenus)
+          .where('empresaId', isEqualTo: empresaId)
+          .where('establecimiento', isEqualTo: establecimiento)
+          .where('semana', isEqualTo: semanaKey)
+          .orderBy('creadoEn', descending: true);
+
+      final qNoIndex = _db
+          .collection(_collMenus)
+          .where('empresaId', isEqualTo: empresaId)
+          .where('establecimiento', isEqualTo: establecimiento)
+          .where('semana', isEqualTo: semanaKey);
+
+      try {
+        sub = qIndexed.snapshots().listen(
+              (snap) {
+            final list = snap.docs
+                .map((d) => {'id': d.id, ...d.data()})
+                .toList(growable: false);
+            if (!controller.isClosed) controller.add(list);
+          },
+          onError: (e, st) async {
+            if (_isIndexError(e)) {
+              await sub?.cancel();
+              sub = qNoIndex.snapshots().listen(
+                    (snap) {
+                  final list = snap.docs
+                      .map((d) => {'id': d.id, ...d.data()})
+                      .toList(growable: true);
+
+                  // Orden local: creadoEn desc + id desc como desempate
+                  list.sort((a, b) {
+                    final da = _toDateTime(a['creadoEn']);
+                    final db = _toDateTime(b['creadoEn']);
+                    if (da == null && db == null) {
+                      return (b['id']?.toString() ?? '')
+                          .compareTo(a['id']?.toString() ?? '');
+                    }
+                    if (da == null) return 1;
+                    if (db == null) return -1;
+                    final cmp = db.compareTo(da);
+                    if (cmp != 0) return cmp;
+                    return (b['id']?.toString() ?? '')
+                        .compareTo(a['id']?.toString() ?? '');
+                  });
+
+                  if (!controller.isClosed) controller.add(list);
+                },
+                onError: emitError,
+              );
+            } else {
+              emitError(e, st);
+            }
+          },
+        );
+      } catch (e, st) {
+        emitError(e, st);
+      }
+    }
+
+    controller
+      ..onListen = () {
+        if (sub == null) start();
+      }
+      ..onCancel = () async {
+        await sub?.cancel();
+        sub = null;
+        if (!controller.isClosed) await controller.close();
+      };
+
+    return controller.stream;
   }
 
   Future<void> crearMenu({
@@ -61,6 +145,174 @@ class NutricionService {
       'creadoPor': userId,
     });
   }
+
+  bool _isIndexError(Object e) {
+    if (e is FirebaseException) {
+      if (e.code == 'failed-precondition') return true;
+      final msg = (e.message ?? '').toLowerCase();
+      if (msg.contains('requires an index')) return true;
+    }
+    final msg = e.toString().toLowerCase();
+    return msg.contains('requires an index') || msg.contains('failed-precondition');
+  }
+
+  DateTime? _toDateTime(Object? v) {
+    if (v == null) return null;
+    if (v is Timestamp) return v.toDate();
+    if (v is DateTime) return v;
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // ✅ PLANTILLAS MENUS (tabla de ingredientes editable)
+  // ---------------------------------------------------------------------------
+
+  Stream<List<Map<String, dynamic>>> streamPlantillasMenus({
+    required String empresaId,
+    required String establecimiento,
+  }) {
+    final controller = StreamController<List<Map<String, dynamic>>>.broadcast();
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    bool started = false;
+
+    void emitError(Object e, StackTrace st) {
+      if (!controller.isClosed) controller.addError(e, st);
+    }
+
+    void start() {
+      if (started) return;
+      started = true;
+
+      final q = _db
+          .collection(_collPlantillasMenus)
+          .where('empresaId', isEqualTo: empresaId)
+          .where('establecimiento', isEqualTo: establecimiento);
+
+      sub = q.snapshots().listen(
+            (snap) {
+          final list = snap.docs
+              .map((d) => {'id': d.id, ...d.data()})
+              .toList(growable: true);
+
+          // Orden local: titulo asc
+          list.sort((a, b) => (a['titulo']?.toString() ?? '')
+              .compareTo(b['titulo']?.toString() ?? ''));
+
+          if (!controller.isClosed) controller.add(list);
+        },
+        onError: emitError,
+      );
+    }
+
+    controller
+      ..onListen = () {
+        if (sub == null) start();
+      }
+      ..onCancel = () async {
+        await sub?.cancel();
+        sub = null;
+        if (!controller.isClosed) await controller.close();
+      };
+
+    return controller.stream;
+  }
+
+  Future<void> guardarPlantillaMenu({
+    required String empresaId,
+    required String establecimiento,
+    required String plantillaKey,
+    required String titulo,
+    required String descripcion,
+    required Map<String, List<String>> grupos,
+    required String userId,
+  }) async {
+    final safeId = _plantillaDocId(
+      empresaId: empresaId,
+      establecimiento: establecimiento,
+      plantillaKey: plantillaKey,
+    );
+
+    await _db.collection(_collPlantillasMenus).doc(safeId).set({
+      'empresaId': empresaId,
+      'establecimiento': establecimiento,
+      'plantillaKey': plantillaKey,
+      'titulo': titulo,
+      'descripcion': descripcion,
+      'grupos': grupos,
+      'actualizadoEn': FieldValue.serverTimestamp(),
+      'actualizadoPor': userId,
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> seedPlantillasMenusSiNoExisten({
+    required String empresaId,
+    required String establecimiento,
+    required String userId,
+    required List<Map<String, dynamic>> defaults,
+  }) async {
+    // Si ya existe alguna plantilla, no pisamos.
+    final existing = await _db
+        .collection(_collPlantillasMenus)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('establecimiento', isEqualTo: establecimiento)
+        .limit(1)
+        .get();
+
+    if (existing.docs.isNotEmpty) return;
+
+    final batch = _db.batch();
+    for (final t in defaults) {
+      final plantillaKey = (t['plantillaKey'] ?? '').toString();
+      final titulo = (t['titulo'] ?? plantillaKey).toString();
+      final descripcion = (t['descripcion'] ?? '').toString();
+      final gruposRaw = (t['grupos'] as Map?) ?? {};
+      final grupos = <String, List<String>>{};
+
+      for (final entry in gruposRaw.entries) {
+        final k = entry.key.toString();
+        final v = (entry.value as List?) ?? const [];
+        grupos[k] = v.map((e) => e.toString()).toList();
+      }
+
+      final docId = _plantillaDocId(
+        empresaId: empresaId,
+        establecimiento: establecimiento,
+        plantillaKey: plantillaKey,
+      );
+
+      batch.set(_db.collection(_collPlantillasMenus).doc(docId), {
+        'empresaId': empresaId,
+        'establecimiento': establecimiento,
+        'plantillaKey': plantillaKey,
+        'titulo': titulo,
+        'descripcion': descripcion,
+        'grupos': grupos,
+        'creadoEn': FieldValue.serverTimestamp(),
+        'creadoPor': userId,
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
+  }
+
+  String _plantillaDocId({
+    required String empresaId,
+    required String establecimiento,
+    required String plantillaKey,
+  }) {
+    String safe(String s) => s
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+
+    return '${safe(empresaId)}__${safe(establecimiento)}__${safe(plantillaKey)}';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dietas, patologías, firmas, etc (tu código igual)
+  // ---------------------------------------------------------------------------
 
   Stream<List<Map<String, dynamic>>> streamDietas(String empresaId) {
     return _db
@@ -135,7 +387,8 @@ class NutricionService {
           kcalObjetivo: num.tryParse(rowData['kcalObjetivo']?.toString() ?? ''),
           tags: _splitList(rowData['tags']),
           version: int.tryParse(rowData['version']?.toString() ?? '') ?? 1,
-          activa: (rowData['activa']?.toString().toLowerCase() ?? 'true') != 'false',
+          activa: (rowData['activa']?.toString().toLowerCase() ?? 'true') !=
+              'false',
         );
       }
     }

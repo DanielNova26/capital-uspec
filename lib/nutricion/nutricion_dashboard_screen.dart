@@ -119,7 +119,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 16),
-                _buildWorkflowStepper(),
+              _buildWorkflowStepper(isCompact: true),
                 const SizedBox(height: 24),
                 Text(
                   'Resumen de la sesión',
@@ -160,7 +160,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           const SizedBox(height: 16),
-                          _buildWorkflowStepper(),
+                          _buildWorkflowStepper(isCompact: false),
                           const SizedBox(height: 24),
                           Text(
                             'Resumen de la sesión',
@@ -287,7 +287,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     );
   }
 
-  Widget _buildWorkflowStepper() {
+  Widget _buildWorkflowStepper({required bool isCompact}) {
     return Card(
       elevation: 2,
       child: Padding(
@@ -448,18 +448,17 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                   _buildChecklistTile(
                     'Menú personalizado',
                     'Planifica por tiempos de comida y porciones.',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => NutricionMenusScreen(
-                            userId: widget.userId,
-                            empresaId: widget.empresaId,
-                            establecimiento: _selectedEstablecimiento,
-                            semana: _weekStart,
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: () => _openModule(
+                      tabIndex: 1,
+                      title: 'Menús nutricionales',
+                      isCompact: isCompact,
+                      child: NutricionMenusScreen(
+                        userId: widget.userId,
+                        empresaId: widget.empresaId,
+                        establecimiento: _selectedEstablecimiento,
+                        semana: _weekStart,
+                      ),
+                    ),
                   ),
                   _buildChecklistTile(
                     'Indicaciones y educación',
@@ -501,16 +500,15 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                   _buildChecklistTile(
                     'Firma y consentimiento',
                     'Paciente y nutricionista firman digitalmente.',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => NutricionFirmasScreen(
-                            empresaId: widget.empresaId,
-                            userId: widget.userId,
+                    onTap: () => _openModule(
+    tabIndex: 3,
+    title: 'Firmas nutricionales',
+    isCompact: isCompact,
+    child: NutricionFirmasScreen(
+    empresaId: widget.empresaId,
+    userId: widget.userId,
+    ),
                           ),
-                        ),
-                      );
-                    },
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -644,64 +642,60 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
         subtitle: 'Planifica dietas y porciones por semana.',
         icon: Icons.restaurant_menu,
         accent: Colors.orange,
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => NutricionMenusScreen(
-                userId: widget.userId,
-                empresaId: widget.empresaId,
-                establecimiento: _selectedEstablecimiento,
-                semana: _weekStart,
-              ),
-            ),
-          );
-        },
+        onTap: () => _openModule(
+          tabIndex: 1,
+          title: 'Menús nutricionales',
+          isCompact: isCompact,
+          child: NutricionMenusScreen(
+            userId: widget.userId,
+            empresaId: widget.empresaId,
+            establecimiento: _selectedEstablecimiento,
+            semana: _weekStart,
+          ),
+        ),
       ),
       _buildModuleCard(
         title: 'Catálogos',
         subtitle: 'Ingredientes, dietas y preparaciones.',
         icon: Icons.menu_book,
         accent: Colors.teal,
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => NutricionCatalogosScreen(
-                empresaId: widget.empresaId,
-              ),
-            ),
-          );
-        },
+        onTap: () => _openModule(
+          tabIndex: 2,
+          title: 'Catálogos nutricionales',
+          isCompact: isCompact,
+          child: NutricionCatalogosScreen(
+            empresaId: widget.empresaId,
+          ),
+        ),
       ),
       _buildModuleCard(
         title: 'Firmas',
         subtitle: 'Consentimientos y firmas digitales.',
         icon: Icons.draw,
         accent: Colors.indigo,
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => NutricionFirmasScreen(
-                empresaId: widget.empresaId,
-                userId: widget.userId,
-              ),
-            ),
-          );
-        },
+        onTap: () => _openModule(
+          tabIndex: 3,
+          title: 'Firmas nutricionales',
+          isCompact: isCompact,
+          child: NutricionFirmasScreen(
+            empresaId: widget.empresaId,
+            userId: widget.userId,
+          ),
+        ),
       ),
       _buildModuleCard(
         title: 'Reportes',
         subtitle: 'Indicadores y reportes nutricionales.',
         icon: Icons.bar_chart,
         accent: Colors.blueGrey,
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => NutricionReportesScreen(
-                empresaId: widget.empresaId,
-              ),
-            ),
-          );
-        },
+        onTap: () => _openModule(
+          tabIndex: 4,
+          title: 'Reportes nutricionales',
+          isCompact: isCompact,
+          child: NutricionReportesScreen(
+            empresaId: widget.empresaId,
+          ),
+        ),
       ),
     ];
 
@@ -759,6 +753,30 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  void _openModule({
+    required int tabIndex,
+    required String title,
+    required bool isCompact,
+    required Widget child,
+  }) {
+    if (!isCompact) {
+      final controller = DefaultTabController.of(context);
+      if (controller != null && controller.length > tabIndex) {
+        controller.animateTo(tabIndex);
+        return;
+      }
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(title)),
+          body: child,
         ),
       ),
     );
