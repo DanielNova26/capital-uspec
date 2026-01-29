@@ -17,6 +17,7 @@ class NutricionService {
   static const String _collCarnets = 'TBL_CARNETS_NUTRICION';
   static const String _collDerivaciones = 'TBL_DERIVACIONES_NUTRICION';
   static const String _collAlertas = 'TBL_ALERTAS_NUTRICION';
+  static const String _collDirectorio = 'TBL_DIRECTORIO_NUTRICION';
 
   // ✅ Nueva tabla para plantillas (ingredientes)
   static const String _collPlantillasMenus = 'TBL_PLANTILLAS_MENUS';
@@ -146,6 +147,73 @@ class NutricionService {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // DIRECTORIO NUTRICIONISTA (evaluación y diagnóstico)
+  // ---------------------------------------------------------------------------
+
+  Stream<List<Map<String, dynamic>>> streamDirectorioNutricion({
+    required String empresaId,
+  }) {
+    final controller = StreamController<List<Map<String, dynamic>>>.broadcast();
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    bool started = false;
+
+    void emitError(Object e, StackTrace st) {
+      if (!controller.isClosed) controller.addError(e, st);
+    }
+
+    void start() {
+      if (started) return;
+      started = true;
+      sub = _db
+          .collection(_collDirectorio)
+          .where('empresaId', isEqualTo: empresaId)
+          .snapshots()
+          .listen(
+            (snap) {
+          final list = snap.docs
+              .map((d) => {'id': d.id, ...d.data()})
+              .toList(growable: true);
+          list.sort((a, b) => (a['nombreCompleto']?.toString() ?? '')
+              .compareTo(b['nombreCompleto']?.toString() ?? ''));
+          if (!controller.isClosed) controller.add(list);
+        },
+        onError: emitError,
+      );
+    }
+
+    controller
+      ..onListen = () {
+        if (sub == null) start();
+      }
+      ..onCancel = () async {
+        await sub?.cancel();
+        sub = null;
+        if (!controller.isClosed) await controller.close();
+      };
+
+    return controller.stream;
+  }
+
+  Future<void> guardarDirectorioNutricion({
+    required String empresaId,
+    required String userId,
+    required Map<String, dynamic> data,
+    String? id,
+  }) async {
+    final doc = id == null
+        ? _db.collection(_collDirectorio).doc()
+        : _db.collection(_collDirectorio).doc(id);
+    await doc.set({
+      ...data,
+      'empresaId': empresaId,
+      'actualizadoPor': userId,
+      'actualizadoEn': FieldValue.serverTimestamp(),
+      if (id == null) 'creadoEn': FieldValue.serverTimestamp(),
+      if (id == null) 'creadoPor': userId,
+    }, SetOptions(merge: true));
+  }
+
   bool _isIndexError(Object e) {
     if (e is FirebaseException) {
       if (e.code == 'failed-precondition') return true;
@@ -223,7 +291,7 @@ class NutricionService {
     required String plantillaKey,
     required String titulo,
     required String descripcion,
-    required Map<String, List<String>> grupos,
+    required Map<String, List<Map<String, dynamic>>> grupos,
     required String userId,
   }) async {
     final safeId = _plantillaDocId(

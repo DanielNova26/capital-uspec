@@ -25,6 +25,8 @@ class NutricionMenusScreen extends StatefulWidget {
   final String empresaId;
   final String establecimiento;
   final DateTime semana;
+  final bool showAppBar;
+  final String appBarTitle;
 
   const NutricionMenusScreen({
     super.key,
@@ -32,6 +34,8 @@ class NutricionMenusScreen extends StatefulWidget {
     required this.empresaId,
     required this.establecimiento,
     required this.semana,
+    this.showAppBar = true,
+    this.appBarTitle = 'Menús nutricionales',
   });
 
   @override
@@ -147,9 +151,11 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Menús nutricionales'),
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+        title: Text(widget.appBarTitle),
+      )
+          : null,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
@@ -160,7 +166,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Crea tus plantillas y edítalas agregando o eliminando ingredientes. '
+            'Crea tus plantillas y edítalas agregando ingredientes, recetas y gramajes. '
                 'Luego podrás usar estas plantillas como base para tus menús.',
             style: theme.textTheme.bodyMedium,
           ),
@@ -377,21 +383,53 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
             const SizedBox(height: 6),
             Text(descripcion, style: theme.textTheme.bodyMedium),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.list_alt, size: 18),
-                const SizedBox(width: 6),
-                Text(
-                  totalIngredientes == 0 ? 'Sin ingredientes' : '$totalIngredientes ingredientes',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: () => _editarPlantillaDialog(p),
-                  icon: const Icon(Icons.tune),
-                  label: const Text('Editar'),
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 360;
+                final infoRow = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.list_alt, size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      totalIngredientes == 0
+                          ? 'Sin ingredientes'
+                          : '$totalIngredientes ingredientes',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                );
+
+                if (isNarrow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      infoRow,
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _editarPlantillaDialog(p),
+                          icon: const Icon(Icons.tune),
+                          label: const Text('Editar'),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    infoRow,
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: () => _editarPlantillaDialog(p),
+                      icon: const Icon(Icons.tune),
+                      label: const Text('Editar'),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -501,6 +539,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
 
   Future<void> _editarPlantillaDialog(Map<String, dynamic> plantillaDoc) async {
     final theme = Theme.of(context);
+    final media = MediaQuery.of(context);
 
     final plantillaKey = (plantillaDoc['plantillaKey'] ?? '').toString();
     final tituloCtrl = TextEditingController(
@@ -511,9 +550,9 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
     );
 
     // Clon editable
-    final grupos = Map<String, List<String>>.fromEntries(
+    final grupos = Map<String, List<_IngredienteItem>>.fromEntries(
       _castGrupos(plantillaDoc['grupos']).entries.map((e) {
-        return MapEntry(e.key, List<String>.from(e.value));
+        return MapEntry(e.key, e.value.map((item) => item.copy()).toList());
       }),
     );
 
@@ -527,11 +566,14 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
           builder: (ctx, setLocal) {
             final total = grupos.values.fold<int>(0, (acc, v) => acc + v.length);
 
-            // Para evitar overflow en Row, usamos Wrap
+            // Para evitar overflow en móvil, limitamos el alto del dialog.
             return AlertDialog(
               title: Text(tituloCtrl.text.isEmpty ? 'Plantilla' : tituloCtrl.text),
               content: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
+                constraints: BoxConstraints(
+                  maxWidth: 520,
+                  maxHeight: media.size.height * 0.75,
+                ),
                 child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -585,7 +627,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                               }
                               setLocal(() {
                                 errorText = null;
-                                grupos[key] = <String>[];
+                                grupos[key] = <_IngredienteItem>[];
                               });
                             },
                             icon: const Icon(Icons.add),
@@ -628,18 +670,12 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                                     IconButton(
                                       tooltip: 'Agregar ingrediente',
                                       onPressed: () async {
-                                        final ing = await _promptText(
-                                          context,
-                                          title: 'Agregar ingrediente',
-                                          hint: 'Ej: Pan, Arroz, Huevo...',
-                                        );
-                                        if (ing == null) return;
-                                        final v = ing.trim();
-                                        if (v.isEmpty) return;
-
+                                        final item =
+                                        await _openIngredienteDialog(context);
+                                        if (item == null) return;
                                         setLocal(() {
                                           errorText = null;
-                                          items.add(v);
+                                          items.add(item);
                                         });
                                       },
                                       icon: const Icon(Icons.add_circle_outline),
@@ -676,18 +712,47 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                                   else
                                     Padding(
                                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                                      child: Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
+                                      child: Column(
                                         children: [
                                           for (int i = 0; i < items.length; i++)
-                                            InputChip(
-                                              label: Text(items[i]),
-                                              onDeleted: () {
-                                                setLocal(() {
-                                                  items.removeAt(i);
-                                                });
-                                              },
+                                            Card(
+                                              margin: const EdgeInsets.only(bottom: 8),
+                                              child: ListTile(
+                                                title: Text(items[i].nombre),
+                                                subtitle: Text(
+                                                  'Gramaje: ${items[i].gramos} ${items[i].unidad} • '
+                                                      'Receta: ${items[i].receta.isEmpty ? 'N/A' : items[i].receta}',
+                                                ),
+                                                trailing: Wrap(
+                                                  spacing: 4,
+                                                  children: [
+                                                    IconButton(
+                                                      tooltip: 'Editar',
+                                                      icon: const Icon(Icons.edit),
+                                                      onPressed: () async {
+                                                        final updated =
+                                                        await _openIngredienteDialog(
+                                                          context,
+                                                          initial: items[i],
+                                                        );
+                                                        if (updated == null) return;
+                                                        setLocal(() {
+                                                          items[i] = updated;
+                                                        });
+                                                      },
+                                                    ),
+                                                    IconButton(
+                                                      tooltip: 'Eliminar',
+                                                      icon: const Icon(Icons.delete_outline),
+                                                      onPressed: () {
+                                                        setLocal(() {
+                                                          items.removeAt(i);
+                                                        });
+                                                      },
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
                                             ),
                                         ],
                                       ),
@@ -703,11 +768,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    tituloCtrl.dispose();
-                    descCtrl.dispose();
-                    Navigator.pop(ctx);
-                  },
+                  onPressed: () => Navigator.pop(ctx),
                   child: const Text('Cancelar'),
                 ),
                 FilledButton.icon(
@@ -719,11 +780,15 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                     }
 
                     // Normalizar: no guardar listas con strings vacíos
-                    final gruposClean = <String, List<String>>{};
+                    final gruposClean = <String, List<Map<String, dynamic>>>{};
                     for (final e in grupos.entries) {
                       final k = e.key.trim();
                       if (k.isEmpty) continue;
-                      final clean = e.value.map((x) => x.trim()).where((x) => x.isNotEmpty).toList();
+                      final clean = e.value
+                          .map((x) => x.copy())
+                          .where((x) => x.nombre.trim().isNotEmpty)
+                          .map((x) => x.toMap())
+                          .toList();
                       gruposClean[k] = clean;
                     }
 
@@ -752,10 +817,14 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
         );
       },
     );
+
+    tituloCtrl.dispose();
+    descCtrl.dispose();
   }
 
   Future<void> _crearMenuDialog() async {
     final theme = Theme.of(context);
+    final media = MediaQuery.of(context);
     final nombreCtrl = TextEditingController();
     String periodo = 'Semanal';
     String? error;
@@ -768,48 +837,53 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
             return AlertDialog(
               title: const Text('Nuevo menú'),
               content: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nombreCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre del menú',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: periodo,
-                      items: const [
-                        DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
-                        DropdownMenuItem(value: 'Mensual', child: Text('Mensual')),
-                      ],
-                      onChanged: (v) => setLocal(() => periodo = v ?? 'Semanal'),
-                      decoration: const InputDecoration(
-                        labelText: 'Periodo',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    if (error != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        error!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.error,
+                constraints: BoxConstraints(
+                  maxWidth: 520,
+                  maxHeight: media.size.height * 0.6,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nombreCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Nombre del menú',
+                          border: OutlineInputBorder(),
                         ),
                       ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: periodo,
+                        items: const [
+                          DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
+                          DropdownMenuItem(value: 'Mensual', child: Text('Mensual')),
+                        ],
+                        onChanged: (v) => setLocal(() => periodo = v ?? 'Semanal'),
+                        decoration: const InputDecoration(
+                          labelText: 'Periodo',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            error!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
-                    nombreCtrl.dispose();
-                    Navigator.pop(ctx);
-                  },
+                  onPressed: () => Navigator.pop(ctx),
                   child: const Text('Cancelar'),
                 ),
                 FilledButton.icon(
@@ -837,7 +911,11 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                         },
                       );
 
-                      if (mounted) Navigator.pop(ctx);
+                      if (!mounted) return;
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Menú creado correctamente.')),
+                      );
                     } catch (e) {
                       setLocal(() => error = 'No se pudo crear: $e');
                     }
@@ -851,6 +929,8 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
         );
       },
     );
+
+    nombreCtrl.dispose();
   }
 
   void _verDetalleMenu(
@@ -905,21 +985,168 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
     return <String, List<String>>{};
   }
 
-  Map<String, List<String>> _castGrupos(Object? raw) {
+  Map<String, List<_IngredienteItem>> _castGrupos(Object? raw) {
     if (raw is Map) {
-      final out = <String, List<String>>{};
+      final out = <String, List<_IngredienteItem>>{};
       for (final e in raw.entries) {
         final k = e.key.toString();
         final v = e.value;
-        if (v is List) {
-          out[k] = v.map((x) => x.toString()).toList();
-        } else {
-          out[k] = <String>[];
-        }
+        out[k] = _castIngredientes(v);
       }
       return out;
     }
-    return <String, List<String>>{};
+    return <String, List<_IngredienteItem>>{};
+  }
+
+  List<_IngredienteItem> _castIngredientes(Object? raw) {
+    if (raw is List) {
+      return raw.map((item) {
+        if (item is Map) {
+          return _IngredienteItem(
+            nombre: item['nombre']?.toString() ??
+                item['ingrediente']?.toString() ??
+                '',
+            gramos: item['gramos']?.toString() ?? '',
+            unidad: item['unidad']?.toString() ?? 'g',
+            receta: item['receta']?.toString() ?? '',
+          );
+        }
+        return _IngredienteItem(
+          nombre: item.toString(),
+          gramos: '',
+          unidad: 'g',
+          receta: '',
+        );
+      }).toList();
+    }
+    return <_IngredienteItem>[];
+  }
+
+  Future<_IngredienteItem?> _openIngredienteDialog(
+      BuildContext context, {
+        _IngredienteItem? initial,
+      }) async {
+    final media = MediaQuery.of(context);
+    final nombreCtrl = TextEditingController(text: initial?.nombre ?? '');
+    final gramosCtrl = TextEditingController(text: initial?.gramos ?? '');
+    final unidadCtrl = TextEditingController(text: initial?.unidad ?? 'g');
+    final recetaCtrl = TextEditingController(text: initial?.receta ?? '');
+    String? errorText;
+
+    final result = await showDialog<_IngredienteItem>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: Text(initial == null
+                  ? 'Agregar ingrediente'
+                  : 'Editar ingrediente'),
+              content: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 420,
+                  maxHeight: media.size.height * 0.7,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nombreCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Ingrediente',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: gramosCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Gramaje',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: unidadCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Unidad',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: recetaCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Receta / preparación',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            errorText!,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    if (nombreCtrl.text.trim().isEmpty) {
+                      setLocal(() => errorText = 'El ingrediente es obligatorio.');
+                      return;
+                    }
+                    Navigator.pop(
+                      ctx,
+                      _IngredienteItem(
+                        nombre: nombreCtrl.text.trim(),
+                        gramos: gramosCtrl.text.trim(),
+                        unidad: unidadCtrl.text.trim().isEmpty
+                            ? 'g'
+                            : unidadCtrl.text.trim(),
+                        receta: recetaCtrl.text.trim(),
+                      ),
+                    );
+                  },
+                  child: const Text('Guardar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nombreCtrl.dispose();
+    gramosCtrl.dispose();
+    unidadCtrl.dispose();
+    recetaCtrl.dispose();
+    return result;
   }
 
   Future<String?> _promptText(
@@ -950,7 +1177,6 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
           actions: [
             TextButton(
               onPressed: () {
-                ctrl.dispose();
                 Navigator.pop(ctx);
               },
               child: const Text('Cancelar'),
@@ -958,7 +1184,6 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
             FilledButton(
               onPressed: () {
                 result = ctrl.text;
-                ctrl.dispose();
                 Navigator.pop(ctx);
               },
               child: const Text('Aceptar'),
@@ -968,6 +1193,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
       },
     );
 
+    ctrl.dispose();
     return result;
   }
 
@@ -995,5 +1221,37 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
         );
       },
     );
+  }
+}
+
+class _IngredienteItem {
+  final String nombre;
+  final String gramos;
+  final String unidad;
+  final String receta;
+
+  const _IngredienteItem({
+    required this.nombre,
+    required this.gramos,
+    required this.unidad,
+    required this.receta,
+  });
+
+  _IngredienteItem copy() {
+    return _IngredienteItem(
+      nombre: nombre,
+      gramos: gramos,
+      unidad: unidad,
+      receta: receta,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'nombre': nombre,
+      'gramos': gramos,
+      'unidad': unidad,
+      'receta': receta,
+    };
   }
 }
