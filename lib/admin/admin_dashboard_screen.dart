@@ -867,6 +867,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final ref = u.reference;
 
       final updates = <String, dynamic>{
+        'empresaId': FieldValue.delete(),
+        'empresaNombre': FieldValue.delete(),
+        'empresas': FieldValue.delete(),
+        'empresasDetalle': FieldValue.delete(),
         'areaId': FieldValue.delete(),
         'areaNombre': FieldValue.delete(),
         'area': FieldValue.delete(),
@@ -879,7 +883,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         'centroCodigo': FieldValue.delete(),
         'jefeId': FieldValue.delete(),
         'jefeNombre': FieldValue.delete(),
-        'empresasDetalle.$empresaId': FieldValue.delete(),
       };
 
       batch.update(ref, updates);

@@ -762,7 +762,10 @@ class SeederService {
       final empresasDetalle = <String, dynamic>{};
       final existingEmpresasDetalle = existing?['empresasDetalle'] as Map<String, dynamic>?;
       if (existingEmpresasDetalle != null) empresasDetalle.addAll(existingEmpresasDetalle);
-
+      for (final entry in empresasDetalle.entries) {
+        if (!empresas.contains(entry.key)) empresas.add(entry.key);
+      }
+      
       empresasDetalle[empresaId] = {
         'empresaId': empresaId,
         'empresaNombre': empresaNombre,
