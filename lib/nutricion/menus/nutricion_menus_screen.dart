@@ -393,8 +393,8 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                     const SizedBox(width: 6),
                     Text(
                       totalIngredientes == 0
-                          ? 'Sin ingredientes'
-                          : '$totalIngredientes ingredientes',
+                          ? 'Sin Ingredientes'
+                          : '$totalIngredientes Ingredientes',
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -459,7 +459,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
               children: [
                 _pill(periodo),
                 const SizedBox(width: 8),
-                _pill('$total ingredientes'),
+                _pill('$total Ingredientes'),
               ],
             ),
             const SizedBox(height: 10),
@@ -608,7 +608,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                             children: [
                               const Icon(Icons.list_alt, size: 18),
                               const SizedBox(width: 6),
-                              Text('$total ingredientes'),
+                              Text('$total Ingredientes'),
                             ],
                           ),
                           TextButton.icon(
@@ -663,7 +663,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                               margin: const EdgeInsets.only(bottom: 10),
                               child: ExpansionTile(
                                 title: Text(grupo),
-                                subtitle: Text('${items.length} ingredientes'),
+                                subtitle: Text('${items.length} Ingredientes'),
                                 trailing: Wrap(
                                   spacing: 4,
                                   children: [
@@ -706,7 +706,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
                                       padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
                                       child: Align(
                                         alignment: Alignment.centerLeft,
-                                        child: Text('Sin ingredientes'),
+                                        child: Text('Sin Ingredientes'),
                                       ),
                                     )
                                   else

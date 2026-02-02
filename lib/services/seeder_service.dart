@@ -435,6 +435,7 @@ class SeederService {
         'nombre': nombre,
         if (_s(r['descripcion']).isNotEmpty) 'descripcion': _s(r['descripcion']),
         'area': areaNombre.isEmpty ? null : areaNombre,
+        'areaNombre': areaNombre.isEmpty ? null : areaNombre,
         'areaId': areaId.isEmpty ? null : areaId,
         'centroId': centroId.isEmpty ? null : centroId,
         'createdAt': FieldValue.serverTimestamp(),
@@ -592,6 +593,7 @@ class SeederService {
         empresaId: {
           'empresaId': empresaId,
           'area': areaNombre.isEmpty ? null : areaNombre,
+          'areaNombre': areaNombre.isEmpty ? null : areaNombre,
           'areaId': areaId.isEmpty ? null : areaId,
           'cargo': cargoNombre.isEmpty ? null : cargoNombre,
           'cargoId': cargoId.isEmpty ? null : cargoId,
@@ -609,6 +611,7 @@ class SeederService {
         'empresas': FieldValue.arrayUnion([empresaId]),
         'empresasDetalle': detalle,
         'area': areaNombre.isEmpty ? null : areaNombre,
+        'areaNombre': areaNombre.isEmpty ? null : areaNombre,
         'areaId': areaId.isEmpty ? null : areaId,
         'cargo': cargoNombre.isEmpty ? null : cargoNombre,
         'cargoId': cargoId.isEmpty ? null : cargoId,
@@ -739,6 +742,9 @@ class SeederService {
       final existingCentroId = _s(existing?['centroId']);
 
       final areaForPrimary = updatingPrimary ? areaNombre : _s(existing?['area']);
+      final areaNombreForPrimary = updatingPrimary
+          ? areaNombre
+          : (_s(existing?['areaNombre']).isNotEmpty ? _s(existing?['areaNombre']) : _s(existing?['area']));
       final cargoForPrimary = updatingPrimary ? cargoNombre : _s(existing?['cargo']);
       final centroForPrimary = updatingPrimary ? centroNom : _s(existing?['centroCostos']);
 
@@ -761,6 +767,7 @@ class SeederService {
         'empresaId': empresaId,
         'empresaNombre': empresaNombre,
         'area': areaNombre.isEmpty ? null : areaNombre,
+        'areaNombre': areaNombre.isEmpty ? null : areaNombre,
         'areaId': areaId.isEmpty ? null : areaId,
         'cargo': cargoNombre.isEmpty ? null : cargoNombre,
         'cargoId': cargoId.isEmpty ? null : cargoId,
@@ -790,6 +797,7 @@ class SeederService {
 
         // top-level alineado con primaria
         'area': areaForPrimary.isEmpty ? null : areaForPrimary,
+        'areaNombre': areaNombreForPrimary.isEmpty ? null : areaNombreForPrimary,
         'areaId': areaIdForPrimary.isEmpty ? null : areaIdForPrimary,
         'cargo': cargoForPrimary.isEmpty ? null : cargoForPrimary,
         'cargoId': cargoIdForPrimary.isEmpty ? null : cargoIdForPrimary,
@@ -834,6 +842,7 @@ class SeederService {
         'empresaId': empresaId,
         'empresaNombre': empresaNombre,
         'area': areaNombre.isEmpty ? null : areaNombre,
+        'areaNombre': areaNombre.isEmpty ? null : areaNombre,
         'areaId': areaId.isEmpty ? null : areaId,
         'cargo': cargoNombre.isEmpty ? null : cargoNombre,
         'cargoId': cargoId.isEmpty ? null : cargoId,
@@ -849,6 +858,9 @@ class SeederService {
       final estrUpdatingPrimary = estructuraPrimaryEmpresa == empresaId || existingEstrEmpresaId.isEmpty;
 
       final estructuraArea = estrUpdatingPrimary ? areaNombre : _s(existingEstr?['area']);
+      final estructuraAreaNombre = estrUpdatingPrimary
+          ? areaNombre
+          : (_s(existingEstr?['areaNombre']).isNotEmpty ? _s(existingEstr?['areaNombre']) : _s(existingEstr?['area']));
       final estructuraCargo = estrUpdatingPrimary ? cargoNombre : _s(existingEstr?['cargo']);
       final estructuraCentro = estrUpdatingPrimary ? centroNom : _s(existingEstr?['centroCostos']);
 
@@ -867,6 +879,7 @@ class SeederService {
         'empresasDetalle': estructuraDetalle,
 
         'area': estructuraArea.isEmpty ? null : estructuraArea,
+        'areaNombre': estructuraAreaNombre.isEmpty ? null : estructuraAreaNombre,
         'areaId': estructuraAreaId.isEmpty ? null : estructuraAreaId,
         'cargo': estructuraCargo.isEmpty ? null : estructuraCargo,
         'cargoId': estructuraCargoId.isEmpty ? null : estructuraCargoId,

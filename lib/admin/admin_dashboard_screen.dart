@@ -835,6 +835,228 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return snap.docs;
   }
 
+  // ---------------- LIMPIEZA: RESETEAR DATOS DE USUARIOS ----------------
+  Future<void> _resetUsersData() async {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+
+    final ok = await _confirm(
+      title: '⚠ RESETEAR DATOS DE USUARIOS',
+      message:
+      'Se borrarán Áreas, Cargos, Centros y Jefes de ${_users.length} usuarios en la empresa $empresaId.\n\n'
+          'NO se borrarán las cuentas de acceso (correo/clave).\n'
+          'Los usuarios quedarán listos para recibir una carga limpia desde Excel.',
+      confirmText: 'SÍ, RESETEAR DATOS',
+    );
+    if (!ok) return;
+
+    setState(() => _loading = true);
+
+    int count = 0;
+    WriteBatch batch = FirebaseFirestore.instance.batch();
+    bool hasWrites = false;
+
+    Future<void> commitBatch() async {
+      if (!hasWrites) return;
+      await batch.commit();
+      batch = FirebaseFirestore.instance.batch();
+      hasWrites = false;
+    }
+
+    for (final u in _users) {
+      final ref = u.reference;
+
+      final updates = <String, dynamic>{
+        'areaId': FieldValue.delete(),
+        'areaNombre': FieldValue.delete(),
+        'area': FieldValue.delete(),
+        'cargoId': FieldValue.delete(),
+        'cargo': FieldValue.delete(),
+        'cargoNombre': FieldValue.delete(),
+        'centroId': FieldValue.delete(),
+        'centroCostos': FieldValue.delete(),
+        'centro_costos': FieldValue.delete(),
+        'centroCodigo': FieldValue.delete(),
+        'jefeId': FieldValue.delete(),
+        'jefeNombre': FieldValue.delete(),
+        'empresasDetalle.$empresaId': FieldValue.delete(),
+      };
+
+      batch.update(ref, updates);
+      count++;
+      hasWrites = true;
+
+      if (count % 400 == 0) {
+        await commitBatch();
+      }
+    }
+
+    await commitBatch();
+
+    await _mig.logMigration(
+      adminUserId: widget.userId,
+      empresaId: empresaId,
+      action: 'RESET_USERS_DATA',
+      scanned: count,
+      updated: count,
+      dryRun: false,
+    );
+
+    setState(() => _loading = false);
+    _snack('Se resetearon los datos de $count usuarios.');
+    await _loadAll(forceEmpresaId: empresaId);
+  }
+
+  // ---------------- LIMPIEZA: BORRAR CATÁLOGOS ----------------
+  Future<void> _purgeCatalogs() async {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+
+    final ok = await _confirm(
+      title: '⚠ BORRAR TODOS LOS CATÁLOGOS',
+      message:
+      'Se eliminarán TODAS las Áreas, Cargos y Centros de Costo de la empresa $empresaId.\n\n'
+          'Haz esto solo si vas a volver a subir el archivo Excel completo.\n'
+          '¿Estás seguro?',
+      confirmText: 'BORRAR TODO',
+    );
+    if (!ok) return;
+
+    setState(() => _loading = true);
+    int deletedCount = 0;
+
+    Future<void> deleteCollection(String collName) async {
+      final snap = await FirebaseFirestore.instance
+          .collection(collName)
+          .where('empresaId', isEqualTo: empresaId)
+          .get();
+      for (final doc in snap.docs) {
+        await doc.reference.delete();
+        deletedCount++;
+      }
+    }
+
+    await deleteCollection('TBL_AREAS');
+    await deleteCollection('TBL_CARGOS');
+    await deleteCollection('TBL_CENTROS_COSTOS');
+
+    setState(() => _loading = false);
+    _snack('Catálogos eliminados. Total documentos borrados: $deletedCount');
+    await _loadAll(forceEmpresaId: empresaId);
+  }
+
+  Widget _tabCleanup() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          color: Colors.orange.shade50,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.orange.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.person_remove_outlined, color: Colors.orange.shade900, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Resetear datos de Usuarios',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.orange.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Esta opción NO borra al usuario ni su contraseña. Solo borra su cargo, área y centro.\n'
+                      'Úsalo antes de subir un Excel actualizado.',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade800,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _resetUsersData,
+                    icon: const Icon(Icons.cleaning_services),
+                    label: const Text('LIMPIAR DATOS DE USUARIOS', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Card(
+          color: Colors.red.shade50,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.red.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.folder_delete_outlined, color: Colors.red.shade900, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Purgar Catálogos (Áreas/Cargos)',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.red.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Elimina TODAS las Áreas, Cargos y Centros de esta empresa. Úsalo si vas a re-subir la estructura completa.',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade800,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _purgeCatalogs,
+                    icon: const Icon(Icons.delete_sweep),
+                    label: const Text('BORRAR TODOS LOS CATÁLOGOS', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
@@ -848,7 +1070,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
       child: DefaultTabController(
-        length: 5,
+        length: 6,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
@@ -861,6 +1083,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 Tab(icon: Icon(Icons.account_tree), text: 'Catálogos'),
                 Tab(icon: Icon(Icons.construction), text: 'Migraciones'),
                 Tab(icon: Icon(Icons.history), text: 'Logs'),
+                Tab(icon: Icon(Icons.cleaning_services), text: 'Limpieza'),
               ],
             ),
           ),
@@ -878,6 +1101,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _tabCatalogos(),
                     _tabMigraciones(),
                     _tabLogs(),
+                    _tabCleanup(),
                   ],
                 ),
               ),
