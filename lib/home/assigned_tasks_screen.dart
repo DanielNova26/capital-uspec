@@ -706,10 +706,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final title = _str(data, ['titulo', 'title']).toLowerCase();
       final desc = _str(data, ['descripcion', 'description']).toLowerCase();
       final empresaTarea = _str(data, ['empresaId', 'empresa_id', 'empresa']);
+      final empresasTarea = (data['empresas'] as List<dynamic>? ?? const [])
+          .map((e) => (e ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toSet();
       final areaId = _str(data, ['areaId']);
       final status = _resolvedStatus(data);
 
-      final matchEmpresa = _empresaIds.isEmpty || empresaTarea.isEmpty || _empresaIds.contains(empresaTarea);
+      final matchEmpresa = _empresaIds.isEmpty ||
+          empresaTarea.isEmpty ||
+          _empresaIds.contains(empresaTarea) ||
+          empresasTarea.any(_empresaIds.contains);
       final matchSearch = q.isEmpty || title.contains(q) || desc.contains(q) || d.id.toLowerCase().contains(q);
 
       final bool matchStatus;

@@ -69,11 +69,32 @@ String? _firstStrDeep(dynamic src, List<String> keys) {
   return null;
 }
 
-extension _EmpresaFilter on Query<Map<String, dynamic>> {
-  Query<Map<String, dynamic>> applyEmpresaFilter(String? empresaId) {
-    if (empresaId == null || empresaId.isEmpty) return this;
-    return where('empresaId', isEqualTo: empresaId);
+Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchEmpresaScoped({
+  required Query<Map<String, dynamic>> base,
+  required String? empresaId,
+  int? limit,
+}) async {
+  final scoped = (empresaId ?? '').trim();
+  if (scoped.isEmpty) {
+    final qs = await (limit == null ? base : base.limit(limit)).get();
+    return qs.docs;
   }
+
+  final futures = <Future<QuerySnapshot<Map<String, dynamic>>>>[
+    (limit == null ? base.where('empresaId', isEqualTo: scoped) : base.where('empresaId', isEqualTo: scoped).limit(limit))
+        .get(),
+    (limit == null ? base.where('empresas', arrayContains: scoped) : base.where('empresas', arrayContains: scoped).limit(limit))
+        .get(),
+  ];
+
+  final snaps = await Future.wait(futures);
+  final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+  for (final snap in snaps) {
+    for (final doc in snap.docs) {
+      merged[doc.id] = doc;
+    }
+  }
+  return merged.values.toList();
 }
 
 // Normalización de cargos/roles
@@ -433,42 +454,41 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchTasks() async {
     // GERENTE: trae todo (se ordena en cliente)
     if (_soyGerente) {
-      Query<Map<String, dynamic>> q =
-      FirebaseFirestore.instance.collection('TBL_TAREAS');
-      if ((_empresaId ?? '').isNotEmpty) {
-        q = q.where('empresaId', isEqualTo: _empresaId);
-      }
-      final qs = await q.limit(1000).get();
-      return  qs.docs;
+      final q = FirebaseFirestore.instance.collection('TBL_TAREAS');
+      return _fetchEmpresaScoped(base: q, empresaId: _empresaId, limit: 1000);
     }
 
     // DIRECTOR: por área (raíz + adjuntos.areaId + meta.areaId), deduplicando
     if (_soyDirector && (_miAreaId ?? '').isNotEmpty) {
-      final futures = <Future<QuerySnapshot<Map<String, dynamic>>>>[
-        FirebaseFirestore.instance
-            .collection('TBL_TAREAS')
-            .where('areaId', isEqualTo: _miAreaId)
-            .applyEmpresaFilter(_empresaId)
-            .limit(500)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('TBL_TAREAS')
-            .applyEmpresaFilter(_empresaId)
-            .where('adjuntos.areaId', isEqualTo: _miAreaId)
-            .limit(500)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('TBL_TAREAS')
-            .applyEmpresaFilter(_empresaId)
-            .where('meta.areaId', isEqualTo: _miAreaId)
-            .limit(500)
-            .get(),
+      final futures = <Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>>[
+        _fetchEmpresaScoped(
+          base: FirebaseFirestore.instance
+              .collection('TBL_TAREAS')
+              .where('areaId', isEqualTo: _miAreaId),
+          empresaId: _empresaId,
+          limit: 500,
+        ),
+        _fetchEmpresaScoped(
+          base: FirebaseFirestore.instance
+              .collection('TBL_TAREAS')
+              .where('adjuntos.areaId', isEqualTo: _miAreaId),
+          empresaId: _empresaId,
+          limit: 500,
+        ),
+        _fetchEmpresaScoped(
+          base: FirebaseFirestore.instance
+              .collection('TBL_TAREAS')
+              .where('meta.areaId', isEqualTo: _miAreaId),
+          empresaId: _empresaId,
+          limit: 500,
+        ),
       ];
       final snaps = await Future.wait(futures);
-      final map =
-      <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-      for (final s in snaps) {
-        for (final d in s.docs) map[d.id] = d;
+      final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final batch in snaps) {
+        for (final d in batch) {
+          map[d.id] = d;
+        }
       }
       return map.values.toList();
     }
@@ -482,13 +502,14 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
     final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (var i = 0; i < ids.length; i += 10) {
       final chunk = ids.sublist(i, i + 10 > ids.length ? ids.length : i + 10);
-      final qs = await FirebaseFirestore.instance
-          .collection('TBL_TAREAS')
-          .where('asignado_uid', whereIn: chunk)
-          .applyEmpresaFilter(_empresaId)
-          .limit(500)
-          .get();
-      out.addAll(qs.docs);
+      final tasks = await _fetchEmpresaScoped(
+        base: FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .where('asignado_uid', whereIn: chunk),
+        empresaId: _empresaId,
+        limit: 500,
+      );
+      out.addAll(tasks);
     }
     return out;
   }

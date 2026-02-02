@@ -185,15 +185,27 @@ class _TeamScreenState extends State<TeamScreen> {
     final ids = _miEquipo.map((e) => e['uid']).whereType<String>().toList();
     if (ids.isEmpty) return;
 
+    final scopedEmpresa = (_empresaId ?? '').trim();
     for (var i = 0; i < ids.length; i += 10) {
       final chunk = ids.sublist(i, i + 10 > ids.length ? ids.length : i + 10);
-      Query<Map<String, dynamic>> q =
+      final base =
       _db.collection('TBL_TAREAS').where('asignado_uid', whereIn: chunk).limit(400);
-      if (_empresaId != null && _empresaId!.isNotEmpty) {
-        q = q.where('empresaId', isEqualTo: _empresaId);
+      if (scopedEmpresa.isEmpty) {
+        final snap = await base.get();
+        _tareas.addAll(snap.docs);
+      } else {
+        final snaps = await Future.wait([
+          base.where('empresaId', isEqualTo: scopedEmpresa).get(),
+          base.where('empresas', arrayContains: scopedEmpresa).get(),
+        ]);
+        final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+        for (final snap in snaps) {
+          for (final doc in snap.docs) {
+            merged[doc.id] = doc;
+          }
+        }
+        _tareas.addAll(merged.values);
       }
-      final snap = await q.get();
-      _tareas.addAll(snap.docs);
     }
 
     _tareas.sort((a, b) {

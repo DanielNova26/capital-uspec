@@ -97,6 +97,24 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ],
   );
 
+  List<String> _empresasDeUsuario(Map<String, dynamic> data) {
+    final out = <String>{};
+    final primary = _empresaDe(data).trim();
+    if (primary.isNotEmpty) out.add(primary);
+
+    final list = data['empresas'] as List<dynamic>? ?? const [];
+    for (final e in list) {
+      final id = (e ?? '').toString().trim();
+      if (id.isNotEmpty) out.add(id);
+    }
+
+    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+    if (detalle != null) {
+      out.addAll(detalle.keys.map((k) => k.trim()).where((k) => k.isNotEmpty));
+    }
+    return out.toList();
+  }
+
   String _cedulaDe(Map<String, dynamic> data) => _firstNonEmpty(
     data,
     const [
@@ -1253,6 +1271,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       if (resolvedEmpresaId.isNotEmpty) {
         payload['empresaId'] = resolvedEmpresaId;
+      }
+
+      final empresasAsignado = _empresasDeUsuario(asignadoDoc);
+      if (empresasAsignado.isNotEmpty) {
+        if (resolvedEmpresaId.isNotEmpty && !empresasAsignado.contains(resolvedEmpresaId)) {
+          empresasAsignado.add(resolvedEmpresaId);
+        }
+        payload['empresas'] = empresasAsignado;
       }
 
       final ref = await FirebaseFirestore.instance.collection(kCollTareas).add(payload);
