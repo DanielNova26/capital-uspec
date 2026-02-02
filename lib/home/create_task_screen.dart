@@ -233,7 +233,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
-  List<Map<String, dynamic>> _cargos = []; // [{id,nombre,areaId?,enabled?,cedulas?}]
+  List<Map<String, dynamic>> _cargos = []; // [{id,nombre,areaId?,enabled?,cedulas?,empresaId?}]
   final Set<String> _empresasUsuario = {};
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
@@ -273,6 +273,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
     if (cargos.isEmpty) {
       for (final cargo in _cargos) {
+        if (!_cargoCoincideEmpresa(cargo)) continue;
         final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
         if (!enabled) continue;
         final areaId = (cargo['areaId'] ?? '').toString().trim();
@@ -368,6 +369,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return list;
   }
 
+  bool _cargoCoincideEmpresa(Map<String, dynamic> cargo) {
+    if (_empresaId == null || _empresaId!.trim().isEmpty) return true;
+    final emp = (cargo['empresaId'] ?? '').toString().trim();
+    if (emp.isEmpty) return true;
+    return emp == _empresaId!.trim();
+  }
+
   Set<String> _cedulasDesdeCargos({
     required String areaId,
     required String cargoId,
@@ -375,6 +383,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }) {
     final out = <String>{};
     for (final cargo in _cargos) {
+      if (!_cargoCoincideEmpresa(cargo)) continue;
       final area = (cargo['areaId'] ?? '').toString().trim();
       if (area.isEmpty || area != areaId) continue;
 
@@ -662,6 +671,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             : _firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim();
         final nombre = (m['nombre'] ?? '—').toString().trim();
         final areaId = (m['areaId'] ?? m['area_id'] ?? '').toString().trim();
+        final empresaId = _empresaDe(m).trim();
         final enabled = (m['enabled'] as bool?) ?? true;
         final cedulasRaw = m['cedulas'] as List<dynamic>? ?? const [];
         final cedulas = cedulasRaw
@@ -672,6 +682,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           'id': id,
           'nombre': nombre.isEmpty ? '—' : nombre,
           'areaId': areaId,
+          'empresaId': empresaId,
           'enabled': enabled.toString(),
           'cedulas': cedulas,
         };
@@ -690,6 +701,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _usuarios.clear();
       final cedulasDesdeCargos = <String>{};
       for (final cargo in _cargos) {
+        if (!_cargoCoincideEmpresa(cargo)) continue;
         final cedulas = cargo['cedulas'];
         if (cedulas is List) {
           for (final c in cedulas) {
