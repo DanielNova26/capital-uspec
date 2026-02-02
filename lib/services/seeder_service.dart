@@ -100,9 +100,25 @@ class SeederService {
       areaIdByName[_normKey(n)] = '${empresaId}_${_idFromName(n)}';
     }
 
+    final cedulasByAreaId = _collectCedulasByArea(
+      personal: wb.personal,
+      empresaId: empresaId,
+      areaIdByName: areaIdByName,
+    );
+    final cedulasByCargoId = _collectCedulasByCargo(
+      personal: wb.personal,
+      empresaId: empresaId,
+    );
+
     await _upsertCentros(centrosAll, empresaId);
-    await _upsertAreas(areasAll, empresaId, areaToCentroId);
-    await _upsertCargos(cargosAll, empresaId, areaIdByName, areaToCentroId);
+    await _upsertAreas(areasAll, empresaId, areaToCentroId, cedulasByAreaId);
+    await _upsertCargos(
+      cargosAll,
+      empresaId,
+      areaIdByName,
+      areaToCentroId,
+      cedulasByCargoId,
+    );
 
     // 3) Apps definidas por Excel (además de las default)
     await _upsertApps(wb.apps, empresaId);
@@ -340,6 +356,39 @@ class SeederService {
     return out;
   }
 
+  Map<String, List<String>> _collectCedulasByArea({
+    required List<Map<String, dynamic>> personal,
+    required String empresaId,
+    required Map<String, String> areaIdByName,
+  }) {
+    final out = <String, Set<String>>{};
+    for (final r in personal) {
+      final cedula = _digits(_s(r['cedula']));
+      final areaNombre = _s(r['area']);
+      if (cedula.isEmpty || areaNombre.isEmpty) continue;
+      final areaId = areaIdByName[_normKey(areaNombre)] ?? '${empresaId}_${_idFromName(areaNombre)}';
+      if (areaId.isEmpty) continue;
+      out.putIfAbsent(areaId, () => <String>{}).add(cedula);
+    }
+    return out.map((k, v) => MapEntry(k, v.toList()..sort()));
+  }
+
+  Map<String, List<String>> _collectCedulasByCargo({
+    required List<Map<String, dynamic>> personal,
+    required String empresaId,
+  }) {
+    final out = <String, Set<String>>{};
+    for (final r in personal) {
+      final cedula = _digits(_s(r['cedula']));
+      final cargoNombre = _s(r['cargo']);
+      if (cedula.isEmpty || cargoNombre.isEmpty) continue;
+      final cargoId = '${empresaId}_${_idFromName(cargoNombre)}';
+      if (cargoId.isEmpty) continue;
+      out.putIfAbsent(cargoId, () => <String>{}).add(cedula);
+    }
+    return out.map((k, v) => MapEntry(k, v.toList()..sort()));
+  }
+
   Future<Map<String, Map<String, dynamic>>> _loadExistingUsers(Set<String> cedulas) async {
     final out = <String, Map<String, dynamic>>{};
     if (cedulas.isEmpty) return out;
@@ -384,6 +433,7 @@ class SeederService {
       List<Map<String, dynamic>> rows,
       String empresaId,
       Map<String, String> areaToCentroId,
+      Map<String, List<String>> cedulasByAreaId,
       ) async {
     if (rows.isEmpty) return;
     final col = _db.collection('TBL_AREAS');
@@ -394,6 +444,7 @@ class SeederService {
 
       final areaId = '${empresaId}_${_idFromName(nombre)}';
       final centroId = areaToCentroId[_normKey(nombre)] ?? '';
+      final cedulas = cedulasByAreaId[areaId] ?? const <String>[];
 
       batch.set(col.doc(areaId), {
         'empresaId': empresaId,
@@ -401,6 +452,7 @@ class SeederService {
         'nombre': nombre,
         if (_s(r['descripcion']).isNotEmpty) 'descripcion': _s(r['descripcion']),
         'centroId': centroId.isEmpty ? null : centroId,
+        if (cedulas.isNotEmpty) 'cedulas': cedulas,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -412,6 +464,7 @@ class SeederService {
       String empresaId,
       Map<String, String> areaIdByName,
       Map<String, String> areaToCentroId,
+      Map<String, List<String>> cedulasByCargoId,
       ) async {
     if (rows.isEmpty) return;
     final col = _db.collection('TBL_CARGOS');
@@ -421,6 +474,7 @@ class SeederService {
       if (nombre.isEmpty) return;
 
       final cargoId = '${empresaId}_${_idFromName(nombre)}';
+      final cedulas = cedulasByCargoId[cargoId] ?? const <String>[];
 
       final areaNombre = _s(r['area']);
       final areaId = areaNombre.isEmpty
@@ -438,6 +492,7 @@ class SeederService {
         'areaNombre': areaNombre.isEmpty ? null : areaNombre,
         'areaId': areaId.isEmpty ? null : areaId,
         'centroId': centroId.isEmpty ? null : centroId,
+        if (cedulas.isNotEmpty) 'cedulas': cedulas,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -765,7 +820,7 @@ class SeederService {
       for (final entry in empresasDetalle.entries) {
         if (!empresas.contains(entry.key)) empresas.add(entry.key);
       }
-      
+
       empresasDetalle[empresaId] = {
         'empresaId': empresaId,
         'empresaNombre': empresaNombre,
