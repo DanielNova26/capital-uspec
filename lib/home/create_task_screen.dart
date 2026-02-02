@@ -233,7 +233,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
-  List<Map<String, String>> _cargos = []; // [{id,nombre,areaId?,enabled?}]
+  List<Map<String, dynamic>> _cargos = []; // [{id,nombre,areaId?,enabled?,cedulas?}]
+  final Set<String> _empresasUsuario = {};
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
 
@@ -274,10 +275,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       for (final cargo in _cargos) {
         final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
         if (!enabled) continue;
-        final areaId = (cargo['areaId'] ?? '').trim();
-        final nombre = (cargo['nombre'] ?? '').trim();
+        final areaId = (cargo['areaId'] ?? '').toString().trim();
+        final nombre = (cargo['nombre'] ?? '').toString().trim();
         if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
-        final key = (cargo['id'] ?? '').trim().isEmpty ? nombre : cargo['id']!.trim();
+        final rawId = (cargo['id'] ?? '').toString().trim();
+        final key = rawId.isEmpty ? nombre : rawId;
         if (key.isNotEmpty) cargos[key] = nombre.isNotEmpty ? nombre : key;
       }
     }
@@ -297,6 +299,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final cargoActivoNombre =
     (_nombreCargoPorId(_cargoFiltro) ?? '').trim().toLowerCase();
     if (areaActiva.isNotEmpty) {
+      cedulasPermitidas.addAll(_cedulasDesdeCargos(
+        areaId: areaActiva,
+        cargoId: cargoActivoId,
+        cargoNombreLower: cargoActivoNombre,
+      ));
       for (final estr in _estructura.values) {
         final areaId = (estr['areaId'] ?? '').toString().trim();
         if (areaId.isEmpty || areaId != areaActiva) continue;
@@ -359,6 +366,37 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     list.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
     return list;
+  }
+
+  Set<String> _cedulasDesdeCargos({
+    required String areaId,
+    required String cargoId,
+    required String cargoNombreLower,
+  }) {
+    final out = <String>{};
+    for (final cargo in _cargos) {
+      final area = (cargo['areaId'] ?? '').toString().trim();
+      if (area.isEmpty || area != areaId) continue;
+
+      final id = (cargo['id'] ?? '').toString().trim();
+      final nombre = (cargo['nombre'] ?? '').toString().trim().toLowerCase();
+      if (cargoId != 'todos' && cargoId.isNotEmpty) {
+        if (id.isNotEmpty) {
+          if (id != cargoId) continue;
+        } else if (cargoNombreLower.isNotEmpty) {
+          if (nombre != cargoNombreLower) continue;
+        }
+      }
+
+      final cedulas = cargo['cedulas'];
+      if (cedulas is List) {
+        for (final c in cedulas) {
+          final cedula = (c ?? '').toString().trim();
+          if (cedula.isNotEmpty) out.add(cedula);
+        }
+      }
+    }
+    return out;
   }
 
   @override
@@ -429,6 +467,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (!doc.exists) return;
 
       final data = doc.data() ?? {};
+      _empresasUsuario
+        ..clear()
+        ..addAll(_empresasDeUsuario(data));
       // empresa del usuario (puede venir y sobrescribir lo de scope si no estaba)
       final emp = _empresaDe(data);
       if (emp.trim().isNotEmpty) _empresaId = emp.trim();
@@ -585,29 +626,60 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _loadCargos() async {
     try {
-      final qs = await _queryByEmpresa(kCollCargos, limit: 1000);
+      final col = FirebaseFirestore.instance.collection(kCollCargos);
+      final empresas = _empresasUsuario.isNotEmpty
+          ? _empresasUsuario.toList()
+          : ((_empresaId ?? '').trim().isNotEmpty ? <String>[_empresaId!.trim()] : <String>[]);
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-      _cargos = qs.docs
+      if (empresas.isEmpty) {
+        final qs = await col.limit(1000).get();
+        docs.addAll(qs.docs);
+      } else {
+        for (var i = 0; i < empresas.length; i += 10) {
+          final chunk = empresas.sublist(i, i + 10 > empresas.length ? empresas.length : i + 10);
+          final snap = await col.where('empresaId', whereIn: chunk).limit(1000).get();
+          docs.addAll(snap.docs);
+        }
+        for (final empresa in empresas) {
+          try {
+            final snap = await col.where('empresas', arrayContains: empresa).limit(1000).get();
+            docs.addAll(snap.docs);
+          } catch (_) {}
+        }
+      }
+
+      final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final d in docs) {
+        merged[d.id] = d;
+      }
+
+      _cargos = merged.values
           .map((d) {
         final m = d.data();
-        if (!_empresaCoincide(m)) return null;
         final id = (_firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim().isEmpty)
             ? d.id
             : _firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim();
         final nombre = (m['nombre'] ?? '—').toString().trim();
         final areaId = (m['areaId'] ?? m['area_id'] ?? '').toString().trim();
         final enabled = (m['enabled'] as bool?) ?? true;
+        final cedulasRaw = m['cedulas'] as List<dynamic>? ?? const [];
+        final cedulas = cedulasRaw
+            .map((e) => (e ?? '').toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
         return {
           'id': id,
           'nombre': nombre.isEmpty ? '—' : nombre,
           'areaId': areaId,
           'enabled': enabled.toString(),
+          'cedulas': cedulas,
         };
       })
-          .whereType<Map<String, String>>()
-          .where((m) => (m['id'] ?? '').trim().isNotEmpty)
+          .whereType<Map<String, dynamic>>()
+          .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
           .toList()
-        ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+        ..sort((a, b) => (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString()));
     } catch (_) {
       _cargos = [];
     }
@@ -616,9 +688,42 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _loadUsuarios() async {
     try {
       _usuarios.clear();
-      final qs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
+      final cedulasDesdeCargos = <String>{};
+      for (final cargo in _cargos) {
+        final cedulas = cargo['cedulas'];
+        if (cedulas is List) {
+          for (final c in cedulas) {
+            final cedula = (c ?? '').toString().trim();
+            if (cedula.isNotEmpty) cedulasDesdeCargos.add(cedula);
+          }
+        }
+      }
 
-      for (final d in qs.docs) {
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final qs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
+      docs.addAll(qs.docs);
+
+      if (cedulasDesdeCargos.isNotEmpty) {
+        final cedulasList = cedulasDesdeCargos.toList();
+        for (var i = 0; i < cedulasList.length; i += 10) {
+          final chunk = cedulasList.sublist(
+            i,
+            i + 10 > cedulasList.length ? cedulasList.length : i + 10,
+          );
+          final extra = await FirebaseFirestore.instance
+              .collection(kCollUsuarios)
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
+          docs.addAll(extra.docs);
+        }
+      }
+
+      final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final d in docs) {
+        merged[d.id] = d;
+      }
+
+      for (final d in merged.values) {
         final data = Map<String, dynamic>.from(d.data());
         final estr = _estructura[d.id];
 
@@ -656,7 +761,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           }
         }
 
-        if (!_empresaCoincide(data)) continue;
+        final cedula = _cedulaDe(data).trim();
+        final inCedulasDesdeCargo = cedulasDesdeCargos.contains(cedula);
+        if (!_empresaCoincide(data) && !inCedulasDesdeCargo) continue;
         _usuarios[d.id] = data;
       }
     } catch (_) {
