@@ -1,7 +1,7 @@
+import 'dart:async';
+
 // lib/home/create_task_screen.dart
 // ignore_for_file: use_build_context_synchronously
-
-import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -594,8 +594,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   bool _empresaCoincide(Map<String, dynamic> data) {
     if (_empresaId == null || _empresaId!.isEmpty) return true;
     final emp = _empresaDe(data).trim();
-    if (emp.isEmpty) return true;
-    return emp == _empresaId;
+    if (emp.isNotEmpty && emp == _empresaId) return true;
+
+    final empresas = data['empresas'] as List<dynamic>?;
+    if (empresas != null) {
+      for (final e in empresas) {
+        if ((e ?? '').toString().trim() == _empresaId) return true;
+      }
+    }
+
+    final detalle = data['empresasDetalle'];
+    if (detalle is Map && detalle[_empresaId] != null) return true;
+
+    return emp.isEmpty;
   }
 
   // ==================== CARGA DE CATÁLOGOS ====================
