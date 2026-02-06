@@ -83,19 +83,52 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ],
   );
 
-  String _cargoIdDe(Map<String, dynamic> data) =>
-      _firstNonEmpty(data, const ['cargoId', 'cargo_id']);
+  /// Returns the cargoId for the user. First consults the empresaDetalle block
+  /// for the current empresaId (multi-empresa support), falling back to the
+  /// top-level keys when not available. This ensures that users assigned to
+  /// multiple companies get the correct cargo for the selected company.
+  String _cargoIdDe(Map<String, dynamic> data) {
+    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+      final detalle = data['empresasDetalle'];
+      if (detalle is Map && detalle[_empresaId] is Map) {
+        final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
+        final cid = _firstNonEmpty(det, const ['cargoId', 'cargo_id']);
+        if (cid.isNotEmpty) return cid;
+      }
+    }
+    return _firstNonEmpty(data, const ['cargoId', 'cargo_id']);
+  }
 
-  String _cargoNombreDe(Map<String, dynamic> data) => _firstNonEmpty(
-    data,
-    const [
-      'cargo',
-      'cargoNombre',
-      'cargo_nombre',
-      'puesto',
-      'descripcion',
-    ],
-  );
+  /// Returns the cargo name for the user. This reads the cargo name from the
+  /// empresaDetalle block for the current empresaId before falling back to
+  /// top-level keys. Without this, a user belonging to multiple companies
+  /// would always display the cargo from the primary company.
+  String _cargoNombreDe(Map<String, dynamic> data) {
+    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+      final detalle = data['empresasDetalle'];
+      if (detalle is Map && detalle[_empresaId] is Map) {
+        final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
+        final cname = _firstNonEmpty(det, const [
+          'cargo',
+          'cargoNombre',
+          'cargo_nombre',
+          'puesto',
+          'descripcion',
+        ]);
+        if (cname.isNotEmpty) return cname;
+      }
+    }
+    return _firstNonEmpty(
+      data,
+      const [
+        'cargo',
+        'cargoNombre',
+        'cargo_nombre',
+        'puesto',
+        'descripcion',
+      ],
+    );
+  }
 
   List<String> _empresasDeUsuario(Map<String, dynamic> data) {
     final out = <String>{};
@@ -129,7 +162,44 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   String _norm(String s) => s.trim().toLowerCase();
 
+  /// Attempts to resolve the areaId of the given user for the current empresa.
+  /// This method first looks into `empresasDetalle[_empresaId]` for an
+  /// `areaId` or area name. If not found, it falls back to the existing
+  /// logic (using top-level areaId/areaName fields). This ensures that
+  /// employees belonging to multiple companies are correctly mapped.
   String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
+    // 0) Busca en empresasDetalle para la empresa actual
+    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+      final detalle = u['empresasDetalle'] as Map<String, dynamic>?;
+      final det = detalle?[_empresaId] as Map<String, dynamic>?;
+      if (det != null) {
+        final directDet = _firstNonEmpty(det, const [
+          'areaId',
+          'area_id',
+          'departamentoId',
+          'departamento_id',
+        ]);
+        if (directDet.isNotEmpty && _areas.any((a) => a['id'] == directDet)) {
+          return directDet;
+        }
+        final nombreDet = _firstNonEmpty(det, const [
+          'areaNombre',
+          'area_nombre',
+          'area',
+          'departamento',
+          'departamentoNombre',
+        ]);
+        if (nombreDet.isNotEmpty) {
+          final hit = _areas.firstWhere(
+                (a) => _norm(a['nombre'] ?? '') == _norm(nombreDet),
+            orElse: () => {},
+          );
+          final id = (hit['id'] ?? '').toString().trim();
+          if (id.isNotEmpty) return id;
+        }
+      }
+    }
+
     // 1) si ya viene areaId real
     final direct = _firstNonEmpty(u, const [
       'areaId',
@@ -153,7 +223,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
         orElse: () => {},
       );
-      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
+      if ((hit['id'] ?? '').toString().trim().isNotEmpty) return hit['id']!.trim();
     }
 
     return null;
@@ -162,14 +232,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _nombreAreaPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
     final hit = _areas.firstWhere((a) => a['id'] == id.trim(), orElse: () => {});
-    final n = (hit['nombre'] ?? '').trim();
+    final n = (hit['nombre'] ?? '').toString().trim();
     return n.isEmpty ? null : n;
   }
 
   String? _nombreCargoPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
     final hit = _cargosFiltrados.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
-    final n = (hit['nombre'] ?? '').trim();
+    final n = (hit['nombre'] ?? '').toString().trim();
     return n.isEmpty ? null : n;
   }
 
@@ -253,7 +323,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== GETTERS DE FILTROS ====================
   List<Map<String, String>> get _areasFiltradas {
-    final all = [..._areas]..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    final all = [..._areas]
+      ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
     return all;
   }
 
@@ -617,13 +688,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .map((d) {
       final m = d.data();
       if (!_empresaCoincide(m)) return null;
-      final id = (_firstNonEmpty(m, const ['areaId', 'area_id']).trim().isEmpty) ? d.id : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
+      final id = (_firstNonEmpty(m, const ['areaId', 'area_id']).trim().isEmpty)
+          ? d.id
+          : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
       final nombre = (m['nombre'] ?? '—').toString().trim();
       final centroId = (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '').toString().trim();
       return {'id': id, 'nombre': nombre.isEmpty ? '—' : nombre, 'centroId': centroId};
     })
         .whereType<Map<String, String>>()
-        .where((m) => (m['id'] ?? '').trim().isNotEmpty)
+        .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
@@ -774,6 +847,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           _fill('cedula', estr['cedula']);
           _fill('jefeId', estr['jefeId'] ?? estr['jefe_uid']);
           _fill('jefeNombre', estr['jefeNombre'] ?? estr['jefe_nombre']);
+        }
+
+        // Si existe detalle específico por empresa, sobrescribe campos top-level
+        if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+          final detalleEmpresas = data['empresasDetalle'] as Map<String, dynamic>?;
+          final det = detalleEmpresas?[_empresaId] as Map<String, dynamic>?;
+          if (det != null) {
+            void applyDetail(String key, dynamic value) {
+              if (value != null && value.toString().trim().isNotEmpty) {
+                data[key] = value;
+              }
+            }
+            applyDetail('areaId', det['areaId'] ?? det['area_id']);
+            applyDetail('area', det['areaNombre'] ?? det['area_nombre'] ?? det['area']);
+            applyDetail('cargoId', det['cargoId'] ?? det['cargo_id']);
+            applyDetail('cargo', det['cargo'] ?? det['cargoNombre'] ?? det['cargo_nombre'] ?? det['puesto'] ?? det['descripcion']);
+            applyDetail('centroId', det['centroId'] ?? det['centro_id']);
+            applyDetail('centroCostos', det['centroCostos'] ?? det['centro_costos'] ?? det['centro']);
+            applyDetail('jefeId', det['jefeId'] ?? det['jefe_id']);
+            applyDetail('jefeNombre', det['jefeNombre'] ?? det['jefe_nombre']);
+            applyDetail('cargoJefe', det['cargoJefe']);
+          }
         }
 
         final cargoId = (data['cargoId'] ?? '').toString().trim();
@@ -1648,28 +1743,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           items: _cargosFiltrados
                               .map(
                                 (c) => DropdownMenuItem(
-                                  value: c['id'],
-                                  child: Text(
-                                    c['nombre'] ?? 'Selecciona un cargo',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
+                              value: c['id'],
+                              child: Text(
+                                c['nombre'] ?? 'Selecciona un cargo',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           )
                               .toList(),
-                            onChanged: areaSeleccionada
-                                ? (v) {
-                              setState(() {
-                                _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
-                                _alElegirAsignado(null);
-                                _ensureAreaDisponible();
-                              });
-                            }
-                                : null,
-                            validator: (v) {
-                              if (!areaSeleccionada) return null;
-                              return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
-                            },
-
+                          onChanged: areaSeleccionada
+                              ? (v) {
+                            setState(() {
+                              _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
+                              _alElegirAsignado(null);
+                              _ensureAreaDisponible();
+                            });
+                          }
+                              : null,
+                          validator: (v) {
+                            if (!areaSeleccionada) return null;
+                            return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
+                          },
                         ),
 
                         const SizedBox(height: 12),

@@ -955,13 +955,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   // ---------------- LIMPIEZA: BORRAR ESTRUCTURA ORGANIZACIONAL ----------------
   Future<void> _purgeOrganizationalStructure() async {
-    final empresaId = _empresaId ?? '';
-    if (empresaId.isEmpty) return;
-
     final ok = await _confirm(
       title: '⚠ BORRAR ESTRUCTURA ORGANIZACIONAL',
       message:
-      'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL para la empresa $empresaId.\n\n'
+      'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL.\n\n'
           'Úsalo solo si vas a volver a subir la estructura completa.\n'
           '¿Estás seguro?',
       confirmText: 'BORRAR ESTRUCTURA',
@@ -971,36 +968,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() => _loading = true);
 
     int deletedCount = 0;
-    final snap = await FirebaseFirestore.instance
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
+        .limit(400);
 
-    WriteBatch batch = FirebaseFirestore.instance.batch();
-    int writes = 0;
+    while (true) {
+      final snap = await query.get();
+      if (snap.docs.isEmpty) break;
 
-    Future<void> commitBatch() async {
-      if (writes == 0) return;
-      await batch.commit();
-      batch = FirebaseFirestore.instance.batch();
-      writes = 0;
-    }
-
-    for (final doc in snap.docs) {
-      batch.delete(doc.reference);
-      deletedCount++;
-      writes++;
-
-      if (writes >= 400) {
-        await commitBatch();
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+        deletedCount++;
       }
-    }
+      await batch.commit();
 
-    await commitBatch();
+      final lastDoc = snap.docs.last;
+      query = FirebaseFirestore.instance
+          .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+          .startAfterDocument(lastDoc)
+          .limit(400);
+    }
 
     setState(() => _loading = false);
     _snack('Estructura organizacional eliminada. Total documentos borrados: $deletedCount');
-    await _loadAll(forceEmpresaId: empresaId);
+    await _loadAll(forceEmpresaId: _empresaId ?? '');
   }
 
   Widget _tabCleanup() {
