@@ -140,9 +140,8 @@ class DiagnosticosService {
 
   /// Busca diagnósticos médicos por término (CIE-11)
   Future<List<DiagnosticoMedico>> buscarDiagnosticosMedicos(String termino) async {
-    if (termino.length < 3) return [];
-
-    final terminoLower = termino.toLowerCase();
+    final terminoNormalizado = _normalizeForSearch(termino);
+    if (terminoNormalizado.isEmpty) return [];
 
     // Buscar por código o nombre
     final querySnapshot = await _db
@@ -154,9 +153,10 @@ class DiagnosticosService {
     final resultados = querySnapshot.docs
         .map((doc) => DiagnosticoMedico.fromMap(doc.data()))
         .where((dx) {
-      final codigo = dx.codigoCie11.toLowerCase();
-      final nombre = dx.nombre.toLowerCase();
-      return codigo.contains(terminoLower) || nombre.contains(terminoLower);
+      final codigo = _normalizeForSearch(dx.codigoCie11);
+      final nombre = _normalizeForSearch(dx.nombre);
+      return codigo.contains(terminoNormalizado) ||
+          nombre.contains(terminoNormalizado);
     })
         .toList();
 
@@ -167,9 +167,8 @@ class DiagnosticosService {
   Future<List<DiagnosticoNutricional>> buscarDiagnosticosNutricionales(
       String termino,
       ) async {
-    if (termino.length < 3) return [];
-
-    final terminoLower = termino.toLowerCase();
+    final terminoNormalizado = _normalizeForSearch(termino);
+    if (terminoNormalizado.isEmpty) return [];
 
     final querySnapshot = await _db
         .collection(_collDiagnosticosNutricionales)
@@ -180,9 +179,10 @@ class DiagnosticosService {
     final resultados = querySnapshot.docs
         .map((doc) => DiagnosticoNutricional.fromMap(doc.data()))
         .where((dx) {
-      final codigo = dx.codigo.toLowerCase();
-      final nombre = dx.nombre.toLowerCase();
-      return codigo.contains(terminoLower) || nombre.contains(terminoLower);
+      final codigo = _normalizeForSearch(dx.codigo);
+      final nombre = _normalizeForSearch(dx.nombre);
+      return codigo.contains(terminoNormalizado) ||
+          nombre.contains(terminoNormalizado);
     })
         .toList();
 
@@ -386,5 +386,18 @@ class DiagnosticosService {
     }
 
     return restricciones;
+  }
+  String _normalizeForSearch(String text) {
+    final lower = text.trim().toLowerCase();
+    if (lower.isEmpty) return '';
+
+    return lower
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('ñ', 'n');
   }
 }

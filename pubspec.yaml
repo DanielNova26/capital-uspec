@@ -84,3 +84,4 @@ flutter:
     - assets/logo.png
     - assets/admin_icon.png
     - assets/seeds/catalogos_base.xlsx
+    - assets/diagnosticos_template.xlsx
