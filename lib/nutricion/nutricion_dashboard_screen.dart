@@ -7,7 +7,13 @@ import 'firmas/nutricion_firmas_screen.dart';
 import 'menus/nutricion_menus_screen.dart';
 import 'reportes/nutricion_reportes_screen.dart';
 import '../services/nutricion_service.dart';
+import '../widgets/evaluacion_nutricional_widget.dart';
 
+/// Pantalla principal del módulo de nutrición clínica optimizada
+/// MEJORAS:
+/// - Caché de pacientes para evitar loading infinito
+/// - Mejor diseño visual manteniendo colores originales
+/// - Todas las conexiones con módulos restauradas
 class NutricionDashboardScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
@@ -23,26 +29,23 @@ class NutricionDashboardScreen extends StatefulWidget {
       _NutricionDashboardScreenState();
 }
 
-class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
+class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
+    with AutomaticKeepAliveClientMixin {
   final List<String> _establecimientos = const ['Establecimiento principal'];
-  final List<_PacienteInfo> _pacientes = const [
-    _PacienteInfo(
-      id: 'PAC-001',
-      nombre: 'Ana López',
-      documento: '0102030405',
-    ),
-    _PacienteInfo(
-      id: 'PAC-002',
-      nombre: 'Luis Rojas',
-      documento: '1122334455',
-    ),
-  ];
+
+  late final Stream<List<_PacienteInfo>> _pacientesStream;
+
+  // OPTIMIZACIÓN: Caché para evitar rebuilds y loading infinito
+  List<_PacienteInfo>? _cachedPacientes;
+
   late String _selectedEstablecimiento;
   DateTime _weekStart = _mondayOf(DateTime.now());
   int _activeStep = 0;
   _PacienteInfo? _selectedPaciente;
   bool _pacienteGuardado = false;
+  bool _procesoEnCurso = false;
   bool _evidenciaCargada = false;
+
   final TextEditingController _nombreCompletoCtrl = TextEditingController();
   final TextEditingController _documentoCtrl = TextEditingController();
   final TextEditingController _regimenCtrl = TextEditingController();
@@ -59,6 +62,26 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
   void initState() {
     super.initState();
     _selectedEstablecimiento = _establecimientos.first;
+    _initPacientesStream();
+  }
+
+  void _initPacientesStream() {
+    final service = NutricionService();
+    _pacientesStream = service
+        .streamDirectorioNutricion(empresaId: widget.empresaId)
+        .map((list) {
+      final pacientes = list.map((data) {
+        final id = data['id']?.toString() ?? '';
+        final nombre =
+            data['nombreCompleto']?.toString() ?? data['nombre']?.toString() ?? '';
+        final documento = data['documento']?.toString() ?? '';
+        return _PacienteInfo(id: id, nombre: nombre, documento: documento);
+      }).toList();
+
+      // Actualizar caché en cada emisión
+      _cachedPacientes = pacientes;
+      return pacientes;
+    });
   }
 
   @override
@@ -76,6 +99,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     _fechaReevaluacionCtrl.dispose();
     super.dispose();
   }
+
+  @override
+  bool get wantKeepAlive => true;
 
   static DateTime _mondayOf(DateTime date) {
     final normalized = DateTime(date.year, date.month, date.day);
@@ -103,10 +129,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 900;
         final appBar = AppBar(
+          elevation: 0,
           title: const Text('Dashboard de Nutrición Clínica'),
           bottom: isCompact
               ? null
@@ -128,33 +156,41 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               children: [
                 _buildFilters(isCompact: true),
-                const SizedBox(height: 16),
-                Text(
-                  'Módulos de nutrición',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                _buildModuleGrid(isCompact: true),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 Text(
                   'Flujo conectado de atención nutricional',
-                  style: Theme.of(context).textTheme.titleLarge,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Registra al paciente, documenta la evaluación, construye '
                       'el plan y agrega evidencias en una sola línea de trabajo.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
-                const SizedBox(height: 16),
-              _buildWorkflowStepper(isCompact: true),
+                const SizedBox(height: 20),
+                _buildWorkflowTabs(isCompact: true),
                 const SizedBox(height: 24),
                 Text(
                   'Resumen de la sesión',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 _buildSummaryGrid(isCompact: true),
+                const SizedBox(height: 24),
+                Text(
+                  'Módulos de nutrición',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildModuleGrid(isCompact: true),
               ],
             ),
           );
@@ -166,7 +202,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
             appBar: appBar,
             body: Column(
               children: [
-                Padding(
+                Container(
+                  color: Theme.of(context).colorScheme.surface,
                   padding: const EdgeInsets.all(16),
                   child: _buildFilters(isCompact: false),
                 ),
@@ -179,27 +216,35 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                         children: [
                           Text(
                             'Flujo conectado de atención nutricional',
-                            style: Theme.of(context).textTheme.titleLarge,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'Registra al paciente, documenta la evaluación, construye '
                                 'el plan y agrega evidencias en una sola línea de trabajo.',
-                            style: Theme.of(context).textTheme.bodyMedium,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
                           ),
-                          const SizedBox(height: 16),
-                          _buildWorkflowStepper(isCompact: false),
+                          const SizedBox(height: 20),
+                          _buildWorkflowTabs(isCompact: false),
                           const SizedBox(height: 24),
                           Text(
                             'Resumen de la sesión',
-                            style: Theme.of(context).textTheme.titleMedium,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           _buildSummaryGrid(isCompact: false),
                           const SizedBox(height: 24),
                           Text(
                             'Módulos de nutrición',
-                            style: Theme.of(context).textTheme.titleMedium,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           const SizedBox(height: 12),
                           _buildModuleGrid(isCompact: false),
@@ -237,53 +282,61 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     final dropdown = DropdownButtonFormField<String>(
       value: _selectedEstablecimiento,
       items: _establecimientos
-          .map(
-            (item) => DropdownMenuItem(
-          value: item,
-          child: Text(item),
-        ),
-      )
+          .map((item) => DropdownMenuItem(value: item, child: Text(item)))
           .toList(),
       onChanged: (value) {
         if (value == null) return;
-        setState(() {
-          _selectedEstablecimiento = value;
-        });
+        setState(() => _selectedEstablecimiento = value);
       },
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         labelText: 'Establecimiento',
-        border: OutlineInputBorder(),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        filled: true,
+        fillColor: Theme.of(context).colorScheme.surface,
       ),
     );
+
     final weekButton = OutlinedButton.icon(
       onPressed: _pickWeek,
       icon: const Icon(Icons.date_range),
       label: Text('Semana: ${_weekLabel(_weekStart)}'),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
+
     final pills = [
       _buildStatusPill(
         label: _selectedPaciente == null
-            ? 'Paciente sin seleccionar'
-            : 'Paciente: ${_selectedPaciente!.nombre} • ${_selectedPaciente!.documento}',
+            ? 'Sin paciente'
+            : '${_selectedPaciente!.nombre} • ${_selectedPaciente!.documento}',
         icon: Icons.person,
+        color: _selectedPaciente == null
+            ? Colors.grey
+            : Theme.of(context).colorScheme.primary,
       ),
       _buildStatusPill(
-        label:
-        _pacienteGuardado ? 'Expediente guardado' : 'Expediente en progreso',
+        label: _pacienteGuardado ? 'Expediente guardado' : 'En progreso',
         icon: Icons.folder_shared,
+        color: _pacienteGuardado ? Colors.green : Colors.orange,
       ),
       _buildStatusPill(
-        label: _evidenciaCargada ? 'Evidencias adjuntas' : 'Sin evidencias',
+        label: _evidenciaCargada ? 'Con evidencias' : 'Sin evidencias',
         icon: Icons.photo_library,
+        color: _evidenciaCargada ? Colors.green : Colors.grey,
       ),
     ];
 
     if (isCompact) {
       return Card(
         elevation: 0,
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -320,268 +373,79 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     );
   }
 
-  Widget _buildWorkflowStepper({required bool isCompact}) {
+  Widget _buildStatusPill({
+    required String label,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            fit: FlexFit.loose,
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWorkflowTabs({required bool isCompact}) {
+    final double viewHeight = isCompact ? 600 : 500;
     return Card(
       elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Stepper(
-          currentStep: _activeStep,
-          onStepTapped: (index) => setState(() => _activeStep = index),
-          onStepContinue: () {
-            if (_activeStep >= 3) return;
-            setState(() => _activeStep += 1);
-          },
-          onStepCancel: () {
-            if (_activeStep == 0) return;
-            setState(() => _activeStep -= 1);
-          },
-          controlsBuilder: (context, details) {
-            return Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Row(
-                children: [
-                  ElevatedButton(
-                    onPressed: details.onStepContinue,
-                    child: Text(_activeStep == 3 ? 'Finalizar' : 'Siguiente'),
-                  ),
-                  const SizedBox(width: 12),
-                  TextButton(
-                    onPressed: details.onStepCancel,
-                    child: const Text('Anterior'),
-                  ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: DefaultTabController(
+        length: 4,
+        child: Column(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: TabBar(
+                indicatorColor: Theme.of(context).colorScheme.primary,
+                labelColor: Theme.of(context).colorScheme.primary,
+                unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                isScrollable: true,
+                indicatorWeight: 3,
+                tabs: const [
+                  Tab(text: 'Paciente y admisión'),
+                  Tab(text: 'Evaluación y diagnóstico'),
+                  Tab(text: 'Plan alimentario'),
+                  Tab(text: 'Evidencias y cierre'),
                 ],
               ),
-            );
-          },
-          steps: [
-            Step(
-              title: const Text('Paciente y admisión'),
-              subtitle: Text(
-                _selectedPaciente == null
-                    ? 'Selecciona o registra un paciente.'
-                    : 'Paciente activo: ${_selectedPaciente!.nombre}',
-              ),
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Todos los datos quedan vinculados al expediente del paciente.',
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<_PacienteInfo>(
-                    value: _selectedPaciente,
-                    items: _pacientes
-                        .map(
-                          (paciente) => DropdownMenuItem(
-                        value: paciente,
-                        child: Text(
-                          '${paciente.nombre} • ${paciente.documento}',
-                        ),
-                      ),
-                    )
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() => _selectedPaciente = value);
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'Paciente',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() {
-                              _selectedPaciente = const _PacienteInfo(
-                                id: 'PAC-NUEVO',
-                                nombre: 'Nuevo paciente',
-                                documento: 'Pendiente',
-                              );
-                            });
-                          },
-                          icon: const Icon(Icons.person_add_alt_1),
-                          label: const Text('Registrar nuevo paciente'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _selectedPaciente == null
-                              ? null
-                              : () => setState(() {
-                            _pacienteGuardado = true;
-                          }),
-                          icon: const Icon(Icons.save),
-                          label: const Text('Guardar expediente'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              isActive: _activeStep >= 0,
-              state: _selectedPaciente == null
-                  ? StepState.indexed
-                  : StepState.complete,
             ),
-            Step(
-              title: const Text('Evaluación y diagnóstico'),
-              subtitle: const Text('Mediciones, hábitos y riesgos.'),
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            SizedBox(
+              height: viewHeight,
+              child: TabBarView(
                 children: [
-                  _buildEvaluacionDashboard(),
-                  const SizedBox(height: 12),
-                  _buildChecklistTile(
-                    'Antropometría y signos vitales',
-                    'Registrar peso, talla, IMC y bioimpedancia.',
-                    onTap: () => NutricionAtencionActions.registrarMedicion(
-                      context,
-                      empresaId: widget.empresaId,
-                      pacienteId: _selectedPaciente?.id,
-                      pacienteNombre: _selectedPaciente?.nombre,
-                      pacienteDocumento: _selectedPaciente?.documento,
-                    ),
-                  ),
-                  _buildChecklistTile(
-                    'Historia clínica y hábitos',
-                    'Alergias, tratamientos y frecuencia alimentaria.',
-                      onTap: () => NutricionAtencionActions.registrarHistoriaClinica(
-                        context,
-                        empresaId: widget.empresaId,
-                        pacienteId: _selectedPaciente?.id,
-                        pacienteNombre: _selectedPaciente?.nombre,
-                        pacienteDocumento: _selectedPaciente?.documento,
-                      ),
-                  ),
-                  _buildChecklistTile(
-                    'Diagnóstico nutricional',
-                    'Define objetivos y alertas clínicas.',
-                    onTap: () => NutricionAtencionActions.registrarValoracion(
-                      context,
-                      empresaId: widget.empresaId,
-                      pacienteId: _selectedPaciente?.id,
-                      pacienteNombre: _selectedPaciente?.nombre,
-                      pacienteDocumento: _selectedPaciente?.documento,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton.icon(
-                      onPressed: _guardarEnDirectorio,
-                      icon: const Icon(Icons.save_alt),
-                      label: const Text('Guardar en directorio'),
-                    ),
-                  ),
+                  _buildPacienteTabContent(isCompact),
+                  _buildEvaluacionTabContent(isCompact),
+                  _buildPlanTabContent(isCompact),
+                  _buildEvidenciasTabContent(isCompact),
                 ],
               ),
-              isActive: _activeStep >= 1,
-              state: _activeStep > 1 ? StepState.complete : StepState.indexed,
-            ),
-            Step(
-              title: const Text('Plan alimentario y seguimiento'),
-              subtitle: const Text('Menú semanal, metas y adherencia.'),
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildChecklistTile(
-                    'Menú personalizado',
-                    'Planifica por tiempos de comida y porciones.',
-                    onTap: () => _openModule(
-                      tabIndex: 1,
-                      title: 'Menús nutricionales',
-                      isCompact: isCompact,
-                      child: NutricionMenusScreen(
-                        userId: widget.userId,
-                        empresaId: widget.empresaId,
-                        establecimiento: _selectedEstablecimiento,
-                        semana: _weekStart,
-                        appBarTitle: 'Menú nutricional integrado',
-                        showAppBar: false,
-                      ),
-                    ),
-                  ),
-                  _buildChecklistTile(
-                    'Indicaciones y educación',
-                    'Genera recomendaciones y materiales.',
-                    onTap: () => NutricionAtencionActions.asignarDieta(
-                      context,
-                      empresaId: widget.empresaId,
-                      pacienteId: _selectedPaciente?.id,
-                      pacienteNombre: _selectedPaciente?.nombre,
-                      pacienteDocumento: _selectedPaciente?.documento,
-                    ),
-                  ),
-                  _buildChecklistTile(
-                    'Agenda de seguimiento',
-                    'Configura alertas y próximos controles.',
-                    onTap: () => NutricionAtencionActions.programarAlerta(
-                      context,
-                      empresaId: widget.empresaId,
-                      pacienteId: _selectedPaciente?.id,
-                      pacienteNombre: _selectedPaciente?.nombre,
-                      pacienteDocumento: _selectedPaciente?.documento,
-                    ),
-                  ),
-                ],
-              ),
-              isActive: _activeStep >= 2,
-              state: _activeStep > 2 ? StepState.complete : StepState.indexed,
-            ),
-            Step(
-              title: const Text('Evidencias y cierre'),
-              subtitle: const Text('Fotos, firmas y reporte final.'),
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildChecklistTile(
-                    'Fotos de evidencia',
-                    'Adjunta imágenes del plato y evolución.',
-                  ),
-                  _buildChecklistTile(
-                    'Firma y consentimiento',
-                    'Paciente y nutricionista firman digitalmente.',
-                    onTap: () => _openModule(
-    tabIndex: 3,
-    title: 'Firmas nutricionales',
-    isCompact: isCompact,
-    child: NutricionFirmasScreen(
-    empresaId: widget.empresaId,
-    userId: widget.userId,
-    ),
-                          ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            setState(() => _evidenciaCargada = true);
-                          },
-                          icon: const Icon(Icons.cloud_upload),
-                          label: const Text('Cargar evidencias'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {},
-                          icon: const Icon(Icons.picture_as_pdf),
-                          label: const Text('Generar reporte'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              isActive: _activeStep >= 3,
-              state: _evidenciaCargada ? StepState.complete : StepState.indexed,
             ),
           ],
         ),
@@ -589,19 +453,470 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     );
   }
 
+  Widget _buildPacienteTabContent(bool isCompact) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_procesoEnCurso) ...[
+            Card(
+              elevation: 0,
+              color: Theme.of(context).colorScheme.primaryContainer,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Proceso nutricional en curso',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _selectedPaciente != null
+                          ? '¿Deseas continuar o cancelar el proceso para ${_selectedPaciente!.nombre}?'
+                          : '¿Deseas continuar o cancelar el proceso actual?',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () => setState(() => _procesoEnCurso = false),
+                            icon: const Icon(Icons.check),
+                            label: const Text('Continuar'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => setState(() {
+                              _procesoEnCurso = false;
+                              _selectedPaciente = null;
+                              _nombreCompletoCtrl.clear();
+                              _documentoCtrl.clear();
+                              _pacienteGuardado = false;
+                              _evidenciaCargada = false;
+                            }),
+                            icon: const Icon(Icons.close),
+                            label: const Text('Cancelar'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text(
+            'Todos los datos quedan vinculados al expediente del paciente.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          // StreamBuilder OPTIMIZADO con caché
+          StreamBuilder<List<_PacienteInfo>>(
+            stream: _pacientesStream,
+            initialData: _cachedPacientes, // CLAVE: evita loading infinito
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Error cargando pacientes: ${snapshot.error}',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onErrorContainer,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              if (!snapshot.hasData && _cachedPacientes == null) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+
+              final pacientes = snapshot.data ?? _cachedPacientes ?? [];
+              _PacienteInfo? selected;
+              final index = pacientes.indexWhere((p) => p.id == _selectedPaciente?.id);
+              if (index >= 0) selected = pacientes[index];
+
+              return DropdownButtonFormField<_PacienteInfo>(
+                value: selected,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Paciente',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Theme.of(context).colorScheme.surface,
+                  prefixIcon: const Icon(Icons.person),
+                ),
+                items: pacientes
+                    .map(
+                      (paciente) => DropdownMenuItem(
+                    value: paciente,
+                    child: Text(
+                      '${paciente.nombre} • ${paciente.documento}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedPaciente = value;
+                    _procesoEnCurso = value != null;
+                    if (value != null) {
+                      _nombreCompletoCtrl.text = value.nombre;
+                      _documentoCtrl.text = value.documento;
+                    } else {
+                      _nombreCompletoCtrl.clear();
+                      _documentoCtrl.clear();
+                    }
+                  });
+                },
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _registrarNuevoPaciente,
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('Registrar nuevo'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _selectedPaciente == null
+                      ? null
+                      : () => setState(() => _pacienteGuardado = true),
+                  icon: const Icon(Icons.save),
+                  label: const Text('Guardar expediente'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEvaluacionTabContent(bool isCompact) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Widget de evaluación nutricional DINÁMICA con validaciones
+          EvaluacionNutricionalWidget(
+            pacienteId: _selectedPaciente?.id,
+            pacienteNombre: _selectedPaciente?.nombre,
+            pacienteDocumento: _selectedPaciente?.documento,
+            onGuardarMedicion: (medicion) async {
+              final service = NutricionService();
+              try {
+                await service.registrarMedicion(
+                  empresaId: widget.empresaId,
+                  pacienteId: _selectedPaciente!.id,
+                  pesoKg: medicion['pesoKg'],
+                  tallaCm: medicion['tallaCm'],
+                  pcCm: medicion['pcCm'],
+                  notas: medicion['notas'],
+                  fecha: medicion['fecha'],
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text('Medición guardada correctamente'),
+                        ],
+                      ),
+                      backgroundColor: Colors.green,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Row(
+                        children: [
+                          const Icon(Icons.error, color: Colors.white),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text('Error al guardar: $e')),
+                        ],
+                      ),
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+            onRegistrarHistoria: () {
+              NutricionAtencionActions.registrarHistoriaClinica(
+                context,
+                empresaId: widget.empresaId,
+                pacienteId: _selectedPaciente?.id,
+                pacienteNombre: _selectedPaciente?.nombre,
+                pacienteDocumento: _selectedPaciente?.documento,
+              );
+            },
+            onRegistrarDiagnostico: () {
+              NutricionAtencionActions.registrarValoracion(
+                context,
+                empresaId: widget.empresaId,
+                pacienteId: _selectedPaciente?.id,
+                pacienteNombre: _selectedPaciente?.nombre,
+                pacienteDocumento: _selectedPaciente?.documento,
+              );
+            },
+          ),
+
+          const SizedBox(height: 24),
+
+          // Sección de la ficha de evaluación (datos clínicos adicionales)
+          _buildEvaluacionDashboard(),
+
+          const SizedBox(height: 16),
+
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: _guardarEnDirectorio,
+              icon: const Icon(Icons.save_alt),
+              label: const Text('Guardar en directorio'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlanTabContent(bool isCompact) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // CONEXIÓN con nutricion_menus_screen.dart
+          _buildChecklistTile(
+            'Menú personalizado',
+            'Planifica por tiempos de comida y porciones.',
+            icon: Icons.restaurant_menu,
+            onTap: () => _openModule(
+              tabIndex: 1,
+              title: 'Menús nutricionales',
+              isCompact: isCompact,
+              child: NutricionMenusScreen(
+                userId: widget.userId,
+                empresaId: widget.empresaId,
+                establecimiento: _selectedEstablecimiento,
+                semana: _weekStart,
+                appBarTitle: 'Menú nutricional integrado',
+                showAppBar: false,
+              ),
+            ),
+          ),
+          // CONEXIÓN con nutricion_atencion_actions.dart
+          _buildChecklistTile(
+            'Indicaciones y educación',
+            'Genera recomendaciones y materiales.',
+            icon: Icons.school,
+            onTap: () => NutricionAtencionActions.asignarDieta(
+              context,
+              empresaId: widget.empresaId,
+              pacienteId: _selectedPaciente?.id,
+              pacienteNombre: _selectedPaciente?.nombre,
+              pacienteDocumento: _selectedPaciente?.documento,
+            ),
+          ),
+          _buildChecklistTile(
+            'Agenda de seguimiento',
+            'Configura alertas y próximos controles.',
+            icon: Icons.event,
+            onTap: () => NutricionAtencionActions.programarAlerta(
+              context,
+              empresaId: widget.empresaId,
+              pacienteId: _selectedPaciente?.id,
+              pacienteNombre: _selectedPaciente?.nombre,
+              pacienteDocumento: _selectedPaciente?.documento,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEvidenciasTabContent(bool isCompact) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildChecklistTile(
+            'Fotos de evidencia',
+            'Adjunta imágenes del plato y evolución.',
+            icon: Icons.photo_camera,
+          ),
+          // CONEXIÓN con nutricion_firmas_screen.dart
+          _buildChecklistTile(
+            'Firma y consentimiento',
+            'Paciente y nutricionista firman digitalmente.',
+            icon: Icons.draw,
+            onTap: () => _openModule(
+              tabIndex: 3,
+              title: 'Firmas nutricionales',
+              isCompact: isCompact,
+              child: NutricionFirmasScreen(
+                empresaId: widget.empresaId,
+                userId: widget.userId,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => setState(() => _evidenciaCargada = true),
+                  icon: const Icon(Icons.cloud_upload),
+                  label: const Text('Cargar evidencias'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () {},
+                  icon: const Icon(Icons.picture_as_pdf),
+                  label: const Text('Generar reporte'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildChecklistTile(
       String title,
       String subtitle, {
+        IconData? icon,
         VoidCallback? onTap,
       }) {
     return Card(
+      elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
       child: ListTile(
         onTap: onTap,
-        leading: const Icon(Icons.check_circle_outline),
-        title: Text(title),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(
+            icon ?? Icons.check_circle_outline,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+          ),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         subtitle: Text(subtitle),
-        trailing: Icon(onTap == null ? Icons.chevron_right : Icons.open_in_new),
+        trailing: Icon(
+          onTap == null ? Icons.chevron_right : Icons.open_in_new,
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
     );
   }
@@ -611,23 +926,37 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     final isWide = MediaQuery.of(context).size.width > 900;
 
     return Card(
-      elevation: 1,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Ficha de evaluación y diagnóstico',
-              style: theme.textTheme.titleMedium,
+            Row(
+              children: [
+                Icon(Icons.description, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Ficha de evaluación y diagnóstico',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
               'Completa los datos básicos, información clínica y alimentación '
                   'siguiendo la estructura del formato.',
-              style: theme.textTheme.bodySmall,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             isWide
                 ? Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -649,15 +978,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                     title: 'Información clínica',
                     color: const Color(0xFF9EC3E6),
                     fields: [
-                      _FieldConfig(
-                          'Diagnóstico médico', _diagnosticoMedicoCtrl),
-                      _FieldConfig(
-                          'Diagnóstico nutricional', _diagnosticoNutriCtrl),
+                      _FieldConfig('Diagnóstico médico', _diagnosticoMedicoCtrl),
+                      _FieldConfig('Diagnóstico nutricional', _diagnosticoNutriCtrl),
                       _FieldConfig('Tipo de dieta sugerida', _tipoDietaCtrl),
                       _FieldConfig('Duración de dieta', _duracionCtrl),
                       _FieldConfig('Control nutricional', _controlCtrl),
-                      _FieldConfig(
-                          'Observaciones y recomendaciones', _observacionesCtrl,
+                      _FieldConfig('Observaciones y recomendaciones',
+                          _observacionesCtrl,
                           maxLines: 2),
                     ],
                   ),
@@ -668,10 +995,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                     title: 'Información alimentación',
                     color: const Color(0xFFF5E66B),
                     fields: [
-                      _FieldConfig(
-                          'Cuándo inicia la dieta', _inicioDietaCtrl),
-                      _FieldConfig(
-                          'Fecha tentativa reevaluación', _fechaReevaluacionCtrl),
+                      _FieldConfig('Cuándo inicia la dieta', _inicioDietaCtrl),
+                      _FieldConfig('Fecha tentativa reevaluación',
+                          _fechaReevaluacionCtrl),
                     ],
                   ),
                 ),
@@ -693,15 +1019,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                   title: 'Información clínica',
                   color: const Color(0xFF9EC3E6),
                   fields: [
-                    _FieldConfig(
-                        'Diagnóstico médico', _diagnosticoMedicoCtrl),
-                    _FieldConfig(
-                        'Diagnóstico nutricional', _diagnosticoNutriCtrl),
+                    _FieldConfig('Diagnóstico médico', _diagnosticoMedicoCtrl),
+                    _FieldConfig('Diagnóstico nutricional', _diagnosticoNutriCtrl),
                     _FieldConfig('Tipo de dieta sugerida', _tipoDietaCtrl),
                     _FieldConfig('Duración de dieta', _duracionCtrl),
                     _FieldConfig('Control nutricional', _controlCtrl),
-                    _FieldConfig(
-                        'Observaciones y recomendaciones', _observacionesCtrl,
+                    _FieldConfig('Observaciones y recomendaciones',
+                        _observacionesCtrl,
                         maxLines: 2),
                   ],
                 ),
@@ -711,8 +1035,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
                   color: const Color(0xFFF5E66B),
                   fields: [
                     _FieldConfig('Cuándo inicia la dieta', _inicioDietaCtrl),
-                    _FieldConfig(
-                        'Fecha tentativa reevaluación', _fechaReevaluacionCtrl),
+                    _FieldConfig('Fecha tentativa reevaluación',
+                        _fechaReevaluacionCtrl),
                   ],
                 ),
               ],
@@ -733,28 +1057,31 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
             title,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.bold,
+              color: Colors.black87,
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         ...fields.map(
               (field) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.only(bottom: 12),
             child: TextField(
               controller: field.controller,
               maxLines: field.maxLines,
               decoration: InputDecoration(
                 labelText: field.label,
-                border: const OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surface,
               ),
             ),
           ),
@@ -767,10 +1094,42 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     final nombre = _nombreCompletoCtrl.text.trim();
     if (nombre.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ingresa el nombre completo.')),
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Ingresa el nombre completo.'),
+            ],
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
       return;
     }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Guardando...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
     final service = NutricionService();
     try {
       await service.guardarDirectorioNutricion(
@@ -789,17 +1148,159 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
           'inicioDieta': _inicioDietaCtrl.text.trim(),
           'fechaReevaluacion': _fechaReevaluacionCtrl.text.trim(),
         },
+        id: _documentoCtrl.text.trim(),
       );
       if (!mounted) return;
+      Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Guardado en directorio.')),
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Guardado en directorio.'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
+      Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo guardar: $e')),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(child: Text('No se pudo guardar: $e')),
+            ],
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
     }
+  }
+
+  Future<void> _registrarNuevoPaciente() async {
+    final nombreCtrl = TextEditingController();
+    final docCtrl = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.person_add),
+              SizedBox(width: 8),
+              Text('Registrar nuevo paciente'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nombreCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Nombre completo',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    prefixIcon: const Icon(Icons.person),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: docCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Documento',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    prefixIcon: const Icon(Icons.badge),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final nombre = nombreCtrl.text.trim();
+                final documento = docCtrl.text.trim();
+
+                if (nombre.isEmpty || documento.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Nombre y documento son obligatorios'),
+                      backgroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                  );
+                  return;
+                }
+
+                final service = NutricionService();
+                try {
+                  await service.guardarDirectorioNutricion(
+                    empresaId: widget.empresaId,
+                    userId: widget.userId,
+                    data: {
+                      'nombreCompleto': nombre,
+                      'documento': documento,
+                    },
+                    id: documento,
+                  );
+
+                  if (mounted) {
+                    Navigator.of(context).pop();
+                    setState(() {
+                      _selectedPaciente = null;
+                      _procesoEnCurso = true;
+                      _nombreCompletoCtrl.text = nombre;
+                      _documentoCtrl.text = documento;
+                    });
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.check_circle, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text('Paciente registrado correctamente'),
+                          ],
+                        ),
+                        backgroundColor: Colors.green,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('No se pudo registrar el paciente: $e'),
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildSummaryCard({
@@ -811,21 +1312,38 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     return SizedBox(
       width: 280,
       child: Card(
-        elevation: 1,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                backgroundColor: accent.withOpacity(0.15),
-                foregroundColor: accent,
-                child: Icon(icon),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: accent, size: 28),
               ),
-              const SizedBox(height: 12),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 6),
-              Text(subtitle),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ),
         ),
@@ -879,6 +1397,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
 
   Widget _buildModuleGrid({required bool isCompact}) {
     final cards = [
+      // CONEXIÓN con nutricion_menus_screen.dart
       _buildModuleCard(
         title: 'Menús',
         subtitle: 'Ingredientes, recetas y gramajes por semana.',
@@ -898,6 +1417,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
           ),
         ),
       ),
+      // CONEXIÓN con nutricion_catalogos_screen.dart
       _buildModuleCard(
         title: 'Pacientes',
         subtitle: 'Pacientes evaluados y seguimiento.',
@@ -913,6 +1433,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
           ),
         ),
       ),
+      // CONEXIÓN con nutricion_firmas_screen.dart
       _buildModuleCard(
         title: 'Firmas',
         subtitle: 'Consentimientos y firmas digitales.',
@@ -928,6 +1449,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
           ),
         ),
       ),
+      // CONEXIÓN con nutricion_reportes_screen.dart
       _buildModuleCard(
         title: 'Reportes',
         subtitle: 'Indicadores y reportes nutricionales.',
@@ -972,31 +1494,58 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
     return SizedBox(
       width: 280,
       child: Card(
-        elevation: 1,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                backgroundColor: accent.withOpacity(0.15),
-                foregroundColor: accent,
-                child: Icon(icon),
-              ),
-              const SizedBox(height: 12),
-              Text(title, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 6),
-              Text(subtitle),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onTap,
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('Abrir módulo'),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: accent, size: 28),
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: onTap,
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Abrir módulo'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1028,27 +1577,6 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen> {
             body: child,
           );
         },
-      ),
-    );
-  }
-
-  Widget _buildStatusPill({
-    required String label,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16),
-          const SizedBox(width: 6),
-          Text(label),
-        ],
       ),
     );
   }
