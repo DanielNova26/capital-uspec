@@ -6,8 +6,14 @@ import 'atencion/nutricion_atencion_actions.dart';
 import 'firmas/nutricion_firmas_screen.dart';
 import 'menus/nutricion_menus_screen.dart';
 import 'reportes/nutricion_reportes_screen.dart';
+
 import '../services/nutricion_service.dart';
 import '../widgets/evaluacion_nutricional_widget.dart';
+
+// ✅ NUEVO: Imports para selector de diagnósticos
+import 'package:todo/widgets/selector_diagnosticos_widget.dart';
+import 'atencion/diagnostico_models.dart';
+import '../services/diagnosticos_service.dart';
 
 /// Pantalla principal del módulo de nutrición clínica optimizada
 /// MEJORAS:
@@ -58,6 +64,10 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   final TextEditingController _inicioDietaCtrl = TextEditingController();
   final TextEditingController _fechaReevaluacionCtrl = TextEditingController();
 
+  // ✅ NUEVO: Estado para diagnósticos seleccionados
+  List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados = [];
+  List<DiagnosticoNutricional> _diagnosticosNutricionalesSeleccionados = [];
+
   @override
   void initState() {
     super.initState();
@@ -72,8 +82,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         .map((list) {
       final pacientes = list.map((data) {
         final id = data['id']?.toString() ?? '';
-        final nombre =
-            data['nombreCompleto']?.toString() ?? data['nombre']?.toString() ?? '';
+        final nombre = data['nombreCompleto']?.toString() ??
+            data['nombre']?.toString() ??
+            '';
         final documento = data['documento']?.toString() ?? '';
         return _PacienteInfo(id: id, nombre: nombre, documento: documento);
       }).toList();
@@ -125,6 +136,30 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     setState(() {
       _weekStart = _mondayOf(picked);
     });
+  }
+
+  // ✅ NUEVO: Callback para recibir diagnósticos seleccionados
+  void _onDiagnosticosChanged(
+      List<DiagnosticoMedico> medicos,
+      List<DiagnosticoNutricional> nutricionales,
+      ) {
+    setState(() {
+      _diagnosticosMedicosSeleccionados = medicos;
+      _diagnosticosNutricionalesSeleccionados = nutricionales;
+
+      // (Opcional) Sincroniza los textfields existentes con la selección (si quieres)
+      // - toma el primero, porque tu servicio guarda el primero como "principal"
+      _diagnosticoMedicoCtrl.text =
+      medicos.isNotEmpty ? '${medicos.first.codigoCie11} - ${medicos.first.nombre}' : '';
+      _diagnosticoNutriCtrl.text =
+      nutricionales.isNotEmpty ? '${nutricionales.first.codigo} - ${nutricionales.first.nombre}' : '';
+    });
+
+    // Debug: Ver qué se seleccionó
+    // ignore: avoid_print
+    print('Diagnósticos médicos: ${medicos.length}');
+    // ignore: avoid_print
+    print('Diagnósticos nutricionales: ${nutricionales.length}');
   }
 
   @override
@@ -216,7 +251,10 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                         children: [
                           Text(
                             'Flujo conectado de atención nutricional',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -224,8 +262,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                           Text(
                             'Registra al paciente, documenta la evaluación, construye '
                                 'el plan y agrega evidencias en una sola línea de trabajo.',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                             ),
                           ),
                           const SizedBox(height: 20),
@@ -233,7 +276,10 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                           const SizedBox(height: 24),
                           Text(
                             'Resumen de la sesión',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -242,7 +288,10 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                           const SizedBox(height: 24),
                           Text(
                             'Módulos de nutrición',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -419,13 +468,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           children: [
             Container(
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceVariant
+                    .withOpacity(0.3),
+                borderRadius:
+                const BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: TabBar(
                 indicatorColor: Theme.of(context).colorScheme.primary,
                 labelColor: Theme.of(context).colorScheme.primary,
-                unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                unselectedLabelColor:
+                Theme.of(context).colorScheme.onSurfaceVariant,
                 isScrollable: true,
                 indicatorWeight: 3,
                 tabs: const [
@@ -463,7 +517,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             Card(
               elevation: 0,
               color: Theme.of(context).colorScheme.primaryContainer,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -473,14 +528,21 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       children: [
                         Icon(
                           Icons.info_outline,
-                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimaryContainer,
                         ),
                         const SizedBox(width: 8),
                         Text(
                           'Proceso nutricional en curso',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(
                             fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onPrimaryContainer,
                           ),
                         ),
                       ],
@@ -490,8 +552,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       _selectedPaciente != null
                           ? '¿Deseas continuar o cancelar el proceso para ${_selectedPaciente!.nombre}?'
                           : '¿Deseas continuar o cancelar el proceso actual?',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      style:
+                      Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onPrimaryContainer,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -499,7 +564,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       children: [
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed: () => setState(() => _procesoEnCurso = false),
+                            onPressed: () =>
+                                setState(() => _procesoEnCurso = false),
                             icon: const Icon(Icons.check),
                             label: const Text('Continuar'),
                           ),
@@ -514,6 +580,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                               _documentoCtrl.clear();
                               _pacienteGuardado = false;
                               _evidenciaCargada = false;
+
+                              // ✅ NUEVO: limpia diagnósticos al cancelar
+                              _diagnosticosMedicosSeleccionados = [];
+                              _diagnosticosNutricionalesSeleccionados = [];
+                              _diagnosticoMedicoCtrl.clear();
+                              _diagnosticoNutriCtrl.clear();
                             }),
                             icon: const Icon(Icons.close),
                             label: const Text('Cancelar'),
@@ -548,14 +620,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       children: [
                         Icon(
                           Icons.error_outline,
-                          color: Theme.of(context).colorScheme.onErrorContainer,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onErrorContainer,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Error cargando pacientes: ${snapshot.error}',
                             style: TextStyle(
-                              color: Theme.of(context).colorScheme.onErrorContainer,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onErrorContainer,
                             ),
                           ),
                         ),
@@ -576,7 +652,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
               final pacientes = snapshot.data ?? _cachedPacientes ?? [];
               _PacienteInfo? selected;
-              final index = pacientes.indexWhere((p) => p.id == _selectedPaciente?.id);
+              final index =
+              pacientes.indexWhere((p) => p.id == _selectedPaciente?.id);
               if (index >= 0) selected = pacientes[index];
 
               return DropdownButtonFormField<_PacienteInfo>(
@@ -584,7 +661,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                 isExpanded: true,
                 decoration: InputDecoration(
                   labelText: 'Paciente',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
                   fillColor: Theme.of(context).colorScheme.surface,
                   prefixIcon: const Icon(Icons.person),
@@ -655,6 +733,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     );
   }
 
+  // ✅ MODIFICADO: integra SelectorDiagnosticosWidget en la pestaña Evaluación
   Widget _buildEvaluacionTabContent(bool isCompact) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -737,7 +816,15 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             },
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // ✅ NUEVO: Selector de diagnósticos con chips
+          SelectorDiagnosticosWidget(
+            empresaId: widget.empresaId,
+            onDiagnosticosChanged: _onDiagnosticosChanged,
+          ),
+
+          const SizedBox(height: 16),
 
           // Sección de la ficha de evaluación (datos clínicos adicionales)
           _buildEvaluacionDashboard(),
@@ -751,7 +838,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               icon: const Icon(Icons.save_alt),
               label: const Text('Guardar en directorio'),
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -978,14 +1066,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     title: 'Información clínica',
                     color: const Color(0xFF9EC3E6),
                     fields: [
-                      _FieldConfig('Diagnóstico médico', _diagnosticoMedicoCtrl),
-                      _FieldConfig('Diagnóstico nutricional', _diagnosticoNutriCtrl),
+                      _FieldConfig(
+                          'Diagnóstico médico', _diagnosticoMedicoCtrl),
+                      _FieldConfig('Diagnóstico nutricional',
+                          _diagnosticoNutriCtrl),
                       _FieldConfig('Tipo de dieta sugerida', _tipoDietaCtrl),
                       _FieldConfig('Duración de dieta', _duracionCtrl),
                       _FieldConfig('Control nutricional', _controlCtrl),
-                      _FieldConfig('Observaciones y recomendaciones',
-                          _observacionesCtrl,
-                          maxLines: 2),
+                      _FieldConfig(
+                        'Observaciones y recomendaciones',
+                        _observacionesCtrl,
+                        maxLines: 2,
+                      ),
                     ],
                   ),
                 ),
@@ -1020,13 +1112,16 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   color: const Color(0xFF9EC3E6),
                   fields: [
                     _FieldConfig('Diagnóstico médico', _diagnosticoMedicoCtrl),
-                    _FieldConfig('Diagnóstico nutricional', _diagnosticoNutriCtrl),
+                    _FieldConfig(
+                        'Diagnóstico nutricional', _diagnosticoNutriCtrl),
                     _FieldConfig('Tipo de dieta sugerida', _tipoDietaCtrl),
                     _FieldConfig('Duración de dieta', _duracionCtrl),
                     _FieldConfig('Control nutricional', _controlCtrl),
-                    _FieldConfig('Observaciones y recomendaciones',
-                        _observacionesCtrl,
-                        maxLines: 2),
+                    _FieldConfig(
+                      'Observaciones y recomendaciones',
+                      _observacionesCtrl,
+                      maxLines: 2,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1090,6 +1185,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     );
   }
 
+  // ✅ MODIFICADO: ahora guarda evaluación diagnóstica (si hay selección) + directorio
   Future<void> _guardarEnDirectorio() async {
     final nombre = _nombreCompletoCtrl.text.trim();
     if (nombre.isEmpty) {
@@ -1130,9 +1226,45 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       ),
     );
 
-    final service = NutricionService();
+    final nutricionService = NutricionService();
+    final diagnosticosService = DiagnosticosService();
+
     try {
-      await service.guardarDirectorioNutricion(
+      // 1) Guardar evaluación diagnóstica si hay diagnósticos seleccionados
+      //    (requiere paciente seleccionado; si no, intenta inferirlo por documento)
+      final hasDx = _diagnosticosMedicosSeleccionados.isNotEmpty ||
+          _diagnosticosNutricionalesSeleccionados.isNotEmpty;
+
+      if (hasDx) {
+        String? pacienteId = _selectedPaciente?.id;
+
+        // Si no hay pacienteId, intenta usar el documento como id (tu directorio usa id=documento)
+        if ((pacienteId == null || pacienteId.isEmpty) &&
+            _documentoCtrl.text.trim().isNotEmpty) {
+          pacienteId = _documentoCtrl.text.trim();
+        }
+
+        if (pacienteId != null && pacienteId.isNotEmpty) {
+          await diagnosticosService.guardarEvaluacionDiagnostica(
+            empresaId: widget.empresaId,
+            pacienteId: pacienteId,
+            userId: widget.userId,
+            diagnosticoMedicoCie11: _diagnosticosMedicosSeleccionados.isNotEmpty
+                ? _diagnosticosMedicosSeleccionados.first.codigoCie11
+                : null,
+            diagnosticoNutricionalCodigo:
+            _diagnosticosNutricionalesSeleccionados.isNotEmpty
+                ? _diagnosticosNutricionalesSeleccionados.first.codigo
+                : null,
+            comorbilidades: _obtenerComorbilidades(),
+            medicamentos: _obtenerMedicamentos(),
+            objetivosNutricionales: _obtenerObjetivos(),
+          );
+        }
+      }
+
+      // 2) Guardar en directorio (lo que ya hacías)
+      await nutricionService.guardarDirectorioNutricion(
         empresaId: widget.empresaId,
         userId: widget.userId,
         data: {
@@ -1150,15 +1282,17 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         },
         id: _documentoCtrl.text.trim(),
       );
+
       if (!mounted) return;
       Navigator.of(context).pop();
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
             children: [
               Icon(Icons.check_circle, color: Colors.white),
               SizedBox(width: 8),
-              Text('Guardado en directorio.'),
+              Text('Evaluación guardada correctamente'),
             ],
           ),
           backgroundColor: Colors.green,
@@ -1186,6 +1320,31 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     }
   }
 
+  // ✅ NUEVO: Helpers para extraer datos desde diagnósticos
+  List<String> _obtenerComorbilidades() {
+    final Set<String> comorbilidades = {};
+    for (final dx in _diagnosticosMedicosSeleccionados) {
+      comorbilidades.addAll(dx.comorbilidades);
+    }
+    return comorbilidades.toList();
+  }
+
+  List<String> _obtenerMedicamentos() {
+    final Set<String> medicamentos = {};
+    for (final dx in _diagnosticosMedicosSeleccionados) {
+      medicamentos.addAll(dx.medicamentosRelacionados);
+    }
+    return medicamentos.toList();
+  }
+
+  List<String> _obtenerObjetivos() {
+    final Set<String> objetivos = {};
+    for (final dx in _diagnosticosNutricionalesSeleccionados) {
+      objetivos.addAll(dx.objetivos);
+    }
+    return objetivos.toList();
+  }
+
   Future<void> _registrarNuevoPaciente() async {
     final nombreCtrl = TextEditingController();
     final docCtrl = TextEditingController();
@@ -1210,7 +1369,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   controller: nombreCtrl,
                   decoration: InputDecoration(
                     labelText: 'Nombre completo',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     prefixIcon: const Icon(Icons.person),
                   ),
                 ),
@@ -1219,7 +1379,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   controller: docCtrl,
                   decoration: InputDecoration(
                     labelText: 'Documento',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     prefixIcon: const Icon(Icons.badge),
                   ),
                 ),
