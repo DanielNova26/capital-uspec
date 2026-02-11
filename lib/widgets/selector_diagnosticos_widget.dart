@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../services/diagnosticos_service.dart';
 import 'package:todo/nutricion/atencion/diagnostico_models.dart';
 
@@ -36,12 +37,32 @@ class _SelectorDiagnosticosWidgetState
   List<DiagnosticoNutricional> _resultadosNutri = [];
   bool _buscandoNutri = false;
   bool _mostrarResultadosNutri = false;
+  Timer? _debounceMedico;
+  Timer? _debounceNutri;
 
   @override
   void dispose() {
+    _debounceMedico?.cancel();
+    _debounceNutri?.cancel();
     _busquedaMedicoCtrl.dispose();
     _busquedaNutriCtrl.dispose();
     super.dispose();
+  }
+
+  void _onMedicoChanged(String value) {
+    _debounceMedico?.cancel();
+    _debounceMedico = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      _buscarDiagnosticosMedicos(value);
+    });
+  }
+
+  void _onNutricionalChanged(String value) {
+    _debounceNutri?.cancel();
+    _debounceNutri = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      _buscarDiagnosticosNutricionales(value);
+    });
   }
 
   Future<void> _buscarDiagnosticosMedicos(String termino) async {
@@ -302,7 +323,7 @@ class _SelectorDiagnosticosWidgetState
             isDense: true,
           ),
           style: const TextStyle(fontSize: 13),
-          onChanged: _buscarDiagnosticosMedicos,
+          onChanged: _onMedicoChanged,
         ),
 
         // Resultados de búsqueda
@@ -448,7 +469,7 @@ class _SelectorDiagnosticosWidgetState
             isDense: true,
           ),
           style: const TextStyle(fontSize: 13),
-          onChanged: _buscarDiagnosticosNutricionales,
+          onChanged: _onNutricionalChanged,
         ),
 
         // Resultados de búsqueda

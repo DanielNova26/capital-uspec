@@ -1026,25 +1026,42 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     const SizedBox(height: 12),
                     _buildFiltersCard(docs),
                     const SizedBox(height: 12),
-                    if (filtered.isEmpty)
-                      EmptyStateWidget(
-                        icon: Icons.assignment_late_outlined,
-                        title: 'No hay tareas para mostrar',
-                        message: 'Ajusta filtros o vuelve más tarde para revisar nuevas tareas.',
-                        actionLabel: 'Limpiar filtros',
-                        onAction: () => setState(() {
-                          _statusFilter = 'todas';
-                          _areaFilter = 'todas';
-                          _searchCtrl.clear();
-                        }),
-                      )
-                    else if (_groupByArea)
-                      ..._buildGroupedTaskSections(filtered)
-                    else
-                      ...filtered.map((d) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _buildTaskCard(d),
-              )),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      child: Builder(
+                        key: ValueKey<String>(
+                          '${_groupByArea}_${filtered.map((d) => d.id).join(',')}',
+                        ),
+                        builder: (_) {
+                          if (filtered.isEmpty) {
+                            return EmptyStateWidget(
+                              icon: Icons.assignment_late_outlined,
+                              title: 'No hay tareas para mostrar',
+                              message: 'Ajusta filtros o vuelve más tarde para revisar nuevas tareas.',
+                              actionLabel: 'Limpiar filtros',
+                              onAction: () => setState(() {
+                                _statusFilter = 'todas';
+                                _areaFilter = 'todas';
+                                _searchCtrl.clear();
+                              }),
+                            );
+                          }
+
+                          return Column(
+                            children: _groupByArea
+                                ? _buildGroupedTaskSections(filtered)
+                                : filtered
+                                .map((d) => Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _buildTaskCard(d),
+                            ))
+                                .toList(),
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 ),
               );

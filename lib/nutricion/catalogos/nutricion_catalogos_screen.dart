@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../services/nutricion_service.dart';
@@ -20,11 +22,22 @@ class _NutricionCatalogosScreenState extends State<NutricionCatalogosScreen> {
   final _service = NutricionService();
   final _searchCtrl = TextEditingController();
   Map<String, dynamic>? _selected;
+  Timer? _searchDebounce;
+  String _searchQuery = '';
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      setState(() => _searchQuery = value.toLowerCase().trim());
+    });
   }
 
   @override
@@ -52,7 +65,7 @@ class _NutricionCatalogosScreenState extends State<NutricionCatalogosScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.search),
                   ),
-                  onChanged: (_) => setState(() {}),
+                  onChanged: _onSearchChanged,
                 ),
               ),
               OutlinedButton.icon(
@@ -77,7 +90,7 @@ class _NutricionCatalogosScreenState extends State<NutricionCatalogosScreen> {
           return const Center(child: CircularProgressIndicator());
         }
         final data = snapshot.data ?? [];
-        final query = _searchCtrl.text.toLowerCase();
+        final query = _searchQuery;
         final filtered = data.where((row) {
           final nombre = (row['nombreCompleto'] ?? '').toString().toLowerCase();
           final documento = (row['documento'] ?? '').toString().toLowerCase();

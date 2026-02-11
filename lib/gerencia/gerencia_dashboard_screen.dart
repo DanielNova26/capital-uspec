@@ -951,14 +951,19 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _StatusPieChart extends StatelessWidget {
+class _StatusPieChart extends StatefulWidget {
   const _StatusPieChart({required this.data});
 
   final Map<String, int> data;
 
   @override
+  State<_StatusPieChart> createState() => _StatusPieChartState();
+}
+
+class _StatusPieChartState extends State<_StatusPieChart> {
+  @override
   Widget build(BuildContext context) {
-    final total = data.values.fold<int>(0, (p, e) => p + e);
+    final total = widget.data.values.fold<int>(0, (p, e) => p + e);
     if (total == 0) {
       return const Card(
         child: Center(
@@ -967,7 +972,7 @@ class _StatusPieChart extends StatelessWidget {
       );
     }
 
-    final entries = data.entries.toList()
+    final entries = widget.data.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     return Card(
@@ -993,8 +998,19 @@ class _StatusPieChart extends StatelessWidget {
                       SizedBox(
                         width: size,
                         height: size,
-                        child: CustomPaint(
-                          painter: _PiePainter(entries: entries, total: total),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: const Duration(milliseconds: 900),
+                      curve: Curves.easeOutCubic,
+                      builder: (_, progress, __) {
+                        return CustomPaint(
+                          painter: _PiePainter(
+                            entries: entries,
+                            total: total,
+                            progress: progress,
+                          ),
+                        );
+                      },
                         ),
                       ),
                       Column(
@@ -1038,10 +1054,11 @@ class _StatusPieChart extends StatelessWidget {
 }
 
 class _PiePainter extends CustomPainter {
-  _PiePainter({required this.entries, required this.total});
+  _PiePainter({required this.entries, required this.total, required this.progress});
 
   final List<MapEntry<String, int>> entries;
   final int total;
+  final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1053,7 +1070,7 @@ class _PiePainter extends CustomPainter {
     final rect = Offset.zero & size;
     double start = -pi / 2;
     for (final e in entries) {
-      final sweep = (e.value / total) * 2 * pi;
+      final sweep = (e.value / total) * 2 * pi * progress;
       paint.color = _statusColor(e.key).withOpacity(0.85);
       canvas.drawArc(rect.deflate(size.width * 0.2), start, sweep, false, paint);
       start += sweep;
@@ -1061,7 +1078,8 @@ class _PiePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _PiePainter oldDelegate) =>
+      oldDelegate.entries != entries || oldDelegate.total != total || oldDelegate.progress != progress;
 }
 
 class _AreaBarChart extends StatelessWidget {

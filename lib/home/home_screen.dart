@@ -1223,6 +1223,7 @@ class _HomeScreenState extends State<HomeScreen> {
               stream: FirebaseFirestore.instance
                   .collection('TBL_TAREAS')
                   .where('asignado_uid', isEqualTo: effectiveId)
+                  .where('empresaId', isEqualTo: empresaId)
                   .snapshots(),
               builder: (context, assignedSnap) {
                 if (assignedSnap.connectionState == ConnectionState.waiting) {
@@ -1234,6 +1235,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   stream: FirebaseFirestore.instance
                       .collection('TBL_TAREAS')
                       .where('creador_id', isEqualTo: effectiveId)
+                      .where('empresaId', isEqualTo: empresaId)
                       .snapshots(),
                   builder: (context, createdSnap) {
                     if (createdSnap.connectionState == ConnectionState.waiting) {
@@ -1309,22 +1311,33 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Positioned(
                                     right: -2,
                                     top: -2,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 5, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(10),
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 260),
+                                      transitionBuilder: (child, animation) => ScaleTransition(
+                                        scale: CurvedAnimation(
+                                          parent: animation,
+                                          curve: Curves.easeOutBack,
+                                        ),
+                                        child: FadeTransition(opacity: animation, child: child),
                                       ),
-                                      constraints: const BoxConstraints(
-                                          minWidth: 18, minHeight: 16),
-                                      child: Text(
-                                        unreadCount > 9 ? '9+' : '$unreadCount',
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
+                                      child: Container(
+                                        key: ValueKey<int>(unreadCount),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        constraints: const BoxConstraints(
+                                            minWidth: 18, minHeight: 16),
+                                        child: Text(
+                                          unreadCount > 9 ? '9+' : '$unreadCount',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ),

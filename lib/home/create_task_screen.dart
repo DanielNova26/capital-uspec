@@ -5,17 +5,18 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:geocoding/geocoding.dart' as gcode;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng; // solo por tipo
+import 'package:image/image.dart' as img;
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -964,45 +965,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       ),
     );
   }
-
-  Future<ui.Image> _decodeUiImage(Uint8List bytes) {
-    final c = Completer<ui.Image>();
-    ui.decodeImageFromList(bytes, (img) => c.complete(img));
-    return c.future;
-  }
-
-  Future<ui.Image?> _getStaticMap({
-    required double width,
-    required double height,
-  }) async {
-    if (_myPos == null) return null;
-    try {
-      final effW = math.max(128, math.min(640, width.round()));
-      final effH = math.max(128, math.min(640, height.round()));
-
-      const zoom = 16;
-      final center = '${_myPos!.latitude},${_myPos!.longitude}';
-      final staticUrl = Uri.parse(
-        'https://maps.googleapis.com/maps/api/staticmap'
-            '?center=$center'
-            '&zoom=$zoom'
-            '&size=${effW}x${effH}'
-            '&scale=2'
-            '&maptype=roadmap'
-            '&language=es'
-            '&markers=color:red|label:U|$center'
-            '&key=$kGoogleMapsApiKey',
-      );
-
-      final resp = await http.get(staticUrl).timeout(const Duration(seconds: 7));
-      if (resp.statusCode == 200) {
-        return _decodeUiImage(resp.bodyBytes);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  Future<Uint8List?> _buildWatermarkedBytes(ui.Image base) async {
+  Future<Uint8List?> _buildWatermarkedBytes(Uint8List baseBytes) async {
     final nowStr = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
 
     String creadorNombre = '—';
@@ -1014,157 +977,38 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final origenCoords = _myPos == null
         ? '—'
         : '${_myPos!.latitude.toStringAsFixed(5)}, ${_myPos!.longitude.toStringAsFixed(5)}';
-    final origenLinea = 'Ubicación: $origenCoords${_myAddress == null ? '' : ' · ${_myAddress!}'}';
 
-    final infoTexto = [
+    final lines = <String>[
       'Tarea • $nowStr',
       'Creador: $creadorNombre',
       if (_asignadoNombre != null) 'Asignado: $_asignadoNombre',
       if (_jefeNombre != null) 'Jefe: $_jefeNombre',
       if (_deadline != null) 'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(_deadline!)}',
       'Prioridad: ${_priority.toUpperCase()}',
-      origenLinea,
-    ].join('\n');
+      'Ubicación: $origenCoords',
+    ];
 
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(
-      recorder,
-      ui.Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()),
-    );
+    try {
+      return await compute<_WatermarkJob, Uint8List?>(
+        _buildWatermarkInIsolate,
+        _WatermarkJob(
+          bytes: baseBytes,
+          lines: lines,
+          logoBytes: await _loadLogoBytes(),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
-    canvas.drawImage(base, ui.Offset.zero, ui.Paint()..filterQuality = ui.FilterQuality.medium);
-
-    ui.Image? logo;
+  Future<Uint8List?> _loadLogoBytes() async {
     try {
       final lb = await rootBundle.load('assets/logo.png');
-      logo = await _decodeUiImage(lb.buffer.asUint8List());
-    } catch (_) {}
-
-    final overlayH = (base.height * 0.20).toDouble().clamp(120.0, 260.0);
-    final overlayRect = ui.Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
-    canvas.drawRect(overlayRect, ui.Paint()..color = const Color(0xCC000000));
-
-    const double pad = 18.0;
-    final logoW = base.width * 0.18;
-    final textW = base.width * 0.54;
-    final mapW = base.width * 0.28;
-
-    final logoRect = ui.Rect.fromLTWH(
-      overlayRect.left + pad,
-      overlayRect.top + pad,
-      math.max(0, logoW - 2 * pad),
-      math.max(0, overlayH - 2 * pad),
-    );
-    final textRect = ui.Rect.fromLTWH(
-      overlayRect.left + logoW + pad,
-      overlayRect.top + pad,
-      math.max(0, textW - 2 * pad),
-      math.max(0, overlayH - 2 * pad),
-    );
-    final mapRect = ui.Rect.fromLTWH(
-      overlayRect.left + logoW + textW + pad,
-      overlayRect.top + pad,
-      math.max(128, mapW - 2 * pad),
-      math.max(128, overlayH - 2 * pad),
-    );
-
-    if (logo != null && logoRect.width > 0 && logoRect.height > 0) {
-      final scale = math.min(logoRect.width / logo.width, logoRect.height / logo.height);
-      final w = logo.width * scale;
-      final h = logo.height * scale;
-      final dst = ui.Rect.fromLTWH(
-        logoRect.left + (logoRect.width - w) / 2,
-        logoRect.top + (logoRect.height - h) / 2,
-        w,
-        h,
-      );
-      canvas.drawImageRect(
-        logo,
-        ui.Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
-        dst,
-        ui.Paint()..colorFilter = const ui.ColorFilter.mode(Colors.white, ui.BlendMode.modulate),
-      );
+      return lb.buffer.asUint8List();
+    } catch (_) {
+      return null;
     }
-
-    Future<ui.Paragraph> buildPara({
-      required String txt,
-      required double maxW,
-      required double maxH,
-      double minFont = 18,
-      double maxFont = 48,
-      int maxLines = 10,
-      Color color = const Color(0xFFEFEFEF),
-      ui.TextAlign align = ui.TextAlign.left,
-    }) async {
-      double lo = minFont, hi = maxFont;
-      ui.Paragraph? best;
-      for (int i = 0; i < 20; i++) {
-        final mid = (lo + hi) / 2;
-        final pb = ui.ParagraphBuilder(
-          ui.ParagraphStyle(textAlign: align, maxLines: maxLines, ellipsis: '…'),
-        )
-          ..pushStyle(ui.TextStyle(color: color, fontSize: mid))
-          ..addText(txt);
-        final p = pb.build()..layout(ui.ParagraphConstraints(width: maxW));
-        if (p.height <= maxH) {
-          best = p;
-          lo = mid + 0.5;
-        } else {
-          hi = mid - 0.5;
-        }
-      }
-      best ??= (ui.ParagraphBuilder(ui.ParagraphStyle(
-        textAlign: align,
-        maxLines: maxLines,
-        ellipsis: '…',
-      ))
-        ..pushStyle(ui.TextStyle(color: color, fontSize: lo))
-        ..addText(txt))
-          .build()
-        ..layout(ui.ParagraphConstraints(width: maxW));
-      return best;
-    }
-
-    final para = await buildPara(txt: infoTexto, maxW: textRect.width, maxH: textRect.height);
-    final textOffsetY = textRect.top + (textRect.height - para.height) / 2;
-    canvas.drawParagraph(para, ui.Offset(textRect.left, textOffsetY));
-
-    ui.Image? mapImg = await _getStaticMap(width: mapRect.width, height: mapRect.height);
-    if (mapImg != null) {
-      final rrect = ui.RRect.fromRectAndRadius(mapRect, const ui.Radius.circular(12));
-      final clipPath = ui.Path()..addRRect(rrect);
-      canvas.save();
-      canvas.clipPath(clipPath);
-      canvas.drawImageRect(
-        mapImg,
-        ui.Rect.fromLTWH(0, 0, mapImg.width.toDouble(), mapImg.height.toDouble()),
-        mapRect,
-        ui.Paint()..filterQuality = ui.FilterQuality.high,
-      );
-      canvas.restore();
-      final border = ui.Paint()
-        ..style = ui.PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = Colors.white.withOpacity(0.9);
-      canvas.drawRRect(rrect, border);
-    } else {
-      final p = ui.Paint()..color = Colors.white.withOpacity(0.15);
-      final rrect = ui.RRect.fromRectAndRadius(mapRect, const ui.Radius.circular(12));
-      canvas.drawRRect(rrect, p);
-      final pb = ui.ParagraphBuilder(ui.ParagraphStyle(textAlign: ui.TextAlign.center))
-        ..pushStyle(ui.TextStyle(color: Colors.white70, fontSize: 18))
-        ..addText('MAPA (habilita Static Maps API)');
-      final ph = pb.build()..layout(ui.ParagraphConstraints(width: mapRect.width));
-      canvas.drawParagraph(
-        ph,
-        ui.Offset(mapRect.left, mapRect.top + (mapRect.height - ph.height) / 2),
-      );
-    }
-
-    final picture = recorder.endRecording();
-    final out = await picture.toImage(base.width, base.height);
-    final png = await out.toByteData(format: ui.ImageByteFormat.png);
-    return png?.buffer.asUint8List();
   }
 
   // ==================== PICKER / UPLOAD ====================
@@ -1432,8 +1276,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       String? evidencePath;
       if (_photo != null) {
         final raw = await _photo!.readAsBytes();
-        final base = await _decodeUiImage(raw);
-        final wm = await _buildWatermarkedBytes(base);
+        final wm = await _buildWatermarkedBytes(raw);
         if (wm != null) {
           final up = await _uploadEvidence(wm);
           evidenceUrl = up.downloadURL;
@@ -2000,4 +1843,64 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       ),
     );
   }
+}
+class _WatermarkJob {
+  const _WatermarkJob({
+    required this.bytes,
+    required this.lines,
+    this.logoBytes,
+  });
+
+  final Uint8List bytes;
+  final List<String> lines;
+  final Uint8List? logoBytes;
+}
+
+Uint8List? _buildWatermarkInIsolate(_WatermarkJob job) {
+  final decoded = img.decodeImage(job.bytes);
+  if (decoded == null) return null;
+
+  final image = decoded;
+  final overlayHeight = (image.height * 0.22).round().clamp(110, 260);
+  final overlayTop = image.height - overlayHeight;
+
+  img.fillRect(
+    image,
+    x1: 0,
+    y1: overlayTop,
+    x2: image.width,
+    y2: image.height,
+    color: img.ColorRgba8(0, 0, 0, 200),
+  );
+
+  if (job.logoBytes != null) {
+    final logo = img.decodeImage(job.logoBytes!);
+    if (logo != null) {
+      final targetH = (overlayHeight * 0.72).round();
+      final resized = img.copyResize(
+        logo,
+        height: targetH,
+        interpolation: img.Interpolation.average,
+      );
+      img.compositeImage(image, resized, dstX: 14, dstY: overlayTop + 14);
+    }
+  }
+
+  final textStartX = (image.width * 0.27).round().clamp(130, image.width - 16);
+  var y = overlayTop + 16;
+  final maxY = image.height - 10;
+  for (final line in job.lines) {
+    if (y >= maxY) break;
+    img.drawString(
+      image,
+      line,
+      x: textStartX,
+      y: y,
+      font: img.arial24,
+      color: img.ColorRgb8(245, 245, 245),
+    );
+    y += 28;
+  }
+
+  return Uint8List.fromList(img.encodePng(image, level: 3));
 }
