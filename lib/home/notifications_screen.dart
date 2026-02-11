@@ -6,7 +6,7 @@ import 'package:todo/theme/app_typography.dart';
 import 'package:intl/intl.dart';
 
 import 'assigned_tasks_screen.dart';
-import 'task_history_screen.dart';
+import 'task_history_screen.dart' hide kArial;
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);

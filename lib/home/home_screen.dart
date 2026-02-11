@@ -18,16 +18,16 @@ import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 
 // Import relativo al Admin Dashboard
-import '../admin/admin_dashboard_screen.dart';
+import '../admin/admin_dashboard_screen.dart' hide kArial;
 // Import relativo al Talento Humano Dashboard
 import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
-import 'document_management_screen.dart';
+import 'document_management_screen.dart' hide kArial;
 import '../nutricion/nutricion_dashboard_screen.dart';
 // Drawer modularizado
-import 'app_drawer.dart';
+import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
-import 'task_history_screen.dart';
+import 'task_history_screen.dart' hide kArial;
 
 class HomeScreen extends StatefulWidget {
   final String username; // cédula o username (docId en TBL_USUARIOS)
@@ -1428,31 +1428,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 8),
                             if (_getEventsForDay(_selectedDay).isEmpty)
-                    calendarBuilders: CalendarBuilders(
-                      markerBuilder: (context, day, events) {
-                        if (events.isEmpty) return const SizedBox.shrink();
-                        final raw = events.cast<Map<String, dynamic>>();
-                        final color = _calendarMarkerColor(raw);
-                        return Positioned(
-                          bottom: 2,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: color,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${events.length}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Text(
+                                  'No hay actividades para este día.',
+                                  style: TextStyle(fontFamily: kArial, color: Colors.black54),
+                                ),
+                              )
                             else
                               ..._getEventsForDay(_selectedDay).map(
                                     (evt) => ListTile(

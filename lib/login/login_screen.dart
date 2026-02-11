@@ -7,8 +7,8 @@ import 'package:todo/state/empresa_scope.dart';
 
 // Están en el mismo folder "login"
 import 'first_time_screen.dart';
-import 'change_password_screen.dart';
-import 'forgot_password_screen.dart';
+import 'change_password_screen.dart' hide kArial;
+import 'forgot_password_screen.dart' hide kArial;
 
 // Está en lib/home (en minúscula)
 import '../home/home_screen.dart';

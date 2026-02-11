@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'login_screen.dart'; // Asegúrate que el path sea correcto
 
+const Color _accentColor = Color(0xFF145DA0);
+
 class PreviewScreen extends StatelessWidget {
   final Map<String, dynamic> data;
 
@@ -43,6 +45,7 @@ class PreviewScreen extends StatelessWidget {
   }
 
   Card _buildSectionCard({
+    required BuildContext context,
     required String title,
     required List<Widget> children,
   }) {
@@ -227,6 +230,7 @@ class PreviewScreen extends StatelessWidget {
 
             // DATOS PERSONALES
             _buildSectionCard(
+              context: context,
               title: 'Datos personales',
               children: [
                 ListTile(
@@ -283,6 +287,7 @@ class PreviewScreen extends StatelessWidget {
 
             // FORMACIÓN ACADÉMICA
             _buildSectionCard(
+              context: context,
               title: 'Formación académica',
               children: [
                 Text(
@@ -339,6 +344,7 @@ class PreviewScreen extends StatelessWidget {
             // CURSOS COMPLEMENTARIOS
             if (data['hasCertificados'] == true)
               _buildSectionCard(
+                context: context,
                 title: 'Cursos complementarios',
                 children: [
                   for (var c in data['certificados'] as List<dynamic>) ...[
@@ -349,6 +355,7 @@ class PreviewScreen extends StatelessWidget {
 
             // EXPERIENCIA LABORAL
             _buildSectionCard(
+              context: context,
               title: 'Experiencia laboral',
               children: [
                 for (var exp in data['experiencias'] as List<dynamic>) ...[
@@ -363,6 +370,7 @@ class PreviewScreen extends StatelessWidget {
 
             // COMPROBANTES
             _buildSectionCard(
+              context: context,
               title: 'Comprobantes',
               children: [
                 Text(

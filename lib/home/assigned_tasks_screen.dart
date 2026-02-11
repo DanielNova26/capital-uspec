@@ -25,9 +25,9 @@ import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-import 'complete_task_screen.dart';
-import 'notify_avances_screen.dart';
-import 'notify_novedades_screen.dart';
+import 'complete_task_screen.dart' hide kArial;
+import 'notify_avances_screen.dart' hide kArial;
+import 'notify_novedades_screen.dart' hide kArial;
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 
