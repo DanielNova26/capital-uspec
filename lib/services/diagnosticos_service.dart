@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:todo/nutricion/atencion/diagnostico_models.dart';
 import 'diagnosticos_excel_parser.dart';
 
@@ -9,10 +10,46 @@ class DiagnosticosService {
   static const String _collEvaluaciones = 'TBL_EVALUACIONES_DIAGNOSTICAS';
   static const String _collIncompatibilidades = 'TBL_INCOMPATIBILIDADES_DIETETICAS';
 
+  static const String _assetsPath = 'assets/diagnosticos_template.xlsx';
+
+  /// Cache en memoria de diagnósticos cargados desde el Excel local
+  static List<DiagnosticoMedico>? _cacheMedicos;
+  static List<DiagnosticoNutricional>? _cacheNutricionales;
+  static bool _cacheLoaded = false;
+
   final FirebaseFirestore _db;
 
   DiagnosticosService({FirebaseFirestore? db})
       : _db = db ?? FirebaseFirestore.instance;
+
+  /// Carga diagnósticos desde el Excel en assets y los guarda en cache
+  Future<void> _ensureCacheLoaded() async {
+    if (_cacheLoaded) return;
+
+    try {
+      final byteData = await rootBundle.load(_assetsPath);
+      final bytes = byteData.buffer.asUint8List();
+      final parser = DiagnosticosExcelParser();
+      final workbook = await parser.parse(bytes);
+
+      _cacheMedicos = workbook.diagnosticosMedicos
+          .map((row) => DiagnosticoMedico.fromMap(row))
+          .where((dx) => dx.codigoCie11.isNotEmpty)
+          .toList();
+
+      _cacheNutricionales = workbook.diagnosticosNutricionales
+          .map((row) => DiagnosticoNutricional.fromMap(row))
+          .where((dx) => dx.codigo.isNotEmpty)
+          .toList();
+
+      _cacheLoaded = true;
+    } catch (e) {
+      print('Error cargando diagnósticos desde assets: $e');
+      _cacheMedicos = [];
+      _cacheNutricionales = [];
+      _cacheLoaded = true;
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // IMPORTACIÓN DESDE EXCEL
@@ -139,78 +176,67 @@ class DiagnosticosService {
   // ---------------------------------------------------------------------------
 
   /// Busca diagnósticos médicos por término (CIE-11)
+  /// Lee desde el Excel en assets (cache en memoria)
   Future<List<DiagnosticoMedico>> buscarDiagnosticosMedicos(String termino) async {
     final terminoNormalizado = _normalizeForSearch(termino);
     if (terminoNormalizado.isEmpty) return [];
 
-    // Buscar por código o nombre
-    final querySnapshot = await _db
-        .collection(_collDiagnosticosMedicos)
-        .where('activo', isEqualTo: true)
-        .limit(50)
-        .get();
+    await _ensureCacheLoaded();
 
-    final resultados = querySnapshot.docs
-        .map((doc) => DiagnosticoMedico.fromMap(doc.data()))
-        .where((dx) {
+    final resultados = (_cacheMedicos ?? []).where((dx) {
       final codigo = _normalizeForSearch(dx.codigoCie11);
       final nombre = _normalizeForSearch(dx.nombre);
       return codigo.contains(terminoNormalizado) ||
           nombre.contains(terminoNormalizado);
-    })
-        .toList();
+    }).toList();
 
     return resultados;
   }
 
   /// Busca diagnósticos nutricionales por término
+  /// Lee desde el Excel en assets (cache en memoria)
   Future<List<DiagnosticoNutricional>> buscarDiagnosticosNutricionales(
       String termino,
       ) async {
     final terminoNormalizado = _normalizeForSearch(termino);
     if (terminoNormalizado.isEmpty) return [];
 
-    final querySnapshot = await _db
-        .collection(_collDiagnosticosNutricionales)
-        .where('activo', isEqualTo: true)
-        .limit(50)
-        .get();
+    await _ensureCacheLoaded();
 
-    final resultados = querySnapshot.docs
-        .map((doc) => DiagnosticoNutricional.fromMap(doc.data()))
-        .where((dx) {
+    final resultados = (_cacheNutricionales ?? []).where((dx) {
       final codigo = _normalizeForSearch(dx.codigo);
       final nombre = _normalizeForSearch(dx.nombre);
       return codigo.contains(terminoNormalizado) ||
           nombre.contains(terminoNormalizado);
-    })
-        .toList();
+    }).toList();
 
     return resultados;
   }
 
   /// Obtiene un diagnóstico médico por código CIE-11
   Future<DiagnosticoMedico?> obtenerDiagnosticoMedico(String codigoCie11) async {
-    final doc = await _db
-        .collection(_collDiagnosticosMedicos)
-        .doc(codigoCie11)
-        .get();
-
-    if (!doc.exists) return null;
-    return DiagnosticoMedico.fromMap(doc.data()!);
+    await _ensureCacheLoaded();
+    try {
+      return (_cacheMedicos ?? []).firstWhere(
+        (dx) => dx.codigoCie11 == codigoCie11,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Obtiene un diagnóstico nutricional por código
   Future<DiagnosticoNutricional?> obtenerDiagnosticoNutricional(
       String codigo,
       ) async {
-    final doc = await _db
-        .collection(_collDiagnosticosNutricionales)
-        .doc(codigo)
-        .get();
-
-    if (!doc.exists) return null;
-    return DiagnosticoNutricional.fromMap(doc.data()!);
+    await _ensureCacheLoaded();
+    try {
+      return (_cacheNutricionales ?? []).firstWhere(
+        (dx) => dx.codigo == codigo,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------

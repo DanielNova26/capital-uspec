@@ -65,6 +65,7 @@ class _SelectorDiagnosticosWidgetState
         _buscandoMedico = false;
       });
     } catch (e) {
+      print('Error buscando diagnósticos médicos: $e');
       setState(() {
         _buscandoMedico = false;
         _resultadosMedicos = [];
@@ -93,6 +94,7 @@ class _SelectorDiagnosticosWidgetState
         _buscandoNutri = false;
       });
     } catch (e) {
+      print('Error buscando diagnósticos nutricionales: $e');
       setState(() {
         _buscandoNutri = false;
         _resultadosNutri = [];
