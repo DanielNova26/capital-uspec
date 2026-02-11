@@ -69,7 +69,7 @@ class _EntradaDiagnosticosScreenState
   }
 
   Future<void> _buscarDiagnosticosMedicos(String termino) async {
-    if (termino.length < 3) {
+    if (termino.trim().isEmpty) {
       setState(() => _resultadosMedicos = []);
       return;
     }
@@ -88,7 +88,7 @@ class _EntradaDiagnosticosScreenState
   }
 
   Future<void> _buscarDiagnosticosNutricionales(String termino) async {
-    if (termino.length < 3) {
+    if (termino.trim().isEmpty) {
       setState(() => _resultadosNutri = []);
       return;
     }

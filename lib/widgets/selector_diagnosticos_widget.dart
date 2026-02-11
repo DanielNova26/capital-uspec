@@ -45,7 +45,7 @@ class _SelectorDiagnosticosWidgetState
   }
 
   Future<void> _buscarDiagnosticosMedicos(String termino) async {
-    if (termino.length < 2) {
+    if (termino.trim().isEmpty) {
       setState(() {
         _resultadosMedicos = [];
         _mostrarResultadosMedicos = false;
@@ -73,7 +73,7 @@ class _SelectorDiagnosticosWidgetState
   }
 
   Future<void> _buscarDiagnosticosNutricionales(String termino) async {
-    if (termino.length < 2) {
+    if (termino.trim().isEmpty) {
       setState(() {
         _resultadosNutri = [];
         _mostrarResultadosNutri = false;
