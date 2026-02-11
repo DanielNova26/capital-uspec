@@ -11,7 +11,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'firebase_options.dart';
 import 'state/empresa_scope.dart';
 import 'login/login_screen.dart';
-import 'services/local_notification_service.dart';
+import 'services/notification_service.dart';
+
+/// Clave global de navegación para deep-linking desde notificaciones.
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 /// ===== Handler de mensajes en segundo plano (Android) =====
 /// ¡NO lo muevas dentro de una clase!
@@ -40,46 +43,9 @@ Future<void> _initFirebaseAndPushCore() async {
         : AppleProvider.debug,
   );
 
-  // Notificaciones locales
-  await LocalNotificationService.instance.init();
-
-  // FCM: handler en background
-  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-  // (Opcional) auto-init de FCM
-  await FirebaseMessaging.instance.setAutoInitEnabled(true);
-
-  // Permiso (Android 13+ / iOS): puedes pedirlo aquí o luego del login.
-  await FirebaseMessaging.instance.requestPermission();
-
-  // Foreground: si llega un push, mostramos notificación local
-  FirebaseMessaging.onMessage.listen((RemoteMessage m) {
-    final isSilent = (m.data['silent'] ?? '0') == '1';
-    if (isSilent) {
-      // Silencioso: no mostrar notificación local.
-      return;
-    }
-    final title = m.notification?.title ?? (m.data['title'] ?? 'Notificación');
-    final body  = m.notification?.body  ?? (m.data['body']  ?? '');
-    final payload = m.data['taskId'];
-
-    LocalNotificationService.instance.show(
-      id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title: title,
-      body: body,
-      payload: payload,
-    );
-  });
-
-  // Cuando la app se abre por tocar una notificación (background → foreground)
-  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage m) {
-    // Aquí puedes leer m.data['taskId'] y navegar con un navigatorKey global,
-    // o delegarlo a tu HomeScreen.
-  });
-
-  // Si la app se lanzó desde terminada por una notificación:
-  // final initial = await FirebaseMessaging.instance.getInitialMessage();
-  // if (initial != null) { ... }
+  // NotificationsService maneja: notificaciones locales, FCM foreground,
+  // onMessageOpenedApp, getInitialMessage y deep-linking con navigatorKey.
+  await NotificationsService.init(navigatorKey: navigatorKey);
 }
 
 Future<void> main() async {
@@ -117,6 +83,7 @@ class ToDoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'ToDo',
       debugShowCheckedModeBanner: false,
 

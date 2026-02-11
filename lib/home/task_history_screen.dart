@@ -7,6 +7,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/task_status.dart';
 
 const Color kBrand = Color(0xFF1E3A8A); // Indigo 800
@@ -800,6 +801,10 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   bool _showFilters = false;
   late final bool _onlyHighlight;
 
+  // empresa scope
+  EmpresaState? _empresaState;
+  String? _selectedEmpresaId;
+
   // filtros
   String _areaSel = 'todas';
   String _estadoSel = 'todos';
@@ -825,8 +830,28 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = EmpresaScope.of(context);
+    if (_empresaState != scope) {
+      _empresaState?.removeListener(_onEmpresaChanged);
+      _empresaState = scope..addListener(_onEmpresaChanged);
+    }
+    _syncEmpresa(scope.selectedEmpresaId);
+  }
+
+  void _onEmpresaChanged() => _syncEmpresa(_empresaState?.selectedEmpresaId);
+
+  void _syncEmpresa(String? empresaId) {
+    final next = empresaId?.trim();
+    if (_selectedEmpresaId == next) return;
+    setState(() => _selectedEmpresaId = next);
+  }
+
+  @override
   void dispose() {
     _searchCtl.dispose();
+    _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
   }
 
@@ -847,9 +872,13 @@ class _AssignedToMeTabState extends State<_AssignedToMeTab> {
   }
 
   Query<Map<String, dynamic>> _query(String userId) {
-    return FirebaseFirestore.instance
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
         .where('asignado_uid', isEqualTo: userId);
+    if (_selectedEmpresaId != null && _selectedEmpresaId!.isNotEmpty) {
+      query = query.where('empresaId', isEqualTo: _selectedEmpresaId);
+    }
+    return query;
   }
 
   Future<void> _pickDateRange() async {
@@ -1601,6 +1630,10 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   bool _showFilters = false;
   late final bool _onlyHighlight;
 
+  // empresa scope
+  EmpresaState? _empresaState;
+  String? _selectedEmpresaId;
+
   String _areaSel = 'todas';
   String _estadoSel = 'todos';
   DateTime? _from;
@@ -1624,8 +1657,28 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = EmpresaScope.of(context);
+    if (_empresaState != scope) {
+      _empresaState?.removeListener(_onEmpresaChanged);
+      _empresaState = scope..addListener(_onEmpresaChanged);
+    }
+    _syncEmpresa(scope.selectedEmpresaId);
+  }
+
+  void _onEmpresaChanged() => _syncEmpresa(_empresaState?.selectedEmpresaId);
+
+  void _syncEmpresa(String? empresaId) {
+    final next = empresaId?.trim();
+    if (_selectedEmpresaId == next) return;
+    setState(() => _selectedEmpresaId = next);
+  }
+
+  @override
   void dispose() {
     _searchCtl.dispose();
+    _empresaState?.removeListener(_onEmpresaChanged);
     super.dispose();
   }
 
@@ -1652,10 +1705,13 @@ class _ICreatedTabState extends State<_ICreatedTab> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
-    return FirebaseFirestore.instance
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
-        .where('creador_id', isEqualTo: widget.userId)
-        .snapshots();
+        .where('creador_id', isEqualTo: widget.userId);
+    if (_selectedEmpresaId != null && _selectedEmpresaId!.isNotEmpty) {
+      query = query.where('empresaId', isEqualTo: _selectedEmpresaId);
+    }
+    return query.snapshots();
   }
 
   Future<void> _pickDateRange() async {

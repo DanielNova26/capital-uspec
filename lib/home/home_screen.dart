@@ -971,12 +971,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (cards.isEmpty) {
       return SizedBox(
-        height: 180,
+        height: 168,
         child: EmptyStateWidget(
           icon: Icons.event_available,
           title: 'No hay tareas para hoy',
           message: 'Cuando tengas actividades del día las verás aquí.',
           actionLabel: 'Ver asignadas',
+          compact: true,
           onAction: () {
             Navigator.push(
               context,

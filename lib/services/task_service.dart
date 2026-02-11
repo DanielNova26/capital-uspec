@@ -26,6 +26,9 @@ class TaskService {
   static const String tasksCol = 'TBL_TAREAS';
   static const String notifsRoot = 'TBL_NOTIFICACIONES';
 
+  /// Límite de tamaño por adjunto: 25 MB.
+  static const int kMaxAttachmentBytes = 25 * 1024 * 1024;
+
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
 
@@ -64,6 +67,14 @@ class TaskService {
     required TaskAttachment att,
     required String folder, // adjuntos | avances | novedades | evidencias
   }) async {
+    // Validación de tamaño
+    if (att.bytes.length > kMaxAttachmentBytes) {
+      throw Exception(
+        'El archivo "${att.filename}" excede el límite de 25 MB '
+        '(${(att.bytes.length / 1024 / 1024).toStringAsFixed(1)} MB).',
+      );
+    }
+
     final safeName = att.filename.replaceAll('/', '_').replaceAll('\\', '_');
     final path =
         'tareas/$taskId/$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName';

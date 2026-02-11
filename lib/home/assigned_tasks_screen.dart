@@ -691,10 +691,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // Stream tareas asignadas
   // -------------------------
   Stream<QuerySnapshot<Map<String, dynamic>>> _streamAssignedToMe() {
-    return FirebaseFirestore.instance
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
-        .where('asignado_uid', isEqualTo: widget.userId)
-        .snapshots();
+        .where('asignado_uid', isEqualTo: widget.userId);
+    if (_selectedEmpresaId != null && _selectedEmpresaId!.isNotEmpty) {
+      query = query.where('empresaId', isEqualTo: _selectedEmpresaId);
+    }
+    return query.snapshots();
   }
 
   // -------------------------
