@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:intl/intl.dart';
 
 import 'assigned_tasks_screen.dart';
@@ -9,7 +10,6 @@ import 'task_history_screen.dart';
 
 const String _notifsRoot = 'TBL_NOTIFICACIONES';
 const Color kMarronOscuro = Color(0xFF145DA0);
-const String kArial = 'Arial';
 
 String? _processTabForNotifType(String raw) {
   final t = raw.trim().toLowerCase();

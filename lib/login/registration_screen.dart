@@ -91,10 +91,6 @@ class RegistrationScreen extends StatefulWidget {
 }
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
-  // Colores corporativos
-  static const Color _primaryColor = Color(0xFF1975B8);
-  static const Color _accentColor  = Color(0xFF1975B8);
-
   int _currentStep = 0;
   final _formKeys = List.generate(5, (_) => GlobalKey<FormState>());
 
@@ -522,7 +518,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: ColorScheme.light(
-            primary: _primaryColor,
+            primary: Theme.of(context).colorScheme.primary,
           ),
         ),
         child: child!,
@@ -699,7 +695,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Actualizar Hoja de Vida'),
-        backgroundColor: _primaryColor,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
@@ -715,7 +711,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               children: [
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryColor,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
                   ),
                   onPressed: details.onStepContinue,
@@ -725,7 +721,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 if (_currentStep > 0)
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _accentColor,
+                      backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Colors.white,
                     ),
                     onPressed: details.onStepCancel,
@@ -764,7 +760,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       icon: const Icon(Icons.camera_alt),
                       label: const Text('Tomar Foto'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: _pickPhoto,
@@ -825,7 +821,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           : 'Subido correctamente'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: _cedulaDocUrl == null
-                            ? _primaryColor
+                            ? Theme.of(context).colorScheme.primary
                             : Colors.green,
                         foregroundColor: Colors.white,
                       ),
@@ -884,7 +880,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       icon: const Icon(Icons.open_in_new),
                       label: const Text('Generar Procuraduría'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () {
@@ -902,7 +898,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           : 'Subido correctamente'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                        _procUrl == null ? _primaryColor : Colors.green,
+                        _procUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () async {
@@ -919,7 +915,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       icon: const Icon(Icons.open_in_new),
                       label: const Text('Generar Contraloría'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () {
@@ -937,7 +933,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           : 'Subido correctamente'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                        _contrUrl == null ? _primaryColor : Colors.green,
+                        _contrUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () async {
@@ -954,7 +950,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       icon: const Icon(Icons.open_in_new),
                       label: const Text('Generar Policía'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () {
@@ -972,7 +968,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           : 'Subido correctamente'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                        _polUrl == null ? _primaryColor : Colors.green,
+                        _polUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () async {
@@ -989,7 +985,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       icon: const Icon(Icons.open_in_new),
                       label: const Text('Generar Medidas Correctivas'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () {
@@ -1007,7 +1003,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           : 'Subido correctamente'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                        _medUrl == null ? _primaryColor : Colors.green,
+                        _medUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () async {
@@ -1044,7 +1040,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       decoration: InputDecoration(
                         labelText: 'Fecha grado (MM/AAAA)',
                         suffixIcon:
-                        Icon(Icons.calendar_month, color: _accentColor),
+                        Icon(Icons.calendar_month, color: Theme.of(context).colorScheme.primary),
                       ),
                       validator: (v) => v == null || v.isEmpty
                           ? 'Obligatorio'
@@ -1059,7 +1055,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor:
-                        _bachilerUrl == null ? _primaryColor : Colors.green,
+                        _bachilerUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                         foregroundColor: Colors.white,
                       ),
                       child: Text(_bachilerUrl == null
@@ -1084,7 +1080,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Fecha grado (MM/AAAA)',
                           suffixIcon:
-                          Icon(Icons.calendar_month, color: _accentColor),
+                          Icon(Icons.calendar_month, color: Theme.of(context).colorScheme.primary),
                         ),
                         validator: (v) => v == null || v.isEmpty
                             ? 'Obligatorio'
@@ -1105,7 +1101,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           onPressed: _pickTarjetaDoc,
                           style: ElevatedButton.styleFrom(
                             backgroundColor:
-                            _tarjetaUrl == null ? _primaryColor : Colors.green,
+                            _tarjetaUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                             foregroundColor: Colors.white,
                           ),
                           child: Text(_tarjetaUrl == null
@@ -1122,7 +1118,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor:
-                          _uniUrl == null ? _primaryColor : Colors.green,
+                          _uniUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(_uniUrl == null
@@ -1148,7 +1144,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Fecha grado (MM/AAAA)',
                           suffixIcon:
-                          Icon(Icons.calendar_month, color: _accentColor),
+                          Icon(Icons.calendar_month, color: Theme.of(context).colorScheme.primary),
                         ),
                         validator: (v) => v == null || v.isEmpty
                             ? 'Obligatorio'
@@ -1163,7 +1159,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor:
-                          _secUrl == null ? _primaryColor : Colors.green,
+                          _secUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(_secUrl == null
@@ -1190,7 +1186,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Fecha grado (MM/AAAA)',
                           suffixIcon: Icon(Icons.calendar_month,
-                              color: _accentColor),
+                              color: Theme.of(context).colorScheme.primary),
                         ),
                         validator: (v) => v == null || v.isEmpty
                             ? 'Obligatorio'
@@ -1205,7 +1201,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor:
-                          _espUrl == null ? _primaryColor : Colors.green,
+                          _espUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(_espUrl == null
@@ -1231,7 +1227,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Fecha grado (MM/AAAA)',
                           suffixIcon: Icon(Icons.calendar_month,
-                              color: _accentColor),
+                              color: Theme.of(context).colorScheme.primary),
                         ),
                         validator: (v) => v == null || v.isEmpty
                             ? 'Obligatorio'
@@ -1246,7 +1242,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor:
-                          _maeUrl == null ? _primaryColor : Colors.green,
+                          _maeUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
                           foregroundColor: Colors.white,
                         ),
                         child: Text(_maeUrl == null
@@ -1283,7 +1279,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         icon: const Icon(Icons.add),
                         label: const Text('Agregar Curso'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _primaryColor,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
                           foregroundColor: Colors.white,
                         ),
                         onPressed: () => setState(() => _certs.add(Certificado())),
@@ -1311,7 +1307,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                       icon: const Icon(Icons.add),
                       label: const Text('Agregar experiencia'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: () => setState(() => _exps.add(Experiencia())),
@@ -1339,7 +1335,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           onTap: () => _pickMonthYear(cert.fechaCtrl),
           decoration: InputDecoration(
             labelText: 'Fecha (MM/AAAA)',
-            suffixIcon: Icon(Icons.calendar_month, color: _accentColor),
+            suffixIcon: Icon(Icons.calendar_month, color: Theme.of(context).colorScheme.primary),
           ),
           validator: (v) => v == null || v.isEmpty ? 'Obligatorio' : null,
         ),
@@ -1359,7 +1355,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             setState(() {});
           },
           style: ElevatedButton.styleFrom(
-            backgroundColor: cert.url == null ? _primaryColor : Colors.green,
+            backgroundColor: cert.url == null ? Theme.of(context).colorScheme.primary : Colors.green,
             foregroundColor: Colors.white,
           ),
           child: Text(cert.url == null ? 'Subir Soporte' : 'Subido correctamente'),
@@ -1396,7 +1392,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           onTap: () => _pickMonthYear(r.inicioCtrl),
           decoration: InputDecoration(
             labelText: 'Fecha Inicio (MM/AAAA)',
-            suffixIcon: Icon(Icons.calendar_month, color: _accentColor),
+            suffixIcon: Icon(Icons.calendar_month, color: Theme.of(context).colorScheme.primary),
           ),
           validator: (v) => v == null || v.isEmpty ? 'Obligatorio' : null,
         ),
@@ -1407,7 +1403,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           onTap: () => _pickMonthYear(r.finCtrl),
           decoration: InputDecoration(
             labelText: 'Fecha Fin (MM/AAAA)',
-            suffixIcon: Icon(Icons.calendar_month, color: _accentColor),
+            suffixIcon: Icon(Icons.calendar_month, color: Theme.of(context).colorScheme.primary),
           ),
           validator: (v) => v == null || v.isEmpty ? 'Obligatorio' : null,
         ),
@@ -1416,7 +1412,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           icon: const Icon(Icons.upload_file),
           label: Text(r.soporteUrl == null ? 'Subir soporte' : 'Soporte subido'),
           style: ElevatedButton.styleFrom(
-            backgroundColor: r.soporteUrl == null ? _primaryColor : Colors.green,
+            backgroundColor: r.soporteUrl == null ? Theme.of(context).colorScheme.primary : Colors.green,
             foregroundColor: Colors.white,
           ),
           onPressed: () => _pickExperienciaSoporte(index),

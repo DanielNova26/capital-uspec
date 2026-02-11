@@ -2,10 +2,11 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/widgets/empty_state_widget.dart';
+import 'package:todo/widgets/skeleton_loader.dart';
 
-const Color kBrand = Color(0xFF1E3A8A);
-const String kArial = 'Arial';
 const String kTodasEmpresasValue = '__todas_empresas__';
 
 DateTime? _toDate(dynamic v) {
@@ -116,6 +117,7 @@ class GerenciaDashboardScreen extends StatefulWidget {
 }
 
 class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
+  Color get _brand => Theme.of(context).colorScheme.primary;
   final _db = FirebaseFirestore.instance;
   late Future<_Bootstrap> _bootstrapFuture;
   String _statusFilter = 'todas';
@@ -220,7 +222,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       builder: (context, bootSnap) {
         if (bootSnap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: SkeletonList(items: 5),
           );
         }
         if (!bootSnap.hasData) {
@@ -249,7 +251,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           builder: (context, tasksSnap) {
             if (tasksSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()));
+                  body: SkeletonList(items: 5));
             }
 
             final tasks = tasksSnap.data?.docs ?? [];
@@ -263,7 +265,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               length: 2,
               child: Scaffold(
                 appBar: AppBar(
-                  backgroundColor: kBrand,
+                  backgroundColor: _brand,
                   title: const Text(
                     'Gerencia',
                     style: TextStyle(fontFamily: kArial),
@@ -279,9 +281,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   ),
                 ),
                 body: tasks.isEmpty
-                    ? const Center(
-                  child: Text('Aún no hay tareas para analizar.',
-                      style: TextStyle(fontFamily: kArial)),
+                    ? EmptyStateWidget(
+                  icon: Icons.analytics_outlined,
+                  title: 'Aún no hay tareas para analizar',
+                  message: 'Cuando se creen tareas aparecerán indicadores y rankings.',
+                  actionLabel: 'Reintentar',
+                  onAction: () => setState(() => _bootstrapFuture = _loadBootstrap()),
                 )
                     : TabBarView(
                   children: [
@@ -403,8 +408,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           children: [
             CircleAvatar(
               radius: 28,
-              backgroundColor: kBrand.withOpacity(0.1),
-              child: const Icon(Icons.workspace_premium, color: kBrand, size: 30),
+            backgroundColor: _brand.withOpacity(0.1),
+            child: Icon(Icons.workspace_premium, color: _brand, size: 30),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -429,7 +434,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(Icons.business, size: 16, color: kBrand),
+                        Icon(Icons.business, size: 16, color: _brand),
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(
@@ -922,9 +927,9 @@ class _SummaryCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Icon(icon, color: kBrand, size: 18),
+                  Icon(icon, color: Theme.of(context).colorScheme.primary, size: 18),
                   if (isActive)
-                    const Icon(Icons.filter_alt, color: kBrand, size: 16),
+                    Icon(Icons.filter_alt, color: Theme.of(context).colorScheme.primary, size: 16),
                 ],
               ),
               Text(title,
@@ -1117,7 +1122,7 @@ class _AreaBarChart extends StatelessWidget {
                           value: percent,
                           minHeight: 10,
                           backgroundColor: Colors.grey.shade200,
-                          color: kBrand,
+                          color: Theme.of(context).colorScheme.primary,
                         ),
                       ),
                     ],
@@ -1156,7 +1161,7 @@ class _TopAssigningAreaCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            const Icon(Icons.how_to_reg, color: kBrand),
+            Icon(Icons.how_to_reg, color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 8),
             Expanded(
               child: Column(

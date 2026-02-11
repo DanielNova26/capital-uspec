@@ -18,16 +18,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/widgets/empty_state_widget.dart';
+import 'package:todo/widgets/skeleton_loader.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import 'complete_task_screen.dart';
 import 'notify_avances_screen.dart';
 import 'notify_novedades_screen.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
-const String kArial = 'Arial';
 
 class AssignedTasksScreen extends StatefulWidget {
   final String userId;
@@ -986,13 +988,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         future: _bootstrapFuture,
         builder: (_, bootSnap) {
           final loading = bootSnap.connectionState == ConnectionState.waiting && _userData.isEmpty;
-          if (loading) return const Center(child: CircularProgressIndicator());
+          if (loading) return const SkeletonList(items: 5);
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _streamAssignedToMe(),
             builder: (_, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                return const SkeletonList(items: 5);
               }
               if (snap.hasError) {
                 return Center(child: Text('Error: ${snap.error}', style: const TextStyle(fontFamily: kArial)));
@@ -1025,9 +1027,16 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     _buildFiltersCard(docs),
                     const SizedBox(height: 12),
                     if (filtered.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
+                      EmptyStateWidget(
+                        icon: Icons.assignment_late_outlined,
+                        title: 'No hay tareas para mostrar',
+                        message: 'Ajusta filtros o vuelve más tarde para revisar nuevas tareas.',
+                        actionLabel: 'Limpiar filtros',
+                        onAction: () => setState(() {
+                          _statusFilter = 'todas';
+                          _areaFilter = 'todas';
+                          _searchCtrl.clear();
+                        }),
                       )
                     else if (_groupByArea)
                       ..._buildGroupedTaskSections(filtered)
@@ -1221,10 +1230,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final status = _resolvedStatus(data);
 
     final dueTs = _ts(data, ['fecha_limite', 'dueDate']);
-    final createdTs = _ts(data, ['fecha_creacion', 'createdAt']);
-    final updatedTs = _ts(data, ['fecha_actualizacion', 'updatedAt']);
-    final areaId = _str(data, ['areaId']);
-
     final badge = _pendingBadge(data);
 
     return Card(
@@ -1281,9 +1286,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 runSpacing: 8,
                 children: [
                   _InfoPill(icon: Icons.schedule, label: 'Vence', value: _fmtTs(dueTs)),
-                  _InfoPill(icon: Icons.event, label: 'Creada', value: _fmtTs(createdTs, pat: 'dd/MM/yyyy')),
-                  _InfoPill(icon: Icons.update, label: 'Actualizada', value: _fmtTs(updatedTs)),
-                  if (areaId.isNotEmpty) _InfoPill(icon: Icons.apartment, label: 'Área', value: _areas[areaId] ?? areaId),
+                  _InfoPill(icon: Icons.flag, label: 'Estado', value: _statusLabel(status)),
                 ],
               ),
 

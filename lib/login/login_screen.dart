@@ -1,6 +1,7 @@
 // lib/login/login_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/state/empresa_scope.dart';
 
@@ -17,7 +18,6 @@ import '../admin/seed_admin_screen.dart';
 import '../widgets/hidden_admin_unlocker.dart';
 
 // Solo mantenemos la fuente como constante
-const String kArial = 'Arial';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

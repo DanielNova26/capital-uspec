@@ -372,7 +372,7 @@ class _SelectorDiagnosticosWidgetState
                   ),
                 ),
                 label: Text(
-                  '${dx.codigoCie11}',
+                  '${dx.codigoCie11} · ${dx.nombre}',
                   style: const TextStyle(fontSize: 11),
                 ),
                 deleteIcon: const Icon(Icons.close, size: 16),

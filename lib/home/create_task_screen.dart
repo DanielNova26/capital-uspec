@@ -31,6 +31,9 @@ const String kCollAreas = 'TBL_AREAS';
 const String kCollTareas = 'TBL_TAREAS';
 const String kCollCargos = 'TBL_CARGOS';
 
+/// Límite de tamaño por adjunto (25 MB) para evitar consumo excesivo de RAM.
+const int kMaxAttachmentBytes = 25 * 1024 * 1024;
+
 /// Claves posibles para token FCM en el doc de usuario
 const List<String> kTokenKeys = [
   'fcmToken',
@@ -1184,8 +1187,34 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'png',
       ],
     );
-    if (res != null && res.files.isNotEmpty) {
-      setState(() => _pickedFiles.addAll(res.files));
+    if (res == null || res.files.isEmpty) return;
+
+    final accepted = <PlatformFile>[];
+    final rejected = <String>[];
+
+    for (final f in res.files) {
+      if (f.size > kMaxAttachmentBytes) {
+        rejected.add(f.name);
+        continue;
+      }
+      accepted.add(f);
+    }
+
+    if (accepted.isNotEmpty) {
+      setState(() => _pickedFiles.addAll(accepted));
+    }
+
+    if (rejected.isNotEmpty && mounted) {
+      final maxMb = (kMaxAttachmentBytes / (1024 * 1024)).round();
+      final names = rejected.take(3).join(', ');
+      final suffix = rejected.length > 3 ? ', …' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Se omitieron ${rejected.length} archivo(s) por superar ${maxMb}MB: $names$suffix',
+          ),
+        ),
+      );
     }
   }
 

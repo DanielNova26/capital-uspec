@@ -9,6 +9,7 @@ import 'reportes/nutricion_reportes_screen.dart';
 
 import '../services/nutricion_service.dart';
 import '../widgets/evaluacion_nutricional_widget.dart';
+import '../widgets/skeleton_loader.dart';
 
 // ✅ NUEVO: Imports para selector de diagnósticos
 import 'package:todo/widgets/selector_diagnosticos_widget.dart';
@@ -642,12 +643,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               }
 
               if (!snapshot.hasData && _cachedPacientes == null) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: CircularProgressIndicator(),
-                  ),
-                );
+                return const SizedBox(height: 220, child: SkeletonList(items: 2));
               }
 
               final pacientes = snapshot.data ?? _cachedPacientes ?? [];
@@ -1216,7 +1212,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(),
+                SkeletonBox(width: 28, height: 28, radius: 14),
                 SizedBox(height: 16),
                 Text('Guardando...'),
               ],

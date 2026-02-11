@@ -23,7 +23,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
+import '../home/assigned_tasks_screen.dart';
 
 typedef CedulaProvider = FutureOr<String?> Function();
 
@@ -50,6 +53,7 @@ class NotificationsService {
 
   static bool _initialized = false;
   static CedulaProvider? _cedulaProvider;
+  static GlobalKey<NavigatorState>? _navigatorKey;
 
   /// Inicializa todo: canales, permisos, handlers y registro de token.
   ///
@@ -60,12 +64,14 @@ class NotificationsService {
   /// ubicado en android/app/src/main/res/raw/task_ping.(mp3|wav).
   static Future<void> init({
     CedulaProvider? cedulaProvider,
+    GlobalKey<NavigatorState>? navigatorKey,
     bool useCustomSound = false,
   }) async {
     if (_initialized) return;
     _initialized = true;
 
     _cedulaProvider = cedulaProvider;
+    _navigatorKey = navigatorKey;
 
     // 0) Background handler
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -84,8 +90,8 @@ class NotificationsService {
       onDidReceiveNotificationResponse: (resp) async {
         final payload = resp.payload;
         if (kDebugMode) print('[LOCAL TAP] payload=$payload');
-        // TODO: navegar a detalle de tarea usando deepLink o taskId
-      },
+        await _handleNotificationTapPayload(payload);
+        },
     );
 
     // 2) Crear canal Android con máxima importancia (coincide con AndroidManifest)
@@ -126,6 +132,12 @@ class NotificationsService {
     // 4) Handlers de mensajes (foreground + tap desde terminated/background)
     FirebaseMessaging.onMessage.listen(_onMessageForeground);
     FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
+
+    // App arrancada desde estado terminated al tocar una notificación.
+    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      await _onMessageOpenedApp(initialMessage);
+    }
 
     // 5) Obtener y registrar token actual
     final token = await FirebaseMessaging.instance.getToken();
@@ -174,7 +186,73 @@ class NotificationsService {
   static Future<void> _onMessageOpenedApp(RemoteMessage m) async {
     final data = m.data;
     if (kDebugMode) print('[FCM TAP] data=$data');
-    // TODO: navegar a detalle con data['taskId'] o data['deepLink']
+    final payload = data['deepLink']?.toString() ?? data['taskId']?.toString();
+    await _handleNotificationTapPayload(payload);
+  }
+
+  static Future<void> _handleNotificationTapPayload(String? payload) async {
+    final taskId = _extractTaskId(payload);
+    if (taskId == null) {
+      if (kDebugMode) {
+        print('[FCM TAP] payload sin taskId: $payload');
+      }
+      return;
+    }
+
+    final navigator = _navigatorKey?.currentState;
+    if (navigator == null || _navigatorKey?.currentContext == null) {
+      if (kDebugMode) {
+        print('[FCM TAP] navigatorKey no configurado; taskId=$taskId');
+      }
+      return;
+    }
+
+    final cedula = await _resolveCedula();
+    if (cedula == null || cedula.trim().isEmpty) {
+      if (kDebugMode) {
+        print('[FCM TAP] no se pudo resolver cédula para taskId=$taskId');
+      }
+      return;
+    }
+
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => AssignedTasksScreen(
+          userId: cedula,
+          highlightTaskId: taskId,
+        ),
+      ),
+    );
+  }
+
+  static String? _extractTaskId(String? payload) {
+    if (payload == null) return null;
+    final value = payload.trim();
+    if (value.isEmpty) return null;
+
+    if (!value.contains('/')) {
+      return value;
+    }
+
+    final uri = Uri.tryParse(value);
+    if (uri != null) {
+      final fromQuery = uri.queryParameters['taskId'];
+      if (fromQuery != null && fromQuery.trim().isNotEmpty) {
+        return fromQuery.trim();
+      }
+
+      final segments = uri.pathSegments.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+      final tareaIdx = segments.lastIndexWhere((s) => s.toLowerCase() == 'tareas');
+      if (tareaIdx != -1 && tareaIdx + 1 < segments.length) {
+        return segments[tareaIdx + 1];
+      }
+      if (segments.isNotEmpty) {
+        return segments.last;
+      }
+    }
+
+    final asUriPath = value.split('/').where((s) => s.trim().isNotEmpty).toList();
+    return asUriPath.isEmpty ? null : asUriPath.last.trim();
   }
 
   /// Intenta resolver la cédula:

@@ -8,8 +8,6 @@ import 'login_screen.dart'; // Asegúrate que el path sea correcto
 
 class PreviewScreen extends StatelessWidget {
   final Map<String, dynamic> data;
-  static const Color _primaryColor = Color(0xFF1975B8);
-  static const Color _accentColor  = Color(0xFF1975B8);
 
   const PreviewScreen({Key? key, required this.data}) : super(key: key);
 
@@ -34,7 +32,7 @@ class PreviewScreen extends StatelessWidget {
         icon: const Icon(Icons.download),
         label: Text(label),
         style: ElevatedButton.styleFrom(
-          backgroundColor: _accentColor,
+          backgroundColor: Theme.of(context).colorScheme.primary,
           minimumSize: const Size.fromHeight(40),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
@@ -62,7 +60,7 @@ class PreviewScreen extends StatelessWidget {
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: _primaryColor,
+                color: Theme.of(context).colorScheme.primary,
               ),
             ),
             const Divider(thickness: 1.2),
@@ -149,7 +147,7 @@ class PreviewScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Vista previa de datos'),
-        backgroundColor: _primaryColor,
+        backgroundColor: Theme.of(context).colorScheme.primary,
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -463,7 +461,7 @@ class PreviewScreen extends StatelessWidget {
                 ElevatedButton(
                   onPressed: () => _confirmAndRegister(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryColor,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),

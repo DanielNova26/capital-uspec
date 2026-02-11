@@ -12,7 +12,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/local_notification_service.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/widgets/empty_state_widget.dart';
+import 'package:todo/widgets/skeleton_loader.dart';
 
 // Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart';
@@ -25,8 +28,6 @@ import '../nutricion/nutricion_dashboard_screen.dart';
 import 'app_drawer.dart';
 import 'assigned_tasks_screen.dart';
 import 'task_history_screen.dart';
-
-const String kArial = 'Arial';
 
 class HomeScreen extends StatefulWidget {
   final String username; // cédula o username (docId en TBL_USUARIOS)
@@ -729,7 +730,7 @@ class _HomeScreenState extends State<HomeScreen> {
           .snapshots(),
       builder: (context, appsSnap) {
         if (appsSnap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const SizedBox(height: 180, child: SkeletonList(items: 2));
         }
         final docs = appsSnap.data?.docs ?? [];
 
@@ -969,10 +970,22 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (cards.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('No hay tareas para hoy.',
-            style: TextStyle(fontFamily: kArial, fontSize: 16)),
+      return SizedBox(
+        height: 180,
+        child: EmptyStateWidget(
+          icon: Icons.event_available,
+          title: 'No hay tareas para hoy',
+          message: 'Cuando tengas actividades del día las verás aquí.',
+          actionLabel: 'Ver asignadas',
+          onAction: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => AssignedTasksScreen(userId: myId),
+              ),
+            );
+          },
+        ),
       );
     }
 
@@ -1095,6 +1108,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+
+  Color _calendarMarkerColor(List<Map<String, dynamic>> events) {
+    if (events.any((e) => (e['estado'] ?? '') == 'retrasada')) {
+      return Colors.red.shade600;
+    }
+    if (events.any((e) => (e['estado'] ?? '') == 'en_progreso')) {
+      return Colors.blue.shade600;
+    }
+    if (events.any((e) => (e['estado'] ?? '') == 'por_aprobar')) {
+      return Colors.orange.shade700;
+    }
+    return Colors.green.shade600;
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1118,7 +1145,7 @@ class _HomeScreenState extends State<HomeScreen> {
           .snapshots(),
       builder: (context, userSnap) {
         if (userSnap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(body: SkeletonList(items: 4));
         }
         if (!userSnap.hasData || !userSnap.data!.exists) {
           return Scaffold(
@@ -1171,8 +1198,7 @@ class _HomeScreenState extends State<HomeScreen> {
               .snapshots(),
           builder: (context, notifSnap) {
             if (notifSnap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()));
+              return const Scaffold(body: SkeletonList(items: 4));
             }
 
             final List<Map<String, dynamic>> notifications = [];
@@ -1200,8 +1226,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   .snapshots(),
               builder: (context, assignedSnap) {
                 if (assignedSnap.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(
-                      body: Center(child: CircularProgressIndicator()));
+                  return const Scaffold(body: SkeletonList(items: 4));
                 }
                 final assignedDocs = assignedSnap.data?.docs ?? [];
 
@@ -1212,15 +1237,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       .snapshots(),
                   builder: (context, createdSnap) {
                     if (createdSnap.connectionState == ConnectionState.waiting) {
-                      return const Scaffold(
-                          body: Center(child: CircularProgressIndicator()));
+                      return const Scaffold(body: SkeletonList(items: 4));
                     }
                     final createdDocs = createdSnap.data?.docs ?? [];
 
                     final map = <String, List<Map<String, dynamic>>>{};
-                    void addEvt(DateTime d, String title, String desc) {
+                    void addEvt(DateTime d, String title, String desc, String estado) {
                       final k = DateFormat('yyyy-MM-dd').format(d);
-                      (map[k] ??= []).add({'title': title, 'description': desc});
+                      (map[k] ??= []).add({
+                        'title': title,
+                        'description': desc,
+                        'estado': estado,
+                      });
                     }
 
                     for (final d in assignedDocs) {
@@ -1231,6 +1259,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           due,
                           _titleOf(m),
                           'Yo entrego • Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "—"}',
+                          _estadoOf(m),
                         );
                       }
                     }
@@ -1242,6 +1271,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           due,
                           _titleOf(m),
                           'Me entregan • Entrega: ${_assignedNameOf(m).isNotEmpty ? _assignedNameOf(m) : "—"}',
+                          _estadoOf(m),
                         );
                       }
                     }
@@ -1356,11 +1386,36 @@ class _HomeScreenState extends State<HomeScreen> {
                               },
                               eventLoader: _getEventsForDay,
                               calendarStyle: CalendarStyle(
-                                markersMaxCount: 1,
+                                markersMaxCount: 4,
                                 markerDecoration: BoxDecoration(
                                   color: scheme.primary,
                                   shape: BoxShape.circle,
                                 ),
+                              ),
+                              calendarBuilders: CalendarBuilders(
+                                markerBuilder: (context, day, events) {
+                                  if (events.isEmpty) return const SizedBox.shrink();
+                                  final raw = events.cast<Map<String, dynamic>>();
+                                  final color = _calendarMarkerColor(raw);
+                                  return Positioned(
+                                    bottom: 2,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        '${events.length}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -1373,11 +1428,31 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 8),
                             if (_getEventsForDay(_selectedDay).isEmpty)
-                              Text('No tienes actividades para esta fecha.',
-                                  style: TextStyle(
-                                      fontFamily: kArial,
-                                      fontSize: 14,
-                                      color: scheme.onSurfaceVariant))
+                    calendarBuilders: CalendarBuilders(
+                      markerBuilder: (context, day, events) {
+                        if (events.isEmpty) return const SizedBox.shrink();
+                        final raw = events.cast<Map<String, dynamic>>();
+                        final color = _calendarMarkerColor(raw);
+                        return Positioned(
+                          bottom: 2,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: color,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '${events.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                             else
                               ..._getEventsForDay(_selectedDay).map(
                                     (evt) => ListTile(
