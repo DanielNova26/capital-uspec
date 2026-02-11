@@ -867,16 +867,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final ref = u.reference;
 
       final updates = <String, dynamic>{
+        'apps': FieldValue.delete(),
         'empresaId': FieldValue.delete(),
         'empresaNombre': FieldValue.delete(),
         'empresas': FieldValue.delete(),
         'empresasDetalle': FieldValue.delete(),
+        'empresasDetalle.EMPRESA_001.centroCodigo': FieldValue.delete(),
+        'empresasDetalle.EMPRESA_001.centroCostos': FieldValue.delete(),
+        'empresasDetalle.EMPRESA_001.centroId': FieldValue.delete(),
         'areaId': FieldValue.delete(),
         'areaNombre': FieldValue.delete(),
         'area': FieldValue.delete(),
         'cargoId': FieldValue.delete(),
         'cargo': FieldValue.delete(),
         'cargoNombre': FieldValue.delete(),
+        'cargoJefe': FieldValue.delete(),
         'centroId': FieldValue.delete(),
         'centroCostos': FieldValue.delete(),
         'centro_costos': FieldValue.delete(),
@@ -948,6 +953,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await _loadAll(forceEmpresaId: empresaId);
   }
 
+  // ---------------- LIMPIEZA: BORRAR ESTRUCTURA ORGANIZACIONAL ----------------
+  Future<void> _purgeOrganizationalStructure() async {
+    final ok = await _confirm(
+      title: '⚠ BORRAR ESTRUCTURA ORGANIZACIONAL',
+      message:
+      'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL.\n\n'
+          'Úsalo solo si vas a volver a subir la estructura completa.\n'
+          '¿Estás seguro?',
+      confirmText: 'BORRAR ESTRUCTURA',
+    );
+    if (!ok) return;
+
+    setState(() => _loading = true);
+
+    int deletedCount = 0;
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
+        .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+        .limit(400);
+
+    while (true) {
+      final snap = await query.get();
+      if (snap.docs.isEmpty) break;
+
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+        deletedCount++;
+      }
+      await batch.commit();
+
+      final lastDoc = snap.docs.last;
+      query = FirebaseFirestore.instance
+          .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
+          .startAfterDocument(lastDoc)
+          .limit(400);
+    }
+
+    setState(() => _loading = false);
+    _snack('Estructura organizacional eliminada. Total documentos borrados: $deletedCount');
+    await _loadAll(forceEmpresaId: _empresaId ?? '');
+  }
+
   Widget _tabCleanup() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -982,7 +1029,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Esta opción NO borra al usuario ni su contraseña. Solo borra su cargo, área y centro.\n'
+                  'Esta opción NO borra al usuario ni su contraseña. Borra apps, empresa, cargos, áreas, centros y jefes.\n'
                       'Úsalo antes de subir un Excel actualizado.',
                   style: TextStyle(fontFamily: kArial, height: 1.4),
                 ),
@@ -998,6 +1045,58 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     onPressed: _resetUsersData,
                     icon: const Icon(Icons.cleaning_services),
                     label: const Text('LIMPIAR DATOS DE USUARIOS', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Card(
+          color: Colors.red.shade50,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.red.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.account_tree_outlined, color: Colors.red.shade900, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Purgar Estructura Organizacional',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.red.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Elimina TODOS los documentos de TBL_ESTRUCTURA_ORGANIZACIONAL para esta empresa.',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade800,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _purgeOrganizationalStructure,
+                    icon: const Icon(Icons.delete_forever),
+                    label: const Text('BORRAR ESTRUCTURA', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],

@@ -163,11 +163,20 @@ class TaskService {
   // Tareas: Create / Get / Stream
   // ---------------------------------------------------------------------------
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamTasksAssignedTo(String userId) {
-    return _db
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamTasksAssignedTo(
+      String userId, {
+        String? empresaId,
+      }) {
+    Query<Map<String, dynamic>> query = _db
         .collection(tasksCol)
-        .where('asignado_uid', isEqualTo: userId)
-        .snapshots();
+        .where('asignado_uid', isEqualTo: userId);
+
+    final scopedEmpresa = empresaId?.trim();
+    if (scopedEmpresa != null && scopedEmpresa.isNotEmpty) {
+      query = query.where('empresaId', isEqualTo: scopedEmpresa);
+    }
+
+    return query.snapshots();
   }
 
   Future<DocumentSnapshot<Map<String, dynamic>>> getTask(String taskId) {

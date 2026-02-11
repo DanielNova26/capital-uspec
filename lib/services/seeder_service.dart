@@ -678,6 +678,29 @@ class SeederService {
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      // ----- TBL_EMPLEADOS -----
+      // Para cada persona/empresa se crea o actualiza un documento de membresía.
+      final empleadoDocId = '${empresaId}_$cedula';
+      final empleadosCol = _db.collection('TBL_EMPLEADOS');
+      batch.set(empleadosCol.doc(empleadoDocId), {
+        'empresaId': empresaId,
+        'cedula': cedula,
+        'areaId': areaId.isEmpty ? null : areaId,
+        'areaNombre': areaNombre.isEmpty ? null : areaNombre,
+        'cargoId': cargoId.isEmpty ? null : cargoId,
+        'cargoNombre': cargoNombre.isEmpty ? null : cargoNombre,
+        'centroId': centroId.isEmpty ? null : centroId,
+        'centroCostos': centroNom.isEmpty ? null : centroNom,
+        'jefeId': jefeId.isEmpty ? null : jefeId,
+        'jefeNombre': jefeNombre.isEmpty ? null : jefeNombre,
+        'cargoJefe': cargoJefe.isEmpty ? null : cargoJefe,
+        // Valores por defecto cuando no existe información de usuario
+        'estado': 'activo',
+        'apps': <String>[],
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     });
   }
 
@@ -949,6 +972,31 @@ class SeederService {
 
         'updatedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // ----- TBL_EMPLEADOS -----
+      // Crea o actualiza la membresía por empresa con toda la info relevante de la persona en esa empresa.
+      final empleadoDocId = '${empresaId}_$cedula';
+      final empleadosCol = _db.collection('TBL_EMPLEADOS');
+      batch.set(empleadosCol.doc(empleadoDocId), {
+        'empresaId': empresaId,
+        'cedula': cedula,
+        'nombres': nombres,
+        'apellidos': apellidos,
+        'correo': correo.isEmpty ? null : correo,
+        'estado': estado,
+        'apps': effectiveApps,
+        'areaId': areaId.isEmpty ? null : areaId,
+        'areaNombre': areaNombre.isEmpty ? null : areaNombre,
+        'cargoId': cargoId.isEmpty ? null : cargoId,
+        'cargoNombre': cargoNombre.isEmpty ? null : cargoNombre,
+        'centroId': centroId.isEmpty ? null : centroId,
+        'centroCostos': centroNom.isEmpty ? null : centroNom,
+        'jefeId': jefeId.isEmpty ? null : jefeId,
+        'jefeNombre': jefeNombre.isEmpty ? null : jefeNombre,
+        'cargoJefe': cargoJefe.isEmpty ? null : cargoJefe,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
       // ---------- TBL_CEDULAS ----------

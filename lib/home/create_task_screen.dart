@@ -1,21 +1,22 @@
+import 'dart:async';
+
 // lib/home/create_task_screen.dart
 // ignore_for_file: use_build_context_synchronously
-
-import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:geocoding/geocoding.dart' as gcode;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng; // solo por tipo
+import 'package:image/image.dart' as img;
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -30,6 +31,9 @@ const String kCollUsuarios = 'TBL_USUARIOS';
 const String kCollAreas = 'TBL_AREAS';
 const String kCollTareas = 'TBL_TAREAS';
 const String kCollCargos = 'TBL_CARGOS';
+
+/// Límite de tamaño por adjunto (25 MB) para evitar consumo excesivo de RAM.
+const int kMaxAttachmentBytes = 25 * 1024 * 1024;
 
 /// Claves posibles para token FCM en el doc de usuario
 const List<String> kTokenKeys = [
@@ -83,19 +87,70 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     ],
   );
 
-  String _cargoIdDe(Map<String, dynamic> data) =>
-      _firstNonEmpty(data, const ['cargoId', 'cargo_id']);
+  /// Returns the cargoId for the user. First consults the empresaDetalle block
+  /// for the current empresaId (multi-empresa support), falling back to the
+  /// top-level keys when not available. This ensures that users assigned to
+  /// multiple companies get the correct cargo for the selected company.
+  String _cargoIdDe(Map<String, dynamic> data) {
+    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+      final detalle = data['empresasDetalle'];
+      if (detalle is Map && detalle[_empresaId] is Map) {
+        final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
+        final cid = _firstNonEmpty(det, const ['cargoId', 'cargo_id']);
+        if (cid.isNotEmpty) return cid;
+      }
+    }
+    return _firstNonEmpty(data, const ['cargoId', 'cargo_id']);
+  }
 
-  String _cargoNombreDe(Map<String, dynamic> data) => _firstNonEmpty(
-    data,
-    const [
-      'cargo',
-      'cargoNombre',
-      'cargo_nombre',
-      'puesto',
-      'descripcion',
-    ],
-  );
+  /// Returns the cargo name for the user. This reads the cargo name from the
+  /// empresaDetalle block for the current empresaId before falling back to
+  /// top-level keys. Without this, a user belonging to multiple companies
+  /// would always display the cargo from the primary company.
+  String _cargoNombreDe(Map<String, dynamic> data) {
+    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+      final detalle = data['empresasDetalle'];
+      if (detalle is Map && detalle[_empresaId] is Map) {
+        final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
+        final cname = _firstNonEmpty(det, const [
+          'cargo',
+          'cargoNombre',
+          'cargo_nombre',
+          'puesto',
+          'descripcion',
+        ]);
+        if (cname.isNotEmpty) return cname;
+      }
+    }
+    return _firstNonEmpty(
+      data,
+      const [
+        'cargo',
+        'cargoNombre',
+        'cargo_nombre',
+        'puesto',
+        'descripcion',
+      ],
+    );
+  }
+
+  List<String> _empresasDeUsuario(Map<String, dynamic> data) {
+    final out = <String>{};
+    final primary = _empresaDe(data).trim();
+    if (primary.isNotEmpty) out.add(primary);
+
+    final list = data['empresas'] as List<dynamic>? ?? const [];
+    for (final e in list) {
+      final id = (e ?? '').toString().trim();
+      if (id.isNotEmpty) out.add(id);
+    }
+
+    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
+    if (detalle != null) {
+      out.addAll(detalle.keys.map((k) => k.trim()).where((k) => k.isNotEmpty));
+    }
+    return out.toList();
+  }
 
   String _cedulaDe(Map<String, dynamic> data) => _firstNonEmpty(
     data,
@@ -111,7 +166,44 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   String _norm(String s) => s.trim().toLowerCase();
 
+  /// Attempts to resolve the areaId of the given user for the current empresa.
+  /// This method first looks into `empresasDetalle[_empresaId]` for an
+  /// `areaId` or area name. If not found, it falls back to the existing
+  /// logic (using top-level areaId/areaName fields). This ensures that
+  /// employees belonging to multiple companies are correctly mapped.
   String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
+    // 0) Busca en empresasDetalle para la empresa actual
+    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+      final detalle = u['empresasDetalle'] as Map<String, dynamic>?;
+      final det = detalle?[_empresaId] as Map<String, dynamic>?;
+      if (det != null) {
+        final directDet = _firstNonEmpty(det, const [
+          'areaId',
+          'area_id',
+          'departamentoId',
+          'departamento_id',
+        ]);
+        if (directDet.isNotEmpty && _areas.any((a) => a['id'] == directDet)) {
+          return directDet;
+        }
+        final nombreDet = _firstNonEmpty(det, const [
+          'areaNombre',
+          'area_nombre',
+          'area',
+          'departamento',
+          'departamentoNombre',
+        ]);
+        if (nombreDet.isNotEmpty) {
+          final hit = _areas.firstWhere(
+                (a) => _norm(a['nombre'] ?? '') == _norm(nombreDet),
+            orElse: () => {},
+          );
+          final id = (hit['id'] ?? '').toString().trim();
+          if (id.isNotEmpty) return id;
+        }
+      }
+    }
+
     // 1) si ya viene areaId real
     final direct = _firstNonEmpty(u, const [
       'areaId',
@@ -135,7 +227,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
         orElse: () => {},
       );
-      if ((hit['id'] ?? '').trim().isNotEmpty) return hit['id']!.trim();
+      if ((hit['id'] ?? '').toString().trim().isNotEmpty) return hit['id']!.trim();
     }
 
     return null;
@@ -144,14 +236,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _nombreAreaPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
     final hit = _areas.firstWhere((a) => a['id'] == id.trim(), orElse: () => {});
-    final n = (hit['nombre'] ?? '').trim();
+    final n = (hit['nombre'] ?? '').toString().trim();
     return n.isEmpty ? null : n;
   }
 
   String? _nombreCargoPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
     final hit = _cargosFiltrados.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
-    final n = (hit['nombre'] ?? '').trim();
+    final n = (hit['nombre'] ?? '').toString().trim();
     return n.isEmpty ? null : n;
   }
 
@@ -215,7 +307,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
-  List<Map<String, String>> _cargos = []; // [{id,nombre,areaId?,enabled?}]
+  List<Map<String, dynamic>> _cargos = []; // [{id,nombre,areaId?,enabled?,cedulas?,empresaId?}]
+  final Set<String> _empresasUsuario = {};
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
 
@@ -234,7 +327,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== GETTERS DE FILTROS ====================
   List<Map<String, String>> get _areasFiltradas {
-    final all = [..._areas]..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    final all = [..._areas]
+      ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
     return all;
   }
 
@@ -254,12 +348,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
     if (cargos.isEmpty) {
       for (final cargo in _cargos) {
+        if (!_cargoCoincideEmpresa(cargo)) continue;
         final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
         if (!enabled) continue;
-        final areaId = (cargo['areaId'] ?? '').trim();
-        final nombre = (cargo['nombre'] ?? '').trim();
+        final areaId = (cargo['areaId'] ?? '').toString().trim();
+        final nombre = (cargo['nombre'] ?? '').toString().trim();
         if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
-        final key = (cargo['id'] ?? '').trim().isEmpty ? nombre : cargo['id']!.trim();
+        final rawId = (cargo['id'] ?? '').toString().trim();
+        final key = rawId.isEmpty ? nombre : rawId;
         if (key.isNotEmpty) cargos[key] = nombre.isNotEmpty ? nombre : key;
       }
     }
@@ -279,6 +375,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final cargoActivoNombre =
     (_nombreCargoPorId(_cargoFiltro) ?? '').trim().toLowerCase();
     if (areaActiva.isNotEmpty) {
+      cedulasPermitidas.addAll(_cedulasDesdeCargos(
+        areaId: areaActiva,
+        cargoId: cargoActivoId,
+        cargoNombreLower: cargoActivoNombre,
+      ));
       for (final estr in _estructura.values) {
         final areaId = (estr['areaId'] ?? '').toString().trim();
         if (areaId.isEmpty || areaId != areaActiva) continue;
@@ -341,6 +442,45 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     list.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
     return list;
+  }
+
+  bool _cargoCoincideEmpresa(Map<String, dynamic> cargo) {
+    if (_empresaId == null || _empresaId!.trim().isEmpty) return true;
+    final emp = (cargo['empresaId'] ?? '').toString().trim();
+    if (emp.isEmpty) return true;
+    return emp == _empresaId!.trim();
+  }
+
+  Set<String> _cedulasDesdeCargos({
+    required String areaId,
+    required String cargoId,
+    required String cargoNombreLower,
+  }) {
+    final out = <String>{};
+    for (final cargo in _cargos) {
+      if (!_cargoCoincideEmpresa(cargo)) continue;
+      final area = (cargo['areaId'] ?? '').toString().trim();
+      if (area.isEmpty || area != areaId) continue;
+
+      final id = (cargo['id'] ?? '').toString().trim();
+      final nombre = (cargo['nombre'] ?? '').toString().trim().toLowerCase();
+      if (cargoId != 'todos' && cargoId.isNotEmpty) {
+        if (id.isNotEmpty) {
+          if (id != cargoId) continue;
+        } else if (cargoNombreLower.isNotEmpty) {
+          if (nombre != cargoNombreLower) continue;
+        }
+      }
+
+      final cedulas = cargo['cedulas'];
+      if (cedulas is List) {
+        for (final c in cedulas) {
+          final cedula = (c ?? '').toString().trim();
+          if (cedula.isNotEmpty) out.add(cedula);
+        }
+      }
+    }
+    return out;
   }
 
   @override
@@ -411,6 +551,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (!doc.exists) return;
 
       final data = doc.data() ?? {};
+      _empresasUsuario
+        ..clear()
+        ..addAll(_empresasDeUsuario(data));
       // empresa del usuario (puede venir y sobrescribir lo de scope si no estaba)
       final emp = _empresaDe(data);
       if (emp.trim().isNotEmpty) _empresaId = emp.trim();
@@ -526,8 +669,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   bool _empresaCoincide(Map<String, dynamic> data) {
     if (_empresaId == null || _empresaId!.isEmpty) return true;
     final emp = _empresaDe(data).trim();
-    if (emp.isEmpty) return true;
-    return emp == _empresaId;
+    if (emp.isNotEmpty && emp == _empresaId) return true;
+
+    final empresas = data['empresas'] as List<dynamic>?;
+    if (empresas != null) {
+      for (final e in empresas) {
+        if ((e ?? '').toString().trim() == _empresaId) return true;
+      }
+    }
+
+    final detalle = data['empresasDetalle'];
+    if (detalle is Map && detalle[_empresaId] != null) return true;
+
+    return emp.isEmpty;
   }
 
   // ==================== CARGA DE CATÁLOGOS ====================
@@ -538,13 +692,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         .map((d) {
       final m = d.data();
       if (!_empresaCoincide(m)) return null;
-      final id = (_firstNonEmpty(m, const ['areaId', 'area_id']).trim().isEmpty) ? d.id : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
+      final id = (_firstNonEmpty(m, const ['areaId', 'area_id']).trim().isEmpty)
+          ? d.id
+          : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
       final nombre = (m['nombre'] ?? '—').toString().trim();
       final centroId = (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '').toString().trim();
       return {'id': id, 'nombre': nombre.isEmpty ? '—' : nombre, 'centroId': centroId};
     })
         .whereType<Map<String, String>>()
-        .where((m) => (m['id'] ?? '').trim().isNotEmpty)
+        .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
         .toList()
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
@@ -567,29 +723,62 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _loadCargos() async {
     try {
-      final qs = await _queryByEmpresa(kCollCargos, limit: 1000);
+      final col = FirebaseFirestore.instance.collection(kCollCargos);
+      final empresas = _empresasUsuario.isNotEmpty
+          ? _empresasUsuario.toList()
+          : ((_empresaId ?? '').trim().isNotEmpty ? <String>[_empresaId!.trim()] : <String>[]);
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
-      _cargos = qs.docs
+      if (empresas.isEmpty) {
+        final qs = await col.limit(1000).get();
+        docs.addAll(qs.docs);
+      } else {
+        for (var i = 0; i < empresas.length; i += 10) {
+          final chunk = empresas.sublist(i, i + 10 > empresas.length ? empresas.length : i + 10);
+          final snap = await col.where('empresaId', whereIn: chunk).limit(1000).get();
+          docs.addAll(snap.docs);
+        }
+        for (final empresa in empresas) {
+          try {
+            final snap = await col.where('empresas', arrayContains: empresa).limit(1000).get();
+            docs.addAll(snap.docs);
+          } catch (_) {}
+        }
+      }
+
+      final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final d in docs) {
+        merged[d.id] = d;
+      }
+
+      _cargos = merged.values
           .map((d) {
         final m = d.data();
-        if (!_empresaCoincide(m)) return null;
         final id = (_firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim().isEmpty)
             ? d.id
             : _firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim();
         final nombre = (m['nombre'] ?? '—').toString().trim();
         final areaId = (m['areaId'] ?? m['area_id'] ?? '').toString().trim();
+        final empresaId = _empresaDe(m).trim();
         final enabled = (m['enabled'] as bool?) ?? true;
+        final cedulasRaw = m['cedulas'] as List<dynamic>? ?? const [];
+        final cedulas = cedulasRaw
+            .map((e) => (e ?? '').toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
         return {
           'id': id,
           'nombre': nombre.isEmpty ? '—' : nombre,
           'areaId': areaId,
+          'empresaId': empresaId,
           'enabled': enabled.toString(),
+          'cedulas': cedulas,
         };
       })
-          .whereType<Map<String, String>>()
-          .where((m) => (m['id'] ?? '').trim().isNotEmpty)
+          .whereType<Map<String, dynamic>>()
+          .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
           .toList()
-        ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+        ..sort((a, b) => (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString()));
     } catch (_) {
       _cargos = [];
     }
@@ -598,9 +787,43 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _loadUsuarios() async {
     try {
       _usuarios.clear();
-      final qs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
+      final cedulasDesdeCargos = <String>{};
+      for (final cargo in _cargos) {
+        if (!_cargoCoincideEmpresa(cargo)) continue;
+        final cedulas = cargo['cedulas'];
+        if (cedulas is List) {
+          for (final c in cedulas) {
+            final cedula = (c ?? '').toString().trim();
+            if (cedula.isNotEmpty) cedulasDesdeCargos.add(cedula);
+          }
+        }
+      }
 
-      for (final d in qs.docs) {
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final qs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
+      docs.addAll(qs.docs);
+
+      if (cedulasDesdeCargos.isNotEmpty) {
+        final cedulasList = cedulasDesdeCargos.toList();
+        for (var i = 0; i < cedulasList.length; i += 10) {
+          final chunk = cedulasList.sublist(
+            i,
+            i + 10 > cedulasList.length ? cedulasList.length : i + 10,
+          );
+          final extra = await FirebaseFirestore.instance
+              .collection(kCollUsuarios)
+              .where(FieldPath.documentId, whereIn: chunk)
+              .get();
+          docs.addAll(extra.docs);
+        }
+      }
+
+      final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final d in docs) {
+        merged[d.id] = d;
+      }
+
+      for (final d in merged.values) {
         final data = Map<String, dynamic>.from(d.data());
         final estr = _estructura[d.id];
 
@@ -630,6 +853,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           _fill('jefeNombre', estr['jefeNombre'] ?? estr['jefe_nombre']);
         }
 
+        // Si existe detalle específico por empresa, sobrescribe campos top-level
+        if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
+          final detalleEmpresas = data['empresasDetalle'] as Map<String, dynamic>?;
+          final det = detalleEmpresas?[_empresaId] as Map<String, dynamic>?;
+          if (det != null) {
+            void applyDetail(String key, dynamic value) {
+              if (value != null && value.toString().trim().isNotEmpty) {
+                data[key] = value;
+              }
+            }
+            applyDetail('areaId', det['areaId'] ?? det['area_id']);
+            applyDetail('area', det['areaNombre'] ?? det['area_nombre'] ?? det['area']);
+            applyDetail('cargoId', det['cargoId'] ?? det['cargo_id']);
+            applyDetail('cargo', det['cargo'] ?? det['cargoNombre'] ?? det['cargo_nombre'] ?? det['puesto'] ?? det['descripcion']);
+            applyDetail('centroId', det['centroId'] ?? det['centro_id']);
+            applyDetail('centroCostos', det['centroCostos'] ?? det['centro_costos'] ?? det['centro']);
+            applyDetail('jefeId', det['jefeId'] ?? det['jefe_id']);
+            applyDetail('jefeNombre', det['jefeNombre'] ?? det['jefe_nombre']);
+            applyDetail('cargoJefe', det['cargoJefe']);
+          }
+        }
+
         final cargoId = (data['cargoId'] ?? '').toString().trim();
         if ((data['cargo'] ?? '').toString().trim().isEmpty && cargoId.isNotEmpty) {
           final nombreCargo = _nombreCargoPorId(cargoId);
@@ -638,7 +883,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           }
         }
 
-        if (!_empresaCoincide(data)) continue;
+        final cedula = _cedulaDe(data).trim();
+        final inCedulasDesdeCargo = cedulasDesdeCargos.contains(cedula);
+        if (!_empresaCoincide(data) && !inCedulasDesdeCargo) continue;
         _usuarios[d.id] = data;
       }
     } catch (_) {
@@ -718,45 +965,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       ),
     );
   }
-
-  Future<ui.Image> _decodeUiImage(Uint8List bytes) {
-    final c = Completer<ui.Image>();
-    ui.decodeImageFromList(bytes, (img) => c.complete(img));
-    return c.future;
-  }
-
-  Future<ui.Image?> _getStaticMap({
-    required double width,
-    required double height,
-  }) async {
-    if (_myPos == null) return null;
-    try {
-      final effW = math.max(128, math.min(640, width.round()));
-      final effH = math.max(128, math.min(640, height.round()));
-
-      const zoom = 16;
-      final center = '${_myPos!.latitude},${_myPos!.longitude}';
-      final staticUrl = Uri.parse(
-        'https://maps.googleapis.com/maps/api/staticmap'
-            '?center=$center'
-            '&zoom=$zoom'
-            '&size=${effW}x${effH}'
-            '&scale=2'
-            '&maptype=roadmap'
-            '&language=es'
-            '&markers=color:red|label:U|$center'
-            '&key=$kGoogleMapsApiKey',
-      );
-
-      final resp = await http.get(staticUrl).timeout(const Duration(seconds: 7));
-      if (resp.statusCode == 200) {
-        return _decodeUiImage(resp.bodyBytes);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  Future<Uint8List?> _buildWatermarkedBytes(ui.Image base) async {
+  Future<Uint8List?> _buildWatermarkedBytes(Uint8List baseBytes) async {
     final nowStr = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
 
     String creadorNombre = '—';
@@ -768,157 +977,38 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final origenCoords = _myPos == null
         ? '—'
         : '${_myPos!.latitude.toStringAsFixed(5)}, ${_myPos!.longitude.toStringAsFixed(5)}';
-    final origenLinea = 'Ubicación: $origenCoords${_myAddress == null ? '' : ' · ${_myAddress!}'}';
 
-    final infoTexto = [
+    final lines = <String>[
       'Tarea • $nowStr',
       'Creador: $creadorNombre',
       if (_asignadoNombre != null) 'Asignado: $_asignadoNombre',
       if (_jefeNombre != null) 'Jefe: $_jefeNombre',
       if (_deadline != null) 'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(_deadline!)}',
       'Prioridad: ${_priority.toUpperCase()}',
-      origenLinea,
-    ].join('\n');
+      'Ubicación: $origenCoords',
+    ];
 
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(
-      recorder,
-      ui.Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()),
-    );
+    try {
+      return await compute<_WatermarkJob, Uint8List?>(
+        _buildWatermarkInIsolate,
+        _WatermarkJob(
+          bytes: baseBytes,
+          lines: lines,
+          logoBytes: await _loadLogoBytes(),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
-    canvas.drawImage(base, ui.Offset.zero, ui.Paint()..filterQuality = ui.FilterQuality.medium);
-
-    ui.Image? logo;
+  Future<Uint8List?> _loadLogoBytes() async {
     try {
       final lb = await rootBundle.load('assets/logo.png');
-      logo = await _decodeUiImage(lb.buffer.asUint8List());
-    } catch (_) {}
-
-    final overlayH = (base.height * 0.20).toDouble().clamp(120.0, 260.0);
-    final overlayRect = ui.Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
-    canvas.drawRect(overlayRect, ui.Paint()..color = const Color(0xCC000000));
-
-    const double pad = 18.0;
-    final logoW = base.width * 0.18;
-    final textW = base.width * 0.54;
-    final mapW = base.width * 0.28;
-
-    final logoRect = ui.Rect.fromLTWH(
-      overlayRect.left + pad,
-      overlayRect.top + pad,
-      math.max(0, logoW - 2 * pad),
-      math.max(0, overlayH - 2 * pad),
-    );
-    final textRect = ui.Rect.fromLTWH(
-      overlayRect.left + logoW + pad,
-      overlayRect.top + pad,
-      math.max(0, textW - 2 * pad),
-      math.max(0, overlayH - 2 * pad),
-    );
-    final mapRect = ui.Rect.fromLTWH(
-      overlayRect.left + logoW + textW + pad,
-      overlayRect.top + pad,
-      math.max(128, mapW - 2 * pad),
-      math.max(128, overlayH - 2 * pad),
-    );
-
-    if (logo != null && logoRect.width > 0 && logoRect.height > 0) {
-      final scale = math.min(logoRect.width / logo.width, logoRect.height / logo.height);
-      final w = logo.width * scale;
-      final h = logo.height * scale;
-      final dst = ui.Rect.fromLTWH(
-        logoRect.left + (logoRect.width - w) / 2,
-        logoRect.top + (logoRect.height - h) / 2,
-        w,
-        h,
-      );
-      canvas.drawImageRect(
-        logo,
-        ui.Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
-        dst,
-        ui.Paint()..colorFilter = const ui.ColorFilter.mode(Colors.white, ui.BlendMode.modulate),
-      );
+      return lb.buffer.asUint8List();
+    } catch (_) {
+      return null;
     }
-
-    Future<ui.Paragraph> buildPara({
-      required String txt,
-      required double maxW,
-      required double maxH,
-      double minFont = 18,
-      double maxFont = 48,
-      int maxLines = 10,
-      Color color = const Color(0xFFEFEFEF),
-      ui.TextAlign align = ui.TextAlign.left,
-    }) async {
-      double lo = minFont, hi = maxFont;
-      ui.Paragraph? best;
-      for (int i = 0; i < 20; i++) {
-        final mid = (lo + hi) / 2;
-        final pb = ui.ParagraphBuilder(
-          ui.ParagraphStyle(textAlign: align, maxLines: maxLines, ellipsis: '…'),
-        )
-          ..pushStyle(ui.TextStyle(color: color, fontSize: mid))
-          ..addText(txt);
-        final p = pb.build()..layout(ui.ParagraphConstraints(width: maxW));
-        if (p.height <= maxH) {
-          best = p;
-          lo = mid + 0.5;
-        } else {
-          hi = mid - 0.5;
-        }
-      }
-      best ??= (ui.ParagraphBuilder(ui.ParagraphStyle(
-        textAlign: align,
-        maxLines: maxLines,
-        ellipsis: '…',
-      ))
-        ..pushStyle(ui.TextStyle(color: color, fontSize: lo))
-        ..addText(txt))
-          .build()
-        ..layout(ui.ParagraphConstraints(width: maxW));
-      return best;
-    }
-
-    final para = await buildPara(txt: infoTexto, maxW: textRect.width, maxH: textRect.height);
-    final textOffsetY = textRect.top + (textRect.height - para.height) / 2;
-    canvas.drawParagraph(para, ui.Offset(textRect.left, textOffsetY));
-
-    ui.Image? mapImg = await _getStaticMap(width: mapRect.width, height: mapRect.height);
-    if (mapImg != null) {
-      final rrect = ui.RRect.fromRectAndRadius(mapRect, const ui.Radius.circular(12));
-      final clipPath = ui.Path()..addRRect(rrect);
-      canvas.save();
-      canvas.clipPath(clipPath);
-      canvas.drawImageRect(
-        mapImg,
-        ui.Rect.fromLTWH(0, 0, mapImg.width.toDouble(), mapImg.height.toDouble()),
-        mapRect,
-        ui.Paint()..filterQuality = ui.FilterQuality.high,
-      );
-      canvas.restore();
-      final border = ui.Paint()
-        ..style = ui.PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = Colors.white.withOpacity(0.9);
-      canvas.drawRRect(rrect, border);
-    } else {
-      final p = ui.Paint()..color = Colors.white.withOpacity(0.15);
-      final rrect = ui.RRect.fromRectAndRadius(mapRect, const ui.Radius.circular(12));
-      canvas.drawRRect(rrect, p);
-      final pb = ui.ParagraphBuilder(ui.ParagraphStyle(textAlign: ui.TextAlign.center))
-        ..pushStyle(ui.TextStyle(color: Colors.white70, fontSize: 18))
-        ..addText('MAPA (habilita Static Maps API)');
-      final ph = pb.build()..layout(ui.ParagraphConstraints(width: mapRect.width));
-      canvas.drawParagraph(
-        ph,
-        ui.Offset(mapRect.left, mapRect.top + (mapRect.height - ph.height) / 2),
-      );
-    }
-
-    final picture = recorder.endRecording();
-    final out = await picture.toImage(base.width, base.height);
-    final png = await out.toByteData(format: ui.ImageByteFormat.png);
-    return png?.buffer.asUint8List();
   }
 
   // ==================== PICKER / UPLOAD ====================
@@ -941,8 +1031,34 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'png',
       ],
     );
-    if (res != null && res.files.isNotEmpty) {
-      setState(() => _pickedFiles.addAll(res.files));
+    if (res == null || res.files.isEmpty) return;
+
+    final accepted = <PlatformFile>[];
+    final rejected = <String>[];
+
+    for (final f in res.files) {
+      if (f.size > kMaxAttachmentBytes) {
+        rejected.add(f.name);
+        continue;
+      }
+      accepted.add(f);
+    }
+
+    if (accepted.isNotEmpty) {
+      setState(() => _pickedFiles.addAll(accepted));
+    }
+
+    if (rejected.isNotEmpty && mounted) {
+      final maxMb = (kMaxAttachmentBytes / (1024 * 1024)).round();
+      final names = rejected.take(3).join(', ');
+      final suffix = rejected.length > 3 ? ', …' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Se omitieron ${rejected.length} archivo(s) por superar ${maxMb}MB: $names$suffix',
+          ),
+        ),
+      );
     }
   }
 
@@ -1160,8 +1276,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       String? evidencePath;
       if (_photo != null) {
         final raw = await _photo!.readAsBytes();
-        final base = await _decodeUiImage(raw);
-        final wm = await _buildWatermarkedBytes(base);
+        final wm = await _buildWatermarkedBytes(raw);
         if (wm != null) {
           final up = await _uploadEvidence(wm);
           evidenceUrl = up.downloadURL;
@@ -1253,6 +1368,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       if (resolvedEmpresaId.isNotEmpty) {
         payload['empresaId'] = resolvedEmpresaId;
+      }
+
+      final empresasAsignado = _empresasDeUsuario(asignadoDoc);
+      if (empresasAsignado.isNotEmpty) {
+        if (resolvedEmpresaId.isNotEmpty && !empresasAsignado.contains(resolvedEmpresaId)) {
+          empresasAsignado.add(resolvedEmpresaId);
+        }
+        payload['empresas'] = empresasAsignado;
       }
 
       final ref = await FirebaseFirestore.instance.collection(kCollTareas).add(payload);
@@ -1492,28 +1615,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           items: _cargosFiltrados
                               .map(
                                 (c) => DropdownMenuItem(
-                                  value: c['id'],
-                                  child: Text(
-                                    c['nombre'] ?? 'Selecciona un cargo',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
+                              value: c['id'],
+                              child: Text(
+                                c['nombre'] ?? 'Selecciona un cargo',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           )
                               .toList(),
-                            onChanged: areaSeleccionada
-                                ? (v) {
-                              setState(() {
-                                _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
-                                _alElegirAsignado(null);
-                                _ensureAreaDisponible();
-                              });
-                            }
-                                : null,
-                            validator: (v) {
-                              if (!areaSeleccionada) return null;
-                              return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
-                            },
-
+                          onChanged: areaSeleccionada
+                              ? (v) {
+                            setState(() {
+                              _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
+                              _alElegirAsignado(null);
+                              _ensureAreaDisponible();
+                            });
+                          }
+                              : null,
+                          validator: (v) {
+                            if (!areaSeleccionada) return null;
+                            return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
+                          },
                         ),
 
                         const SizedBox(height: 12),
@@ -1721,4 +1843,64 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       ),
     );
   }
+}
+class _WatermarkJob {
+  const _WatermarkJob({
+    required this.bytes,
+    required this.lines,
+    this.logoBytes,
+  });
+
+  final Uint8List bytes;
+  final List<String> lines;
+  final Uint8List? logoBytes;
+}
+
+Uint8List? _buildWatermarkInIsolate(_WatermarkJob job) {
+  final decoded = img.decodeImage(job.bytes);
+  if (decoded == null) return null;
+
+  final image = decoded;
+  final overlayHeight = (image.height * 0.22).round().clamp(110, 260);
+  final overlayTop = image.height - overlayHeight;
+
+  img.fillRect(
+    image,
+    x1: 0,
+    y1: overlayTop,
+    x2: image.width,
+    y2: image.height,
+    color: img.ColorRgba8(0, 0, 0, 200),
+  );
+
+  if (job.logoBytes != null) {
+    final logo = img.decodeImage(job.logoBytes!);
+    if (logo != null) {
+      final targetH = (overlayHeight * 0.72).round();
+      final resized = img.copyResize(
+        logo,
+        height: targetH,
+        interpolation: img.Interpolation.average,
+      );
+      img.compositeImage(image, resized, dstX: 14, dstY: overlayTop + 14);
+    }
+  }
+
+  final textStartX = (image.width * 0.27).round().clamp(130, image.width - 16);
+  var y = overlayTop + 16;
+  final maxY = image.height - 10;
+  for (final line in job.lines) {
+    if (y >= maxY) break;
+    img.drawString(
+      image,
+      line,
+      x: textStartX,
+      y: y,
+      font: img.arial24,
+      color: img.ColorRgb8(245, 245, 245),
+    );
+    y += 28;
+  }
+
+  return Uint8List.fromList(img.encodePng(image, level: 3));
 }

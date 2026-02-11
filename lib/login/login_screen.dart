@@ -1,13 +1,14 @@
 // lib/login/login_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/state/empresa_scope.dart';
 
 // Están en el mismo folder "login"
 import 'first_time_screen.dart';
-import 'change_password_screen.dart';
-import 'forgot_password_screen.dart';
+import 'change_password_screen.dart' hide kArial;
+import 'forgot_password_screen.dart' hide kArial;
 
 // Está en lib/home (en minúscula)
 import '../home/home_screen.dart';
@@ -17,7 +18,6 @@ import '../admin/seed_admin_screen.dart';
 import '../widgets/hidden_admin_unlocker.dart';
 
 // Solo mantenemos la fuente como constante
-const String kArial = 'Arial';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

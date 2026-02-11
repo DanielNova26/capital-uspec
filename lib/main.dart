@@ -85,10 +85,30 @@ Future<void> _initFirebaseAndPushCore() async {
 Future<void> main() async {
   await _initFirebaseAndPushCore();
   final empresaState = EmpresaState();
+  await empresaState.hydrate();
   runApp(EmpresaScope(
     notifier: empresaState,
     child: const ToDoApp(),
   ));
+}
+
+
+class _FadePageTransitionsBuilder extends PageTransitionsBuilder {
+  const _FadePageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+      PageRoute<T> route,
+      BuildContext context,
+      Animation<double> animation,
+      Animation<double> secondaryAnimation,
+      Widget child,
+      ) {
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+      child: child,
+    );
+  }
 }
 
 class ToDoApp extends StatelessWidget {
@@ -165,6 +185,15 @@ class ToDoApp extends StatelessWidget {
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
           ),
+        ),
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: _FadePageTransitionsBuilder(),
+            TargetPlatform.iOS: _FadePageTransitionsBuilder(),
+            TargetPlatform.macOS: _FadePageTransitionsBuilder(),
+            TargetPlatform.windows: _FadePageTransitionsBuilder(),
+            TargetPlatform.linux: _FadePageTransitionsBuilder(),
+          },
         ),
       ),
 

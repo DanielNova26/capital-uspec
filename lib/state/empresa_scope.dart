@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Estado global sencillo para la empresa seleccionada.
 class EmpresaState extends ChangeNotifier {
@@ -6,12 +7,33 @@ class EmpresaState extends ChangeNotifier {
 
   String? get selectedEmpresaId => _selectedEmpresaId;
 
+  static const String _kEmpresaPrefKey = 'selected_empresa_id';
+
+  Future<void> hydrate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_kEmpresaPrefKey);
+    if (stored == null || stored.trim().isEmpty) return;
+    _selectedEmpresaId = stored.trim();
+    notifyListeners();
+  }
+
   void setSelectedEmpresaId(String? empresaId) {
     final next = empresaId?.trim();
     final normalized = (next == null || next.isEmpty) ? null : next;
     if (_selectedEmpresaId == normalized) return;
     _selectedEmpresaId = normalized;
     notifyListeners();
+    _persistSelection();
+  }
+
+  Future<void> _persistSelection() async {
+    final prefs = await SharedPreferences.getInstance();
+    final current = _selectedEmpresaId;
+    if (current == null || current.isEmpty) {
+      await prefs.remove(_kEmpresaPrefKey);
+    } else {
+      await prefs.setString(_kEmpresaPrefKey, current);
+    }
   }
 
   void clear() => setSelectedEmpresaId(null);

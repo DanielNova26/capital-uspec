@@ -47,6 +47,7 @@ dependencies:
   intl: ^0.20.2
   permission_handler: ^12.0.1
   table_calendar: ^3.2.0
+  shared_preferences: ^2.5.3
 
   # 🔙 Volvemos a la API antigua que tu código usa
   flutter_typeahead: ^4.8.0
@@ -84,3 +85,4 @@ flutter:
     - assets/logo.png
     - assets/admin_icon.png
     - assets/seeds/catalogos_base.xlsx
+    - assets/diagnosticos_template.xlsx

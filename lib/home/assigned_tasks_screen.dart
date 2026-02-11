@@ -18,16 +18,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/widgets/empty_state_widget.dart';
+import 'package:todo/widgets/skeleton_loader.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
-import 'complete_task_screen.dart';
-import 'notify_avances_screen.dart';
-import 'notify_novedades_screen.dart';
+import 'complete_task_screen.dart' hide kArial;
+import 'notify_avances_screen.dart' hide kArial;
+import 'notify_novedades_screen.dart' hide kArial;
 
 const Color kMarronOscuro = Color(0xFF145DA0);
-const String kArial = 'Arial';
 
 class AssignedTasksScreen extends StatefulWidget {
   final String userId;
@@ -706,10 +708,17 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final title = _str(data, ['titulo', 'title']).toLowerCase();
       final desc = _str(data, ['descripcion', 'description']).toLowerCase();
       final empresaTarea = _str(data, ['empresaId', 'empresa_id', 'empresa']);
+      final empresasTarea = (data['empresas'] as List<dynamic>? ?? const [])
+          .map((e) => (e ?? '').toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toSet();
       final areaId = _str(data, ['areaId']);
       final status = _resolvedStatus(data);
 
-      final matchEmpresa = _empresaIds.isEmpty || empresaTarea.isEmpty || _empresaIds.contains(empresaTarea);
+      final matchEmpresa = _empresaIds.isEmpty ||
+          empresaTarea.isEmpty ||
+          _empresaIds.contains(empresaTarea) ||
+          empresasTarea.any(_empresaIds.contains);
       final matchSearch = q.isEmpty || title.contains(q) || desc.contains(q) || d.id.toLowerCase().contains(q);
 
       final bool matchStatus;
@@ -979,13 +988,13 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         future: _bootstrapFuture,
         builder: (_, bootSnap) {
           final loading = bootSnap.connectionState == ConnectionState.waiting && _userData.isEmpty;
-          if (loading) return const Center(child: CircularProgressIndicator());
+          if (loading) return const SkeletonList(items: 5);
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _streamAssignedToMe(),
             builder: (_, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                return const SkeletonList(items: 5);
               }
               if (snap.hasError) {
                 return Center(child: Text('Error: ${snap.error}', style: const TextStyle(fontFamily: kArial)));
@@ -1017,18 +1026,42 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     const SizedBox(height: 12),
                     _buildFiltersCard(docs),
                     const SizedBox(height: 12),
-                    if (filtered.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: Text('No hay tareas para mostrar', style: TextStyle(fontFamily: kArial))),
-                      )
-                    else if (_groupByArea)
-                      ..._buildGroupedTaskSections(filtered)
-                    else
-                      ...filtered.map((d) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _buildTaskCard(d),
-              )),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      child: Builder(
+                        key: ValueKey<String>(
+                          '${_groupByArea}_${filtered.map((d) => d.id).join(',')}',
+                        ),
+                        builder: (_) {
+                          if (filtered.isEmpty) {
+                            return EmptyStateWidget(
+                              icon: Icons.assignment_late_outlined,
+                              title: 'No hay tareas para mostrar',
+                              message: 'Ajusta filtros o vuelve más tarde para revisar nuevas tareas.',
+                              actionLabel: 'Limpiar filtros',
+                              onAction: () => setState(() {
+                                _statusFilter = 'todas';
+                                _areaFilter = 'todas';
+                                _searchCtrl.clear();
+                              }),
+                            );
+                          }
+
+                          return Column(
+                            children: _groupByArea
+                                ? _buildGroupedTaskSections(filtered)
+                                : filtered
+                                .map((d) => Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _buildTaskCard(d),
+                            ))
+                                .toList(),
+                          );
+                        },
+                      ),
+                    ),
                   ],
                 ),
               );
@@ -1214,10 +1247,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     final status = _resolvedStatus(data);
 
     final dueTs = _ts(data, ['fecha_limite', 'dueDate']);
-    final createdTs = _ts(data, ['fecha_creacion', 'createdAt']);
-    final updatedTs = _ts(data, ['fecha_actualizacion', 'updatedAt']);
-    final areaId = _str(data, ['areaId']);
-
     final badge = _pendingBadge(data);
 
     return Card(
@@ -1274,9 +1303,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 runSpacing: 8,
                 children: [
                   _InfoPill(icon: Icons.schedule, label: 'Vence', value: _fmtTs(dueTs)),
-                  _InfoPill(icon: Icons.event, label: 'Creada', value: _fmtTs(createdTs, pat: 'dd/MM/yyyy')),
-                  _InfoPill(icon: Icons.update, label: 'Actualizada', value: _fmtTs(updatedTs)),
-                  if (areaId.isNotEmpty) _InfoPill(icon: Icons.apartment, label: 'Área', value: _areas[areaId] ?? areaId),
+                  _InfoPill(icon: Icons.flag, label: 'Estado', value: _statusLabel(status)),
                 ],
               ),
 
