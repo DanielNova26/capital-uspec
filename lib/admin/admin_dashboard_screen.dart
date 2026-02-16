@@ -1,5 +1,8 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:todo/services/diagnosticos_service.dart';
 
 import 'admin_repository.dart';
 import 'migrations/admin_migration_service.dart';
@@ -46,6 +49,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   // Migración: selección de usuarios
   Set<String> _selectedMigrationUsers = {};
+
+  // Diagnósticos: carga de Excel
+  final DiagnosticosService _diagnosticosService = DiagnosticosService();
+  String? _diagnosticosFileName;
+  Uint8List? _diagnosticosBytes;
+  Map<String, int>? _diagnosticosImportResult;
 
   @override
   void initState() {
@@ -995,6 +1004,156 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await _loadAll(forceEmpresaId: _empresaId ?? '');
   }
 
+
+  Future<void> _pickDiagnosticosExcel() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+      withData: true,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    final file = result.files.single;
+    if (file.bytes == null || file.bytes!.isEmpty) {
+      _snack('No se pudo leer el archivo seleccionado.');
+      return;
+    }
+
+    setState(() {
+      _diagnosticosFileName = file.name;
+      _diagnosticosBytes = file.bytes;
+      _diagnosticosImportResult = null;
+    });
+  }
+
+  Future<void> _importarDiagnosticosExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _diagnosticosBytes;
+
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa antes de importar diagnósticos.');
+      return;
+    }
+    if (bytes == null || bytes.isEmpty) {
+      _snack('Primero selecciona un archivo Excel.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final result = await _diagnosticosService.importarDiagnosticosDesdeExcel(
+        bytes: bytes,
+        empresaId: empresaId,
+        sobrescribir: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _diagnosticosImportResult = result;
+      });
+      _snack(
+        'Diagnósticos importados. Médicos: ${result['diagnosticosMedicos'] ?? 0} | Nutricionales: ${result['diagnosticosNutricionales'] ?? 0}',
+      );
+    } catch (e) {
+      _snack('Error importando diagnósticos: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Widget _tabDiagnosticos() {
+    final result = _diagnosticosImportResult;
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Card(
+          color: Colors.teal.shade50,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.teal.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.upload_file, color: Colors.teal.shade900, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Actualizar diagnósticos',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.teal.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Sube un Excel con diagnósticos para actualizar las tablas '
+                      'TBL_DIAGNOSTICOS_MEDICOS y TBL_DIAGNOSTICOS_NUTRICIONALES.\n'
+                      'Después de importar, el buscador de diagnóstico clínico leerá primero desde Firestore.',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: _pickDiagnosticosExcel,
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text(
+                    'Seleccionar archivo Excel',
+                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _diagnosticosFileName == null
+                      ? 'Sin archivo seleccionado.'
+                      : 'Archivo: $_diagnosticosFileName',
+                  style: const TextStyle(fontFamily: kArial),
+                ),
+                if (result != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'Última carga → Médicos: ${result['diagnosticosMedicos'] ?? 0} | Nutricionales: ${result['diagnosticosNutricionales'] ?? 0}',
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal.shade700,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importarDiagnosticosExcel,
+                    icon: const Icon(Icons.cloud_upload),
+                    label: const Text(
+                      'IMPORTAR A TABLAS DE DIAGNÓSTICOS',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _tabCleanup() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1172,7 +1331,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
       child: DefaultTabController(
-        length: 6,
+        length: 7,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
@@ -1186,6 +1345,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 Tab(icon: Icon(Icons.construction), text: 'Migraciones'),
                 Tab(icon: Icon(Icons.history), text: 'Logs'),
                 Tab(icon: Icon(Icons.cleaning_services), text: 'Limpieza'),
+                Tab(icon: Icon(Icons.medical_information), text: 'Diagnósticos'),
               ],
             ),
           ),
@@ -1204,6 +1364,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _tabMigraciones(),
                     _tabLogs(),
                     _tabCleanup(),
+                    _tabDiagnosticos(),
                   ],
                 ),
               ),

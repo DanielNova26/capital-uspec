@@ -21,57 +21,116 @@ class DiagnosticosExcelParser {
   Future<DiagnosticosWorkbook> parse(Uint8List bytes) async {
     final excel = Excel.decodeBytes(bytes);
 
-    List<Map<String, dynamic>> readSheetFlexible(List<String> candidates) {
-      Sheet? sheet;
-      for (final name in candidates) {
-        sheet = excel.tables[name] ??
-            excel.tables[name.toUpperCase()] ??
-            excel.tables[name.toLowerCase()];
-        if (sheet != null) break;
-      }
-      if (sheet == null) return [];
+    final sheetAnalyses = <_SheetAnalysis>[];
+    for (final entry in excel.tables.entries) {
+      final rows = entry.value.rows;
+      if (rows.isEmpty) continue;
 
-      final rows = sheet.rows;
-      if (rows.isEmpty) return [];
+      final rawHeaders = rows.first.map((cell) => _cellToString(cell?.value)).toList();
+      final headers = rawHeaders.map(_canonHeader).where((h) => h.isNotEmpty).toList();
 
-      // Encabezados
-      final rawHeaders =
-      rows.first.map((cell) => _cellToString(cell?.value)).toList();
-      final headers = rawHeaders.map(_canonHeader).toList();
+      if (headers.isEmpty) continue;
 
       final out = <Map<String, dynamic>>[];
       for (var i = 1; i < rows.length; i++) {
         final row = rows[i];
-        final isBlank =
-        row.every((c) => _cellToString(c?.value).trim().isEmpty);
+        final isBlank = row.every((c) => _cellToString(c?.value).trim().isEmpty);
         if (isBlank) continue;
 
         final m = <String, dynamic>{};
-        for (var j = 0; j < headers.length; j++) {
-          final key = headers[j];
+        for (var j = 0; j < rawHeaders.length; j++) {
+          final key = j < rawHeaders.length ? _canonHeader(rawHeaders[j]) : '';
           final cell = j < row.length ? row[j] : null;
           final val = _cellToString(cell?.value).trim();
           if (key.isNotEmpty) m[key] = val;
         }
         out.add(m);
       }
-      return out;
+
+      if (out.isEmpty) continue;
+
+      sheetAnalyses.add(
+        _SheetAnalysis(
+          name: entry.key,
+          headers: headers,
+          rows: out,
+          medicalScore: _scoreMedicoHeaders(headers),
+          nutritionalScore: _scoreNutriHeaders(headers),
+        ),
+      );
     }
 
-    // Lee hojas crudas
-    final rawDxMedicos = readSheetFlexible([
-      'DIAGNOSTICOS_MEDICOS',
-      'DX_MEDICOS',
-      'CIE11',
-      'MEDICOS',
-    ]);
+    List<Map<String, dynamic>> rawDxMedicos = [];
+    List<Map<String, dynamic>> rawDxNutri = [];
 
-    final rawDxNutri = readSheetFlexible([
-      'DIAGNOSTICOS_NUTRICIONALES',
-      'DX_NUTRICIONALES',
-      'NUTRI',
-      'NUTRICIONALES',
-    ]);
+    // 1) Prioridad por nombre de hoja conocido
+    _SheetAnalysis? medicoByName;
+    _SheetAnalysis? nutriByName;
+
+    const medicalSheetCandidates = [
+      'diagnosticos_medicos',
+      'dx_medicos',
+      'cie11',
+      'medicos',
+      'diagnosticosmedicos',
+    ];
+    const nutriSheetCandidates = [
+      'diagnosticos_nutricionales',
+      'dx_nutricionales',
+      'nutri',
+      'nutricionales',
+      'diagnosticosnutricionales',
+    ];
+
+    for (final s in sheetAnalyses) {
+      final canonName = _canonHeader(s.name);
+      if (medicoByName == null && medicalSheetCandidates.contains(canonName)) {
+        medicoByName = s;
+      }
+      if (nutriByName == null && nutriSheetCandidates.contains(canonName)) {
+        nutriByName = s;
+      }
+    }
+
+    // 2) Fallback por puntaje de encabezados (si los nombres no coinciden)
+    _SheetAnalysis? medicoByHeaders;
+    _SheetAnalysis? nutriByHeaders;
+    for (final s in sheetAnalyses) {
+      if (medicoByHeaders == null || s.medicalScore > medicoByHeaders.medicalScore) {
+        medicoByHeaders = s;
+      }
+      if (nutriByHeaders == null || s.nutritionalScore > nutriByHeaders.nutritionalScore) {
+        nutriByHeaders = s;
+      }
+    }
+
+    final selectedMedico = medicoByName ??
+        ((medicoByHeaders != null && medicoByHeaders.medicalScore > 0)
+            ? medicoByHeaders
+            : null);
+
+    final selectedNutri = nutriByName ??
+        ((nutriByHeaders != null && nutriByHeaders.nutritionalScore > 0)
+            ? nutriByHeaders
+            : null);
+
+    if (selectedMedico != null) {
+      rawDxMedicos = selectedMedico.rows;
+    }
+    if (selectedNutri != null) {
+      rawDxNutri = selectedNutri.rows;
+    }
+
+    // 3) Evita usar la misma hoja para ambos si solo existe un match ambiguo
+    if (selectedMedico != null &&
+        selectedNutri != null &&
+        selectedMedico.name == selectedNutri.name) {
+      if (selectedMedico.medicalScore >= selectedNutri.nutritionalScore) {
+        rawDxNutri = [];
+      } else {
+        rawDxMedicos = [];
+      }
+    }
 
     // Normaliza a las llaves esperadas
     final dxMedicos = rawDxMedicos
@@ -88,6 +147,43 @@ class DiagnosticosExcelParser {
       diagnosticosMedicos: dxMedicos,
       diagnosticosNutricionales: dxNutri,
     );
+  }
+
+  int _scoreMedicoHeaders(List<String> headers) {
+    const expected = {
+      'codigocie11',
+      'codigo',
+      'nombre',
+      'categoria',
+      'subcategoria',
+      'comorbilidades',
+      'medicamentos',
+      'interacciones',
+      'rangosbioquimicos',
+      'estadio',
+      'gravedad',
+      'dietascontraindicadas',
+      'dietassugeridas',
+      'activo',
+    };
+    return headers.where(expected.contains).length;
+  }
+
+  int _scoreNutriHeaders(List<String> headers) {
+    const expected = {
+      'codigo',
+      'nombre',
+      'descripcion',
+      'objetivos',
+      'tipodietasugerida',
+      'duracionsugerida',
+      'restricciones',
+      'restriccionesnutricionales',
+      'alertas',
+      'alertasclinicas',
+      'activo',
+    };
+    return headers.where(expected.contains).length;
   }
 
   /// Alias de compatibilidad
@@ -257,6 +353,23 @@ class DiagnosticosExcelParser {
     }
     return false;
   }
+}
+
+
+class _SheetAnalysis {
+  final String name;
+  final List<String> headers;
+  final List<Map<String, dynamic>> rows;
+  final int medicalScore;
+  final int nutritionalScore;
+
+  const _SheetAnalysis({
+    required this.name,
+    required this.headers,
+    required this.rows,
+    required this.medicalScore,
+    required this.nutritionalScore,
+  });
 }
 
 /// Resultado del parsing de Excel

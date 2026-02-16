@@ -16,16 +16,47 @@ class DiagnosticosService {
   static List<DiagnosticoMedico>? _cacheMedicos;
   static List<DiagnosticoNutricional>? _cacheNutricionales;
   static bool _cacheLoaded = false;
+  static bool _cacheLoadedFromFirestore = false;
 
   final FirebaseFirestore _db;
 
   DiagnosticosService({FirebaseFirestore? db})
       : _db = db ?? FirebaseFirestore.instance;
 
-  /// Carga diagnósticos desde el Excel en assets y los guarda en cache
+  /// Carga diagnósticos desde Firestore y hace fallback al Excel en assets.
   Future<void> _ensureCacheLoaded() async {
     if (_cacheLoaded) return;
 
+    try {
+      final medicosSnap = await _db.collection(_collDiagnosticosMedicos).get();
+      final nutriSnap = await _db.collection(_collDiagnosticosNutricionales).get();
+
+      final medicosDb = medicosSnap.docs
+          .map((doc) => DiagnosticoMedico.fromMap(doc.data()))
+          .where((dx) => dx.codigoCie11.isNotEmpty)
+          .toList();
+
+      final nutriDb = nutriSnap.docs
+          .map((doc) => DiagnosticoNutricional.fromMap(doc.data()))
+          .where((dx) => dx.codigo.isNotEmpty)
+          .toList();
+
+      if (medicosDb.isNotEmpty || nutriDb.isNotEmpty) {
+        _cacheMedicos = medicosDb;
+        _cacheNutricionales = nutriDb;
+        _cacheLoadedFromFirestore = true;
+        _cacheLoaded = true;
+        return;
+      }
+
+      await _loadFromAssets();
+    } catch (e) {
+      print('Error cargando diagnósticos desde Firestore: $e');
+      await _loadFromAssets();
+    }
+  }
+
+  Future<void> _loadFromAssets() async {
     try {
       final byteData = await rootBundle.load(_assetsPath);
       final bytes = byteData.buffer.asUint8List();
@@ -42,13 +73,20 @@ class DiagnosticosService {
           .where((dx) => dx.codigo.isNotEmpty)
           .toList();
 
+      _cacheLoadedFromFirestore = false;
       _cacheLoaded = true;
     } catch (e) {
       print('Error cargando diagnósticos desde assets: $e');
       _cacheMedicos = [];
       _cacheNutricionales = [];
+      _cacheLoadedFromFirestore = false;
       _cacheLoaded = true;
     }
+  }
+
+  void _invalidateCache() {
+    _cacheLoaded = false;
+    _cacheLoadedFromFirestore = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -104,6 +142,7 @@ class DiagnosticosService {
       batch1.set(
         docRef,
         {
+          'empresaId': empresaId,
           'codigoCie11': codigo,
           'nombre': row['nombre']?.toString() ?? '',
           'categoria': row['categoria']?.toString(),
@@ -147,6 +186,7 @@ class DiagnosticosService {
       batch2.set(
         docRef,
         {
+          'empresaId': empresaId,
           'codigo': codigo,
           'nombre': row['nombre']?.toString() ?? '',
           'descripcion': row['descripcion']?.toString(),
@@ -165,11 +205,15 @@ class DiagnosticosService {
     }
     await batch2.commit();
 
+    _invalidateCache();
+
     return {
       'diagnosticosMedicos': countMedicos,
       'diagnosticosNutricionales': countNutri,
     };
   }
+
+  bool get cacheLoadedFromFirestore => _cacheLoadedFromFirestore;
 
   // ---------------------------------------------------------------------------
   // BÚSQUEDA DE DIAGNÓSTICOS
