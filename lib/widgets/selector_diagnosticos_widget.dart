@@ -1,13 +1,18 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
-import '../services/diagnosticos_service.dart';
+
+import 'package:flutter/material.dart';
 import 'package:todo/nutricion/atencion/diagnostico_models.dart';
+
+import '../services/diagnosticos_service.dart';
 
 /// Widget interactivo para seleccionar diagnósticos médicos y nutricionales.
 /// Muestra chips acumulables y sugerencias automáticas de dieta.
 class SelectorDiagnosticosWidget extends StatefulWidget {
   final String empresaId;
-  final Function(List<DiagnosticoMedico> medicos, List<DiagnosticoNutricional> nutricionales) onDiagnosticosChanged;
+  final Function(
+      List<DiagnosticoMedico> medicos,
+      List<DiagnosticoNutricional> nutricionales,
+      ) onDiagnosticosChanged;
 
   const SelectorDiagnosticosWidget({
     super.key,
@@ -20,23 +25,21 @@ class SelectorDiagnosticosWidget extends StatefulWidget {
       _SelectorDiagnosticosWidgetState();
 }
 
-class _SelectorDiagnosticosWidgetState
-    extends State<SelectorDiagnosticosWidget> {
+class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget> {
   final _service = DiagnosticosService();
 
-  // Entrada A: Diagnósticos Médicos (CIE-11)
   final _busquedaMedicoCtrl = TextEditingController();
   final List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados = [];
   List<DiagnosticoMedico> _resultadosMedicos = [];
   bool _buscandoMedico = false;
   bool _mostrarResultadosMedicos = false;
 
-  // Entrada B: Diagnósticos Nutricionales
   final _busquedaNutriCtrl = TextEditingController();
   final List<DiagnosticoNutricional> _diagnosticosNutricionalesSeleccionados = [];
   List<DiagnosticoNutricional> _resultadosNutri = [];
   bool _buscandoNutri = false;
   bool _mostrarResultadosNutri = false;
+
   Timer? _debounceMedico;
   Timer? _debounceNutri;
 
@@ -86,7 +89,6 @@ class _SelectorDiagnosticosWidgetState
         _buscandoMedico = false;
       });
     } catch (e) {
-      print('Error buscando diagnósticos médicos: $e');
       setState(() {
         _buscandoMedico = false;
         _resultadosMedicos = [];
@@ -115,7 +117,6 @@ class _SelectorDiagnosticosWidgetState
         _buscandoNutri = false;
       });
     } catch (e) {
-      print('Error buscando diagnósticos nutricionales: $e');
       setState(() {
         _buscandoNutri = false;
         _resultadosNutri = [];
@@ -124,9 +125,7 @@ class _SelectorDiagnosticosWidgetState
   }
 
   void _agregarDiagnosticoMedico(DiagnosticoMedico dx) {
-    // Evitar duplicados
-    if (_diagnosticosMedicosSeleccionados
-        .any((d) => d.codigoCie11 == dx.codigoCie11)) {
+    if (_diagnosticosMedicosSeleccionados.any((d) => d.codigoCie11 == dx.codigoCie11)) {
       return;
     }
 
@@ -148,8 +147,7 @@ class _SelectorDiagnosticosWidgetState
   }
 
   void _agregarDiagnosticoNutricional(DiagnosticoNutricional dx) {
-    if (_diagnosticosNutricionalesSeleccionados
-        .any((d) => d.codigo == dx.codigo)) {
+    if (_diagnosticosNutricionalesSeleccionados.any((d) => d.codigo == dx.codigo)) {
       return;
     }
 
@@ -179,24 +177,18 @@ class _SelectorDiagnosticosWidgetState
 
   List<String> _obtenerDietasSugeridas() {
     final Set<String> dietas = {};
-
-    // Dietas de diagnósticos médicos
     for (final dx in _diagnosticosMedicosSeleccionados) {
       dietas.addAll(dx.dietasSugeridas);
     }
-
-    // Dietas de diagnósticos nutricionales
     for (final dx in _diagnosticosNutricionalesSeleccionados) {
-      if (dx.tipoDietaSugerida != null) {
+      if (dx.tipoDietaSugerida != null && dx.tipoDietaSugerida!.isNotEmpty) {
         dietas.add(dx.tipoDietaSugerida!);
       }
     }
-
     return dietas.toList();
   }
 
   String? _obtenerDuracionSugerida() {
-    // Priorizar duración del diagnóstico nutricional
     if (_diagnosticosNutricionalesSeleccionados.isNotEmpty) {
       final duracion = _diagnosticosNutricionalesSeleccionados.first.duracionSugerida;
       if (duracion != null && duracion.isNotEmpty) {
@@ -204,6 +196,59 @@ class _SelectorDiagnosticosWidgetState
       }
     }
     return null;
+  }
+
+  Future<void> _abrirCatalogoDiagnosticos() async {
+    final medicos = await _service.listarDiagnosticosMedicos();
+    final nutricionales = await _service.listarDiagnosticosNutricionales();
+    if (!mounted) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) {
+        return DefaultTabController(
+          length: 2,
+          child: SafeArea(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.82,
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Catálogo de enfermedades y diagnósticos',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const TabBar(
+                    tabs: [
+                      Tab(text: 'Médicos (CIE-11)'),
+                      Tab(text: 'Nutricionales'),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildTablaCatalogoMedico(medicos),
+                        _buildTablaCatalogoNutricional(nutricionales),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -215,16 +260,13 @@ class _SelectorDiagnosticosWidgetState
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Título
             Row(
               children: [
                 Icon(
@@ -235,25 +277,24 @@ class _SelectorDiagnosticosWidgetState
                 const SizedBox(width: 8),
                 Text(
                   'Diagnósticos',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Ver catálogo de enfermedades',
+                  onPressed: _abrirCatalogoDiagnosticos,
+                  icon: const Icon(Icons.search),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-
-            // ENTRADA A: Diagnóstico Médico (CIE-11)
             _buildEntradaMedica(),
-
             const SizedBox(height: 16),
-
-            // ENTRADA B: Diagnóstico Nutricional
             _buildEntradaNutricional(),
-
-            // Sugerencias de dieta (si hay diagnósticos seleccionados)
-            if (dietasSugeridas.isNotEmpty ||
-                duracionSugerida != null) ...[
+            if (dietasSugeridas.isNotEmpty || duracionSugerida != null) ...[
               const SizedBox(height: 16),
               const Divider(height: 1),
               const SizedBox(height: 12),
@@ -266,152 +307,69 @@ class _SelectorDiagnosticosWidgetState
   }
 
   Widget _buildEntradaMedica() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF9EC3E6).withOpacity(0.2),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'A',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Diagnóstico Médico (CIE-11)',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-
-        // Campo de búsqueda con lupa
-        TextField(
-          controller: _busquedaMedicoCtrl,
-          decoration: InputDecoration(
-            hintText: 'Buscar por código o nombre...',
-            hintStyle: TextStyle(fontSize: 13),
-            prefixIcon: Icon(Icons.search, size: 20),
-            suffixIcon: _buscandoMedico
-                ? const Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-                : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-            isDense: true,
-          ),
-          style: const TextStyle(fontSize: 13),
-          onChanged: _onMedicoChanged,
-        ),
-
-        // Resultados de búsqueda
-        if (_mostrarResultadosMedicos && _resultadosMedicos.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Container(
-            constraints: const BoxConstraints(maxHeight: 150),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white,
-            ),
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: _resultadosMedicos.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final dx = _resultadosMedicos[index];
-                return InkWell(
-                  onTap: () => _agregarDiagnosticoMedico(dx),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          dx.nombre,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'CIE-11: ${dx.codigoCie11}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-
-        // Chips de diagnósticos seleccionados
-        if (_diagnosticosMedicosSeleccionados.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: _diagnosticosMedicosSeleccionados.map((dx) {
-              return Chip(
-                avatar: CircleAvatar(
-                  backgroundColor: const Color(0xFF9EC3E6),
-                  child: const Icon(
-                    Icons.local_hospital,
-                    size: 14,
-                    color: Colors.white,
-                  ),
-                ),
-                label: Text(
-                  '${dx.codigoCie11} · ${dx.nombre}',
-                  style: const TextStyle(fontSize: 11),
-                ),
-                deleteIcon: const Icon(Icons.close, size: 16),
-                onDeleted: () => _removerDiagnosticoMedico(dx),
-                backgroundColor: const Color(0xFF9EC3E6).withOpacity(0.2),
-                side: BorderSide.none,
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              );
-            }).toList(),
-          ),
-        ],
-      ],
+    return _buildEntradaDiagnostico<DiagnosticoMedico>(
+      etiqueta: 'A',
+      titulo: 'Diagnóstico Médico (CIE-11)',
+      controller: _busquedaMedicoCtrl,
+      buscando: _buscandoMedico,
+      onChanged: _onMedicoChanged,
+      resultados: _resultadosMedicos,
+      mostrarResultados: _mostrarResultadosMedicos,
+      onTapResultado: _agregarDiagnosticoMedico,
+      titleBuilder: (dx) => dx.nombre,
+      subtitleBuilder: (dx) => 'CIE-11: ${dx.codigoCie11}',
+      chips: _diagnosticosMedicosSeleccionados,
+      chipLabelBuilder: (dx) => '${dx.codigoCie11} · ${dx.nombre}',
+      onDeleteChip: _removerDiagnosticoMedico,
+      chipColor: const Color(0xFF9EC3E6),
+      chipIcon: Icons.local_hospital,
+      hintText: 'Buscar por código o nombre...',
     );
   }
 
   Widget _buildEntradaNutricional() {
+    return _buildEntradaDiagnostico<DiagnosticoNutricional>(
+      etiqueta: 'B',
+      titulo: 'Diagnóstico Nutricional',
+      controller: _busquedaNutriCtrl,
+      buscando: _buscandoNutri,
+      onChanged: _onNutricionalChanged,
+      resultados: _resultadosNutri,
+      mostrarResultados: _mostrarResultadosNutri,
+      onTapResultado: _agregarDiagnosticoNutricional,
+      titleBuilder: (dx) => dx.nombre,
+      subtitleBuilder: (dx) {
+        final dieta = dx.tipoDietaSugerida;
+        if (dieta == null || dieta.isEmpty) return 'Código: ${dx.codigo}';
+        return 'Código: ${dx.codigo} • ${_formatearNombreDieta(dieta)}';
+      },
+      chips: _diagnosticosNutricionalesSeleccionados,
+      chipLabelBuilder: (dx) => dx.codigo,
+      onDeleteChip: _removerDiagnosticoNutricional,
+      chipColor: const Color(0xFFF5E66B),
+      chipIcon: Icons.restaurant,
+      hintText: 'Buscar diagnóstico nutricional...',
+    );
+  }
+
+  Widget _buildEntradaDiagnostico<T>({
+    required String etiqueta,
+    required String titulo,
+    required TextEditingController controller,
+    required bool buscando,
+    required ValueChanged<String> onChanged,
+    required List<T> resultados,
+    required bool mostrarResultados,
+    required void Function(T item) onTapResultado,
+    required String Function(T item) titleBuilder,
+    required String Function(T item) subtitleBuilder,
+    required List<T> chips,
+    required String Function(T item) chipLabelBuilder,
+    required void Function(T item) onDeleteChip,
+    required Color chipColor,
+    required IconData chipIcon,
+    required String hintText,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -420,36 +378,32 @@ class _SelectorDiagnosticosWidgetState
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: const Color(0xFFF5E66B).withOpacity(0.3),
+                color: chipColor.withOpacity(0.25),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text(
-                'B',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
+              child: Text(
+                etiqueta,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
             const SizedBox(width: 8),
             Text(
-              'Diagnóstico Nutricional',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+              titulo,
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w600),
             ),
           ],
         ),
         const SizedBox(height: 8),
-
-        // Campo de búsqueda con lupa
         TextField(
-          controller: _busquedaNutriCtrl,
+          controller: controller,
           decoration: InputDecoration(
-            hintText: 'Buscar diagnóstico nutricional...',
+            hintText: hintText,
             hintStyle: const TextStyle(fontSize: 13),
             prefixIcon: const Icon(Icons.search, size: 20),
-            suffixIcon: _buscandoNutri
+            suffixIcon: buscando
                 ? const Padding(
               padding: EdgeInsets.all(12),
               child: SizedBox(
@@ -459,21 +413,14 @@ class _SelectorDiagnosticosWidgetState
               ),
             )
                 : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             isDense: true,
           ),
           style: const TextStyle(fontSize: 13),
-          onChanged: _onNutricionalChanged,
+          onChanged: onChanged,
         ),
-
-        // Resultados de búsqueda
-        if (_mostrarResultadosNutri && _resultadosNutri.isNotEmpty) ...[
+        if (mostrarResultados && resultados.isNotEmpty) ...[
           const SizedBox(height: 4),
           Container(
             constraints: const BoxConstraints(maxHeight: 150),
@@ -484,55 +431,27 @@ class _SelectorDiagnosticosWidgetState
             ),
             child: ListView.separated(
               shrinkWrap: true,
-              itemCount: _resultadosNutri.length,
+              itemCount: resultados.length,
               separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final dx = _resultadosNutri[index];
+              itemBuilder: (_, index) {
+                final item = resultados[index];
                 return InkWell(
-                  onTap: () => _agregarDiagnosticoNutricional(dx),
+                  onTap: () => onTapResultado(item),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          dx.nombre,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          titleBuilder(item),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Text(
-                              'Código: ${dx.codigo}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            if (dx.tipoDietaSugerida != null) ...[
-                              const SizedBox(width: 8),
-                              const Text('•', style: TextStyle(fontSize: 11)),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  dx.tipoDietaSugerida!,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.orange[700],
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ],
+                        Text(
+                          subtitleBuilder(item),
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -542,30 +461,21 @@ class _SelectorDiagnosticosWidgetState
             ),
           ),
         ],
-
-        // Chips de diagnósticos nutricionales seleccionados
-        if (_diagnosticosNutricionalesSeleccionados.isNotEmpty) ...[
+        if (chips.isNotEmpty) ...[
           const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: _diagnosticosNutricionalesSeleccionados.map((dx) {
+            children: chips.map((dx) {
               return Chip(
                 avatar: CircleAvatar(
-                  backgroundColor: const Color(0xFFF5E66B),
-                  child: const Icon(
-                    Icons.restaurant,
-                    size: 14,
-                    color: Colors.black87,
-                  ),
+                  backgroundColor: chipColor,
+                  child: Icon(chipIcon, size: 14, color: Colors.black87),
                 ),
-                label: Text(
-                  dx.codigo,
-                  style: const TextStyle(fontSize: 11),
-                ),
+                label: Text(chipLabelBuilder(dx), style: const TextStyle(fontSize: 11)),
                 deleteIcon: const Icon(Icons.close, size: 16),
-                onDeleted: () => _removerDiagnosticoNutricional(dx),
-                backgroundColor: const Color(0xFFF5E66B).withOpacity(0.2),
+                onDeleted: () => onDeleteChip(dx),
+                backgroundColor: chipColor.withOpacity(0.2),
                 side: BorderSide.none,
                 visualDensity: VisualDensity.compact,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -578,20 +488,70 @@ class _SelectorDiagnosticosWidgetState
     );
   }
 
-  Widget _buildSugerenciasDieta(
-      List<String> dietasSugeridas,
-      String? duracionSugerida,
-      ) {
+  Widget _buildTablaCatalogoMedico(List<DiagnosticoMedico> medicos) {
+    if (medicos.isEmpty) {
+      return const Center(child: Text('Sin diagnósticos médicos disponibles'));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: medicos.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final dx = medicos[i];
+        return Card(
+          child: ListTile(
+            dense: true,
+            title: Text('${dx.codigoCie11} · ${dx.nombre}'),
+            subtitle: Text(
+              [
+                if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
+                if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
+                if (dx.dietasSugeridas.isNotEmpty)
+                  'Dietas: ${dx.dietasSugeridas.map(_formatearNombreDieta).join(', ')}',
+              ].join(' · '),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTablaCatalogoNutricional(List<DiagnosticoNutricional> nutricionales) {
+    if (nutricionales.isEmpty) {
+      return const Center(child: Text('Sin diagnósticos nutricionales disponibles'));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: nutricionales.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final dx = nutricionales[i];
+        return Card(
+          child: ListTile(
+            dense: true,
+            title: Text('${dx.codigo} · ${dx.nombre}'),
+            subtitle: Text(
+              [
+                if (dx.descripcion != null && dx.descripcion!.isNotEmpty) dx.descripcion!,
+                if (dx.tipoDietaSugerida != null && dx.tipoDietaSugerida!.isNotEmpty)
+                  'Dieta: ${_formatearNombreDieta(dx.tipoDietaSugerida!)}',
+                if (dx.duracionSugerida != null && dx.duracionSugerida!.isNotEmpty)
+                  'Duración: ${_formatearDuracion(dx.duracionSugerida!)}',
+              ].join(' · '),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSugerenciasDieta(List<String> dietasSugeridas, String? duracionSugerida) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(
-              Icons.lightbulb_outline,
-              size: 18,
-              color: Colors.orange[700],
-            ),
+            Icon(Icons.lightbulb_outline, size: 18, color: Colors.orange[700]),
             const SizedBox(width: 6),
             Text(
               'Sugerencias Automáticas',
@@ -603,66 +563,36 @@ class _SelectorDiagnosticosWidgetState
           ],
         ),
         const SizedBox(height: 8),
-
-        // Dietas sugeridas
-        if (dietasSugeridas.isNotEmpty) ...[
+        if (dietasSugeridas.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: Colors.orange.withOpacity(0.05),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Colors.orange.withOpacity(0.3),
-              ),
+              border: Border.all(color: Colors.orange.withOpacity(0.3)),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.restaurant_menu, size: 14, color: Colors.orange[700]),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Tipos de dieta recomendados:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.orange[800],
-                      ),
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: dietasSugeridas.map((dieta) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[100],
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _formatearNombreDieta(dieta),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.orange[900],
+                      fontWeight: FontWeight.w500,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  children: dietasSugeridas.map((dieta) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.orange[100],
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _formatearNombreDieta(dieta),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.orange[900],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
+                  ),
+                );
+              }).toList(),
             ),
           ),
-        ],
-
-        // Duración sugerida
         if (duracionSugerida != null) ...[
           const SizedBox(height: 8),
           Container(
@@ -670,30 +600,15 @@ class _SelectorDiagnosticosWidgetState
             decoration: BoxDecoration(
               color: Colors.blue.withOpacity(0.05),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Colors.blue.withOpacity(0.3),
-              ),
+              border: Border.all(color: Colors.blue.withOpacity(0.3)),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.schedule, size: 16, color: Colors.blue[700]),
-                const SizedBox(width: 8),
-                Text(
-                  'Duración sugerida: ',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.blue[800],
-                  ),
-                ),
-                Text(
-                  _formatearDuracion(duracionSugerida),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.blue[900],
-                  ),
-                ),
-              ],
+            child: Text(
+              'Duración sugerida: ${_formatearDuracion(duracionSugerida)}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.blue[800],
+              ),
             ),
           ),
         ],
@@ -705,15 +620,11 @@ class _SelectorDiagnosticosWidgetState
     return dieta
         .replaceAll('_', ' ')
         .split(' ')
-        .map((word) => word.isEmpty
-        ? word
-        : word[0].toUpperCase() + word.substring(1))
+        .map((word) => word.isEmpty ? word : word[0].toUpperCase() + word.substring(1))
         .join(' ');
   }
 
   String _formatearDuracion(String duracion) {
-    return duracion
-        .replaceAll('_', ' ')
-        .replaceAll('-', ' a ');
+    return duracion.replaceAll('_', ' ').replaceAll('-', ' a ');
   }
 }

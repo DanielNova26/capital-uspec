@@ -74,9 +74,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   DateTime _fechaInicioDieta = DateTime.now();
   DateTime? _fechaReevaluacion;
   String? _periodoSeleccionado;
-  String? _dietaSeleccionada;
+  final List<String> _dietasSeleccionadas = [];
   List<String> _dietasSugeridasActuales = [];
   bool _agendandoCita = false;
+  final ScrollController _evaluacionScrollCtrl = ScrollController();
+  final GlobalKey _diagnosticosSectionKey = GlobalKey();
 
   @override
   void initState() {
@@ -129,6 +131,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     _observacionesCtrl.dispose();
     _inicioDietaCtrl.dispose();
     _fechaReevaluacionCtrl.dispose();
+    _evaluacionScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -184,11 +187,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       }
       _dietasSugeridasActuales = dietas.toList();
 
-      // Si hay dietas sugeridas y no se ha seleccionado ninguna, auto-seleccionar la primera
-      if (_dietasSugeridasActuales.isNotEmpty && _dietaSeleccionada == null) {
-        _dietaSeleccionada = _dietasSugeridasActuales.first;
-        _tipoDietaCtrl.text = _formatearNombreDieta(_dietaSeleccionada!);
-      }
+      _dietasSeleccionadas.removeWhere(
+            (dieta) => !_dietasSugeridasActuales.contains(dieta),
+      );
+      _tipoDietaCtrl.text = _dietasSeleccionadas
+          .map(_formatearNombreDieta)
+          .join(', ');
     });
   }
 
@@ -227,6 +231,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             DateFormat('dd/MM/yyyy').format(_fechaReevaluacion!);
       }
     });
+  }
+
+  void _irASeccionDiagnosticos() {
+    final contextDiagnosticos = _diagnosticosSectionKey.currentContext;
+    if (contextDiagnosticos == null) return;
+
+    Scrollable.ensureVisible(
+      contextDiagnosticos,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+      alignment: 0.06,
+    );
   }
 
   Future<void> _pickFechaInicioDieta() async {
@@ -783,7 +799,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                               _diagnosticoMedicoCtrl.clear();
                               _diagnosticoNutriCtrl.clear();
                               _dietasSugeridasActuales = [];
-                              _dietaSeleccionada = null;
+                              _dietasSeleccionadas.clear();
                               _fechaReevaluacion = null;
                               _periodoSeleccionado = null;
                               _fechaInicioDieta = DateTime.now();
@@ -939,6 +955,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     final theme = Theme.of(context);
 
     return SingleChildScrollView(
+      controller: _evaluacionScrollCtrl,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1009,22 +1026,19 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               );
             },
             onRegistrarDiagnostico: () {
-              NutricionAtencionActions.registrarValoracion(
-                context,
-                empresaId: widget.empresaId,
-                pacienteId: _selectedPaciente?.id,
-                pacienteNombre: _selectedPaciente?.nombre,
-                pacienteDocumento: _selectedPaciente?.documento,
-              );
+              _irASeccionDiagnosticos();
             },
           ),
 
           const SizedBox(height: 16),
 
           // --- SECCION 2: Diagnosticos medico y nutricional ---
-          SelectorDiagnosticosWidget(
-            empresaId: widget.empresaId,
-            onDiagnosticosChanged: _onDiagnosticosChanged,
+          Container(
+            key: _diagnosticosSectionKey,
+            child: SelectorDiagnosticosWidget(
+              empresaId: widget.empresaId,
+              onDiagnosticosChanged: _onDiagnosticosChanged,
+            ),
           ),
 
           const SizedBox(height: 16),
@@ -1153,8 +1167,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                 spacing: 8,
                 runSpacing: 8,
                 children: _dietasSugeridasActuales.map((dieta) {
-                  final isSelected = _dietaSeleccionada == dieta;
-                  return ChoiceChip(
+                  final isSelected = _dietasSeleccionadas.contains(dieta);
+                  return FilterChip(
                     label: Text(
                       _formatearNombreDieta(dieta),
                       style: TextStyle(
@@ -1177,16 +1191,20 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                         : null,
                     onSelected: (selected) {
                       setState(() {
-                        _dietaSeleccionada = selected ? dieta : null;
-                        _tipoDietaCtrl.text = selected
-                            ? _formatearNombreDieta(dieta)
-                            : '';
+                        if (selected) {
+                          _dietasSeleccionadas.add(dieta);
+                        } else {
+                          _dietasSeleccionadas.remove(dieta);
+                        }
+                        _tipoDietaCtrl.text = _dietasSeleccionadas
+                            .map(_formatearNombreDieta)
+                            .join(', ');
                       });
                     },
                   );
                 }).toList(),
               ),
-              if (_dietaSeleccionada != null) ...[
+              if (_dietasSeleccionadas.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Container(
                   padding:
@@ -1203,7 +1221,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Dieta seleccionada: ${_formatearNombreDieta(_dietaSeleccionada!)}',
+                          'Dietas seleccionadas: ${_dietasSeleccionadas.map(_formatearNombreDieta).join(', ')}',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,

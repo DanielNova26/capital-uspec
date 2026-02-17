@@ -257,6 +257,23 @@ class DiagnosticosService {
     return resultados;
   }
 
+
+
+  /// Lista completa de diagnósticos médicos disponibles.
+  Future<List<DiagnosticoMedico>> listarDiagnosticosMedicos() async {
+    await _ensureCacheLoaded();
+    final lista = List<DiagnosticoMedico>.from(_cacheMedicos ?? const []);
+    lista.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+    return lista;
+  }
+
+  /// Lista completa de diagnósticos nutricionales disponibles.
+  Future<List<DiagnosticoNutricional>> listarDiagnosticosNutricionales() async {
+    await _ensureCacheLoaded();
+    final lista = List<DiagnosticoNutricional>.from(_cacheNutricionales ?? const []);
+    lista.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+    return lista;
+  }
   /// Obtiene un diagnóstico médico por código CIE-11
   Future<DiagnosticoMedico?> obtenerDiagnosticoMedico(String codigoCie11) async {
     await _ensureCacheLoaded();
