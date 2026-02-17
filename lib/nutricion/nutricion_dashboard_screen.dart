@@ -8,10 +8,11 @@ import 'menus/nutricion_menus_screen.dart';
 import 'reportes/nutricion_reportes_screen.dart';
 
 import '../services/nutricion_service.dart';
+import '../services/citas_nutricion_service.dart';
 import '../widgets/evaluacion_nutricional_widget.dart';
 import '../widgets/skeleton_loader.dart';
 
-// ✅ NUEVO: Imports para selector de diagnósticos
+// Imports para selector de diagnósticos
 import 'package:todo/widgets/selector_diagnosticos_widget.dart';
 import 'atencion/diagnostico_models.dart';
 import '../services/diagnosticos_service.dart';
@@ -65,15 +66,25 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   final TextEditingController _inicioDietaCtrl = TextEditingController();
   final TextEditingController _fechaReevaluacionCtrl = TextEditingController();
 
-  // ✅ NUEVO: Estado para diagnósticos seleccionados
+  // Estado para diagnósticos seleccionados
   List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados = [];
   List<DiagnosticoNutricional> _diagnosticosNutricionalesSeleccionados = [];
+
+  // Estado para fechas y dietas
+  DateTime _fechaInicioDieta = DateTime.now();
+  DateTime? _fechaReevaluacion;
+  String? _periodoSeleccionado;
+  String? _dietaSeleccionada;
+  List<String> _dietasSugeridasActuales = [];
+  bool _agendandoCita = false;
 
   @override
   void initState() {
     super.initState();
     _selectedEstablecimiento = _establecimientos.first;
     _initPacientesStream();
+    // Auto-seleccionar fecha de hoy para inicio de dieta
+    _inicioDietaCtrl.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
   }
 
   void _initPacientesStream() {
@@ -148,7 +159,6 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     });
   }
 
-  // ✅ NUEVO: Callback para recibir diagnósticos seleccionados
   void _onDiagnosticosChanged(
       List<DiagnosticoMedico> medicos,
       List<DiagnosticoNutricional> nutricionales,
@@ -157,19 +167,196 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       _diagnosticosMedicosSeleccionados = medicos;
       _diagnosticosNutricionalesSeleccionados = nutricionales;
 
-      // (Opcional) Sincroniza los textfields existentes con la selección (si quieres)
-      // - toma el primero, porque tu servicio guarda el primero como "principal"
       _diagnosticoMedicoCtrl.text =
       medicos.isNotEmpty ? '${medicos.first.codigoCie11} - ${medicos.first.nombre}' : '';
       _diagnosticoNutriCtrl.text =
       nutricionales.isNotEmpty ? '${nutricionales.first.codigo} - ${nutricionales.first.nombre}' : '';
-    });
 
-    // Debug: Ver qué se seleccionó
-    // ignore: avoid_print
-    print('Diagnósticos médicos: ${medicos.length}');
-    // ignore: avoid_print
-    print('Diagnósticos nutricionales: ${nutricionales.length}');
+      // Extraer dietas sugeridas de los diagnósticos seleccionados
+      final Set<String> dietas = {};
+      for (final dx in medicos) {
+        dietas.addAll(dx.dietasSugeridas);
+      }
+      for (final dx in nutricionales) {
+        if (dx.tipoDietaSugerida != null && dx.tipoDietaSugerida!.isNotEmpty) {
+          dietas.add(dx.tipoDietaSugerida!);
+        }
+      }
+      _dietasSugeridasActuales = dietas.toList();
+
+      // Si hay dietas sugeridas y no se ha seleccionado ninguna, auto-seleccionar la primera
+      if (_dietasSugeridasActuales.isNotEmpty && _dietaSeleccionada == null) {
+        _dietaSeleccionada = _dietasSugeridasActuales.first;
+        _tipoDietaCtrl.text = _formatearNombreDieta(_dietaSeleccionada!);
+      }
+    });
+  }
+
+  String _formatearNombreDieta(String dieta) {
+    return dieta
+        .replaceAll('_', ' ')
+        .split(' ')
+        .map((word) => word.isEmpty ? word : word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+  }
+
+  void _seleccionarPeriodo(String? periodo) {
+    if (periodo == null) return;
+    setState(() {
+      _periodoSeleccionado = periodo;
+      final now = DateTime.now();
+      switch (periodo) {
+        case '1 mes':
+          _fechaReevaluacion = DateTime(now.year, now.month + 1, now.day);
+          break;
+        case '2 meses':
+          _fechaReevaluacion = DateTime(now.year, now.month + 2, now.day);
+          break;
+        case '3 meses':
+          _fechaReevaluacion = DateTime(now.year, now.month + 3, now.day);
+          break;
+        case '6 meses':
+          _fechaReevaluacion = DateTime(now.year, now.month + 6, now.day);
+          break;
+        case '1 a\u00f1o':
+          _fechaReevaluacion = DateTime(now.year + 1, now.month, now.day);
+          break;
+      }
+      if (_fechaReevaluacion != null) {
+        _fechaReevaluacionCtrl.text =
+            DateFormat('dd/MM/yyyy').format(_fechaReevaluacion!);
+      }
+    });
+  }
+
+  Future<void> _pickFechaInicioDieta() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _fechaInicioDieta,
+      firstDate: DateTime.now().subtract(const Duration(days: 7)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      locale: const Locale('es', 'CO'),
+    );
+    if (picked == null) return;
+    setState(() {
+      _fechaInicioDieta = picked;
+      _inicioDietaCtrl.text = DateFormat('dd/MM/yyyy').format(picked);
+    });
+  }
+
+  Future<void> _pickFechaReevaluacion() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _fechaReevaluacion ?? DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 730)),
+      locale: const Locale('es', 'CO'),
+    );
+    if (picked == null) return;
+    setState(() {
+      _fechaReevaluacion = picked;
+      _fechaReevaluacionCtrl.text = DateFormat('dd/MM/yyyy').format(picked);
+      _periodoSeleccionado = null; // Limpiar periodo si se elige manual
+    });
+  }
+
+  Future<void> _agendarReevaluacion() async {
+    if (_fechaReevaluacion == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Selecciona una fecha de reevaluaci\u00f3n'),
+            ],
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+
+    final nombre = _nombreCompletoCtrl.text.trim();
+    if (nombre.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.warning, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Ingresa el nombre del paciente'),
+            ],
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _agendandoCita = true);
+
+    try {
+      final citasService = CitasNutricionService();
+      await citasService.agendarReevaluacion(
+        empresaId: widget.empresaId,
+        pacienteId: _selectedPaciente?.id ?? _documentoCtrl.text.trim(),
+        pacienteNombre: nombre,
+        pacienteDocumento: _documentoCtrl.text.trim(),
+        userId: widget.userId,
+        userNombre: nombre,
+        fechaReevaluacion: _fechaReevaluacion!,
+        fechaInicioDieta: _fechaInicioDieta,
+        tipoDieta: _tipoDietaCtrl.text.trim(),
+        diagnosticoMedico: _diagnosticoMedicoCtrl.text.trim(),
+        diagnosticoNutricional: _diagnosticoNutriCtrl.text.trim(),
+        observaciones: _observacionesCtrl.text.trim(),
+        periodoSeleccionado: _periodoSeleccionado,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.event_available, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Reevaluaci\u00f3n agendada para el ${DateFormat('dd/MM/yyyy').format(_fechaReevaluacion!)}',
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Error al agendar: $e')),
+            ],
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _agendandoCita = false);
+    }
   }
 
   @override
@@ -468,7 +655,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   }
 
   Widget _buildWorkflowTabs({required bool isCompact}) {
-    final double viewHeight = isCompact ? 600 : 500;
+    final double viewHeight = isCompact ? 720 : 650;
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -591,11 +778,17 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                               _pacienteGuardado = false;
                               _evidenciaCargada = false;
 
-                              // ✅ NUEVO: limpia diagnósticos al cancelar
                               _diagnosticosMedicosSeleccionados = [];
                               _diagnosticosNutricionalesSeleccionados = [];
                               _diagnosticoMedicoCtrl.clear();
                               _diagnosticoNutriCtrl.clear();
+                              _dietasSugeridasActuales = [];
+                              _dietaSeleccionada = null;
+                              _fechaReevaluacion = null;
+                              _periodoSeleccionado = null;
+                              _fechaInicioDieta = DateTime.now();
+                              _inicioDietaCtrl.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
+                              _fechaReevaluacionCtrl.clear();
                             }),
                             icon: const Icon(Icons.close),
                             label: const Text('Cancelar'),
@@ -742,14 +935,15 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     );
   }
 
-  // ✅ MODIFICADO: integra SelectorDiagnosticosWidget en la pestaña Evaluación
   Widget _buildEvaluacionTabContent(bool isCompact) {
+    final theme = Theme.of(context);
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Widget de evaluación nutricional DINÁMICA con validaciones
+          // --- SECCION 1: Mediciones antropometricas ---
           EvaluacionNutricionalWidget(
             pacienteId: _selectedPaciente?.id,
             pacienteNombre: _selectedPaciente?.nombre,
@@ -773,7 +967,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                         children: [
                           Icon(Icons.check_circle, color: Colors.white),
                           SizedBox(width: 8),
-                          Text('Medición guardada correctamente'),
+                          Text('Medici\u00f3n guardada correctamente'),
                         ],
                       ),
                       backgroundColor: Colors.green,
@@ -795,7 +989,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                           Expanded(child: Text('Error al guardar: $e')),
                         ],
                       ),
-                      backgroundColor: Theme.of(context).colorScheme.error,
+                      backgroundColor: theme.colorScheme.error,
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
@@ -827,7 +1021,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
           const SizedBox(height: 16),
 
-          // ✅ NUEVO: Selector de diagnósticos con chips
+          // --- SECCION 2: Diagnosticos medico y nutricional ---
           SelectorDiagnosticosWidget(
             empresaId: widget.empresaId,
             onDiagnosticosChanged: _onDiagnosticosChanged,
@@ -835,27 +1029,409 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
           const SizedBox(height: 16),
 
-          // Sección de la ficha de evaluación (datos clínicos adicionales)
+          // --- SECCION 3: Dietas sugeridas (seleccionables) ---
+          _buildDietasSugeridasCard(),
+
+          const SizedBox(height: 16),
+
+          // --- SECCION 4: Fechas y agendamiento ---
+          _buildFechasYAgendamientoCard(),
+
+          const SizedBox(height: 16),
+
+          // --- SECCION 5: Ficha de evaluacion (datos basicos + clinicos) ---
           _buildEvaluacionDashboard(),
 
           const SizedBox(height: 16),
 
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: _guardarEnDirectorio,
-              icon: const Icon(Icons.save_alt),
-              label: const Text('Guardar en directorio'),
-              style: FilledButton.styleFrom(
-                padding:
-                const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          // --- Botones de accion ---
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _guardarEnDirectorio,
+                  icon: const Icon(Icons.save_alt),
+                  label: const Text('Guardar en directorio'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _agendandoCita ? null : _agendarReevaluacion,
+                  icon: _agendandoCita
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.event_available),
+                  label: Text(_agendandoCita ? 'Agendando...' : 'Agendar cita'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: Colors.teal,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Card de dietas sugeridas - seleccionables desde TBL_DIAGNOSTICOS_MEDICOS
+  Widget _buildDietasSugeridasCard() {
+    final theme = Theme.of(context);
+    final hasDietas = _dietasSugeridasActuales.isNotEmpty;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: hasDietas
+              ? Colors.orange.withOpacity(0.4)
+              : theme.colorScheme.outlineVariant,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.restaurant_menu,
+                      color: Colors.orange[700], size: 20),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Dietas sugeridas',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        hasDietas
+                            ? 'Basadas en diagn\u00f3sticos seleccionados'
+                            : 'Selecciona diagn\u00f3sticos para ver sugerencias',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (hasDietas) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _dietasSugeridasActuales.map((dieta) {
+                  final isSelected = _dietaSeleccionada == dieta;
+                  return ChoiceChip(
+                    label: Text(
+                      _formatearNombreDieta(dieta),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: isSelected ? Colors.white : Colors.orange[900],
+                      ),
+                    ),
+                    selected: isSelected,
+                    selectedColor: Colors.orange[700],
+                    backgroundColor: Colors.orange[50],
+                    side: BorderSide(
+                      color: isSelected
+                          ? Colors.orange[700]!
+                          : Colors.orange.withOpacity(0.3),
+                    ),
+                    avatar: isSelected
+                        ? const Icon(Icons.check, size: 16, color: Colors.white)
+                        : null,
+                    onSelected: (selected) {
+                      setState(() {
+                        _dietaSeleccionada = selected ? dieta : null;
+                        _tipoDietaCtrl.text = selected
+                            ? _formatearNombreDieta(dieta)
+                            : '';
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+              if (_dietaSeleccionada != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle,
+                          size: 16, color: Colors.green[700]),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Dieta seleccionada: ${_formatearNombreDieta(_dietaSeleccionada!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.green[800],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ] else ...[
+              const SizedBox(height: 12),
+              // Campo manual si no hay sugerencias
+              TextField(
+                controller: _tipoDietaCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Tipo de dieta (manual)',
+                  hintText: 'Ej: Hipocal\u00f3rica, hipos\u00f3dica...',
+                  prefixIcon: const Icon(Icons.edit, size: 18),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  isDense: true,
+                ),
+                style: const TextStyle(fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Card de fechas y agendamiento con seleccion de periodo
+  Widget _buildFechasYAgendamientoCard() {
+    final theme = Theme.of(context);
+    const periodos = ['1 mes', '2 meses', '3 meses', '6 meses', '1 a\u00f1o'];
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.teal.withOpacity(0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.calendar_month,
+                      color: Colors.teal, size: 20),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Fechas y agendamiento',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'La cita ir\u00e1 al calendario del Home',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // Fecha inicio de dieta (auto hoy)
+            GestureDetector(
+              onTap: _pickFechaInicioDieta,
+              child: AbsorbPointer(
+                child: TextField(
+                  controller: _inicioDietaCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Fecha inicio de dieta',
+                    prefixIcon: const Icon(Icons.today, size: 20),
+                    suffixIcon: const Icon(Icons.calendar_today, size: 18),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.teal.withOpacity(0.04),
+                  ),
+                  style: const TextStyle(fontSize: 13),
                 ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 14),
+
+            // Seleccion rapida de periodo
+            Text(
+              'Pr\u00f3xima evaluaci\u00f3n en:',
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: periodos.map((periodo) {
+                final isSelected = _periodoSeleccionado == periodo;
+                return ChoiceChip(
+                  label: Text(
+                    periodo,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight:
+                          isSelected ? FontWeight.bold : FontWeight.normal,
+                      color: isSelected ? Colors.white : Colors.teal[800],
+                    ),
+                  ),
+                  selected: isSelected,
+                  selectedColor: Colors.teal,
+                  backgroundColor: Colors.teal[50],
+                  side: BorderSide(
+                    color: isSelected
+                        ? Colors.teal
+                        : Colors.teal.withOpacity(0.3),
+                  ),
+                  onSelected: (_) => _seleccionarPeriodo(periodo),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 14),
+
+            // Fecha reevaluacion (calculada o manual)
+            GestureDetector(
+              onTap: _pickFechaReevaluacion,
+              child: AbsorbPointer(
+                child: TextField(
+                  controller: _fechaReevaluacionCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Fecha tentativa de reevaluaci\u00f3n',
+                    prefixIcon: const Icon(Icons.event, size: 20),
+                    suffixIcon: const Icon(Icons.edit_calendar, size: 18),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    isDense: true,
+                    filled: true,
+                    fillColor: Colors.teal.withOpacity(0.04),
+                    helperText: _fechaReevaluacion != null
+                        ? 'Faltan ${_fechaReevaluacion!.difference(DateTime.now()).inDays} d\u00edas'
+                        : 'Selecciona periodo o elige manualmente',
+                    helperStyle: TextStyle(
+                      fontSize: 11,
+                      color: _fechaReevaluacion != null
+                          ? Colors.teal[700]
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  style: const TextStyle(fontSize: 13),
+                ),
+              ),
+            ),
+
+            if (_fechaReevaluacion != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.teal.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.notifications_active,
+                        size: 18, color: Colors.teal),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Se enviar\u00e1 notificaci\u00f3n de agendamiento',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.teal[800],
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Y recordatorio cuando llegue la fecha de reevaluaci\u00f3n',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.teal[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

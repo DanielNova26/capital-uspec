@@ -502,55 +502,51 @@ class _EvaluacionNutricionalWidgetState
         ),
         const SizedBox(height: 6),
 
-        // Botones secundarios (más compactos)
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: widget.onRegistrarHistoria,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.medical_information, size: 18),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Historia',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                  ],
-                ),
+        // Botón secundario: Historia clínica
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: widget.onRegistrarHistoria,
+            icon: const Icon(Icons.medical_information, size: 18),
+            label: const Text('Registrar historia cl\u00ednica'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
             ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: OutlinedButton(
-                onPressed: widget.onRegistrarDiagnostico,
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        const SizedBox(height: 6),
+        // Enlace visual al apartado de diagnósticos (debajo)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF9EC3E6).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF9EC3E6).withOpacity(0.3)),
+          ),
+          child: InkWell(
+            onTap: widget.onRegistrarDiagnostico,
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              children: [
+                Icon(Icons.arrow_downward, size: 16, color: const Color(0xFF9EC3E6)),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'Ir a Diagn\u00f3sticos m\u00e9dicos y nutricionales',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF5A8DB5),
+                    ),
                   ),
                 ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.assignment, size: 18),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Diagnóstico',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
+                const Icon(Icons.keyboard_arrow_down, size: 18, color: Color(0xFF9EC3E6)),
+              ],
             ),
-          ],
+          ),
         ),
       ],
     );

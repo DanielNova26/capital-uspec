@@ -923,6 +923,11 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'task_finalizado':
         return 'Tarea finalizada';
 
+      case 'cita_nutricion_agendada':
+        return 'Cita nutricional agendada';
+      case 'cita_nutricion_recordatorio':
+        return 'Recordatorio nutricional';
+
       default:
         return type.isEmpty ? '' : raw;
     }
@@ -1111,6 +1116,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   Color _calendarMarkerColor(List<Map<String, dynamic>> events) {
+    if (events.any((e) => (e['estado'] ?? '') == 'cita_nutricion')) {
+      return Colors.teal.shade600;
+    }
     if (events.any((e) => (e['estado'] ?? '') == 'retrasada')) {
       return Colors.red.shade600;
     }
@@ -1121,6 +1129,48 @@ class _HomeScreenState extends State<HomeScreen> {
       return Colors.orange.shade700;
     }
     return Colors.green.shade600;
+  }
+
+  void _loadCitasNutricion(
+    String userId,
+    String empresaId,
+    Map<String, List<Map<String, dynamic>>> map,
+  ) {
+    // Cargar citas asincronamente y actualizar el mapa de eventos
+    FirebaseFirestore.instance
+        .collection('TBL_CITAS_NUTRICION')
+        .where('userId', isEqualTo: userId)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('estado', isEqualTo: 'agendada')
+        .get()
+        .then((snap) {
+      if (!mounted) return;
+      bool changed = false;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final ts = data['fechaReevaluacion'];
+        DateTime? fecha;
+        if (ts is Timestamp) fecha = ts.toDate();
+        if (fecha == null) continue;
+
+        final k = DateFormat('yyyy-MM-dd').format(fecha);
+        final paciente = (data['pacienteNombre'] ?? '').toString();
+        final dieta = (data['tipoDieta'] ?? '').toString();
+        (map[k] ??= []).add({
+          'title': 'Reevaluaci\u00f3n: $paciente',
+          'description': dieta.isNotEmpty
+              ? 'Cita nutricional \u2022 Dieta: $dieta'
+              : 'Cita de reevaluaci\u00f3n nutricional',
+          'estado': 'cita_nutricion',
+        });
+        changed = true;
+      }
+      if (changed) {
+        setState(() {
+          _events = map;
+        });
+      }
+    }).catchError((_) {});
   }
 
   @override
@@ -1261,7 +1311,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         addEvt(
                           due,
                           _titleOf(m),
-                          'Yo entrego • Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "—"}',
+                          'Yo entrego \u2022 Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "\u2014"}',
                           _estadoOf(m),
                         );
                       }
@@ -1273,11 +1323,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         addEvt(
                           due,
                           _titleOf(m),
-                          'Me entregan • Entrega: ${_assignedNameOf(m).isNotEmpty ? _assignedNameOf(m) : "—"}',
+                          'Me entregan \u2022 Entrega: ${_assignedNameOf(m).isNotEmpty ? _assignedNameOf(m) : "\u2014"}',
                           _estadoOf(m),
                         );
                       }
                     }
+
+                    // Cargar citas de nutrici\u00f3n para el calendario
+                    _loadCitasNutricion(effectiveId, empresaId, map);
+
                     _events = map;
 
                     return Scaffold(
