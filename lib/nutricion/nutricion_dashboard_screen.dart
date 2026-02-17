@@ -61,10 +61,14 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   final TextEditingController _diagnosticoNutriCtrl = TextEditingController();
   final TextEditingController _tipoDietaCtrl = TextEditingController();
   final TextEditingController _duracionCtrl = TextEditingController();
-  final TextEditingController _controlCtrl = TextEditingController();
   final TextEditingController _observacionesCtrl = TextEditingController();
   final TextEditingController _inicioDietaCtrl = TextEditingController();
   final TextEditingController _fechaReevaluacionCtrl = TextEditingController();
+  static const List<String> _regimenAfiliacionOpciones = [
+    'Subsidiado',
+    'Contributivo',
+    'Especial',
+  ];
 
   // Estado para diagnósticos seleccionados
   List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados = [];
@@ -127,7 +131,6 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     _diagnosticoNutriCtrl.dispose();
     _tipoDietaCtrl.dispose();
     _duracionCtrl.dispose();
-    _controlCtrl.dispose();
     _observacionesCtrl.dispose();
     _inicioDietaCtrl.dispose();
     _fechaReevaluacionCtrl.dispose();
@@ -230,7 +233,14 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         _fechaReevaluacionCtrl.text =
             DateFormat('dd/MM/yyyy').format(_fechaReevaluacion!);
       }
+      _duracionCtrl.text = periodo;
     });
+  }
+
+  Future<void> _guardarYAgendarCita() async {
+    final guardadoOk = await _guardarEnDirectorio();
+    if (!guardadoOk || !mounted) return;
+    await _agendarReevaluacion();
   }
 
   void _irASeccionDiagnosticos() {
@@ -273,6 +283,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       _fechaReevaluacion = picked;
       _fechaReevaluacionCtrl.text = DateFormat('dd/MM/yyyy').format(picked);
       _periodoSeleccionado = null; // Limpiar periodo si se elige manual
+      _duracionCtrl.clear();
     });
   }
 
@@ -1059,46 +1070,29 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           const SizedBox(height: 16),
 
           // --- Botones de accion ---
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _guardarEnDirectorio,
-                  icon: const Icon(Icons.save_alt),
-                  label: const Text('Guardar en directorio'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
+          FilledButton.icon(
+            onPressed: _agendandoCita ? null : _guardarYAgendarCita,
+            icon: _agendandoCita
+                ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _agendandoCita ? null : _agendarReevaluacion,
-                  icon: _agendandoCita
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.event_available),
-                  label: Text(_agendandoCita ? 'Agendando...' : 'Agendar cita'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    backgroundColor: Colors.teal,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
+            )
+                : const Icon(Icons.save_as),
+            label: Text(_agendandoCita
+                ? 'Guardando y agendando...'
+                : 'Guardar y agendar cita'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              backgroundColor: Colors.teal,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -1659,7 +1653,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     fields: [
                       _FieldConfig('Nombre y apellido', _nombreCompletoCtrl),
                       _FieldConfig('Documento', _documentoCtrl),
-                      _FieldConfig('Régimen afiliación', _regimenCtrl),
+                      _FieldConfig(
+                        'Régimen afiliación',
+                        _regimenCtrl,
+                        opciones: _regimenAfiliacionOpciones,
+                      ),
                     ],
                   ),
                 ),
@@ -1674,8 +1672,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       _FieldConfig('Diagnóstico nutricional',
                           _diagnosticoNutriCtrl),
                       _FieldConfig('Tipo de dieta sugerida', _tipoDietaCtrl),
-                      _FieldConfig('Duración de dieta', _duracionCtrl),
-                      _FieldConfig('Control nutricional', _controlCtrl),
+                      _FieldConfig(
+                        'Duración de dieta',
+                        _duracionCtrl,
+                        readOnly: true,
+                      ),
                       _FieldConfig(
                         'Observaciones y recomendaciones',
                         _observacionesCtrl,
@@ -1706,7 +1707,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   fields: [
                     _FieldConfig('Nombre y apellido', _nombreCompletoCtrl),
                     _FieldConfig('Documento', _documentoCtrl),
-                    _FieldConfig('Régimen afiliación', _regimenCtrl),
+                    _FieldConfig(
+                      'Régimen afiliación',
+                      _regimenCtrl,
+                      opciones: _regimenAfiliacionOpciones,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1718,8 +1723,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     _FieldConfig(
                         'Diagnóstico nutricional', _diagnosticoNutriCtrl),
                     _FieldConfig('Tipo de dieta sugerida', _tipoDietaCtrl),
-                    _FieldConfig('Duración de dieta', _duracionCtrl),
-                    _FieldConfig('Control nutricional', _controlCtrl),
+                    _FieldConfig(
+                      'Duración de dieta',
+                      _duracionCtrl,
+                      readOnly: true,
+                    ),
                     _FieldConfig(
                       'Observaciones y recomendaciones',
                       _observacionesCtrl,
@@ -1769,27 +1777,62 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           ),
         ),
         const SizedBox(height: 12),
-        ...fields.map(
-              (field) => Padding(
+        ...fields.map((field) {
+          final fillColor = Theme.of(context).colorScheme.surface;
+          if (field.opciones != null) {
+            final valorActual = field.opciones!.contains(field.controller.text)
+                ? field.controller.text
+                : null;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: DropdownButtonFormField<String>(
+                value: valorActual,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: field.label,
+                  border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  filled: true,
+                  fillColor: fillColor,
+                ),
+                items: field.opciones!
+                    .map(
+                      (opcion) => DropdownMenuItem<String>(
+                    value: opcion,
+                    child: Text(opcion),
+                  ),
+                )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    field.controller.text = value ?? '';
+                  });
+                },
+              ),
+            );
+          }
+
+          return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: TextField(
               controller: field.controller,
               maxLines: field.maxLines,
+              readOnly: field.readOnly,
               decoration: InputDecoration(
                 labelText: field.label,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 filled: true,
-                fillColor: Theme.of(context).colorScheme.surface,
+                fillColor: fillColor,
               ),
             ),
-          ),
-        ),
+          );
+        }),
       ],
     );
   }
 
   // ✅ MODIFICADO: ahora guarda evaluación diagnóstica (si hay selección) + directorio
-  Future<void> _guardarEnDirectorio() async {
+  Future<bool> _guardarEnDirectorio() async {
     final nombre = _nombreCompletoCtrl.text.trim();
     if (nombre.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1806,7 +1849,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
-      return;
+      return false;
     }
 
     showDialog(
@@ -1878,7 +1921,6 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           'diagnosticoNutricional': _diagnosticoNutriCtrl.text.trim(),
           'tipoDietaSugerida': _tipoDietaCtrl.text.trim(),
           'duracionDieta': _duracionCtrl.text.trim(),
-          'controlNutricional': _controlCtrl.text.trim(),
           'observaciones': _observacionesCtrl.text.trim(),
           'inicioDieta': _inicioDietaCtrl.text.trim(),
           'fechaReevaluacion': _fechaReevaluacionCtrl.text.trim(),
@@ -1886,7 +1928,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         id: _documentoCtrl.text.trim(),
       );
 
-      if (!mounted) return;
+      if (!mounted) return true;
       Navigator.of(context).pop();
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1903,8 +1945,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1920,6 +1963,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
+      return false;
     }
   }
 
@@ -2366,10 +2410,14 @@ class _FieldConfig {
   final String label;
   final TextEditingController controller;
   final int maxLines;
+  final bool readOnly;
+  final List<String>? opciones;
 
   const _FieldConfig(
       this.label,
       this.controller, {
         this.maxLines = 1,
+        this.readOnly = false,
+        this.opciones,
       });
 }
