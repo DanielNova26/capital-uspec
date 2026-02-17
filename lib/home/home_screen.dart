@@ -1131,48 +1131,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Colors.green.shade600;
   }
 
-  void _loadCitasNutricion(
-    String userId,
-    String empresaId,
-    Map<String, List<Map<String, dynamic>>> map,
-  ) {
-    // Cargar citas asincronamente y actualizar el mapa de eventos
-    FirebaseFirestore.instance
-        .collection('TBL_CITAS_NUTRICION')
-        .where('userId', isEqualTo: userId)
-        .where('empresaId', isEqualTo: empresaId)
-        .where('estado', isEqualTo: 'agendada')
-        .get()
-        .then((snap) {
-      if (!mounted) return;
-      bool changed = false;
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final ts = data['fechaReevaluacion'];
-        DateTime? fecha;
-        if (ts is Timestamp) fecha = ts.toDate();
-        if (fecha == null) continue;
-
-        final k = DateFormat('yyyy-MM-dd').format(fecha);
-        final paciente = (data['pacienteNombre'] ?? '').toString();
-        final dieta = (data['tipoDieta'] ?? '').toString();
-        (map[k] ??= []).add({
-          'title': 'Reevaluaci\u00f3n: $paciente',
-          'description': dieta.isNotEmpty
-              ? 'Cita nutricional \u2022 Dieta: $dieta'
-              : 'Cita de reevaluaci\u00f3n nutricional',
-          'estado': 'cita_nutricion',
-        });
-        changed = true;
-      }
-      if (changed) {
-        setState(() {
-          _events = map;
-        });
-      }
-    }).catchError((_) {});
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -1294,47 +1252,73 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                     final createdDocs = createdSnap.data?.docs ?? [];
 
-                    final map = <String, List<Map<String, dynamic>>>{};
-                    void addEvt(DateTime d, String title, String desc, String estado) {
-                      final k = DateFormat('yyyy-MM-dd').format(d);
-                      (map[k] ??= []).add({
-                        'title': title,
-                        'description': desc,
-                        'estado': estado,
-                      });
-                    }
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    stream: FirebaseFirestore.instance
+        .collection('TBL_CITAS_NUTRICION')
+        .where('userId', isEqualTo: effectiveId)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('estado', isEqualTo: 'agendada')
+        .snapshots(),
+    builder: (context, citasSnap) {
+    if (citasSnap.connectionState == ConnectionState.waiting) {
+    return const Scaffold(body: SkeletonList(items: 4));
+    }
 
-                    for (final d in assignedDocs) {
-                      final m = d.data();
-                      final due = _dueOf(m);
-                      if (due != null) {
-                        addEvt(
-                          due,
-                          _titleOf(m),
-                          'Yo entrego \u2022 Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "\u2014"}',
-                          _estadoOf(m),
-                        );
-                      }
-                    }
-                    for (final d in createdDocs) {
-                      final m = d.data();
-                      final due = _dueOf(m);
-                      if (due != null) {
-                        addEvt(
-                          due,
-                          _titleOf(m),
-                          'Me entregan \u2022 Entrega: ${_assignedNameOf(m).isNotEmpty ? _assignedNameOf(m) : "\u2014"}',
-                          _estadoOf(m),
-                        );
-                      }
-                    }
+    final map = <String, List<Map<String, dynamic>>>{};
+    void addEvt(DateTime d, String title, String desc, String estado) {
+    final k = DateFormat('yyyy-MM-dd').format(d);
+    (map[k] ??= []).add({
+    'title': title,
+    'description': desc,
+    'estado': estado,
+    });
+    }
 
-                    // Cargar citas de nutrici\u00f3n para el calendario
-                    _loadCitasNutricion(effectiveId, empresaId, map);
+    for (final d in assignedDocs) {
+    final m = d.data();
+    final due = _dueOf(m);
+    if (due != null) {
+    addEvt(
+    due,
+    _titleOf(m),
+    'Yo entrego \u2022 Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "\u2014"}',
+    _estadoOf(m),
+    );
+    }
+    }
+    for (final d in createdDocs) {
+    final m = d.data();
+    final due = _dueOf(m);
+    if (due != null) {
+    addEvt(
+    due,
+    _titleOf(m),
+    'Me entregan \u2022 Entrega: ${_assignedNameOf(m).isNotEmpty ? _assignedNameOf(m) : "\u2014"}',
+    _estadoOf(m),
+    );
+    }
+    }
+    for (final doc in citasSnap.data?.docs ?? const []) {
+    final data = doc.data();
+    final ts = data['fechaReevaluacion'];
+    final fecha = ts is Timestamp ? ts.toDate() : null;
+    if (fecha == null) continue;
 
-                    _events = map;
+    final paciente = (data['pacienteNombre'] ?? '').toString();
+    final dieta = (data['tipoDieta'] ?? '').toString();
+    addEvt(
+    fecha,
+    'Reevaluaci\u00f3n: $paciente',
+    dieta.isNotEmpty
+    ? 'Cita nutricional \u2022 Dieta: $dieta'
+        : 'Cita de reevaluaci\u00f3n nutricional',
+    'cita_nutricion',
+    );
+    }
 
-                    return Scaffold(
+    _events = map;
+
+    return Scaffold(
                       drawer: AppDrawer(userId: effectiveId),
                       appBar: AppBar(
                         backgroundColor: scheme.primary,
@@ -1518,6 +1502,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
+    );
+    },
                     );
                   },
                 );

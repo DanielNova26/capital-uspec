@@ -1625,10 +1625,14 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               children: [
                 Icon(Icons.description, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
-                Text(
-                  'Ficha de evaluación y diagnóstico',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Text(
+                    'Ficha de evaluación y diagnóstico',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
