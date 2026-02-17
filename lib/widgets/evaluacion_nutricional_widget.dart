@@ -517,23 +517,6 @@ class _EvaluacionNutricionalWidgetState
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: widget.onRegistrarDiagnostico,
-            icon: const Icon(Icons.search, size: 18),
-            label: const Text('Ver diagnósticos y enfermedades'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              foregroundColor: const Color(0xFF5A8DB5),
-              side: BorderSide(color: const Color(0xFF9EC3E6).withOpacity(0.5)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          ),
-        ),
       ],
     );
   }

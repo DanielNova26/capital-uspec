@@ -207,45 +207,109 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
       context: context,
       isScrollControlled: true,
       builder: (_) {
-        return DefaultTabController(
-          length: 2,
-          child: SafeArea(
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.82,
-              child: Column(
-                children: [
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(99),
+        String filtro = '';
+        int tipo = 0;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final filtroNormalizado = filtro.toLowerCase().trim();
+            bool coincide(String valor) => valor.toLowerCase().contains(filtroNormalizado);
+
+            final medicosFiltrados = medicos.where((dx) {
+              if (filtroNormalizado.isEmpty) return true;
+              return coincide(dx.codigoCie11) ||
+                  coincide(dx.nombre) ||
+                  coincide(dx.categoria ?? '');
+            }).toList();
+
+            final nutricionalesFiltrados = nutricionales.where((dx) {
+              if (filtroNormalizado.isEmpty) return true;
+              return coincide(dx.codigo) ||
+                  coincide(dx.nombre) ||
+                  coincide(dx.descripcion ?? '') ||
+                  coincide(dx.tipoDietaSugerida ?? '');
+            }).toList();
+
+            return SafeArea(
+              child: SizedBox(
+                height: MediaQuery.of(context).size.height * 0.84,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Catálogo de enfermedades y diagnósticos',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const TabBar(
-                    tabs: [
-                      Tab(text: 'Médicos (CIE-11)'),
-                      Tab(text: 'Nutricionales'),
-                    ],
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildTablaCatalogoMedico(medicos),
-                        _buildTablaCatalogoNutricional(nutricionales),
-                      ],
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Catálogo CIE-11: médicos y nutricionales',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
-                  ),
-                ],
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                      child: TextField(
+                        onChanged: (value) => setSheetState(() => filtro = value),
+                        decoration: InputDecoration(
+                          hintText: 'Filtrar por código o nombre...',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                      child: Wrap(
+                        spacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('Todos'),
+                            selected: tipo == 0,
+                            onSelected: (_) => setSheetState(() => tipo = 0),
+                          ),
+                          ChoiceChip(
+                            label: const Text('Médico CIE-11'),
+                            selected: tipo == 1,
+                            onSelected: (_) => setSheetState(() => tipo = 1),
+                          ),
+                          ChoiceChip(
+                            label: const Text('Nutricional CIE-11'),
+                            selected: tipo == 2,
+                            onSelected: (_) => setSheetState(() => tipo = 2),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          if (tipo != 2) ...[
+                            Text('Médicos (${medicosFiltrados.length})',
+                                style: Theme.of(context).textTheme.titleSmall),
+                            const SizedBox(height: 6),
+                            ...medicosFiltrados.map(_buildCardCatalogoMedico),
+                            const SizedBox(height: 12),
+                          ],
+                          if (tipo != 1) ...[
+                            Text('Nutricionales (${nutricionalesFiltrados.length})',
+                                style: Theme.of(context).textTheme.titleSmall),
+                            const SizedBox(height: 6),
+                            ...nutricionalesFiltrados.map(_buildCardCatalogoNutricional),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
@@ -284,7 +348,7 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                 ),
                 const Spacer(),
                 IconButton(
-                  tooltip: 'Ver catálogo de enfermedades',
+                  tooltip: 'Buscar en catálogo CIE-11 (médico y nutricional)',
                   onPressed: _abrirCatalogoDiagnosticos,
                   icon: const Icon(Icons.search),
                 ),
@@ -330,7 +394,7 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   Widget _buildEntradaNutricional() {
     return _buildEntradaDiagnostico<DiagnosticoNutricional>(
       etiqueta: 'B',
-      titulo: 'Diagnóstico Nutricional',
+      titulo: 'Diagnóstico Nutricional (CIE-11)',
       controller: _busquedaNutriCtrl,
       buscando: _buscandoNutri,
       onChanged: _onNutricionalChanged,
@@ -340,15 +404,15 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
       titleBuilder: (dx) => dx.nombre,
       subtitleBuilder: (dx) {
         final dieta = dx.tipoDietaSugerida;
-        if (dieta == null || dieta.isEmpty) return 'Código: ${dx.codigo}';
-        return 'Código: ${dx.codigo} • ${_formatearNombreDieta(dieta)}';
+        if (dieta == null || dieta.isEmpty) return 'CIE-11: ${dx.codigo}';
+        return 'CIE-11: ${dx.codigo} • ${_formatearNombreDieta(dieta)}';
       },
       chips: _diagnosticosNutricionalesSeleccionados,
       chipLabelBuilder: (dx) => dx.codigo,
       onDeleteChip: _removerDiagnosticoNutricional,
       chipColor: const Color(0xFFF5E66B),
       chipIcon: Icons.restaurant,
-      hintText: 'Buscar diagnóstico nutricional...',
+      hintText: 'Buscar CIE-11 o nombre...',
     );
   }
 
@@ -488,31 +552,40 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     );
   }
 
-  Widget _buildTablaCatalogoMedico(List<DiagnosticoMedico> medicos) {
-    if (medicos.isEmpty) {
-      return const Center(child: Text('Sin diagnósticos médicos disponibles'));
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: medicos.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) {
-        final dx = medicos[i];
-        return Card(
-          child: ListTile(
-            dense: true,
-            title: Text('${dx.codigoCie11} · ${dx.nombre}'),
-            subtitle: Text(
-              [
-                if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
-                if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
-                if (dx.dietasSugeridas.isNotEmpty)
-                  'Dietas: ${dx.dietasSugeridas.map(_formatearNombreDieta).join(', ')}',
-              ].join(' · '),
-            ),
-          ),
-        );
-      },
+  Widget _buildCardCatalogoMedico(DiagnosticoMedico dx) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        dense: true,
+        onTap: () => _agregarDiagnosticoMedico(dx),
+        trailing: const Icon(Icons.add_circle_outline),
+        title: Text('${dx.codigoCie11} · ${dx.nombre}'),
+        subtitle: Text(
+          [
+            if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
+            if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
+          ].join(' · '),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardCatalogoNutricional(DiagnosticoNutricional dx) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        dense: true,
+        onTap: () => _agregarDiagnosticoNutricional(dx),
+        trailing: const Icon(Icons.add_circle_outline),
+        title: Text('${dx.codigo} · ${dx.nombre}'),
+        subtitle: Text(
+          [
+            if (dx.descripcion != null && dx.descripcion!.isNotEmpty) dx.descripcion!,
+            if (dx.tipoDietaSugerida != null && dx.tipoDietaSugerida!.isNotEmpty)
+              'Dieta: ${_formatearNombreDieta(dx.tipoDietaSugerida!)}',
+          ].join(' · '),
+        ),
+      ),
     );
   }
 
