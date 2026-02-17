@@ -1997,121 +1997,37 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   }
 
   Future<void> _registrarNuevoPaciente() async {
-    final nombreCtrl = TextEditingController();
-    final docCtrl = TextEditingController();
-
-    await showDialog<void>(
+    final result = await showDialog<PacienteFormResult>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.person_add),
-              SizedBox(width: 8),
-              Text('Registrar nuevo paciente'),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nombreCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Nombre completo',
-                    border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    prefixIcon: const Icon(Icons.person),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: docCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Documento',
-                    border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    prefixIcon: const Icon(Icons.badge),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final nombre = nombreCtrl.text.trim();
-                final documento = docCtrl.text.trim();
+      barrierDismissible: false,
+      builder: (_) => PacienteDialog(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        service: NutricionService(),
+      ),
+    );
 
-                if (nombre.isEmpty || documento.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Nombre y documento son obligatorios'),
-                      backgroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                  );
-                  return;
-                }
+    if (result == null || !mounted) return;
 
-                final service = NutricionService();
-                try {
-                  await service.guardarDirectorioNutricion(
-                    empresaId: widget.empresaId,
-                    userId: widget.userId,
-                    data: {
-                      'nombreCompleto': nombre,
-                      'documento': documento,
-                    },
-                    id: documento,
-                  );
+    // Refrescar la lista de pacientes
+    setState(() {
+      _selectedPaciente = null;
+      _procesoEnCurso = true;
+    });
 
-                  if (mounted) {
-                    Navigator.of(context).pop();
-                    setState(() {
-                      _selectedPaciente = null;
-                      _procesoEnCurso = true;
-                      _nombreCompletoCtrl.text = nombre;
-                      _documentoCtrl.text = documento;
-                    });
-
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Row(
-                          children: [
-                            Icon(Icons.check_circle, color: Colors.white),
-                            SizedBox(width: 8),
-                            Text('Paciente registrado correctamente'),
-                          ],
-                        ),
-                        backgroundColor: Colors.green,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('No se pudo registrar el paciente: $e'),
-                        backgroundColor: Theme.of(context).colorScheme.error,
-                      ),
-                    );
-                  }
-                }
-              },
-              child: const Text('Guardar'),
-            ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 8),
+            Text('Paciente registrado correctamente'),
           ],
-        );
-      },
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
     );
   }
 

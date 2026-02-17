@@ -225,6 +225,22 @@ class NutricionService {
     return controller.stream;
   }
 
+  /// Sube la foto de un paciente a Firebase Storage y retorna la URL pública.
+  /// Path: pacientes/{empresaId}/{documento}/foto_{timestamp}.jpg
+  Future<String?> subirFotoPaciente({
+    required String empresaId,
+    required String documento,
+    required Uint8List bytes,
+    String contentType = 'image/jpeg',
+  }) async {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final safeDoc = documento.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+    final path = 'pacientes/$empresaId/$safeDoc/foto_$ts.jpg';
+    final ref = _storage.ref(path);
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    return ref.getDownloadURL();
+  }
+
   Future<void> guardarDirectorioNutricion({
     required String empresaId,
     required String userId,
