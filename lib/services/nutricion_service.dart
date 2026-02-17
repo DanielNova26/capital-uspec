@@ -12,7 +12,6 @@ class NutricionService {
   static const String _collFirmas = 'TBL_FIRMAS';
   static const String _collPacientes = 'TBL_PACIENTES';
   static const String _collValoraciones = 'TBL_VALORACIONES_NUTRICION';
-  static const String _collMediciones = 'TBL_MEDICIONES_NUTRICION';
   static const String _collAsignaciones = 'TBL_ASIGNACIONES_DIETA';
   static const String _collCarnets = 'TBL_CARNETS_NUTRICION';
   static const String _collDerivaciones = 'TBL_DERIVACIONES_NUTRICION';
@@ -155,28 +154,57 @@ class NutricionService {
     required String empresaId,
   }) {
     final controller = StreamController<List<Map<String, dynamic>>>.broadcast();
-    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subPacientes;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subDirectorio;
     bool started = false;
+
+    final pacientesById = <String, Map<String, dynamic>>{};
+    final directorioById = <String, Map<String, dynamic>>{};
 
     void emitError(Object e, StackTrace st) {
       if (!controller.isClosed) controller.addError(e, st);
     }
 
+    void emitMerged() {
+      final list = _mergePacientesFuentes(
+        pacientesById: pacientesById,
+        directorioById: directorioById,
+      );
+      if (!controller.isClosed) controller.add(list);
+    }
+
     void start() {
       if (started) return;
       started = true;
-      sub = _db
+
+      subPacientes = _db
+          .collection(_collPacientes)
+          .where('empresaId', isEqualTo: empresaId)
+          .snapshots()
+          .listen(
+            (snap) {
+          pacientesById
+            ..clear()
+            ..addEntries(
+              snap.docs.map((d) => MapEntry(d.id, {'id': d.id, ...d.data()})),
+            );
+          emitMerged();
+        },
+        onError: emitError,
+      );
+
+      subDirectorio = _db
           .collection(_collDirectorio)
           .where('empresaId', isEqualTo: empresaId)
           .snapshots()
           .listen(
             (snap) {
-          final list = snap.docs
-              .map((d) => {'id': d.id, ...d.data()})
-              .toList(growable: true);
-          list.sort((a, b) => (a['nombreCompleto']?.toString() ?? '')
-              .compareTo(b['nombreCompleto']?.toString() ?? ''));
-          if (!controller.isClosed) controller.add(list);
+          directorioById
+            ..clear()
+            ..addEntries(
+              snap.docs.map((d) => MapEntry(d.id, {'id': d.id, ...d.data()})),
+            );
+          emitMerged();
         },
         onError: emitError,
       );
@@ -184,11 +212,13 @@ class NutricionService {
 
     controller
       ..onListen = () {
-        if (sub == null) start();
+        if (subPacientes == null && subDirectorio == null) start();
       }
       ..onCancel = () async {
-        await sub?.cancel();
-        sub = null;
+        await subPacientes?.cancel();
+        await subDirectorio?.cancel();
+        subPacientes = null;
+        subDirectorio = null;
         if (!controller.isClosed) await controller.close();
       };
 
@@ -201,17 +231,67 @@ class NutricionService {
     required Map<String, dynamic> data,
     String? id,
   }) async {
-    final doc = id == null
-        ? _db.collection(_collDirectorio).doc()
-        : _db.collection(_collDirectorio).doc(id);
+    final documento = (data['documento'] ?? '').toString().trim();
+    final isEdicion = id != null && id.trim().isNotEmpty;
+    final docId = _buildPacienteDocId(
+      documento: documento,
+      fallbackId: isEdicion ? id : null,
+    );
+    final doc = _db.collection(_collPacientes).doc(docId);
+
     await doc.set({
       ...data,
+      if ((data['nombre'] ?? '').toString().trim().isEmpty &&
+          data['nombreCompleto'] != null)
+        'nombre': data['nombreCompleto'],
+      if ((data['nombreCompleto'] ?? '').toString().trim().isEmpty &&
+          data['nombre'] != null)
+        'nombreCompleto': data['nombre'],
       'empresaId': empresaId,
+      'pacienteId': doc.id,
       'actualizadoPor': userId,
       'actualizadoEn': FieldValue.serverTimestamp(),
-      if (id == null) 'creadoEn': FieldValue.serverTimestamp(),
-      if (id == null) 'creadoPor': userId,
+      if (!isEdicion) 'creadoEn': FieldValue.serverTimestamp(),
+      if (!isEdicion) 'creadoPor': userId,
     }, SetOptions(merge: true));
+  }
+
+
+  List<Map<String, dynamic>> _mergePacientesFuentes({
+    required Map<String, Map<String, dynamic>> pacientesById,
+    required Map<String, Map<String, dynamic>> directorioById,
+  }) {
+    final mergedByKey = <String, Map<String, dynamic>>{};
+
+    for (final item in directorioById.values) {
+      final documento = (item['documento'] ?? '').toString().trim();
+      final key = documento.isNotEmpty ? documento : (item['id'] ?? '').toString();
+      if (key.isEmpty) continue;
+      mergedByKey[key] = {...item};
+    }
+
+    for (final item in pacientesById.values) {
+      final documento = (item['documento'] ?? '').toString().trim();
+      final key = documento.isNotEmpty ? documento : (item['id'] ?? '').toString();
+      if (key.isEmpty) continue;
+      final current = mergedByKey[key] ?? <String, dynamic>{};
+      mergedByKey[key] = {
+        ...current,
+        ...item,
+        'id': item['id'] ?? current['id'] ?? key,
+        'pacienteId': item['pacienteId'] ?? item['id'] ?? current['pacienteId'],
+        'nombreCompleto': (item['nombreCompleto'] ?? item['nombre'] ?? current['nombreCompleto'] ?? current['nombre']),
+        'nombre': (item['nombre'] ?? item['nombreCompleto'] ?? current['nombre'] ?? current['nombreCompleto']),
+      };
+    }
+
+    final list = mergedByKey.values.toList(growable: true);
+    list.sort((a, b) {
+      final nombreA = (a['nombreCompleto'] ?? a['nombre'] ?? '').toString();
+      final nombreB = (b['nombreCompleto'] ?? b['nombre'] ?? '').toString();
+      return nombreA.compareTo(nombreB);
+    });
+    return list;
   }
 
   bool _isIndexError(Object e) {
@@ -525,11 +605,20 @@ class NutricionService {
     required String empresaId,
     required Map<String, dynamic> data,
   }) async {
-    final doc = _db.collection(_collPacientes).doc();
+    final documento = (data['documento'] ?? '').toString().trim();
+    final doc = _db.collection(_collPacientes).doc(
+      _buildPacienteDocId(documento: documento),
+    );
     await doc.set({
       'empresaId': empresaId,
       'pacienteId': doc.id,
       ...data,
+      if ((data['nombreCompleto'] ?? '').toString().trim().isEmpty &&
+          data['nombre'] != null)
+        'nombreCompleto': data['nombre'],
+      if ((data['nombre'] ?? '').toString().trim().isEmpty &&
+          data['nombreCompleto'] != null)
+        'nombre': data['nombreCompleto'],
     });
     return doc.id;
   }
@@ -564,21 +653,51 @@ class NutricionService {
     String? notas,
     DateTime? fecha,
   }) async {
-    final doc = _db.collection(_collMediciones).doc();
+    final medicionId = _db.collection(_collPacientes).doc().id;
     final imc = _calcularImc(pesoKg, tallaCm);
-    await doc.set({
+    final fechaRegistro = fecha ?? DateTime.now();
+    await _db.collection(_collPacientes).doc(pacienteId).set({
       'empresaId': empresaId,
       'pacienteId': pacienteId,
-      'medicionId': doc.id,
-      'fecha': fecha ?? DateTime.now(),
-      'pesoKg': pesoKg,
-      'tallaCm': tallaCm,
-      'pcCm': pcCm,
-      'imc': imc,
-      'clasificacion': _clasificarImc(imc),
-      'relacionCintura': relacionCintura,
-      'notas': notas,
-    });
+      'ultimaMedicion': {
+        'medicionId': medicionId,
+        'fecha': fechaRegistro,
+        'pesoKg': pesoKg,
+        'tallaCm': tallaCm,
+        'pcCm': pcCm,
+        'imc': imc,
+        'clasificacion': _clasificarImc(imc),
+        'relacionCintura': relacionCintura,
+        'notas': notas,
+      },
+      'mediciones': FieldValue.arrayUnion([
+        {
+          'medicionId': medicionId,
+          'fecha': Timestamp.fromDate(fechaRegistro),
+          'pesoKg': pesoKg,
+          'tallaCm': tallaCm,
+          'pcCm': pcCm,
+          'imc': imc,
+          'clasificacion': _clasificarImc(imc),
+          'relacionCintura': relacionCintura,
+          'notas': notas,
+        }
+      ]),
+      'actualizadoEn': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  String _buildPacienteDocId({
+    required String documento,
+    String? fallbackId,
+  }) {
+    if (documento.isNotEmpty) {
+      return documento.replaceAll('/', '-');
+    }
+    if (fallbackId != null && fallbackId.trim().isNotEmpty) {
+      return fallbackId.trim();
+    }
+    return _db.collection(_collPacientes).doc().id;
   }
 
   Future<void> guardarAsignacionDieta({
