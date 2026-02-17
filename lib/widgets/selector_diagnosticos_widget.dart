@@ -227,29 +227,6 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     );
   }
 
-  List<String> _obtenerDietasSugeridas() {
-    final Set<String> dietas = {};
-    for (final dx in _diagnosticosMedicosSeleccionados) {
-      dietas.addAll(dx.dietasSugeridas);
-    }
-    for (final dx in _diagnosticosNutricionalesSeleccionados) {
-      if (dx.tipoDietaSugerida != null && dx.tipoDietaSugerida!.isNotEmpty) {
-        dietas.add(dx.tipoDietaSugerida!);
-      }
-    }
-    return dietas.toList();
-  }
-
-  String? _obtenerDuracionSugerida() {
-    if (_diagnosticosNutricionalesSeleccionados.isNotEmpty) {
-      final duracion = _diagnosticosNutricionalesSeleccionados.first.duracionSugerida;
-      if (duracion != null && duracion.isNotEmpty) {
-        return duracion;
-      }
-    }
-    return null;
-  }
-
   Future<void> _abrirCatalogoDiagnosticos() async {
     final catalogoCie11 = await _obtenerCatalogoUnificado();
     if (!mounted) return;
@@ -363,8 +340,6 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
 
   @override
   Widget build(BuildContext context) {
-    final dietasSugeridas = _obtenerDietasSugeridas();
-    final duracionSugerida = _obtenerDuracionSugerida();
 
     return Card(
       elevation: 0,
@@ -404,12 +379,6 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
             _buildEntradaMedica(),
             const SizedBox(height: 16),
             _buildEntradaNutricional(),
-            if (dietasSugeridas.isNotEmpty || duracionSugerida != null) ...[
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              _buildSugerenciasDieta(dietasSugeridas, duracionSugerida),
-            ],
           ],
         ),
       ),
@@ -736,77 +705,6 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
           ),
         );
       },
-    );
-  }
-
-  Widget _buildSugerenciasDieta(List<String> dietasSugeridas, String? duracionSugerida) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.lightbulb_outline, size: 18, color: Colors.orange[700]),
-            const SizedBox(width: 6),
-            Text(
-              'Sugerencias Automáticas',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.orange[700],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (dietasSugeridas.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange.withOpacity(0.3)),
-            ),
-            child: Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: dietasSugeridas.map((dieta) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.orange[100],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    _formatearNombreDieta(dieta),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.orange[900],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        if (duracionSugerida != null) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue.withOpacity(0.3)),
-            ),
-            child: Text(
-              'Duración sugerida: ${_formatearDuracion(duracionSugerida)}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.blue[800],
-              ),
-            ),
-          ),
-        ],
-      ],
     );
   }
 
