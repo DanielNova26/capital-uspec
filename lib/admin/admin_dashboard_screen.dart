@@ -1098,8 +1098,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Sube un Excel con diagnósticos para actualizar las tablas '
-                      'TBL_DIAGNOSTICOS_MEDICOS y TBL_DIAGNOSTICOS_NUTRICIONALES.\n'
+                  'Sube un Excel con diagnósticos para actualizar el catálogo '
+                      'de diagnósticos en Firestore.\n'
                       'Después de importar, el buscador de diagnóstico clínico leerá primero desde Firestore.',
                   style: TextStyle(fontFamily: kArial, height: 1.4),
                 ),
@@ -1141,7 +1141,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     onPressed: _importarDiagnosticosExcel,
                     icon: const Icon(Icons.cloud_upload),
                     label: const Text(
-                      'IMPORTAR A TABLAS DE DIAGNÓSTICOS',
+                      'IMPORTAR DIAGNÓSTICOS',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),

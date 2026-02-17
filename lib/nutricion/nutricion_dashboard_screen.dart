@@ -87,7 +87,16 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             data['nombre']?.toString() ??
             '';
         final documento = data['documento']?.toString() ?? '';
-        return _PacienteInfo(id: id, nombre: nombre, documento: documento);
+        final diagnosticoMedico = data['diagnosticoMedico']?.toString() ?? '';
+        final diagnosticoNutricional =
+            data['diagnosticoNutricional']?.toString() ?? '';
+        return _PacienteInfo(
+          id: id,
+          nombre: nombre,
+          documento: documento,
+          diagnosticoMedico: diagnosticoMedico,
+          diagnosticoNutricional: diagnosticoNutricional,
+        );
       }).toList();
 
       // Actualizar caché en cada emisión
@@ -681,9 +690,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     if (value != null) {
                       _nombreCompletoCtrl.text = value.nombre;
                       _documentoCtrl.text = value.documento;
+                      _diagnosticoMedicoCtrl.text = value.diagnosticoMedico;
+                      _diagnosticoNutriCtrl.text = value.diagnosticoNutricional;
                     } else {
                       _nombreCompletoCtrl.clear();
                       _documentoCtrl.clear();
+                      _diagnosticoMedicoCtrl.clear();
+                      _diagnosticoNutriCtrl.clear();
                     }
                   });
                 },
@@ -1743,11 +1756,15 @@ class _PacienteInfo {
   final String id;
   final String nombre;
   final String documento;
+  final String diagnosticoMedico;
+  final String diagnosticoNutricional;
 
   const _PacienteInfo({
     required this.id,
     required this.nombre,
     required this.documento,
+    this.diagnosticoMedico = '',
+    this.diagnosticoNutricional = '',
   });
 }
 
