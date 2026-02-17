@@ -27,6 +27,7 @@ class SelectorDiagnosticosWidget extends StatefulWidget {
 
 class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget> {
   final _service = DiagnosticosService();
+  List<DiagnosticoMedico>? _catalogoCie11;
 
   final _busquedaMedicoCtrl = TextEditingController();
   final List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados = [];
@@ -111,9 +112,9 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     });
 
     try {
-      final resultados = await _service.buscarDiagnosticosNutricionales(termino);
+      final resultados = await _service.buscarDiagnosticosMedicos(termino);
       setState(() {
-        _resultadosNutri = resultados;
+        _resultadosNutri = resultados.map(_mapearMedicoANutricional).toList();
         _buscandoNutri = false;
       });
     } catch (e) {
@@ -161,6 +162,57 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     _notificarCambios();
   }
 
+  DiagnosticoNutricional _mapearMedicoANutricional(DiagnosticoMedico dx) {
+    final descripcion = [
+      if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
+      if (dx.subcategoria != null && dx.subcategoria!.isNotEmpty)
+        'Subcategoría: ${dx.subcategoria}',
+      if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
+    ].join(' · ');
+
+    return DiagnosticoNutricional(
+      codigo: dx.codigoCie11,
+      nombre: dx.nombre,
+      descripcion: descripcion.isEmpty ? null : descripcion,
+      tipoDietaSugerida: dx.dietasSugeridas.isNotEmpty ? dx.dietasSugeridas.first : null,
+      alertasClinicas: dx.interaccionesFarmacoNutriente,
+      objetivos: dx.comorbilidades,
+      activo: dx.activo,
+    );
+  }
+
+  bool _estaSeleccionadoMedico(DiagnosticoMedico dx) {
+    return _diagnosticosMedicosSeleccionados.any((d) => d.codigoCie11 == dx.codigoCie11);
+  }
+
+  bool _estaSeleccionadoNutricionalDesdeCie(DiagnosticoMedico dx) {
+    return _diagnosticosNutricionalesSeleccionados.any((d) => d.codigo == dx.codigoCie11);
+  }
+
+  void _toggleDiagnosticoMedico(DiagnosticoMedico dx) {
+    if (_estaSeleccionadoMedico(dx)) {
+      _removerDiagnosticoMedico(
+        _diagnosticosMedicosSeleccionados.firstWhere((d) => d.codigoCie11 == dx.codigoCie11),
+      );
+      return;
+    }
+    _agregarDiagnosticoMedico(dx);
+  }
+
+  void _toggleDiagnosticoNutricionalDesdeMedico(DiagnosticoMedico dx) {
+    final existente = _diagnosticosNutricionalesSeleccionados.where((d) => d.codigo == dx.codigoCie11);
+    if (existente.isNotEmpty) {
+      _removerDiagnosticoNutricional(existente.first);
+      return;
+    }
+    _agregarDiagnosticoNutricional(_mapearMedicoANutricional(dx));
+  }
+
+  Future<List<DiagnosticoMedico>> _obtenerCatalogoUnificado() async {
+    _catalogoCie11 ??= await _service.listarDiagnosticosMedicos();
+    return _catalogoCie11!;
+  }
+
   void _removerDiagnosticoNutricional(DiagnosticoNutricional dx) {
     setState(() {
       _diagnosticosNutricionalesSeleccionados.remove(dx);
@@ -199,8 +251,7 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   }
 
   Future<void> _abrirCatalogoDiagnosticos() async {
-    final medicos = await _service.listarDiagnosticosMedicos();
-    final nutricionales = await _service.listarDiagnosticosNutricionales();
+    final catalogoCie11 = await _obtenerCatalogoUnificado();
     if (!mounted) return;
 
     showModalBottomSheet<void>(
@@ -215,19 +266,18 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
             final filtroNormalizado = filtro.toLowerCase().trim();
             bool coincide(String valor) => valor.toLowerCase().contains(filtroNormalizado);
 
-            final medicosFiltrados = medicos.where((dx) {
+            final medicosFiltrados = catalogoCie11.where((dx) {
               if (filtroNormalizado.isEmpty) return true;
               return coincide(dx.codigoCie11) ||
                   coincide(dx.nombre) ||
-                  coincide(dx.categoria ?? '');
-            }).toList();
-
-            final nutricionalesFiltrados = nutricionales.where((dx) {
-              if (filtroNormalizado.isEmpty) return true;
-              return coincide(dx.codigo) ||
-                  coincide(dx.nombre) ||
-                  coincide(dx.descripcion ?? '') ||
-                  coincide(dx.tipoDietaSugerida ?? '');
+                  coincide(dx.categoria ?? '') ||
+                  coincide(dx.subcategoria ?? '') ||
+                  coincide(dx.gravedad ?? '') ||
+                  coincide(dx.estadio ?? '') ||
+                  dx.comorbilidades.any(coincide) ||
+                  dx.medicamentosRelacionados.any(coincide) ||
+                  dx.interaccionesFarmacoNutriente.any(coincide) ||
+                  dx.dietasSugeridas.any(coincide);
             }).toList();
 
             return SafeArea(
@@ -246,7 +296,7 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Catálogo CIE-11: médicos y nutricionales',
+                      'Catálogo CIE-11 unificado (médico y nutricional)',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                     Padding(
@@ -254,7 +304,7 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                       child: TextField(
                         onChanged: (value) => setSheetState(() => filtro = value),
                         decoration: InputDecoration(
-                          hintText: 'Filtrar por código o nombre...',
+                          hintText: 'Filtrar por código, nombre, categoría o dieta...',
                           prefixIcon: const Icon(Icons.search),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                           isDense: true,
@@ -289,19 +339,15 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                       child: ListView(
                         padding: const EdgeInsets.all(12),
                         children: [
-                          if (tipo != 2) ...[
-                            Text('Médicos (${medicosFiltrados.length})',
-                                style: Theme.of(context).textTheme.titleSmall),
-                            const SizedBox(height: 6),
-                            ...medicosFiltrados.map(_buildCardCatalogoMedico),
-                            const SizedBox(height: 12),
-                          ],
-                          if (tipo != 1) ...[
-                            Text('Nutricionales (${nutricionalesFiltrados.length})',
-                                style: Theme.of(context).textTheme.titleSmall),
-                            const SizedBox(height: 6),
-                            ...nutricionalesFiltrados.map(_buildCardCatalogoNutricional),
-                          ],
+                          Text('Resultados CIE-11 (${medicosFiltrados.length})',
+                              style: Theme.of(context).textTheme.titleSmall),
+                          const SizedBox(height: 6),
+                          ...medicosFiltrados.map(
+                                (dx) => _buildCardCatalogoUnificado(dx, tipo: tipo, onRefresh: () {
+                              setSheetState(() {});
+                              setState(() {});
+                            }),
+                          ),
                         ],
                       ),
                     ),
@@ -565,6 +611,81 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
             if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
             if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
           ].join(' · '),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCardCatalogoUnificado(
+      DiagnosticoMedico dx, {
+        required int tipo,
+        required VoidCallback onRefresh,
+      }) {
+    final seleccionadoMedico = _estaSeleccionadoMedico(dx);
+    final seleccionadoNutri = _estaSeleccionadoNutricionalDesdeCie(dx);
+
+    String estacion = 'Disponible para médico o nutricional';
+    if (seleccionadoMedico && seleccionadoNutri) {
+      estacion = 'Seleccionado para médico y nutricional';
+    } else if (seleccionadoMedico) {
+      estacion = 'Seleccionado para médico';
+    } else if (seleccionadoNutri) {
+      estacion = 'Seleccionado para nutricional';
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${dx.codigoCie11} · ${dx.nombre}', style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(
+              [
+                if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
+                if (dx.subcategoria != null && dx.subcategoria!.isNotEmpty)
+                  'Subcategoría: ${dx.subcategoria}',
+                if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
+              ].join(' · '),
+            ),
+            const SizedBox(height: 6),
+            Text(estacion, style: TextStyle(color: Colors.grey[700], fontSize: 12)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                if (tipo != 2)
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      _toggleDiagnosticoMedico(dx);
+                      onRefresh();
+                    },
+                    icon: Icon(
+                      seleccionadoMedico ? Icons.check_circle : Icons.add_circle_outline,
+                      size: 18,
+                    ),
+                    label: Text(seleccionadoMedico ? 'Médico ✓' : 'Agregar a médico'),
+                  ),
+                if (tipo != 1)
+                  FilledButton.tonalIcon(
+                    onPressed: () {
+                      _toggleDiagnosticoNutricionalDesdeMedico(dx);
+                      onRefresh();
+                    },
+                    icon: Icon(
+                      seleccionadoNutri ? Icons.check_circle : Icons.add_circle_outline,
+                      size: 18,
+                    ),
+                    label: Text(
+                      seleccionadoNutri ? 'Nutricional ✓' : 'Agregar a nutricional',
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );
