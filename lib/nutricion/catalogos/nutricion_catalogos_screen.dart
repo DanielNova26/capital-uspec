@@ -313,15 +313,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
   late final TextEditingController _nombresCtrl;
   late final TextEditingController _apellidosCtrl;
   late final TextEditingController _documentoCtrl;
-  late final TextEditingController _regimenCtrl;
-  late final TextEditingController _diagMedicoCtrl;
-  late final TextEditingController _diagNutriCtrl;
-  late final TextEditingController _tipoDietaCtrl;
-  late final TextEditingController _duracionCtrl;
-  late final TextEditingController _controlCtrl;
-  late final TextEditingController _observacionesCtrl;
-  late final TextEditingController _inicioCtrl;
-  late final TextEditingController _reevaluacionCtrl;
 
   // ── Estado foto ────────────────────────────────────────────────────────────
   Uint8List? _fotoBytes;
@@ -347,7 +338,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
   @override
   void initState() {
     super.initState();
-    // Inicializar desde datos existentes si es edición
     final nombreCompleto = _ex?['nombreCompleto']?.toString() ?? '';
     final partes = nombreCompleto.split(' ');
     final nombres = partes.length > 1
@@ -363,24 +353,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
         TextEditingController(text: _ex?['apellidos']?.toString() ?? apellidos);
     _documentoCtrl =
         TextEditingController(text: _ex?['documento']?.toString() ?? '');
-    _regimenCtrl =
-        TextEditingController(text: _ex?['regimenAfiliacion']?.toString() ?? '');
-    _diagMedicoCtrl =
-        TextEditingController(text: _ex?['diagnosticoMedico']?.toString() ?? '');
-    _diagNutriCtrl = TextEditingController(
-        text: _ex?['diagnosticoNutricional']?.toString() ?? '');
-    _tipoDietaCtrl =
-        TextEditingController(text: _ex?['tipoDietaSugerida']?.toString() ?? '');
-    _duracionCtrl =
-        TextEditingController(text: _ex?['duracionDieta']?.toString() ?? '');
-    _controlCtrl = TextEditingController(
-        text: _ex?['controlNutricional']?.toString() ?? '');
-    _observacionesCtrl =
-        TextEditingController(text: _ex?['observaciones']?.toString() ?? '');
-    _inicioCtrl =
-        TextEditingController(text: _ex?['inicioDieta']?.toString() ?? '');
-    _reevaluacionCtrl = TextEditingController(
-        text: _ex?['fechaReevaluacion']?.toString() ?? '');
 
     _fotoUrlExistente = _ex?['fotoUrl']?.toString();
 
@@ -395,15 +367,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
     _nombresCtrl.dispose();
     _apellidosCtrl.dispose();
     _documentoCtrl.dispose();
-    _regimenCtrl.dispose();
-    _diagMedicoCtrl.dispose();
-    _diagNutriCtrl.dispose();
-    _tipoDietaCtrl.dispose();
-    _duracionCtrl.dispose();
-    _controlCtrl.dispose();
-    _observacionesCtrl.dispose();
-    _inicioCtrl.dispose();
-    _reevaluacionCtrl.dispose();
     super.dispose();
   }
 
@@ -466,7 +429,7 @@ class _PacienteDialogState extends State<PacienteDialog> {
       final nombreCompleto = '$nombres $apellidos'.trim();
 
       await widget.service.guardarDirectorioNutricion(
-        empresaId: widget.empresaId,   // ← empresa del profesional
+        empresaId: widget.empresaId,
         userId: widget.userId,
         data: {
           'nombres': nombres,
@@ -474,15 +437,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
           'nombreCompleto': nombreCompleto,
           'tipoDocumento': _tipoDocumento,
           'documento': documento,
-          'regimenAfiliacion': _regimenCtrl.text.trim(),
-          'diagnosticoMedico': _diagMedicoCtrl.text.trim(),
-          'diagnosticoNutricional': _diagNutriCtrl.text.trim(),
-          'tipoDietaSugerida': _tipoDietaCtrl.text.trim(),
-          'duracionDieta': _duracionCtrl.text.trim(),
-          'controlNutricional': _controlCtrl.text.trim(),
-          'observaciones': _observacionesCtrl.text.trim(),
-          'inicioDieta': _inicioCtrl.text.trim(),
-          'fechaReevaluacion': _reevaluacionCtrl.text.trim(),
           if (fotoUrl != null) 'fotoUrl': fotoUrl,
         },
         id: _ex?['id']?.toString(),
@@ -531,126 +485,52 @@ class _PacienteDialogState extends State<PacienteDialog> {
               ),
               const Divider(height: 24),
 
-              // ── Contenido scrollable ─────────────────────────────────────
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Sección foto + datos identidad
-                      _buildSeccion('Identificación'),
-                      const SizedBox(height: 12),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // ── Marco de foto para carnet ──────────────────
-                          _buildFotoCarnet(),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                _buildRow([
-                                  _buildTextField(
-                                    'Nombres',
-                                    _nombresCtrl,
-                                    icon: Icons.person,
-                                  ),
-                                  _buildTextField(
-                                    'Apellidos',
-                                    _apellidosCtrl,
-                                    icon: Icons.person_outline,
-                                  ),
-                                ]),
-                                const SizedBox(height: 12),
-                                _buildRow([
-                                  _buildDropdown(),
-                                  _buildTextField(
-                                    'Número de documento',
-                                    _documentoCtrl,
-                                    icon: Icons.badge,
-                                    keyboardType: TextInputType.number,
-                                  ),
-                                ]),
-                                const SizedBox(height: 12),
-                                _buildTextField(
-                                  'Régimen de afiliación',
-                                  _regimenCtrl,
-                                  icon: Icons.health_and_safety_outlined,
-                                ),
-                              ],
+              // ── Contenido: solo foto + datos de identificación ────────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Marco de foto para carnet
+                  _buildFotoCarnet(),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildRow([
+                          _buildTextField(
+                            'Nombres',
+                            _nombresCtrl,
+                            icon: Icons.person,
+                          ),
+                          _buildTextField(
+                            'Apellidos',
+                            _apellidosCtrl,
+                            icon: Icons.person_outline,
+                          ),
+                        ]),
+                        const SizedBox(height: 12),
+                        _buildDropdown(),
+                        const SizedBox(height: 12),
+                        _buildTextField(
+                          'Número de documento',
+                          _documentoCtrl,
+                          icon: Icons.badge,
+                          keyboardType: TextInputType.number,
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            _error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontSize: 13,
                             ),
                           ),
                         ],
-                      ),
-
-                      const SizedBox(height: 20),
-                      _buildSeccion('Información clínica'),
-                      const SizedBox(height: 12),
-                      _buildRow([
-                        _buildTextField(
-                          'Diagnóstico médico',
-                          _diagMedicoCtrl,
-                          icon: Icons.local_hospital_outlined,
-                        ),
-                        _buildTextField(
-                          'Diagnóstico nutricional',
-                          _diagNutriCtrl,
-                          icon: Icons.restaurant_menu_outlined,
-                        ),
-                      ]),
-                      const SizedBox(height: 12),
-                      _buildRow([
-                        _buildTextField(
-                          'Tipo de dieta sugerida',
-                          _tipoDietaCtrl,
-                          icon: Icons.dining_outlined,
-                        ),
-                        _buildTextField(
-                          'Duración de dieta',
-                          _duracionCtrl,
-                          icon: Icons.timer_outlined,
-                        ),
-                      ]),
-                      const SizedBox(height: 12),
-                      _buildRow([
-                        _buildTextField(
-                          'Control nutricional',
-                          _controlCtrl,
-                          icon: Icons.monitor_weight_outlined,
-                        ),
-                        _buildTextField(
-                          'Inicio de dieta',
-                          _inicioCtrl,
-                          icon: Icons.calendar_today_outlined,
-                        ),
-                      ]),
-                      const SizedBox(height: 12),
-                      _buildTextField(
-                        'Fecha tentativa de reevaluación',
-                        _reevaluacionCtrl,
-                        icon: Icons.event_repeat_outlined,
-                      ),
-                      const SizedBox(height: 12),
-                      _buildTextField(
-                        'Observaciones y recomendaciones',
-                        _observacionesCtrl,
-                        icon: Icons.notes_outlined,
-                        maxLines: 3,
-                      ),
-
-                      if (_error != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                            fontSize: 13,
-                          ),
-                        ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
 
               const Divider(height: 24),
@@ -689,26 +569,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
   }
 
   // ── Helpers de UI ──────────────────────────────────────────────────────────
-
-  Widget _buildSeccion(String titulo) {
-    return Row(
-      children: [
-        Text(
-          titulo,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: Theme.of(context).colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Divider(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildRow(List<Widget> children) {
     return Row(
