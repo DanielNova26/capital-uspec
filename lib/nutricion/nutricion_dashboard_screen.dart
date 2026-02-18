@@ -79,6 +79,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   DateTime _fechaInicioDieta = DateTime.now();
   DateTime? _fechaReevaluacion;
   String? _periodoSeleccionado;
+  String? _menuPlanSeleccionadoId;
   final List<String> _dietasSeleccionadas = [];
   List<String> _dietasSugeridasActuales = [];
   bool _agendandoCita = false;
@@ -1475,25 +1476,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // CONEXIÓN con nutricion_menus_screen.dart
-          _buildChecklistTile(
-            'Menú personalizado',
-            'Planifica por tiempos de comida y porciones.',
-            icon: Icons.restaurant_menu,
-            onTap: () => _openModule(
-              tabIndex: 1,
-              title: 'Menús nutricionales',
-              isCompact: isCompact,
-              child: NutricionMenusScreen(
-                userId: widget.userId,
-                empresaId: widget.empresaId,
-                establecimiento: _selectedEstablecimiento,
-                semana: _weekStart,
-                appBarTitle: 'Menú nutricional integrado',
-                showAppBar: false,
-              ),
-            ),
-          ),
+          _buildMenuPlanSelector(isCompact),
+          const SizedBox(height: 12),
           // CONEXIÓN con nutricion_atencion_actions.dart
           _buildChecklistTile(
             'Indicaciones y educación',
@@ -1522,6 +1506,145 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildMenuPlanSelector(bool isCompact) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: NutricionService().streamMenus(
+        empresaId: widget.empresaId,
+        establecimiento: _selectedEstablecimiento,
+        semana: _weekStart,
+      ),
+      builder: (context, snap) {
+        final menus = snap.data ?? const <Map<String, dynamic>>[];
+        Map<String, dynamic>? menuSeleccionado;
+        for (final menu in menus) {
+          final id = (menu['menuId'] ?? menu['id'])?.toString();
+          if (id == _menuPlanSeleccionadoId) {
+            menuSeleccionado = menu;
+            break;
+          }
+        }
+
+        if (_menuPlanSeleccionadoId != null && menuSeleccionado == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() => _menuPlanSeleccionadoId = null);
+          });
+        }
+
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.restaurant_menu,
+                        color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Plan alimentario',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Selecciona un menú ya creado o crea uno nuevo por tiempo de comida (desayuno, almuerzo, cena y refrigerio).',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _menuPlanSeleccionadoId,
+                  isExpanded: true,
+                  hint: const Text('Seleccionar menú adecuado'),
+                  items: menus
+                      .map(
+                        (menu) => DropdownMenuItem<String>(
+                      value: (menu['menuId'] ?? menu['id'])?.toString() ?? '',
+                      child: Text(menu['nombre']?.toString() ?? 'Sin nombre'),
+                    ),
+                  )
+                      .toList(),
+                  onChanged: menus.isEmpty
+                      ? null
+                      : (value) => setState(() => _menuPlanSeleccionadoId = value),
+                  decoration: const InputDecoration(
+                    labelText: 'Menús de la semana',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                if (menuSeleccionado != null) ...[
+                  const SizedBox(height: 12),
+                  Builder(
+                    builder: (context) {
+                      final selectedMenu = menuSeleccionado!;
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: kTiemposComida.map((tiempo) {
+                          final total = _totalItemsTiempo(selectedMenu, tiempo);
+                          return Chip(
+                            avatar: const Icon(Icons.restaurant, size: 16),
+                            label: Text('$tiempo: $total ítems'),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    onPressed: () => _openModule(
+                      tabIndex: 1,
+                      title: 'Menús nutricionales',
+                      isCompact: isCompact,
+                      child: NutricionMenusScreen(
+                        userId: widget.userId,
+                        empresaId: widget.empresaId,
+                        establecimiento: _selectedEstablecimiento,
+                        semana: _weekStart,
+                        appBarTitle: 'Menú nutricional integrado',
+                        showAppBar: false,
+                      ),
+                    ),
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: Text(menus.isEmpty
+                        ? 'Crear primer menú por tiempo de comida'
+                        : 'Crear/editar menús por tiempo de comida'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  int _totalItemsTiempo(Map<String, dynamic> menu, String tiempo) {
+    final detalladosRaw = menu['itemsDetalladosPorTiempoComida'];
+    if (detalladosRaw is Map && detalladosRaw[tiempo] is List) {
+      return (detalladosRaw[tiempo] as List).length;
+    }
+    final simplesRaw = menu['itemsPorTiempoComida'];
+    if (simplesRaw is Map && simplesRaw[tiempo] is List) {
+      return (simplesRaw[tiempo] as List).length;
+    }
+    return 0;
   }
 
   Widget _buildEvidenciasTabContent(bool isCompact) {
