@@ -18,8 +18,8 @@ class NutricionService {
   static const String _collAlertas = 'TBL_ALERTAS_NUTRICION';
   static const String _collDirectorio = 'TBL_DIRECTORIO_NUTRICION';
 
-  // ✅ Nueva tabla para plantillas (ingredientes)
   static const String _collPlantillasMenus = 'TBL_PLANTILLAS_MENUS';
+  static const String _collIngredientes = 'TBL_INGREDIENTES';
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
@@ -856,6 +856,89 @@ class NutricionService {
       map[key] = row.length > i ? row[i]?.value : null;
     }
     return map;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // INGREDIENTES (TBL_INGREDIENTES)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /// Stream de ingredientes filtrado por empresa.
+  Stream<List<Map<String, dynamic>>> streamIngredientes({
+    required String empresaId,
+    String? categoria,
+  }) {
+    Query<Map<String, dynamic>> q = _db
+        .collection(_collIngredientes)
+        .where('empresaId', isEqualTo: empresaId);
+    if (categoria != null && categoria.isNotEmpty) {
+      q = q.where('categoria', isEqualTo: categoria);
+    }
+    return q.orderBy('nombre').snapshots().map(
+          (snap) =>
+              snap.docs.map((d) => {'id': d.id, ...d.data()}).toList(),
+        );
+  }
+
+  /// Crea o actualiza un ingrediente.
+  Future<void> guardarIngrediente({
+    required String empresaId,
+    required String userId,
+    required Map<String, dynamic> data,
+    String? id,
+  }) async {
+    final ref = id != null && id.isNotEmpty
+        ? _db.collection(_collIngredientes).doc(id)
+        : _db.collection(_collIngredientes).doc();
+    await ref.set({
+      ...data,
+      'empresaId': empresaId,
+      'actualizadoEn': FieldValue.serverTimestamp(),
+      'actualizadoPor': userId,
+    }, SetOptions(merge: true));
+  }
+
+  /// Elimina un ingrediente.
+  Future<void> eliminarIngrediente(String id) =>
+      _db.collection(_collIngredientes).doc(id).delete();
+
+  /// Comprueba si ya existen menús para la empresa+establecimiento (guard del seed).
+  Future<bool> hayMenusParaEmpresa({
+    required String empresaId,
+    required String establecimiento,
+  }) async {
+    final snap = await _db
+        .collection(_collMenus)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('establecimiento', isEqualTo: establecimiento)
+        .limit(1)
+        .get();
+    return snap.docs.isNotEmpty;
+  }
+
+  /// Seed de ingredientes base (solo si no existen para la empresa).
+  Future<void> seedIngredientesSiNoExisten({
+    required String empresaId,
+    required String userId,
+    required List<Map<String, dynamic>> ingredientes,
+  }) async {
+    final snap = await _db
+        .collection(_collIngredientes)
+        .where('empresaId', isEqualTo: empresaId)
+        .limit(1)
+        .get();
+    if (snap.docs.isNotEmpty) return;
+
+    final batch = _db.batch();
+    for (final ing in ingredientes) {
+      final ref = _db.collection(_collIngredientes).doc();
+      batch.set(ref, {
+        ...ing,
+        'empresaId': empresaId,
+        'actualizadoEn': FieldValue.serverTimestamp(),
+        'actualizadoPor': userId,
+      });
+    }
+    await batch.commit();
   }
 }
 

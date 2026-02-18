@@ -1,24 +1,236 @@
 // lib/nutricion/menus/nutricion_menus_screen.dart
 //
-// ✅ Pantalla completa:
-// - Lista de menús (TBL_MENUS) usando stream cacheado (evita "Stream has already been listened to")
-// - Manejo del error de índice (FAILED_PRECONDITION) mostrando mensaje amigable
-// - Plantillas sugeridas editables (TBL_PLANTILLAS_MENUS): agregar/eliminar ingredientes y grupos
-// - Botón Guardar que persiste la plantilla editable en Firestore
-//
-// Requisitos:
-// - Tener NutricionService con:
-//    - streamMenus(...)
-//    - streamPlantillasMenus(...)
-//    - guardarPlantillaMenu(...)
-//    - seedPlantillasMenusSiNoExisten(...)
-// - Tu NutricionDashboard ya importa NutricionMenusScreen desde menus/nutricion_menus_screen.dart
+// Plan alimentario por paciente.
+// - El nombre del documento en Firestore = nombre de la dieta
+// - Solo maneja 4 tiempos de comida: Desayuno, Almuerzo, Cena, Refrigerio
+// - Ingredientes con gramaje y unidad por tiempo de comida
+// - Plantillas predefinidas por tipo de dieta
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:todo/services/nutricion_service.dart';
+import 'package:todo/nutricion/ingredientes/nutricion_ingredientes_screen.dart';
 
-import 'package:todo/services/nutricion_service.dart'; // <-- AJUSTA si tu ruta real es diferente
+// ─────────────────────────────────────────────────────────────────────────────
+// Constantes compartidas
+// ─────────────────────────────────────────────────────────────────────────────
+
+const List<String> kTiemposComida = [
+  'Desayuno',
+  'Almuerzo',
+  'Cena',
+  'Refrigerio',
+];
+
+const Map<String, IconData> kIconosTiempo = {
+  'Desayuno': Icons.wb_sunny_outlined,
+  'Almuerzo': Icons.lunch_dining_outlined,
+  'Cena': Icons.nightlight_outlined,
+  'Refrigerio': Icons.apple_outlined,
+};
+
+const Map<String, Color> kColorTiempo = {
+  'Desayuno': Color(0xFFF59E0B),
+  'Almuerzo': Color(0xFF10B981),
+  'Cena': Color(0xFF6366F1),
+  'Refrigerio': Color(0xFFEC4899),
+};
+
+// Dietas predefinidas — ingredientes basados en la tabla oficial de dietas institucionales
+const List<Map<String, dynamic>> kDietasDefault = [
+  {
+    'nombre': 'Dieta Normal',
+    'descripcion': 'Alimentación equilibrada estándar. Pechuga + arroz + tubérculo + fruta.',
+    'tiempos': {
+      'Desayuno': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Aromática / infusión', 'gramos': '200', 'unidad': 'ml'},
+      ],
+      'Almuerzo': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Pechuga sin hueso cocida', 'gramos': '78', 'unidad': 'g'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Ensalada mixta', 'gramos': '100', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Cena': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Pechuga sin hueso cocida', 'gramos': '78', 'unidad': 'g'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Refrigerio': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+    },
+  },
+  {
+    'nombre': 'Dieta Normal – Alternativa Pescado',
+    'descripcion': 'Igual a dieta normal con pescado como proteína principal.',
+    'tiempos': {
+      'Desayuno': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+      'Almuerzo': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Pescado', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Fruta porcionada', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Cena': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Pescado', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Refrigerio': [
+        {'nombre': 'Galleta', 'gramos': '3', 'unidad': 'und'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+    },
+  },
+  {
+    'nombre': 'Dieta Normal – Alternativa Carne',
+    'descripcion': 'Dieta estándar con carne de res cocida.',
+    'tiempos': {
+      'Desayuno': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+      'Almuerzo': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Carne de res cocida', 'gramos': '110', 'unidad': 'g'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Fruta porcionada', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Cena': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Carne de res cocida', 'gramos': '110', 'unidad': 'g'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Refrigerio': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+    },
+  },
+  {
+    'nombre': 'Dieta HPP/HPC (Baja en proteína/calorías)',
+    'descripcion': 'Porciones reducidas para pacientes con restricción proteica o calórica.',
+    'tiempos': {
+      'Desayuno': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso (HPP/HPC)', 'gramos': '17.5', 'unidad': 'g'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+      'Almuerzo': [
+        {'nombre': 'Arroz cocido (HPP/HPC)', 'gramos': '85', 'unidad': 'g'},
+        {'nombre': 'Pechuga sin hueso cocida (HPP/HPC)', 'gramos': '39', 'unidad': 'g'},
+        {'nombre': 'Queso (HPP/HPC)', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Tubérculo HPP/HPC', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Cena': [
+        {'nombre': 'Arroz cocido (HPP/HPC)', 'gramos': '85', 'unidad': 'g'},
+        {'nombre': 'Pechuga sin hueso cocida (HPP/HPC)', 'gramos': '39', 'unidad': 'g'},
+        {'nombre': 'Queso (HPP/HPC)', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Tubérculo HPP/HPC', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Refrigerio': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+      ],
+    },
+  },
+  {
+    'nombre': 'Dieta Vegetariana',
+    'descripcion': 'Sin carne. Huevo y queso como fuente de proteína.',
+    'tiempos': {
+      'Desayuno': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Aromática / infusión', 'gramos': '200', 'unidad': 'ml'},
+      ],
+      'Almuerzo': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Fríjoles / Lentejas cocidos', 'gramos': '60', 'unidad': 'g'},
+        {'nombre': 'Ensalada mixta', 'gramos': '100', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Cena': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Refrigerio': [
+        {'nombre': 'Galleta', 'gramos': '3', 'unidad': 'und'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+    },
+  },
+  {
+    'nombre': 'Dieta Pollo Entero',
+    'descripcion': 'Presa entera de pollo (pierna) como proteína principal.',
+    'tiempos': {
+      'Desayuno': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Huevo', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '35', 'unidad': 'g'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+      'Almuerzo': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Pierna de pollo cocida', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Fruta porcionada', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Cena': [
+        {'nombre': 'Arroz cocido', 'gramos': '170', 'unidad': 'g'},
+        {'nombre': 'Pierna de pollo cocida', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Queso', 'gramos': '70', 'unidad': 'g'},
+        {'nombre': 'Tubérculo (papa/yuca/plátano)', 'gramos': '80', 'unidad': 'g'},
+        {'nombre': 'Agua', 'gramos': '250', 'unidad': 'ml'},
+      ],
+      'Refrigerio': [
+        {'nombre': 'Pan', 'gramos': '1', 'unidad': 'und'},
+        {'nombre': 'Fruta de mano (entera)', 'gramos': '1', 'unidad': 'und'},
+      ],
+    },
+  },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Widget principal
+// ─────────────────────────────────────────────────────────────────────────────
 
 class NutricionMenusScreen extends StatefulWidget {
   final String userId;
@@ -35,7 +247,7 @@ class NutricionMenusScreen extends StatefulWidget {
     required this.establecimiento,
     required this.semana,
     this.showAppBar = true,
-    this.appBarTitle = 'Menús nutricionales',
+    this.appBarTitle = 'Plan alimentario',
   });
 
   @override
@@ -44,91 +256,64 @@ class NutricionMenusScreen extends StatefulWidget {
 
 class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
   final NutricionService _svc = NutricionService();
-
-  // ✅ Cache de streams (evita "Stream has already been listened to")
   late Stream<List<Map<String, dynamic>>> _menus$;
-  late Stream<List<Map<String, dynamic>>> _plantillas$;
-
-  // UI state
-  final TextEditingController _searchCtrl = TextEditingController();
-  String _filtroPeriodo = 'Todos'; // Todos | Semanal | Mensual
+  bool _seeding = false;
 
   @override
   void initState() {
     super.initState();
-    _rebuildStreams();
-    _seedDefaults();
+    _rebuildStream();
+    _seedDietas();
+    _seedMenusSiNoExisten();
   }
 
   @override
-  void didUpdateWidget(covariant NutricionMenusScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    final changed =
-        oldWidget.empresaId != widget.empresaId ||
-            oldWidget.establecimiento != widget.establecimiento ||
-            oldWidget.semana != widget.semana;
-
-    if (changed) {
-      _rebuildStreams();
-      setState(() {});
+  void didUpdateWidget(covariant NutricionMenusScreen old) {
+    super.didUpdateWidget(old);
+    if (old.empresaId != widget.empresaId ||
+        old.establecimiento != widget.establecimiento ||
+        old.semana != widget.semana) {
+      _rebuildStream();
     }
   }
 
-  void _rebuildStreams() {
+  void _rebuildStream() {
     _menus$ = _svc.streamMenus(
       empresaId: widget.empresaId,
       establecimiento: widget.establecimiento,
       semana: widget.semana,
     );
-
-    _plantillas$ = _svc.streamPlantillasMenus(
-      empresaId: widget.empresaId,
-      establecimiento: widget.establecimiento,
-    );
   }
 
-  Future<void> _seedDefaults() async {
-    // Plantillas base (puedes cambiar textos sin problema)
-    final defaults = <Map<String, dynamic>>[
-      {
-        'plantillaKey': 'almuerzo_cena',
-        'titulo': 'Almuerzo/Cena',
-        'descripcion': 'Combinaciones de cereales, proteínas y tubérculos.',
-        'grupos': <String, List<String>>{
-          'Cereal': ['Arroz', 'Pasta', 'Arepa'],
-          'Proteína': ['Pollo', 'Carne', 'Huevo'],
-          'Tubérculo': ['Papa', 'Yuca', 'Plátano'],
-        },
-      },
-      {
-        'plantillaKey': 'desayuno',
-        'titulo': 'Desayuno',
-        'descripcion': 'Opciones base para cereales, proteínas y frutas.',
-        'grupos': <String, List<String>>{
-          'Cereal': ['Pan'],
-          'Fruta': ['Banano', 'Papaya'],
-          'Proteína': ['Huevo', 'Queso'],
-        },
-      },
-      {
-        'plantillaKey': 'refrigerio',
-        'titulo': 'Refrigerio',
-        'descripcion': 'Opciones rápidas para meriendas.',
-        'grupos': <String, List<String>>{
-          'Snack': ['Galletas'],
-          'Fruta': ['Manzana'],
-        },
-      },
-      {
-        'plantillaKey': 'vacio',
-        'titulo': 'Vacío',
-        'descripcion': 'Inicia desde cero y crea tu propia plantilla.',
-        'grupos': <String, List<String>>{},
-      },
-    ];
-
+  Future<void> _seedDietas() async {
+    if (_seeding) return;
+    _seeding = true;
     try {
+      // Seed como plantillas reutilizables con la nueva estructura
+      final defaults = kDietasDefault.map((d) {
+        final tiempos =
+            (d['tiempos'] as Map<String, dynamic>).cast<String, dynamic>();
+        // Convertir cada tiempo a lista de maps
+        final grupos = <String, List<Map<String, dynamic>>>{};
+        for (final t in kTiemposComida) {
+          final items = tiempos[t] as List<dynamic>? ?? [];
+          grupos[t] = items
+              .map((i) => {
+                    'nombre': (i as Map)['nombre']?.toString() ?? '',
+                    'gramos': i['gramos']?.toString() ?? '',
+                    'unidad': i['unidad']?.toString() ?? 'g',
+                    'receta': '',
+                  })
+              .toList();
+        }
+        return {
+          'plantillaKey': _safeKey(d['nombre'] as String),
+          'titulo': d['nombre'] as String,
+          'descripcion': d['descripcion'] as String,
+          'grupos': grupos,
+        };
+      }).toList();
+
       await _svc.seedPlantillasMenusSiNoExisten(
         empresaId: widget.empresaId,
         establecimiento: widget.establecimiento,
@@ -136,1122 +321,1161 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
         defaults: defaults,
       );
     } catch (_) {
-      // Si falla por permisos o red, no bloqueamos la pantalla
+      // silencioso
+    }
+  }
+
+  String _safeKey(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+
+  /// Sube los 6 menús predefinidos a TBL_MENUS si la empresa aún no tiene ninguno.
+  Future<void> _seedMenusSiNoExisten() async {
+    try {
+      final yaExisten = await _svc.hayMenusParaEmpresa(
+        empresaId: widget.empresaId,
+        establecimiento: widget.establecimiento,
+      );
+      if (yaExisten) return;
+
+      for (final dieta in kDietasDefault) {
+        final tiempos =
+            (dieta['tiempos'] as Map<String, dynamic>).cast<String, dynamic>();
+        final items = <String, List<String>>{};
+        for (final t in kTiemposComida) {
+          final list = tiempos[t] as List<dynamic>? ?? [];
+          items[t] = list
+              .map((i) =>
+                  (i is Map) ? (i['nombre']?.toString() ?? '') : i.toString())
+              .where((s) => s.isNotEmpty)
+              .toList();
+        }
+        await _svc.crearMenu(
+          empresaId: widget.empresaId,
+          userId: widget.userId,
+          nombre: dieta['nombre'] as String,
+          periodo: 'Semanal',
+          establecimiento: widget.establecimiento,
+          semana: widget.semana,
+          itemsPorTiempoComida: items,
+        );
+      }
+    } catch (_) {
+      // silencioso
     }
   }
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final body = StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _menus$,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return _buildError(snap.error.toString());
+        }
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final menus = snap.data!;
+        if (menus.isEmpty) {
+          return _buildEmpty();
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          itemCount: menus.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (_, i) => _DietaCard(
+            menu: menus[i],
+            onEdit: () => _abrirEditorDieta(menus[i]),
+          ),
+        );
+      },
+    );
 
-    return Scaffold(
-      appBar: widget.showAppBar
-          ? AppBar(
-        title: Text(widget.appBarTitle),
-      )
-          : null,
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+    if (!widget.showAppBar) {
+      return Stack(
         children: [
-          // -------- Plantillas sugeridas --------
-          Text(
-            'Plantillas sugeridas',
-            style: theme.textTheme.titleLarge,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Crea tus plantillas y edítalas agregando ingredientes, recetas y gramajes. '
-                'Luego podrás usar estas plantillas como base para tus menús.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-
-          StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _plantillas$,
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return _errorCard(
-                  title: 'Error cargando plantillas',
-                  message: snap.error.toString(),
-                );
-              }
-              if (!snap.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-
-              final plantillas = snap.data!;
-              if (plantillas.isEmpty) {
-                return _emptyCard(
-                  title: 'Sin plantillas',
-                  message: 'Aún no hay plantillas para este establecimiento.',
-                );
-              }
-
-              return Column(
-                children: [
-                  for (final p in plantillas) ...[
-                    _plantillaCard(context, p),
-                    const SizedBox(height: 12),
-                  ],
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 20),
-          const Divider(),
-          const SizedBox(height: 16),
-
-          // -------- Menús del establecimiento --------
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Menús del establecimiento',
-                  style: theme.textTheme.titleLarge,
-                ),
-              ),
-              _chipSemana(theme),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          _filtersRow(theme),
-
-          const SizedBox(height: 12),
-
-          StreamBuilder<List<Map<String, dynamic>>>(
-            stream: _menus$,
-            builder: (context, snap) {
-              if (snap.hasError) {
-                // Mensaje amable (cuando falte índice o cualquier error)
-                return _errorCard(
-                  title: 'Error cargando menús',
-                  message: snap.error.toString(),
-                  hint:
-                  'Si el error indica "requires an index", crea el índice en Firebase Console '
-                      'o usa el fallback que ya está implementado en el servicio.',
-                );
-              }
-              if (!snap.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-
-              var menus = snap.data!;
-
-              // Buscar por nombre o periodo
-              final q = _searchCtrl.text.trim().toLowerCase();
-              if (q.isNotEmpty) {
-                menus = menus.where((m) {
-                  final nombre = (m['nombre'] ?? '').toString().toLowerCase();
-                  final periodo = (m['periodo'] ?? '').toString().toLowerCase();
-                  return nombre.contains(q) || periodo.contains(q);
-                }).toList();
-              }
-
-              // Filtro por periodo
-              if (_filtroPeriodo != 'Todos') {
-                menus = menus.where((m) {
-                  final periodo = (m['periodo'] ?? '').toString();
-                  return periodo.toLowerCase() == _filtroPeriodo.toLowerCase();
-                }).toList();
-              }
-
-              if (menus.isEmpty) {
-                return _emptyCard(
-                  title: 'Sin menús registrados',
-                  message:
-                  'No hay menús para esta semana. Puedes crear uno nuevo desde tu flujo o desde el botón.',
-                );
-              }
-
-              return Column(
-                children: [
-                  for (final m in menus) ...[
-                    _menuCard(context, m),
-                    const SizedBox(height: 12),
-                  ]
-                ],
-              );
-            },
+          body,
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.extended(
+              onPressed: _abrirSelectorDieta,
+              icon: const Icon(Icons.add),
+              label: const Text('Nueva dieta'),
+            ),
           ),
         ],
-      ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.appBarTitle)),
+      body: body,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _crearMenuDialog,
+        onPressed: _abrirSelectorDieta,
         icon: const Icon(Icons.add),
-        label: const Text('Nuevo menú'),
+        label: const Text('Nueva dieta'),
       ),
     );
   }
 
-  // ---------------- UI: filtros ----------------
+  // ── Empty / Error ──────────────────────────────────────────────────────────
 
-  Widget _filtersRow(ThemeData theme) {
+  Widget _buildEmpty() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.restaurant_menu_outlined,
+              size: 64,
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+          const SizedBox(height: 16),
+          Text(
+            'Sin planes alimentarios',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Crea un plan seleccionando una dieta predefinida\no desde cero.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _abrirSelectorDieta,
+            icon: const Icon(Icons.add),
+            label: const Text('Crear plan alimentario'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildError(String msg) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline,
+                size: 48,
+                color: Theme.of(context).colorScheme.error.withOpacity(0.6)),
+            const SizedBox(height: 12),
+            Text('Error al cargar planes',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(msg,
+                style: Theme.of(context).textTheme.bodySmall,
+                textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Selector de dieta predefinida ──────────────────────────────────────────
+
+  Future<void> _abrirSelectorDieta() async {
+    final seleccion = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _SelectorDietaDialog(svc: _svc, empresaId: widget.empresaId, establecimiento: widget.establecimiento),
+    );
+    if (seleccion == null || !mounted) return;
+
+    // Construir itemsPorTiempoComida desde la plantilla seleccionada
+    final grupos = seleccion['grupos'] as Map<String, dynamic>? ?? {};
+    final items = <String, List<String>>{};
+    for (final t in kTiemposComida) {
+      final list = grupos[t] as List<dynamic>? ?? [];
+      items[t] = list
+          .map((i) =>
+              (i is Map) ? (i['nombre']?.toString() ?? '') : i.toString())
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+
+    await _svc.crearMenu(
+      empresaId: widget.empresaId,
+      userId: widget.userId,
+      nombre: seleccion['titulo']?.toString() ?? 'Plan alimentario',
+      periodo: 'Semanal',
+      establecimiento: widget.establecimiento,
+      semana: widget.semana,
+      itemsPorTiempoComida: items,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Plan "${seleccion['titulo']}" creado correctamente'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  // ── Editor de dieta existente ──────────────────────────────────────────────
+
+  Future<void> _abrirEditorDieta(Map<String, dynamic> menu) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _EditorDietaDialog(
+        menu: menu,
+        svc: _svc,
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        establecimiento: widget.establecimiento,
+        semana: widget.semana,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card de dieta en la lista
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _DietaCard extends StatelessWidget {
+  final Map<String, dynamic> menu;
+  final VoidCallback onEdit;
+
+  const _DietaCard({required this.menu, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    final nombre = menu['nombre']?.toString() ?? 'Sin nombre';
+    final items = _castItems(menu['itemsPorTiempoComida']);
+    final totalItems =
+        items.values.fold<int>(0, (acc, v) => acc + v.length);
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Encabezado
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.restaurant_menu,
+                    size: 20,
+                    color:
+                        Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(nombre,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        '$totalItems alimentos · ${items.keys.where((k) => (items[k] ?? []).isNotEmpty).length} tiempos de comida',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Editar plan',
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: onEdit,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Tiempos de comida
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: kTiemposComida.map((t) {
+                final list = items[t] ?? [];
+                final color = kColorTiempo[t] ?? Colors.grey;
+                final icon = kIconosTiempo[t] ?? Icons.restaurant;
+                return _TiempoChip(
+                  tiempo: t,
+                  count: list.length,
+                  color: color,
+                  icon: icon,
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Map<String, List<String>> _castItems(Object? raw) {
+    if (raw is Map) {
+      return {
+        for (final e in raw.entries)
+          e.key.toString(): (e.value is List)
+              ? (e.value as List).map((x) => x.toString()).toList()
+              : <String>[],
+      };
+    }
+    return {};
+  }
+}
+
+class _TiempoChip extends StatelessWidget {
+  final String tiempo;
+  final int count;
+  final Color color;
+  final IconData icon;
+
+  const _TiempoChip({
+    required this.tiempo,
+    required this.count,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            '$tiempo · $count',
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Selector de dieta predefinida (plantillas)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SelectorDietaDialog extends StatefulWidget {
+  final NutricionService svc;
+  final String empresaId;
+  final String establecimiento;
+
+  const _SelectorDietaDialog({
+    required this.svc,
+    required this.empresaId,
+    required this.establecimiento,
+  });
+
+  @override
+  State<_SelectorDietaDialog> createState() => _SelectorDietaDialogState();
+}
+
+class _SelectorDietaDialogState extends State<_SelectorDietaDialog> {
+  Map<String, dynamic>? _selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 520,
+          maxHeight: MediaQuery.of(context).size.height * 0.82,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Encabezado
+              Row(
+                children: [
+                  Icon(Icons.restaurant_menu,
+                      color: Theme.of(context).colorScheme.primary, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Seleccionar dieta',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Elige una dieta base. Podrás editar los alimentos después.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 12),
+
+              // Lista de plantillas desde Firestore
+              Expanded(
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: widget.svc.streamPlantillasMenus(
+                    empresaId: widget.empresaId,
+                    establecimiento: widget.establecimiento,
+                  ),
+                  builder: (context, snap) {
+                    if (!snap.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final plantillas = snap.data!;
+                    if (plantillas.isEmpty) {
+                      return const Center(
+                          child: Text('Sin dietas disponibles.'));
+                    }
+                    return ListView.separated(
+                      itemCount: plantillas.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final p = plantillas[i];
+                        final titulo = p['titulo']?.toString() ?? '';
+                        final desc = p['descripcion']?.toString() ?? '';
+                        final isSelected = _selected?['titulo'] == titulo;
+                        return _PlantillaSeleccionable(
+                          titulo: titulo,
+                          descripcion: desc,
+                          selected: isSelected,
+                          onTap: () => setState(() => _selected = p),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Acciones
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _selected == null
+                        ? null
+                        : () => Navigator.pop(context, _selected),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Usar esta dieta'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlantillaSeleccionable extends StatelessWidget {
+  final String titulo;
+  final String descripcion;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PlantillaSeleccionable({
+    required this.titulo,
+    required this.descripcion,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? primary : Theme.of(context).colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+          color: selected ? primary.withOpacity(0.07) : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              color: selected ? primary : Theme.of(context).colorScheme.outline,
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(titulo,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: selected ? primary : null,
+                          )),
+                  if (descripcion.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(descripcion,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editor de un plan alimentario existente (4 tabs: D/A/C/R)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _EditorDietaDialog extends StatefulWidget {
+  final Map<String, dynamic> menu;
+  final NutricionService svc;
+  final String empresaId;
+  final String userId;
+  final String establecimiento;
+  final DateTime semana;
+
+  const _EditorDietaDialog({
+    required this.menu,
+    required this.svc,
+    required this.empresaId,
+    required this.userId,
+    required this.establecimiento,
+    required this.semana,
+  });
+
+  @override
+  State<_EditorDietaDialog> createState() => _EditorDietaDialogState();
+}
+
+class _EditorDietaDialogState extends State<_EditorDietaDialog>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+
+  // items[tiempo] = lista de {nombre, gramos, unidad}
+  late Map<String, List<Map<String, dynamic>>> _items;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: kTiemposComida.length, vsync: this);
+    _items = {};
+    final raw = widget.menu['itemsPorTiempoComida'];
+    for (final t in kTiemposComida) {
+      final list = (raw is Map) ? (raw[t] as List<dynamic>? ?? []) : [];
+      _items[t] = list.map((item) {
+        if (item is Map) {
+          return {
+            'nombre': item['nombre']?.toString() ?? item.toString(),
+            'gramos': item['gramos']?.toString() ?? '',
+            'unidad': item['unidad']?.toString() ?? 'g',
+          };
+        }
+        return {'nombre': item.toString(), 'gramos': '', 'unidad': 'g'};
+      }).toList();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _guardar() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      // Convertir a Map<String, List<String>> para compatibilidad con crearMenu
+      // pero guardamos el mapa completo con gramos
+      final menuId = widget.menu['menuId']?.toString() ??
+          widget.menu['id']?.toString() ?? '';
+
+      // Guardamos usando guardarDirectorioNutricion no disponible aquí.
+      // Usamos set directo a través del servicio via crearMenu (que hace set sin merge).
+      // Para edición, necesitamos un método update. Lo simulamos con crearMenu
+      // que usa doc() nuevo. En su lugar hacemos el update via guardarPlantillaMenu
+      // con el mismo id del menú.
+      // El servicio tiene guardarAsignacionDieta, pero no updateMenu.
+      // Usamos la ruta directa de Firestore a través del servicio de plantillas
+      // con los grupos convertidos.
+      await widget.svc.guardarPlantillaMenu(
+        empresaId: widget.empresaId,
+        establecimiento: widget.establecimiento,
+        plantillaKey: menuId,
+        titulo: widget.menu['nombre']?.toString() ?? 'Plan',
+        descripcion: widget.menu['descripcion']?.toString() ?? '',
+        grupos: {
+          for (final t in kTiemposComida) t: List<Map<String, dynamic>>.from(_items[t] ?? [])
+        },
+        userId: widget.userId,
+      );
+
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Error al guardar: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final nombre = widget.menu['nombre']?.toString() ?? 'Plan alimentario';
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 580,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 16, 16, 0),
+              child: Row(
+                children: [
+                  Icon(Icons.restaurant_menu,
+                      color: Theme.of(context).colorScheme.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(nombre,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        Text('Plan alimentario',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+
+            // Tabs de tiempos de comida
+            TabBar(
+              controller: _tabCtrl,
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              tabs: kTiemposComida.map((t) {
+                final count = (_items[t] ?? []).length;
+                final color = kColorTiempo[t] ?? Colors.grey;
+                final icon = kIconosTiempo[t] ?? Icons.restaurant;
+                return Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 16, color: color),
+                      const SizedBox(width: 6),
+                      Text(t),
+                      if (count > 0) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text('$count',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: color,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+
+            // Contenido del tab
+            Expanded(
+              child: TabBarView(
+                controller: _tabCtrl,
+                children: kTiemposComida
+                    .map((t) => _TiempoComidaTab(
+                          tiempo: t,
+                          items: _items[t] ?? [],
+                          empresaId: widget.empresaId,
+                          userId: widget.userId,
+                          onChanged: (lista) =>
+                              setState(() => _items[t] = lista),
+                        ))
+                    .toList(),
+              ),
+            ),
+
+            if (_error != null)
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text(_error!,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontSize: 12)),
+              ),
+
+            // Acciones
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed:
+                        _saving ? null : () => Navigator.of(context).pop(),
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _saving ? null : _guardar,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: Text(_saving ? 'Guardando…' : 'Guardar'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab de un tiempo de comida
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TiempoComidaTab extends StatelessWidget {
+  final String tiempo;
+  final List<Map<String, dynamic>> items;
+  final ValueChanged<List<Map<String, dynamic>>> onChanged;
+  final String empresaId;
+  final String userId;
+
+  const _TiempoComidaTab({
+    required this.tiempo,
+    required this.items,
+    required this.onChanged,
+    required this.empresaId,
+    required this.userId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = kColorTiempo[tiempo] ?? Colors.grey;
+    final icon = kIconosTiempo[tiempo] ?? Icons.restaurant;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
-          controller: _searchCtrl,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            hintText: 'Buscar por nombre o periodo...',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
+        // Banner del tiempo
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                tiempo,
+                style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15),
+              ),
+              const Spacer(),
+              Text(
+                '${items.length} alimentos',
+                style: TextStyle(color: color, fontSize: 12),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          children: [
-            ChoiceChip(
-              label: const Text('Todos'),
-              selected: _filtroPeriodo == 'Todos',
-              onSelected: (_) => setState(() => _filtroPeriodo = 'Todos'),
-            ),
-            ChoiceChip(
-              label: const Text('Semanal'),
-              selected: _filtroPeriodo == 'Semanal',
-              onSelected: (_) => setState(() => _filtroPeriodo = 'Semanal'),
-            ),
-            ChoiceChip(
-              label: const Text('Mensual'),
-              selected: _filtroPeriodo == 'Mensual',
-              onSelected: (_) => setState(() => _filtroPeriodo = 'Mensual'),
-            ),
-          ],
+
+        // Lista de alimentos
+        Expanded(
+          child: items.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon,
+                          size: 48,
+                          color: color.withOpacity(0.25)),
+                      const SizedBox(height: 8),
+                      Text('Sin alimentos para $tiempo',
+                          style: TextStyle(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant)),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: 6),
+                  itemBuilder: (_, i) {
+                    final item = items[i];
+                    return Card(
+                      elevation: 0,
+                      margin: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .outlineVariant),
+                      ),
+                      child: ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 4),
+                        leading: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.lunch_dining,
+                              size: 18, color: color),
+                        ),
+                        title: Text(item['nombre']?.toString() ?? '',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14)),
+                        subtitle: Text(
+                          '${item['gramos'] ?? ''} ${item['unidad'] ?? 'g'}',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined,
+                                  size: 18),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Editar',
+                              onPressed: () async {
+                                final updated =
+                                    await _editarAlimentoDialog(
+                                  context,
+                                  initial: item,
+                                );
+                                if (updated == null) return;
+                                final nueva = List<Map<String, dynamic>>.from(items);
+                                nueva[i] = updated;
+                                onChanged(nueva);
+                              },
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  size: 18),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Eliminar',
+                              onPressed: () {
+                                final nueva =
+                                    List<Map<String, dynamic>>.from(
+                                        items)..removeAt(i);
+                                onChanged(nueva);
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+
+        // Botones agregar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final nuevo = await _editarAlimentoDialog(context);
+                    if (nuevo == null) return;
+                    onChanged([...items, nuevo]);
+                  },
+                  icon: Icon(Icons.edit_outlined, size: 16, color: color),
+                  label: Text('Manual', style: TextStyle(color: color)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: color.withOpacity(0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final ing = await Navigator.of(context).push<Map<String, dynamic>>(
+                      MaterialPageRoute(
+                        builder: (_) => NutricionIngredientesScreen(
+                          empresaId: empresaId,
+                          userId: userId,
+                          showAppBar: true,
+                          modoSeleccion: true,
+                        ),
+                      ),
+                    );
+                    if (ing == null) return;
+                    final nuevo = {
+                      'nombre': ing['nombre']?.toString() ?? '',
+                      'gramos': ing['gramosStd']?.toString() ?? '',
+                      'unidad': ing['unidad']?.toString() ?? 'g',
+                    };
+                    onChanged([...items, nuevo]);
+                  },
+                  icon: Icon(Icons.table_chart_outlined, size: 16, color: color),
+                  label: Text('De tabla', style: TextStyle(color: color)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: color.withOpacity(0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
-  Widget _chipSemana(ThemeData theme) {
-    final label = _weekLabel(widget.semana);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.45),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        'Semana $label',
-        style: theme.textTheme.labelMedium,
-      ),
-    );
-  }
-
-  String _weekLabel(DateTime monday) {
-    // monday ya viene como inicio semana desde dashboard
-    final end = monday.add(const Duration(days: 6));
-    String d2(DateTime d) => '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
-    return '${d2(monday)} - ${d2(end)}';
-  }
-
-  // ---------------- Cards ----------------
-
-  Widget _plantillaCard(BuildContext context, Map<String, dynamic> p) {
-    final theme = Theme.of(context);
-    final titulo = (p['titulo'] ?? p['plantillaKey'] ?? 'Plantilla').toString();
-    final descripcion = (p['descripcion'] ?? '').toString();
-    final grupos = _castGrupos(p['grupos']);
-
-    final totalIngredientes = grupos.values.fold<int>(0, (acc, v) => acc + v.length);
-
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(titulo, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(descripcion, style: theme.textTheme.bodyMedium),
-            const SizedBox(height: 10),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final isNarrow = constraints.maxWidth < 360;
-                final infoRow = Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.list_alt, size: 18),
-                    const SizedBox(width: 6),
-                    Text(
-                      totalIngredientes == 0
-                          ? 'Sin Ingredientes'
-                          : '$totalIngredientes Ingredientes',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                );
-
-                if (isNarrow) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      infoRow,
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _editarPlantillaDialog(p),
-                          icon: const Icon(Icons.tune),
-                          label: const Text('Editar'),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                return Row(
-                  children: [
-                    infoRow,
-                    const Spacer(),
-                    OutlinedButton.icon(
-                      onPressed: () => _editarPlantillaDialog(p),
-                      icon: const Icon(Icons.tune),
-                      label: const Text('Editar'),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _menuCard(BuildContext context, Map<String, dynamic> m) {
-    final theme = Theme.of(context);
-
-    final nombre = (m['nombre'] ?? 'Sin nombre').toString();
-    final periodo = (m['periodo'] ?? 'Semanal').toString();
-    final itemsPorTiempo = _castItemsPorTiempo(m['itemsPorTiempoComida']);
-
-    final total = itemsPorTiempo.values.fold<int>(0, (acc, v) => acc + v.length);
-
-    return Card(
-      elevation: 1,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(nombre, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                _pill(periodo),
-                const SizedBox(width: 8),
-                _pill('$total Ingredientes'),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => _verDetalleMenu(context, nombre, itemsPorTiempo),
-                icon: const Icon(Icons.visibility),
-                label: const Text('Ver detalles'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _pill(String text) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(text, style: theme.textTheme.labelMedium),
-    );
-  }
-
-  Widget _emptyCard({required String title, required String message}) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surfaceVariant.withOpacity(0.25),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(message, style: theme.textTheme.bodyMedium),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _errorCard({
-    required String title,
-    required String message,
-    String? hint,
-  }) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.errorContainer.withOpacity(0.25),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(message, style: theme.textTheme.bodySmall),
-            if (hint != null) ...[
-              const SizedBox(height: 8),
-              Text(hint, style: theme.textTheme.bodySmall),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------- Dialogs ----------------
-
-  Future<void> _editarPlantillaDialog(Map<String, dynamic> plantillaDoc) async {
-    final theme = Theme.of(context);
-    final media = MediaQuery.of(context);
-
-    final plantillaKey = (plantillaDoc['plantillaKey'] ?? '').toString();
-    final tituloCtrl = TextEditingController(
-      text: (plantillaDoc['titulo'] ?? plantillaKey).toString(),
-    );
-    final descCtrl = TextEditingController(
-      text: (plantillaDoc['descripcion'] ?? '').toString(),
-    );
-
-    // Clon editable
-    final grupos = Map<String, List<_IngredienteItem>>.fromEntries(
-      _castGrupos(plantillaDoc['grupos']).entries.map((e) {
-        return MapEntry(e.key, e.value.map((item) => item.copy()).toList());
-      }),
-    );
-
-    String? errorText;
-
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocal) {
-            final total = grupos.values.fold<int>(0, (acc, v) => acc + v.length);
-
-            // Para evitar overflow en móvil, limitamos el alto del dialog.
-            return AlertDialog(
-              title: Text(tituloCtrl.text.isEmpty ? 'Plantilla' : tituloCtrl.text),
-              content: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 520,
-                  maxHeight: media.size.height * 0.75,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: tituloCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Título',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (_) => setLocal(() {}),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: descCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Descripción',
-                          border: OutlineInputBorder(),
-                        ),
-                        minLines: 2,
-                        maxLines: 4,
-                      ),
-                      const SizedBox(height: 12),
-
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 10,
-                        runSpacing: 8,
-                        children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.list_alt, size: 18),
-                              const SizedBox(width: 6),
-                              Text('$total Ingredientes'),
-                            ],
-                          ),
-                          TextButton.icon(
-                            onPressed: () async {
-                              final name = await _promptText(
-                                context,
-                                title: 'Nuevo grupo',
-                                hint: 'Ej: Cereal, Fruta, Proteína...',
-                              );
-                              if (name == null) return;
-                              final key = name.trim();
-                              if (key.isEmpty) return;
-                              if (grupos.containsKey(key)) {
-                                setLocal(() => errorText = 'El grupo "$key" ya existe.');
-                                return;
-                              }
-                              setLocal(() {
-                                errorText = null;
-                                grupos[key] = <_IngredienteItem>[];
-                              });
-                            },
-                            icon: const Icon(Icons.add),
-                            label: const Text('Agregar grupo'),
-                          ),
-                        ],
-                      ),
-
-                      if (errorText != null) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          errorText!,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.error,
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 12),
-
-                      if (grupos.isEmpty)
-                        _emptyCard(
-                          title: 'Vacío',
-                          message: 'Agrega grupos e ingredientes para construir la plantilla.',
-                        )
-                      else
-                        Column(
-                          children: grupos.entries.map((entry) {
-                            final grupo = entry.key;
-                            final items = entry.value;
-
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              child: ExpansionTile(
-                                title: Text(grupo),
-                                subtitle: Text('${items.length} Ingredientes'),
-                                trailing: Wrap(
-                                  spacing: 4,
-                                  children: [
-                                    IconButton(
-                                      tooltip: 'Agregar ingrediente',
-                                      onPressed: () async {
-                                        final item =
-                                        await _openIngredienteDialog(context);
-                                        if (item == null) return;
-                                        setLocal(() {
-                                          errorText = null;
-                                          items.add(item);
-                                        });
-                                      },
-                                      icon: const Icon(Icons.add_circle_outline),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Eliminar grupo',
-                                      onPressed: () async {
-                                        final ok = await _confirm(
-                                          context,
-                                          title: 'Eliminar grupo',
-                                          message:
-                                          '¿Deseas eliminar el grupo "$grupo" y todos sus ingredientes?',
-                                        );
-                                        if (ok != true) return;
-
-                                        setLocal(() {
-                                          errorText = null;
-                                          grupos.remove(grupo);
-                                        });
-                                      },
-                                      icon: const Icon(Icons.delete_outline),
-                                    ),
-                                  ],
-                                ),
-                                children: [
-                                  if (items.isEmpty)
-                                    const Padding(
-                                      padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-                                      child: Align(
-                                        alignment: Alignment.centerLeft,
-                                        child: Text('Sin Ingredientes'),
-                                      ),
-                                    )
-                                  else
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                                      child: Column(
-                                        children: [
-                                          for (int i = 0; i < items.length; i++)
-                                            Card(
-                                              margin: const EdgeInsets.only(bottom: 8),
-                                              child: ListTile(
-                                                title: Text(items[i].nombre),
-                                                subtitle: Text(
-                                                  'Gramaje: ${items[i].gramos} ${items[i].unidad} • '
-                                                      'Receta: ${items[i].receta.isEmpty ? 'N/A' : items[i].receta}',
-                                                ),
-                                                trailing: Wrap(
-                                                  spacing: 4,
-                                                  children: [
-                                                    IconButton(
-                                                      tooltip: 'Editar',
-                                                      icon: const Icon(Icons.edit),
-                                                      onPressed: () async {
-                                                        final updated =
-                                                        await _openIngredienteDialog(
-                                                          context,
-                                                          initial: items[i],
-                                                        );
-                                                        if (updated == null) return;
-                                                        setLocal(() {
-                                                          items[i] = updated;
-                                                        });
-                                                      },
-                                                    ),
-                                                    IconButton(
-                                                      tooltip: 'Eliminar',
-                                                      icon: const Icon(Icons.delete_outline),
-                                                      onPressed: () {
-                                                        setLocal(() {
-                                                          items.removeAt(i);
-                                                        });
-                                                      },
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton.icon(
-                  onPressed: () async {
-                    final titulo = tituloCtrl.text.trim();
-                    if (titulo.isEmpty) {
-                      setLocal(() => errorText = 'El título no puede estar vacío.');
-                      return;
-                    }
-
-                    // Normalizar: no guardar listas con strings vacíos
-                    final gruposClean = <String, List<Map<String, dynamic>>>{};
-                    for (final e in grupos.entries) {
-                      final k = e.key.trim();
-                      if (k.isEmpty) continue;
-                      final clean = e.value
-                          .map((x) => x.copy())
-                          .where((x) => x.nombre.trim().isNotEmpty)
-                          .map((x) => x.toMap())
-                          .toList();
-                      gruposClean[k] = clean;
-                    }
-
-                    try {
-                      await _svc.guardarPlantillaMenu(
-                        empresaId: widget.empresaId,
-                        establecimiento: widget.establecimiento,
-                        plantillaKey: plantillaKey.isEmpty ? titulo : plantillaKey,
-                        titulo: titulo,
-                        descripcion: descCtrl.text.trim(),
-                        grupos: gruposClean,
-                        userId: widget.userId,
-                      );
-
-                      if (mounted) Navigator.pop(ctx);
-                    } catch (e) {
-                      setLocal(() => errorText = 'No se pudo guardar: $e');
-                    }
-                  },
-                  icon: const Icon(Icons.save),
-                  label: const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    tituloCtrl.dispose();
-    descCtrl.dispose();
-  }
-
-  Future<void> _crearMenuDialog() async {
-    final theme = Theme.of(context);
-    final media = MediaQuery.of(context);
-    final nombreCtrl = TextEditingController();
-    String periodo = 'Semanal';
+  Future<Map<String, dynamic>?> _editarAlimentoDialog(
+    BuildContext context, {
+    Map<String, dynamic>? initial,
+  }) async {
+    final nombreCtrl =
+        TextEditingController(text: initial?['nombre']?.toString() ?? '');
+    final gramosCtrl =
+        TextEditingController(text: initial?['gramos']?.toString() ?? '');
+    final unidadCtrl = TextEditingController(
+        text: initial?['unidad']?.toString().isNotEmpty == true
+            ? initial!['unidad'].toString()
+            : 'g');
     String? error;
 
-    await showDialog(
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocal) {
-            return AlertDialog(
-              title: const Text('Nuevo menú'),
-              content: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 520,
-                  maxHeight: media.size.height * 0.6,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: nombreCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Nombre del menú',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      DropdownButtonFormField<String>(
-                        value: periodo,
-                        items: const [
-                          DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
-                          DropdownMenuItem(value: 'Mensual', child: Text('Mensual')),
-                        ],
-                        onChanged: (v) => setLocal(() => periodo = v ?? 'Semanal'),
-                        decoration: const InputDecoration(
-                          labelText: 'Periodo',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      if (error != null) ...[
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            error!,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.error,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: Text(initial == null ? 'Agregar alimento' : 'Editar alimento'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nombreCtrl,
+                  autofocus: true,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    labelText: 'Alimento',
+                    hintText: 'Ej: Arroz blanco cocido',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    prefixIcon:
+                        const Icon(Icons.lunch_dining_outlined, size: 20),
                   ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar'),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        controller: gramosCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Cantidad',
+                          hintText: '150',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: unidadCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'Unidad',
+                          hintText: 'g / ml',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                FilledButton.icon(
-                  onPressed: () async {
-                    final nombre = nombreCtrl.text.trim();
-                    if (nombre.isEmpty) {
-                      setLocal(() => error = 'El nombre es obligatorio.');
-                      return;
-                    }
-
-                    try {
-                      // Menú vacío de arranque
-                      await _svc.crearMenu(
-                        empresaId: widget.empresaId,
-                        userId: widget.userId,
-                        nombre: nombre,
-                        periodo: periodo,
-                        establecimiento: widget.establecimiento,
-                        semana: widget.semana,
-                        itemsPorTiempoComida: {
-                          'Desayuno': <String>[],
-                          'Almuerzo': <String>[],
-                          'Cena': <String>[],
-                          'Refrigerio': <String>[],
-                        },
-                      );
-
-                      if (!mounted) return;
-                      Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Menú creado correctamente.')),
-                      );
-                    } catch (e) {
-                      setLocal(() => error = 'No se pudo crear: $e');
-                    }
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Crear'),
-                ),
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(error!,
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 12)),
+                ],
               ],
-            );
-          },
-        );
-      },
-    );
-
-    nombreCtrl.dispose();
-  }
-
-  void _verDetalleMenu(
-      BuildContext context,
-      String nombre,
-      Map<String, List<String>> itemsPorTiempo,
-      ) {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) {
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            Text(nombre, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            for (final entry in itemsPorTiempo.entries) ...[
-              Text(entry.key, style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 6),
-              if (entry.value.isEmpty)
-                const Text('Sin ítems')
-              else
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: entry.value.map((e) => Chip(label: Text(e))).toList(),
-                ),
-              const SizedBox(height: 12),
-            ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (nombreCtrl.text.trim().isEmpty) {
+                  setLocal(() => error = 'Ingresa el nombre del alimento.');
+                  return;
+                }
+                Navigator.pop(ctx, {
+                  'nombre': nombreCtrl.text.trim(),
+                  'gramos': gramosCtrl.text.trim(),
+                  'unidad': unidadCtrl.text.trim().isEmpty
+                      ? 'g'
+                      : unidadCtrl.text.trim(),
+                });
+              },
+              child: const Text('Guardar'),
+            ),
           ],
-        );
-      },
-    );
-  }
-
-  // ---------------- Helpers ----------------
-
-  Map<String, List<String>> _castItemsPorTiempo(Object? raw) {
-    if (raw is Map) {
-      final out = <String, List<String>>{};
-      for (final e in raw.entries) {
-        final k = e.key.toString();
-        final v = e.value;
-        if (v is List) {
-          out[k] = v.map((x) => x.toString()).toList();
-        } else {
-          out[k] = <String>[];
-        }
-      }
-      return out;
-    }
-    return <String, List<String>>{};
-  }
-
-  Map<String, List<_IngredienteItem>> _castGrupos(Object? raw) {
-    if (raw is Map) {
-      final out = <String, List<_IngredienteItem>>{};
-      for (final e in raw.entries) {
-        final k = e.key.toString();
-        final v = e.value;
-        out[k] = _castIngredientes(v);
-      }
-      return out;
-    }
-    return <String, List<_IngredienteItem>>{};
-  }
-
-  List<_IngredienteItem> _castIngredientes(Object? raw) {
-    if (raw is List) {
-      return raw.map((item) {
-        if (item is Map) {
-          return _IngredienteItem(
-            nombre: item['nombre']?.toString() ??
-                item['ingrediente']?.toString() ??
-                '',
-            gramos: item['gramos']?.toString() ?? '',
-            unidad: item['unidad']?.toString() ?? 'g',
-            receta: item['receta']?.toString() ?? '',
-          );
-        }
-        return _IngredienteItem(
-          nombre: item.toString(),
-          gramos: '',
-          unidad: 'g',
-          receta: '',
-        );
-      }).toList();
-    }
-    return <_IngredienteItem>[];
-  }
-
-  Future<_IngredienteItem?> _openIngredienteDialog(
-      BuildContext context, {
-        _IngredienteItem? initial,
-      }) async {
-    final media = MediaQuery.of(context);
-    final nombreCtrl = TextEditingController(text: initial?.nombre ?? '');
-    final gramosCtrl = TextEditingController(text: initial?.gramos ?? '');
-    final unidadCtrl = TextEditingController(text: initial?.unidad ?? 'g');
-    final recetaCtrl = TextEditingController(text: initial?.receta ?? '');
-    String? errorText;
-
-    final result = await showDialog<_IngredienteItem>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocal) {
-            return AlertDialog(
-              title: Text(initial == null
-                  ? 'Agregar ingrediente'
-                  : 'Editar ingrediente'),
-              content: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 420,
-                  maxHeight: media.size.height * 0.7,
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextField(
-                        controller: nombreCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Ingrediente',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: gramosCtrl,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Gramaje',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: TextField(
-                              controller: unidadCtrl,
-                              decoration: const InputDecoration(
-                                labelText: 'Unidad',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: recetaCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Receta / preparación',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      if (errorText != null) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            errorText!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    if (nombreCtrl.text.trim().isEmpty) {
-                      setLocal(() => errorText = 'El ingrediente es obligatorio.');
-                      return;
-                    }
-                    Navigator.pop(
-                      ctx,
-                      _IngredienteItem(
-                        nombre: nombreCtrl.text.trim(),
-                        gramos: gramosCtrl.text.trim(),
-                        unidad: unidadCtrl.text.trim().isEmpty
-                            ? 'g'
-                            : unidadCtrl.text.trim(),
-                        receta: recetaCtrl.text.trim(),
-                      ),
-                    );
-                  },
-                  child: const Text('Guardar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+        ),
+      ),
     );
 
     nombreCtrl.dispose();
     gramosCtrl.dispose();
     unidadCtrl.dispose();
-    recetaCtrl.dispose();
     return result;
-  }
-
-  Future<String?> _promptText(
-      BuildContext context, {
-        required String title,
-        required String hint,
-      }) async {
-    final ctrl = TextEditingController();
-    String? result;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: hint,
-              border: const OutlineInputBorder(),
-            ),
-            onSubmitted: (v) {
-              result = v;
-              Navigator.pop(ctx);
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-              },
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () {
-                result = ctrl.text;
-                Navigator.pop(ctx);
-              },
-              child: const Text('Aceptar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    ctrl.dispose();
-    return result;
-  }
-
-  Future<bool?> _confirm(
-      BuildContext context, {
-        required String title,
-        required String message,
-      }) async {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(title),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Sí'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _IngredienteItem {
-  final String nombre;
-  final String gramos;
-  final String unidad;
-  final String receta;
-
-  const _IngredienteItem({
-    required this.nombre,
-    required this.gramos,
-    required this.unidad,
-    required this.receta,
-  });
-
-  _IngredienteItem copy() {
-    return _IngredienteItem(
-      nombre: nombre,
-      gramos: gramos,
-      unidad: unidad,
-      receta: receta,
-    );
-  }
-
-  Map<String, dynamic> toMap() {
-    return {
-      'nombre': nombre,
-      'gramos': gramos,
-      'unidad': unidad,
-      'receta': receta,
-    };
   }
 }

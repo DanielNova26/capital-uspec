@@ -454,15 +454,15 @@ class _PacienteDialogState extends State<PacienteDialog> {
   Widget build(BuildContext context) {
     final esEdicion = _ex != null;
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 680),
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // ── Encabezado ──────────────────────────────────────────────
               Row(
@@ -470,70 +470,77 @@ class _PacienteDialogState extends State<PacienteDialog> {
                   Icon(
                     esEdicion ? Icons.edit : Icons.person_add,
                     color: Theme.of(context).colorScheme.primary,
+                    size: 20,
                   ),
-                  const SizedBox(width: 10),
-                  Text(
-                    esEdicion ? 'Editar paciente' : 'Registrar nuevo paciente',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      esEdicion ? 'Editar paciente' : 'Nuevo paciente',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
                   ),
-                  const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
-              const Divider(height: 24),
+              const SizedBox(height: 16),
 
-              // ── Contenido: solo foto + datos de identificación ────────
+              // ── Foto centrada ────────────────────────────────────────────
+              Center(child: _buildFotoCarnet()),
+              const SizedBox(height: 16),
+
+              // ── Nombres y apellidos ──────────────────────────────────────
               Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Marco de foto para carnet
-                  _buildFotoCarnet(),
-                  const SizedBox(width: 20),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildRow([
-                          _buildTextField(
-                            'Nombres',
-                            _nombresCtrl,
-                            icon: Icons.person,
-                          ),
-                          _buildTextField(
-                            'Apellidos',
-                            _apellidosCtrl,
-                            icon: Icons.person_outline,
-                          ),
-                        ]),
-                        const SizedBox(height: 12),
-                        _buildDropdown(),
-                        const SizedBox(height: 12),
-                        _buildTextField(
-                          'Número de documento',
-                          _documentoCtrl,
-                          icon: Icons.badge,
-                          keyboardType: TextInputType.number,
-                        ),
-                        if (_error != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            _error!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ],
+                    child: _buildTextField(
+                      'Nombres',
+                      _nombresCtrl,
+                      icon: Icons.person_outline,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildTextField(
+                      'Apellidos',
+                      _apellidosCtrl,
+                      icon: Icons.person_outline,
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
 
-              const Divider(height: 24),
+              // ── Tipo de documento ────────────────────────────────────────
+              _buildDropdown(),
+              const SizedBox(height: 10),
+
+              // ── Número de documento ──────────────────────────────────────
+              _buildTextField(
+                'Número de documento',
+                _documentoCtrl,
+                icon: Icons.badge_outlined,
+                keyboardType: TextInputType.number,
+              ),
+
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _error!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 20),
 
               // ── Acciones ─────────────────────────────────────────────────
               Row(
@@ -544,13 +551,13 @@ class _PacienteDialogState extends State<PacienteDialog> {
                         _saving ? null : () => Navigator.of(context).pop(),
                     child: const Text('Cancelar'),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   FilledButton.icon(
                     onPressed: _saving ? null : _guardar,
                     icon: _saving
                         ? const SizedBox(
-                            width: 18,
-                            height: 18,
+                            width: 16,
+                            height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
                               color: Colors.white,
@@ -569,19 +576,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
   }
 
   // ── Helpers de UI ──────────────────────────────────────────────────────────
-
-  Widget _buildRow(List<Widget> children) {
-    return Row(
-      children: children
-          .map((w) => Expanded(child: w))
-          .toList()
-          .fold<List<Widget>>([], (acc, w) {
-        if (acc.isNotEmpty) acc.add(const SizedBox(width: 12));
-        acc.add(w);
-        return acc;
-      }),
-    );
-  }
 
   Widget _buildTextField(
     String label,
@@ -624,8 +618,8 @@ class _PacienteDialogState extends State<PacienteDialog> {
   }
 
   Widget _buildFotoCarnet() {
-    const double w = 120;
-    const double h = 150;
+    const double w = 100;
+    const double h = 126;
 
     Widget fotoWidget;
 

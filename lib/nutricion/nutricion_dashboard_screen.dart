@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'catalogos/nutricion_catalogos_screen.dart';
 import 'atencion/nutricion_atencion_actions.dart';
 import 'firmas/nutricion_firmas_screen.dart';
+import 'ingredientes/nutricion_ingredientes_screen.dart';
 import 'menus/nutricion_menus_screen.dart';
 import 'reportes/nutricion_reportes_screen.dart';
 
@@ -89,8 +90,28 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     super.initState();
     _selectedEstablecimiento = _establecimientos.first;
     _initPacientesStream();
+    _seedTablas();
     // Auto-seleccionar fecha de hoy para inicio de dieta
     _inicioDietaCtrl.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
+  }
+
+  Future<void> _seedTablas() async {
+    final svc = NutricionService();
+    try {
+      await svc.seedIngredientesSiNoExisten(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        ingredientes: kIngredientesBase,
+      );
+    } catch (_) {}
+    try {
+      await svc.seedPlantillasMenusSiNoExisten(
+        empresaId: widget.empresaId,
+        establecimiento: _establecimientos.first,
+        userId: widget.userId,
+        defaults: kDietasDefault,
+      );
+    } catch (_) {}
   }
 
   void _initPacientesStream() {
