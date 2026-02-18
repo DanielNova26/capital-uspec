@@ -264,7 +264,7 @@ class NutricionService {
     return ref.getDownloadURL();
   }
 
-  Future<void> guardarDirectorioNutricion({
+  Future<String> guardarDirectorioNutricion({
     required String empresaId,
     required String userId,
     required Map<String, dynamic> data,
@@ -293,6 +293,7 @@ class NutricionService {
       if (!isEdicion) 'creadoEn': FieldValue.serverTimestamp(),
       if (!isEdicion) 'creadoPor': userId,
     }, SetOptions(merge: true));
+    return doc.id;
   }
 
 

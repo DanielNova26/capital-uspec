@@ -2030,10 +2030,28 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
     if (result == null || !mounted) return;
 
-    // Refrescar la lista de pacientes
+    final pacienteNuevo = _PacienteInfo(
+      id: result.pacienteId,
+      nombre: result.nombreCompleto,
+      documento: result.documento,
+      diagnosticoMedico: '',
+      diagnosticoNutricional: '',
+    );
+
+    // Mostrar automáticamente el paciente recién creado.
     setState(() {
-      _selectedPaciente = null;
+      _selectedPaciente = pacienteNuevo;
+      _nombreCompletoCtrl.text = result.nombreCompleto;
+      _documentoCtrl.text = result.documento;
+      _diagnosticoMedicoCtrl.clear();
+      _diagnosticoNutriCtrl.clear();
+      _cachedPacientes = [
+        ...?_cachedPacientes,
+      ].where((p) => p.id != result.pacienteId).toList()
+        ..add(pacienteNuevo)
+        ..sort((a, b) => a.nombre.compareTo(b.nombre));
       _procesoEnCurso = true;
+      _pacienteGuardado = false;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -2042,7 +2060,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           children: [
             Icon(Icons.check_circle, color: Colors.white),
             SizedBox(width: 8),
-            Text('Paciente registrado correctamente'),
+            Text('Paciente registrado y seleccionado automáticamente'),
           ],
         ),
         backgroundColor: Colors.green,
