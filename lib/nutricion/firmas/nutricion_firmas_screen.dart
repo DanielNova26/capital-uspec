@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:signature/signature.dart';
 
 import '../../services/nutricion_service.dart';
 
@@ -22,44 +23,153 @@ class NutricionFirmasScreen extends StatefulWidget {
 class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
   final _service = NutricionService();
   final _picker = ImagePicker();
+  final _firmaController = SignatureController(
+    penStrokeWidth: 2.4,
+    penColor: Colors.black,
+    exportBackgroundColor: Colors.white,
+  );
+
+  @override
+  void dispose() {
+    _firmaController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Firmas y sellos', style: Theme.of(context).textTheme.titleLarge),
+          Text('Firmas, sellos y evidencias',
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            'Adjunta fotografías del proceso de toma de muestras y dietas. También puedes dibujar y guardar tu firma por usuario.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
           const SizedBox(height: 12),
           StreamBuilder<Map<String, dynamic>?>(
-            stream: _service.streamFirma(empresaId: widget.empresaId, userId: widget.userId),
+            stream: _service.streamEvidenciasProceso(
+              empresaId: widget.empresaId,
+              userId: widget.userId,
+            ),
             builder: (context, snapshot) {
               final data = snapshot.data;
-              return Row(
+              return Column(
                 children: [
-                  _buildImageCard('Firma', data?['urlFirma']),
-                  const SizedBox(width: 16),
-                  _buildImageCard('Sello', data?['urlSello']),
+                  Row(
+                    children: [
+                      _buildImageCard(
+                        'Foto: toma de muestras',
+                        data?['toma_muestrasUrl']?.toString(),
+                      ),
+                      const SizedBox(width: 16),
+                      _buildImageCard(
+                        'Foto: dietas',
+                        data?['dietasUrl']?.toString(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _pickAndUploadEvidencia('toma_muestras'),
+                        icon: const Icon(Icons.add_a_photo_outlined),
+                        label: const Text('Subir foto toma de muestras'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _pickAndUploadEvidencia('dietas'),
+                        icon: const Icon(Icons.restaurant_menu_outlined),
+                        label: const Text('Subir foto dietas'),
+                      ),
+                    ],
+                  ),
                 ],
               );
             },
           ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 12,
-            children: [
-              OutlinedButton.icon(
-                onPressed: () => _pickAndUpload(isFirma: true),
-                icon: const Icon(Icons.draw),
-                label: const Text('Subir firma'),
+          StreamBuilder<Map<String, dynamic>?>(
+            stream: _service.streamFirma(
+              empresaId: widget.empresaId,
+              userId: widget.userId,
+            ),
+            builder: (context, snapshot) {
+              final data = snapshot.data;
+              return Row(
+                children: [
+                  _buildImageCard('Firma guardada', data?['urlFirma']?.toString()),
+                  const SizedBox(width: 16),
+                  _buildImageCard('Sello guardado', data?['urlSello']?.toString()),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 0,
+            shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Dibujar firma',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    height: 180,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Signature(
+                        controller: _firmaController,
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _firmaController.clear,
+                        icon: const Icon(Icons.cleaning_services_outlined),
+                        label: const Text('Limpiar'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _saveDrawnSignature,
+                        icon: const Icon(Icons.save_alt_outlined),
+                        label: const Text('Guardar firma dibujada'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _pickAndUploadFirmaSello(isFirma: true),
+                        icon: const Icon(Icons.upload_file_outlined),
+                        label: const Text('Subir firma (archivo)'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => _pickAndUploadFirmaSello(isFirma: false),
+                        icon: const Icon(Icons.verified_outlined),
+                        label: const Text('Subir sello (imagen)'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              OutlinedButton.icon(
-                onPressed: () => _pickAndUpload(isFirma: false),
-                icon: const Icon(Icons.verified),
-                label: const Text('Subir sello'),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -85,7 +195,7 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
                   border: Border.all(color: Colors.grey.shade300),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: url == null
+                child: url == null || url.isEmpty
                     ? const Center(child: Text('Sin imagen'))
                     : Image.network(url, fit: BoxFit.contain),
               ),
@@ -96,14 +206,33 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
     );
   }
 
-  Future<void> _pickAndUpload({required bool isFirma}) async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+  Future<void> _pickAndUploadFirmaSello({required bool isFirma}) async {
+    final picked =
+    await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
-    await _upload(bytes, isFirma: isFirma);
+    await _uploadFirmaSello(bytes, isFirma: isFirma);
   }
 
-  Future<void> _upload(Uint8List bytes, {required bool isFirma}) async {
+  Future<void> _saveDrawnSignature() async {
+    try {
+      if (_firmaController.isEmpty) {
+        _snack('Primero dibuja la firma.');
+        return;
+      }
+      final bytes = await _firmaController.toPngBytes(height: 300, width: 900);
+      if (bytes == null || bytes.isEmpty) {
+        _snack('No se pudo convertir la firma. Intenta nuevamente.');
+        return;
+      }
+      await _uploadFirmaSello(bytes, isFirma: true);
+      _firmaController.clear();
+    } catch (e) {
+      _snack('Error guardando firma dibujada: $e');
+    }
+  }
+
+  Future<void> _uploadFirmaSello(Uint8List bytes, {required bool isFirma}) async {
     try {
       await _service.guardarFirma(
         empresaId: widget.empresaId,
@@ -111,15 +240,36 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
         firmaBytes: isFirma ? bytes : null,
         selloBytes: isFirma ? null : bytes,
       );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Imagen cargada correctamente.')),
+      _snack(
+        isFirma
+            ? 'Firma guardada correctamente.'
+            : 'Sello guardado correctamente.',
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al cargar: $e')),
-      );
+      _snack('Error al cargar: $e');
     }
+  }
+
+  Future<void> _pickAndUploadEvidencia(String tipo) async {
+    try {
+      final picked =
+      await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      if (picked == null) return;
+      final bytes = await picked.readAsBytes();
+      await _service.guardarEvidenciaProceso(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        bytes: bytes,
+        tipo: tipo,
+      );
+      _snack('Evidencia guardada correctamente.');
+    } catch (e) {
+      _snack('Error cargando evidencia: $e');
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 }

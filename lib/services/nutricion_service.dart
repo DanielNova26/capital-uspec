@@ -17,6 +17,7 @@ class NutricionService {
   static const String _collDerivaciones = 'TBL_DERIVACIONES_NUTRICION';
   static const String _collAlertas = 'TBL_ALERTAS_NUTRICION';
   static const String _collDirectorio = 'TBL_DIRECTORIO_NUTRICION';
+  static const String _collEvidencias = 'TBL_EVIDENCIAS_NUTRICION';
 
   static const String _collPlantillasMenus = 'TBL_PLANTILLAS_MENUS';
   static const String _collIngredientes = 'TBL_INGREDIENTES';
@@ -638,6 +639,46 @@ class NutricionService {
       if (firmaUrl != null) 'urlFirma': firmaUrl,
       if (selloUrl != null) 'urlSello': selloUrl,
       'creadoEn': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await _db.collection('TBL_USUARIOS').doc(userId).set({
+      if (firmaUrl != null) 'firmaNutricionUrl': firmaUrl,
+      if (selloUrl != null) 'selloNutricionUrl': selloUrl,
+      'firmaNutricionActualizadaEn': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Stream<Map<String, dynamic>?> streamEvidenciasProceso({
+    required String empresaId,
+    required String userId,
+  }) {
+    return _db
+        .collection(_collEvidencias)
+        .doc('$empresaId-$userId')
+        .snapshots()
+        .map((snap) => snap.exists ? snap.data() : null);
+  }
+
+  Future<void> guardarEvidenciaProceso({
+    required String empresaId,
+    required String userId,
+    required Uint8List bytes,
+    required String tipo,
+  }) async {
+    final safeTipo = tipo.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final ref =
+    _storage.ref('nutricion/$empresaId/$userId/evidencias/$safeTipo-$ts.jpg');
+    await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+    final url = await ref.getDownloadURL();
+
+    final docRef = _db.collection(_collEvidencias).doc('$empresaId-$userId');
+    await docRef.set({
+      'empresaId': empresaId,
+      'userId': userId,
+      '${safeTipo}Url': url,
+      '${safeTipo}ActualizadoEn': FieldValue.serverTimestamp(),
+      'actualizadoEn': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 

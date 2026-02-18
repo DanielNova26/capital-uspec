@@ -1739,7 +1739,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         children: [
           _buildChecklistTile(
             'Fotos de evidencia',
-            'Adjunta imágenes del plato y evolución.',
+            'Adjunta fotografías del proceso de toma de muestras y dietas.',
             icon: Icons.photo_camera,
           ),
           // CONEXIÓN con nutricion_firmas_screen.dart
@@ -2345,7 +2345,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         title: 'Evidencias',
         subtitle: _evidenciaCargada
             ? 'Fotografías y firmas completas.'
-            : 'Adjunta fotos y firmas del paciente.',
+            : 'Adjunta fotos del proceso (muestras/dietas) y firmas.',
         icon: Icons.image,
         accent: Colors.blue,
       ),
