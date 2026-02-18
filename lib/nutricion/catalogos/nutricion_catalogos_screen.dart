@@ -283,7 +283,17 @@ class _NutricionCatalogosScreenState
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PacienteFormResult {
-  const PacienteFormResult();
+  final String pacienteId;
+  final String nombreCompleto;
+  final String documento;
+  final bool esNuevo;
+
+  const PacienteFormResult({
+    required this.pacienteId,
+    required this.nombreCompleto,
+    required this.documento,
+    required this.esNuevo,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -428,7 +438,7 @@ class _PacienteDialogState extends State<PacienteDialog> {
 
       final nombreCompleto = '$nombres $apellidos'.trim();
 
-      await widget.service.guardarDirectorioNutricion(
+      final pacienteId = await widget.service.guardarDirectorioNutricion(
         empresaId: widget.empresaId,
         userId: widget.userId,
         data: {
@@ -442,7 +452,16 @@ class _PacienteDialogState extends State<PacienteDialog> {
         id: _ex?['id']?.toString(),
       );
 
-      if (mounted) Navigator.of(context).pop(const PacienteFormResult());
+      if (mounted) {
+        Navigator.of(context).pop(
+          PacienteFormResult(
+            pacienteId: pacienteId,
+            nombreCompleto: nombreCompleto,
+            documento: documento,
+            esNuevo: _ex == null,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) setState(() => _error = 'Error al guardar: $e');
     } finally {
