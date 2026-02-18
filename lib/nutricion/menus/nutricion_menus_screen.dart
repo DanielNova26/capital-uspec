@@ -341,12 +341,27 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
         final tiempos =
             (dieta['tiempos'] as Map<String, dynamic>).cast<String, dynamic>();
         final items = <String, List<String>>{};
+        final itemsDetallados = <String, List<Map<String, dynamic>>>{};
         for (final t in kTiemposComida) {
           final list = tiempos[t] as List<dynamic>? ?? [];
           items[t] = list
               .map((i) =>
                   (i is Map) ? (i['nombre']?.toString() ?? '') : i.toString())
               .where((s) => s.isNotEmpty)
+              .toList();
+          itemsDetallados[t] = list
+              .map((i) => i is Map
+              ? {
+            'nombre': i['nombre']?.toString() ?? '',
+            'gramos': i['gramos']?.toString() ?? '',
+            'unidad': i['unidad']?.toString() ?? 'g',
+          }
+              : {
+            'nombre': i.toString(),
+            'gramos': '',
+            'unidad': 'g',
+          })
+              .where((i) => (i['nombre'] ?? '').toString().isNotEmpty)
               .toList();
         }
         await _svc.crearMenu(
@@ -357,6 +372,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
           establecimiento: widget.establecimiento,
           semana: widget.semana,
           itemsPorTiempoComida: items,
+          itemsDetalladosPorTiempoComida: itemsDetallados,
         );
       }
     } catch (_) {
@@ -414,7 +430,16 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.appBarTitle)),
+      appBar: AppBar(
+        title: Text(widget.appBarTitle),
+        actions: [
+          IconButton(
+            tooltip: 'Ingredientes',
+            icon: const Icon(Icons.kitchen_outlined),
+            onPressed: _abrirIngredientes,
+          ),
+        ],
+      ),
       body: body,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _abrirSelectorDieta,
@@ -481,6 +506,18 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
     );
   }
 
+  Future<void> _abrirIngredientes() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NutricionIngredientesScreen(
+          empresaId: widget.empresaId,
+          userId: widget.userId,
+          showAppBar: true,
+        ),
+      ),
+    );
+  }
+
   // ── Selector de dieta predefinida ──────────────────────────────────────────
 
   Future<void> _abrirSelectorDieta() async {
@@ -493,12 +530,27 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
     // Construir itemsPorTiempoComida desde la plantilla seleccionada
     final grupos = seleccion['grupos'] as Map<String, dynamic>? ?? {};
     final items = <String, List<String>>{};
+    final itemsDetallados = <String, List<Map<String, dynamic>>>{};
     for (final t in kTiemposComida) {
       final list = grupos[t] as List<dynamic>? ?? [];
       items[t] = list
           .map((i) =>
               (i is Map) ? (i['nombre']?.toString() ?? '') : i.toString())
           .where((s) => s.isNotEmpty)
+          .toList();
+      itemsDetallados[t] = list
+          .map((i) => i is Map
+          ? {
+        'nombre': i['nombre']?.toString() ?? '',
+        'gramos': i['gramos']?.toString() ?? '',
+        'unidad': i['unidad']?.toString() ?? 'g',
+      }
+          : {
+        'nombre': i.toString(),
+        'gramos': '',
+        'unidad': 'g',
+      })
+          .where((i) => (i['nombre'] ?? '').toString().isNotEmpty)
           .toList();
     }
 
@@ -510,6 +562,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
       establecimiento: widget.establecimiento,
       semana: widget.semana,
       itemsPorTiempoComida: items,
+      itemsDetalladosPorTiempoComida: itemsDetallados,
     );
 
     if (mounted) {
@@ -939,10 +992,15 @@ class _EditorDietaDialogState extends State<_EditorDietaDialog>
     super.initState();
     _tabCtrl = TabController(length: kTiemposComida.length, vsync: this);
     _items = {};
-    final raw = widget.menu['itemsPorTiempoComida'];
+    final rawDetallado = widget.menu['itemsDetalladosPorTiempoComida'];
+    final rawSimple = widget.menu['itemsPorTiempoComida'];
     for (final t in kTiemposComida) {
-      final list = (raw is Map) ? (raw[t] as List<dynamic>? ?? []) : [];
-      _items[t] = list.map((item) {
+      final listDet =
+      (rawDetallado is Map) ? (rawDetallado[t] as List<dynamic>? ?? []) : [];
+      final listSimple =
+      (rawSimple is Map) ? (rawSimple[t] as List<dynamic>? ?? []) : [];
+      final source = listDet.isNotEmpty ? listDet : listSimple;
+      _items[t] = source.map((item) {
         if (item is Map) {
           return {
             'nombre': item['nombre']?.toString() ?? item.toString(),
@@ -967,29 +1025,41 @@ class _EditorDietaDialogState extends State<_EditorDietaDialog>
       _error = null;
     });
     try {
-      // Convertir a Map<String, List<String>> para compatibilidad con crearMenu
-      // pero guardamos el mapa completo con gramos
       final menuId = widget.menu['menuId']?.toString() ??
           widget.menu['id']?.toString() ?? '';
+      if (menuId.isEmpty) {
+        throw Exception('No se encontró el identificador del menú.');
+      }
 
-      // Guardamos usando guardarDirectorioNutricion no disponible aquí.
-      // Usamos set directo a través del servicio via crearMenu (que hace set sin merge).
-      // Para edición, necesitamos un método update. Lo simulamos con crearMenu
-      // que usa doc() nuevo. En su lugar hacemos el update via guardarPlantillaMenu
-      // con el mismo id del menú.
-      // El servicio tiene guardarAsignacionDieta, pero no updateMenu.
-      // Usamos la ruta directa de Firestore a través del servicio de plantillas
-      // con los grupos convertidos.
-      await widget.svc.guardarPlantillaMenu(
-        empresaId: widget.empresaId,
-        establecimiento: widget.establecimiento,
-        plantillaKey: menuId,
-        titulo: widget.menu['nombre']?.toString() ?? 'Plan',
-        descripcion: widget.menu['descripcion']?.toString() ?? '',
-        grupos: {
-          for (final t in kTiemposComida) t: List<Map<String, dynamic>>.from(_items[t] ?? [])
-        },
+      final itemsPorTiempoComida = <String, List<String>>{
+        for (final t in kTiemposComida)
+          t: (_items[t] ?? [])
+              .map((i) => (i['nombre'] ?? '').toString().trim())
+              .where((n) => n.isNotEmpty)
+              .toList(),
+      };
+
+      final itemsDetalladosPorTiempoComida = <String, List<Map<String, dynamic>>>{
+        for (final t in kTiemposComida)
+          t: (_items[t] ?? [])
+              .map((i) => {
+            'nombre': (i['nombre'] ?? '').toString().trim(),
+            'gramos': (i['gramos'] ?? '').toString().trim(),
+            'unidad': ((i['unidad'] ?? 'g').toString().trim().isEmpty)
+                ? 'g'
+                : (i['unidad'] ?? 'g').toString().trim(),
+          })
+              .where((i) => (i['nombre'] ?? '').toString().isNotEmpty)
+              .toList(),
+      };
+
+      await widget.svc.actualizarMenu(
+        menuId: menuId,
         userId: widget.userId,
+        nombre: widget.menu['nombre']?.toString() ?? 'Plan alimentario',
+        periodo: widget.menu['periodo']?.toString() ?? 'Semanal',
+        itemsPorTiempoComida: itemsPorTiempoComida,
+        itemsDetalladosPorTiempoComida: itemsDetalladosPorTiempoComida,
       );
 
       if (mounted) Navigator.of(context).pop();

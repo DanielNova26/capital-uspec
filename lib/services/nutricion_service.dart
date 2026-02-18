@@ -131,6 +131,7 @@ class NutricionService {
     required String establecimiento,
     required DateTime semana,
     required Map<String, List<String>> itemsPorTiempoComida,
+    Map<String, List<Map<String, dynamic>>>? itemsDetalladosPorTiempoComida,
   }) async {
     final doc = _db.collection(_collMenus).doc();
     await doc.set({
@@ -141,9 +142,31 @@ class NutricionService {
       'establecimiento': establecimiento,
       'semana': _formatSemana(semana),
       'itemsPorTiempoComida': itemsPorTiempoComida,
+      if (itemsDetalladosPorTiempoComida != null)
+        'itemsDetalladosPorTiempoComida': itemsDetalladosPorTiempoComida,
       'creadoEn': FieldValue.serverTimestamp(),
       'creadoPor': userId,
+      'actualizadoEn': FieldValue.serverTimestamp(),
+      'actualizadoPor': userId,
     });
+  }
+
+  Future<void> actualizarMenu({
+    required String menuId,
+    required String userId,
+    required String nombre,
+    required String periodo,
+    required Map<String, List<String>> itemsPorTiempoComida,
+    required Map<String, List<Map<String, dynamic>>> itemsDetalladosPorTiempoComida,
+  }) async {
+    await _db.collection(_collMenus).doc(menuId).set({
+      'nombre': nombre,
+      'periodo': periodo,
+      'itemsPorTiempoComida': itemsPorTiempoComida,
+      'itemsDetalladosPorTiempoComida': itemsDetalladosPorTiempoComida,
+      'actualizadoEn': FieldValue.serverTimestamp(),
+      'actualizadoPor': userId,
+    }, SetOptions(merge: true));
   }
 
   // ---------------------------------------------------------------------------
