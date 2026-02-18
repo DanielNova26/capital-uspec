@@ -1477,32 +1477,6 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildMenuPlanSelector(isCompact),
-          const SizedBox(height: 12),
-          // CONEXIÓN con nutricion_atencion_actions.dart
-          _buildChecklistTile(
-            'Indicaciones y educación',
-            'Genera recomendaciones y materiales.',
-            icon: Icons.school,
-            onTap: () => NutricionAtencionActions.asignarDieta(
-              context,
-              empresaId: widget.empresaId,
-              pacienteId: _selectedPaciente?.id,
-              pacienteNombre: _selectedPaciente?.nombre,
-              pacienteDocumento: _selectedPaciente?.documento,
-            ),
-          ),
-          _buildChecklistTile(
-            'Agenda de seguimiento',
-            'Configura alertas y próximos controles.',
-            icon: Icons.event,
-            onTap: () => NutricionAtencionActions.programarAlerta(
-              context,
-              empresaId: widget.empresaId,
-              pacienteId: _selectedPaciente?.id,
-              pacienteNombre: _selectedPaciente?.nombre,
-              pacienteDocumento: _selectedPaciente?.documento,
-            ),
-          ),
         ],
       ),
     );
@@ -1603,6 +1577,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       );
                     },
                   ),
+                  const SizedBox(height: 12),
+                  _buildMenuBreakdown(menuSeleccionado),
                 ],
                 const SizedBox(height: 12),
                 Align(
@@ -1645,6 +1621,114 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       return (simplesRaw[tiempo] as List).length;
     }
     return 0;
+  }
+
+  Widget _buildMenuBreakdown(Map<String, dynamic>? menuSeleccionado) {
+    if (menuSeleccionado == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.list_alt,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Desglose del menú seleccionado',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...kTiemposComida.map(
+                (tiempo) => _buildTiempoComidaSection(menuSeleccionado, tiempo),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTiempoComidaSection(Map<String, dynamic> menu, String tiempo) {
+    final items = _itemsTiempo(menu, tiempo);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$tiempo (${items.length})',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          if (items.isEmpty)
+            Text(
+              'Sin ítems configurados',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            )
+          else
+            ...items.map(
+                  (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(
+                  '• $item',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _itemsTiempo(Map<String, dynamic> menu, String tiempo) {
+    final detalladosRaw = menu['itemsDetalladosPorTiempoComida'];
+    if (detalladosRaw is Map && detalladosRaw[tiempo] is List) {
+      final detallados = detalladosRaw[tiempo] as List<dynamic>;
+      return detallados.map((item) {
+        if (item is Map) {
+          final nombre = item['nombre']?.toString().trim() ?? '';
+          final gramos = item['gramos']?.toString().trim() ?? '';
+          final unidad = item['unidad']?.toString().trim() ?? '';
+          if (nombre.isEmpty) return '';
+          final porcion = gramos.isNotEmpty
+              ? ' - $gramos${unidad.isNotEmpty ? ' $unidad' : ''}'
+              : '';
+          return '$nombre$porcion';
+        }
+        return item.toString();
+      }).where((e) => e.trim().isNotEmpty).toList();
+    }
+
+    final simplesRaw = menu['itemsPorTiempoComida'];
+    if (simplesRaw is Map && simplesRaw[tiempo] is List) {
+      return (simplesRaw[tiempo] as List<dynamic>)
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    return const <String>[];
   }
 
   Widget _buildEvidenciasTabContent(bool isCompact) {
