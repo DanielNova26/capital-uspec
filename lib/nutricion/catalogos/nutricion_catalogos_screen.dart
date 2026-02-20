@@ -287,12 +287,14 @@ class PacienteFormResult {
   final String nombreCompleto;
   final String documento;
   final bool esNuevo;
+  final String? fotoUrl;
 
   const PacienteFormResult({
     required this.pacienteId,
     required this.nombreCompleto,
     required this.documento,
     required this.esNuevo,
+    this.fotoUrl,
   });
 }
 
@@ -459,6 +461,7 @@ class _PacienteDialogState extends State<PacienteDialog> {
             nombreCompleto: nombreCompleto,
             documento: documento,
             esNuevo: _ex == null,
+            fotoUrl: fotoUrl,
           ),
         );
       }

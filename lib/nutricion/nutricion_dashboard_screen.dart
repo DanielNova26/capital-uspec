@@ -144,6 +144,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         final observaciones = data['observaciones']?.toString() ?? '';
         final inicioDieta = data['inicioDieta']?.toString() ?? '';
         final fechaReevaluacion = data['fechaReevaluacion']?.toString() ?? '';
+        final fotoUrl = data['fotoUrl']?.toString() ?? '';
 
         // Restaurar diagnósticos médicos guardados como lista de maps
         final dxMedicosRaw = data['diagnosticosMedicosData'];
@@ -189,6 +190,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           observaciones: observaciones,
           inicioDieta: inicioDieta,
           fechaReevaluacion: fechaReevaluacion,
+          fotoUrl: fotoUrl,
           diagnosticosMedicos: dxMedicos,
           diagnosticosNutricionales: dxNutri,
           dietasSeleccionadas: dietas,
@@ -1429,6 +1431,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             pacienteId: _selectedPaciente?.id,
             pacienteNombre: _selectedPaciente?.nombre,
             pacienteDocumento: _selectedPaciente?.documento,
+            pacienteFotoUrl: _selectedPaciente?.fotoUrl,
             onGuardarMedicion: (medicion) async {
               final service = NutricionService();
               try {
@@ -2092,12 +2095,14 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                 color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(width: 6),
-              Text(
-                'Desglose del menú seleccionado',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(fontWeight: FontWeight.w700),
+              Expanded(
+                child: Text(
+                  'Desglose del menú seleccionado',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
               ),
             ],
           ),
@@ -2978,6 +2983,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       documento: result.documento,
       diagnosticoMedico: '',
       diagnosticoNutricional: '',
+      fotoUrl: result.fotoUrl ?? '',
     );
 
     // Mostrar automáticamente el paciente recién creado.
@@ -3305,6 +3311,7 @@ class _PacienteInfo {
   final String inicioDieta;
   final String fechaReevaluacion;
   // Diagnósticos y dietas seleccionables (para restaurar chips)
+  final String fotoUrl;
   final List<DiagnosticoMedico> diagnosticosMedicos;
   final List<DiagnosticoNutricional> diagnosticosNutricionales;
   final List<String> dietasSeleccionadas;
@@ -3321,6 +3328,7 @@ class _PacienteInfo {
     this.observaciones = '',
     this.inicioDieta = '',
     this.fechaReevaluacion = '',
+    this.fotoUrl = '',
     this.diagnosticosMedicos = const [],
     this.diagnosticosNutricionales = const [],
     this.dietasSeleccionadas = const [],

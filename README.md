@@ -5,8 +5,8 @@ corporativos de la organización.
 
 ## Dataset demo para revisión de tiendas
 
-Si necesitas compartir la app con Apple o Google en modo revisión,consulta la guía [docs/app-review-demo-account.md](docs/app-review-demo-account.md). 
-Allí se explica cómo generar el usuario demo (`demo.reviewer` / `Review2025!`) desde el panel de semillas y qué información enviar al equipo de App Store Review.
+Si necesitas compartir la app con Apple o Google en modo revisión, consulta la guía [docs/app-review-demo-account.md](docs/app-review-demo-account.md).
+Allí se explica cómo generar el usuario demo (`900000001` / `Review2025!`) desde el panel de semillas y qué información enviar al equipo de App Store Review.
 
 ## Desarrollo local
 

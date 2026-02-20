@@ -7,6 +7,7 @@ class EvaluacionNutricionalWidget extends StatefulWidget {
   final String? pacienteId;
   final String? pacienteNombre;
   final String? pacienteDocumento;
+  final String? pacienteFotoUrl;
   final Function(Map<String, dynamic> medicion) onGuardarMedicion;
   final VoidCallback onRegistrarHistoria;
   final VoidCallback onRegistrarDiagnostico;
@@ -16,6 +17,7 @@ class EvaluacionNutricionalWidget extends StatefulWidget {
     this.pacienteId,
     this.pacienteNombre,
     this.pacienteDocumento,
+    this.pacienteFotoUrl,
     required this.onGuardarMedicion,
     required this.onRegistrarHistoria,
     required this.onRegistrarDiagnostico,
@@ -223,14 +225,7 @@ class _EvaluacionNutricionalWidgetState
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF9EC3E6),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.person, color: Colors.white, size: 20),
-          ),
+          _buildAvatarPaciente(),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -260,6 +255,26 @@ class _EvaluacionNutricionalWidgetState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAvatarPaciente() {
+    final fotoUrl = widget.pacienteFotoUrl;
+    if (fotoUrl != null && fotoUrl.isNotEmpty) {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: const Color(0xFF9EC3E6).withOpacity(0.25),
+        backgroundImage: NetworkImage(fotoUrl),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF9EC3E6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(Icons.person, color: Colors.white, size: 20),
     );
   }
 

@@ -234,6 +234,11 @@ class DemoSeedService {
       'Control visual de tareas y desempeño.',
     );
     await _setApp(
+      'NutricionDashboard',
+      'Nutrición',
+      'Gestiona atenciones, diagnósticos y reportes nutricionales.',
+    );
+    await _setApp(
       'GestionDocumental',
       'Gestión Documental',
       'Control de versiones, firmas y estados de documentos.',
@@ -245,7 +250,13 @@ class DemoSeedService {
         'empresaId': empresaId,
         'roleId': '${empresaId}_desarrollador',
         'name': 'desarrollador',
-        'apps': const ['AdminDashboard', 'TalentoHumanoDashboard'],
+        'apps': const [
+          'AdminDashboard',
+          'TalentoHumanoDashboard',
+          'GerenciaDashboard',
+          'NutricionDashboard',
+          'GestionDocumental',
+        ],
         'updatedAt': serverNow,
         'createdAt': serverNow,
       },
@@ -313,6 +324,7 @@ class DemoSeedService {
           'AdminDashboard',
           'TalentoHumanoDashboard',
           'GerenciaDashboard',
+          'NutricionDashboard',
           'GestionDocumental',
         ],
         'password': reviewerPassword,
