@@ -606,7 +606,6 @@ class _PacienteDialogState extends State<PacienteDialog> {
             ],
           ),
         ),
-      ),
     );
   }
 
