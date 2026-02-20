@@ -42,58 +42,16 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Firmas, sellos y evidencias',
+          Text('Firmas nutricionales',
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            'Adjunta fotografías del proceso de toma de muestras y dietas. También puedes dibujar y guardar tu firma por usuario.',
+            'Dibuja o sube tu firma y sello como nutricionista. '
+            'Estos datos se usarán al generar el reporte oficial.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
-          const SizedBox(height: 12),
-          StreamBuilder<Map<String, dynamic>?>(
-            stream: _service.streamEvidenciasProceso(
-              empresaId: widget.empresaId,
-              userId: widget.userId,
-            ),
-            builder: (context, snapshot) {
-              final data = snapshot.data;
-              return Column(
-                children: [
-                  Row(
-                    children: [
-                      _buildImageCard(
-                        'Foto: toma de muestras',
-                        data?['toma_muestrasUrl']?.toString(),
-                      ),
-                      const SizedBox(width: 16),
-                      _buildImageCard(
-                        'Foto: dietas',
-                        data?['dietasUrl']?.toString(),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () => _pickAndUploadEvidencia('toma_muestras'),
-                        icon: const Icon(Icons.add_a_photo_outlined),
-                        label: const Text('Subir foto toma de muestras'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () => _pickAndUploadEvidencia('dietas'),
-                        icon: const Icon(Icons.restaurant_menu_outlined),
-                        label: const Text('Subir foto dietas'),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
           const SizedBox(height: 16),
+          // Preview de firma y sello guardados
           StreamBuilder<Map<String, dynamic>?>(
             stream: _service.streamFirma(
               empresaId: widget.empresaId,
@@ -110,11 +68,12 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
               );
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          // Card para dibujar firma
           Card(
             elevation: 0,
             shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -161,7 +120,8 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
                         label: const Text('Subir firma (archivo)'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: () => _pickAndUploadFirmaSello(isFirma: false),
+                        onPressed: () =>
+                            _pickAndUploadFirmaSello(isFirma: false),
                         icon: const Icon(Icons.verified_outlined),
                         label: const Text('Subir sello (imagen)'),
                       ),
@@ -208,7 +168,7 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
 
   Future<void> _pickAndUploadFirmaSello({required bool isFirma}) async {
     final picked =
-    await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
     await _uploadFirmaSello(bytes, isFirma: isFirma);
@@ -232,7 +192,8 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
     }
   }
 
-  Future<void> _uploadFirmaSello(Uint8List bytes, {required bool isFirma}) async {
+  Future<void> _uploadFirmaSello(Uint8List bytes,
+      {required bool isFirma}) async {
     try {
       await _service.guardarFirma(
         empresaId: widget.empresaId,
@@ -247,24 +208,6 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
       );
     } catch (e) {
       _snack('Error al cargar: $e');
-    }
-  }
-
-  Future<void> _pickAndUploadEvidencia(String tipo) async {
-    try {
-      final picked =
-      await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-      if (picked == null) return;
-      final bytes = await picked.readAsBytes();
-      await _service.guardarEvidenciaProceso(
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        bytes: bytes,
-        tipo: tipo,
-      );
-      _snack('Evidencia guardada correctamente.');
-    } catch (e) {
-      _snack('Error cargando evidencia: $e');
     }
   }
 

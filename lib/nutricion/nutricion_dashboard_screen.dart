@@ -1,5 +1,11 @@
+import 'dart:io';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'catalogos/nutricion_catalogos_screen.dart';
 import 'atencion/nutricion_atencion_actions.dart';
@@ -9,6 +15,7 @@ import 'menus/nutricion_menus_screen.dart';
 import 'reportes/nutricion_reportes_screen.dart';
 
 import '../services/nutricion_service.dart';
+import '../services/nutricion_pdf_service.dart';
 import '../services/citas_nutricion_service.dart';
 import '../widgets/evaluacion_nutricional_widget.dart';
 import '../widgets/skeleton_loader.dart';
@@ -49,7 +56,6 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
   late String _selectedEstablecimiento;
   DateTime _weekStart = _mondayOf(DateTime.now());
-  int _activeStep = 0;
   _PacienteInfo? _selectedPaciente;
   bool _pacienteGuardado = false;
   bool _procesoEnCurso = false;
@@ -83,6 +89,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   final List<String> _dietasSeleccionadas = [];
   List<String> _dietasSugeridasActuales = [];
   bool _agendandoCita = false;
+  bool _generandoReporte = false;
+  int _pasoActual = 0; // 0=Paciente, 1=Evaluación, 2=Plan, 3=Evidencias
+  final _picker = ImagePicker();
   final ScrollController _evaluacionScrollCtrl = ScrollController();
   final GlobalKey _diagnosticosSectionKey = GlobalKey();
 
@@ -129,12 +138,60 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         final diagnosticoMedico = data['diagnosticoMedico']?.toString() ?? '';
         final diagnosticoNutricional =
             data['diagnosticoNutricional']?.toString() ?? '';
+        final regimenAfiliacion = data['regimenAfiliacion']?.toString() ?? '';
+        final tipoDietaSugerida = data['tipoDietaSugerida']?.toString() ?? '';
+        final duracionDieta = data['duracionDieta']?.toString() ?? '';
+        final observaciones = data['observaciones']?.toString() ?? '';
+        final inicioDieta = data['inicioDieta']?.toString() ?? '';
+        final fechaReevaluacion = data['fechaReevaluacion']?.toString() ?? '';
+
+        // Restaurar diagnósticos médicos guardados como lista de maps
+        final dxMedicosRaw = data['diagnosticosMedicosData'];
+        final List<DiagnosticoMedico> dxMedicos = [];
+        if (dxMedicosRaw is List) {
+          for (final item in dxMedicosRaw) {
+            if (item is Map<String, dynamic>) {
+              try {
+                dxMedicos.add(DiagnosticoMedico.fromMap(item));
+              } catch (_) {}
+            }
+          }
+        }
+
+        // Restaurar diagnósticos nutricionales guardados
+        final dxNutriRaw = data['diagnosticosNutricionalesData'];
+        final List<DiagnosticoNutricional> dxNutri = [];
+        if (dxNutriRaw is List) {
+          for (final item in dxNutriRaw) {
+            if (item is Map<String, dynamic>) {
+              try {
+                dxNutri.add(DiagnosticoNutricional.fromMap(item));
+              } catch (_) {}
+            }
+          }
+        }
+
+        // Restaurar dietas seleccionadas
+        final dietasRaw = data['dietasSeleccionadasData'];
+        final List<String> dietas = dietasRaw is List
+            ? dietasRaw.map((e) => e.toString()).toList()
+            : [];
+
         return _PacienteInfo(
           id: id,
           nombre: nombre,
           documento: documento,
           diagnosticoMedico: diagnosticoMedico,
           diagnosticoNutricional: diagnosticoNutricional,
+          regimenAfiliacion: regimenAfiliacion,
+          tipoDietaSugerida: tipoDietaSugerida,
+          duracionDieta: duracionDieta,
+          observaciones: observaciones,
+          inicioDieta: inicioDieta,
+          fechaReevaluacion: fechaReevaluacion,
+          diagnosticosMedicos: dxMedicos,
+          diagnosticosNutricionales: dxNutri,
+          dietasSeleccionadas: dietas,
         );
       }).toList();
 
@@ -703,52 +760,290 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     );
   }
 
+  // ─── Validaciones por paso ─────────────────────────────────────────
+  String? _validarPaso(int paso) {
+    switch (paso) {
+      case 0: // Paciente y admisión
+        if (_nombreCompletoCtrl.text.trim().isEmpty) {
+          return 'El nombre completo del paciente es obligatorio.';
+        }
+        if (_documentoCtrl.text.trim().isEmpty) {
+          return 'El número de documento es obligatorio.';
+        }
+        if (_regimenCtrl.text.trim().isEmpty) {
+          return 'Selecciona el régimen de afiliación.';
+        }
+        return null;
+      case 1: // Evaluación y diagnóstico
+        if (_diagnosticoMedicoCtrl.text.trim().isEmpty) {
+          return 'Ingresa al menos un diagnóstico médico.';
+        }
+        if (_diagnosticoNutriCtrl.text.trim().isEmpty) {
+          return 'Ingresa el diagnóstico nutricional.';
+        }
+        return null;
+      case 2: // Plan alimentario
+        if (_inicioDietaCtrl.text.trim().isEmpty) {
+          return 'Selecciona la fecha de inicio de la dieta.';
+        }
+        if (_fechaReevaluacionCtrl.text.trim().isEmpty) {
+          return 'Selecciona la fecha tentativa de reevaluación.';
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  void _irAlSiguientePaso() {
+    final error = _validarPaso(_pasoActual);
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(child: Text(error)),
+          ]),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+    if (_pasoActual < 3) {
+      setState(() => _pasoActual++);
+    }
+  }
+
+  void _irAlPasoAnterior() {
+    if (_pasoActual > 0) setState(() => _pasoActual--);
+  }
+
+  // ─── Stepper principal del flujo ───────────────────────────────────
   Widget _buildWorkflowTabs({required bool isCompact}) {
-    final double viewHeight = isCompact ? 720 : 650;
+    const stepTitles = [
+      'Paciente y admisión',
+      'Evaluación y diagnóstico',
+      'Plan alimentario',
+      'Evidencias y cierre',
+    ];
+    const stepIcons = [
+      Icons.person,
+      Icons.medical_information,
+      Icons.restaurant_menu,
+      Icons.camera_alt,
+    ];
+
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: DefaultTabController(
-        length: 4,
-        child: Column(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceVariant
-                    .withOpacity(0.3),
-                borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              child: TabBar(
-                indicatorColor: Theme.of(context).colorScheme.primary,
-                labelColor: Theme.of(context).colorScheme.primary,
-                unselectedLabelColor:
-                Theme.of(context).colorScheme.onSurfaceVariant,
-                isScrollable: true,
-                indicatorWeight: 3,
-                tabs: const [
-                  Tab(text: 'Paciente y admisión'),
-                  Tab(text: 'Evaluación y diagnóstico'),
-                  Tab(text: 'Plan alimentario'),
-                  Tab(text: 'Evidencias y cierre'),
-                ],
-              ),
+      child: Column(
+        children: [
+          // ── Indicador de pasos ──────────────────────────
+          Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.35),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(16)),
             ),
-            SizedBox(
-              height: viewHeight,
-              child: TabBarView(
-                children: [
-                  _buildPacienteTabContent(isCompact),
-                  _buildEvaluacionTabContent(isCompact),
-                  _buildPlanTabContent(isCompact),
-                  _buildEvidenciasTabContent(isCompact),
-                ],
-              ),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: List.generate(stepTitles.length, (i) {
+                final isActive = i == _pasoActual;
+                final isDone = i < _pasoActual;
+                final color = isActive
+                    ? primary
+                    : isDone
+                        ? Colors.green
+                        : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4);
+
+                return Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          // Permitir ir a paso anterior tocando el indicador
+                          onTap: isDone
+                              ? () => setState(() => _pasoActual = i)
+                              : null,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 220),
+                                width: isActive ? 34 : 28,
+                                height: isActive ? 34 : 28,
+                                decoration: BoxDecoration(
+                                  color: isActive
+                                      ? primary
+                                      : isDone
+                                          ? Colors.green
+                                          : theme.colorScheme.surface,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: color, width: 2),
+                                ),
+                                child: Center(
+                                  child: isDone
+                                      ? const Icon(Icons.check,
+                                          size: 14, color: Colors.white)
+                                      : Icon(stepIcons[i],
+                                          size: isActive ? 16 : 13,
+                                          color: isActive
+                                              ? Colors.white
+                                              : color),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                stepTitles[i],
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: isActive
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isActive
+                                      ? primary
+                                      : isDone
+                                          ? Colors.green
+                                          : theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Línea conectora (excepto después del último)
+                      if (i < stepTitles.length - 1)
+                        Expanded(
+                          child: Container(
+                            height: 2,
+                            margin: const EdgeInsets.only(bottom: 20),
+                            color: i < _pasoActual
+                                ? Colors.green
+                                : theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              }),
             ),
-          ],
-        ),
+          ),
+
+          // ── Contenido del paso actual ───────────────────
+          SizedBox(
+            height: isCompact ? 680 : 620,
+            child: IndexedStack(
+              index: _pasoActual,
+              children: [
+                _buildPacienteTabContent(isCompact),
+                _buildEvaluacionTabContent(isCompact),
+                _buildPlanTabContent(isCompact),
+                _buildEvidenciasTabContent(isCompact),
+              ],
+            ),
+          ),
+
+          // ── Botones Anterior / Siguiente (compacto, fijo al fondo) ──
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              border: Border(
+                top: BorderSide(
+                    color: theme.colorScheme.outlineVariant, width: 1),
+              ),
+              borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(16)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // ── Anterior ──────────────────────────────
+                SizedBox(
+                  height: 38,
+                  child: _pasoActual > 0
+                      ? OutlinedButton.icon(
+                          onPressed: _irAlPasoAnterior,
+                          icon: const Icon(Icons.chevron_left, size: 18),
+                          label: const Text('Anterior',
+                              style: TextStyle(fontSize: 13)),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 0),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                        )
+                      : const SizedBox(width: 100),
+                ),
+
+                // ── Contador ──────────────────────────────
+                Text(
+                  '${_pasoActual + 1} / ${stepTitles.length}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+
+                // ── Siguiente / Guardar ───────────────────
+                SizedBox(
+                  height: 38,
+                  child: _pasoActual < stepTitles.length - 1
+                      ? FilledButton.icon(
+                          onPressed: _irAlSiguientePaso,
+                          icon: const Text('Siguiente',
+                              style: TextStyle(fontSize: 13)),
+                          label: const Icon(Icons.chevron_right, size: 18),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 0),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                        )
+                      : FilledButton.icon(
+                          onPressed:
+                              _agendandoCita ? null : _guardarYAgendarCita,
+                          icon: _agendandoCita
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white),
+                                )
+                              : const Icon(Icons.check_circle_outline,
+                                  size: 16),
+                          label: Text(
+                            _agendandoCita ? 'Guardando...' : 'Finalizar',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 0),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -822,22 +1117,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                             onPressed: () => setState(() {
                               _procesoEnCurso = false;
                               _selectedPaciente = null;
-                              _nombreCompletoCtrl.clear();
-                              _documentoCtrl.clear();
-                              _pacienteGuardado = false;
-                              _evidenciaCargada = false;
-
-                              _diagnosticosMedicosSeleccionados = [];
-                              _diagnosticosNutricionalesSeleccionados = [];
-                              _diagnosticoMedicoCtrl.clear();
-                              _diagnosticoNutriCtrl.clear();
-                              _dietasSugeridasActuales = [];
-                              _dietasSeleccionadas.clear();
-                              _fechaReevaluacion = null;
-                              _periodoSeleccionado = null;
-                              _fechaInicioDieta = DateTime.now();
-                              _inicioDietaCtrl.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
-                              _fechaReevaluacionCtrl.clear();
+                              _limpiarFormulario();
                             }),
                             icon: const Icon(Icons.close),
                             label: const Text('Cancelar'),
@@ -852,7 +1132,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             const SizedBox(height: 16),
           ],
           Text(
-            'Todos los datos quedan vinculados al expediente del paciente.',
+            'Todos los datos quedan vinculados al expediente del paciente. '
+          'Al seleccionar un paciente existente se cargarán sus últimos datos registrados.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -929,16 +1210,38 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   setState(() {
                     _selectedPaciente = value;
                     _procesoEnCurso = value != null;
+                    _pasoActual = 0; // Vuelve al paso 1 al cambiar paciente
                     if (value != null) {
+                      // ── Campos de texto ─────────────────────────────
                       _nombreCompletoCtrl.text = value.nombre;
                       _documentoCtrl.text = value.documento;
                       _diagnosticoMedicoCtrl.text = value.diagnosticoMedico;
                       _diagnosticoNutriCtrl.text = value.diagnosticoNutricional;
+                      _regimenCtrl.text = value.regimenAfiliacion;
+                      _tipoDietaCtrl.text = value.tipoDietaSugerida;
+                      _duracionCtrl.text = value.duracionDieta;
+                      _observacionesCtrl.text = value.observaciones;
+                      if (value.inicioDieta.isNotEmpty) {
+                        _inicioDietaCtrl.text = value.inicioDieta;
+                      }
+                      if (value.fechaReevaluacion.isNotEmpty) {
+                        _fechaReevaluacionCtrl.text = value.fechaReevaluacion;
+                      }
+                      // ── Diagnósticos seleccionables (chips) ─────────
+                      _diagnosticosMedicosSeleccionados =
+                          List.from(value.diagnosticosMedicos);
+                      _diagnosticosNutricionalesSeleccionados =
+                          List.from(value.diagnosticosNutricionales);
+                      // ── Dietas seleccionables (chips) ────────────────
+                      _dietasSeleccionadas.clear();
+                      _dietasSeleccionadas.addAll(value.dietasSeleccionadas);
+                      if (value.dietasSeleccionadas.isNotEmpty) {
+                        _tipoDietaCtrl.text = value.dietasSeleccionadas
+                            .map(_formatearNombreDieta)
+                            .join(', ');
+                      }
                     } else {
-                      _nombreCompletoCtrl.clear();
-                      _documentoCtrl.clear();
-                      _diagnosticoMedicoCtrl.clear();
-                      _diagnosticoNutriCtrl.clear();
+                      _limpiarFormulario();
                     }
                   });
                 },
@@ -979,8 +1282,136 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               ),
             ],
           ),
+          // ── Historial del paciente ─────────────────────
+          if (_selectedPaciente != null) ...[
+            const SizedBox(height: 16),
+            _buildHistorialPaciente(),
+          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildHistorialPaciente() {
+    final pacienteId = _selectedPaciente!.id;
+    final service = NutricionService();
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: service.streamHistorialPaciente(
+        empresaId: widget.empresaId,
+        pacienteId: pacienteId,
+      ),
+      builder: (context, snap) {
+        final registros = snap.data ?? [];
+        if (registros.isEmpty && !snap.hasData) {
+          return const SizedBox.shrink();
+        }
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          child: Theme(
+            data: Theme.of(context)
+                .copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              leading: const Icon(Icons.history),
+              title: Text(
+                'Historial de atenciones (${registros.length})',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: registros.isEmpty
+                  ? const Text('Sin registros previos',
+                      style: TextStyle(fontSize: 12))
+                  : null,
+              children: registros.isEmpty
+                  ? [
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('Aún no hay registros para este paciente.'),
+                      )
+                    ]
+                  : registros.map((r) {
+                      final fecha = r['registradoEn'];
+                      String fechaStr = '—';
+                      if (fecha != null && fecha is Timestamp) {
+                        fechaStr = DateFormat('dd/MM/yyyy HH:mm', 'es')
+                            .format(fecha.toDate());
+                      }
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.assignment_outlined,
+                            size: 18),
+                        title: Text(
+                          r['diagnosticoMedico']?.toString().isNotEmpty == true
+                              ? r['diagnosticoMedico'].toString()
+                              : r['tipoDietaSugerida']?.toString() ?? 'Registro',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: Text(
+                          'Dieta: ${r['tipoDietaSugerida'] ?? '—'}  •  $fechaStr',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        trailing: TextButton(
+                          onPressed: () {
+                            // Cargar este registro histórico en los campos
+                            setState(() {
+                              if (r['regimenAfiliacion'] != null) {
+                                _regimenCtrl.text =
+                                    r['regimenAfiliacion'].toString();
+                              }
+                              if (r['diagnosticoMedico'] != null) {
+                                _diagnosticoMedicoCtrl.text =
+                                    r['diagnosticoMedico'].toString();
+                              }
+                              if (r['diagnosticoNutricional'] != null) {
+                                _diagnosticoNutriCtrl.text =
+                                    r['diagnosticoNutricional'].toString();
+                              }
+                              if (r['tipoDietaSugerida'] != null) {
+                                _tipoDietaCtrl.text =
+                                    r['tipoDietaSugerida'].toString();
+                              }
+                              if (r['duracionDieta'] != null) {
+                                _duracionCtrl.text =
+                                    r['duracionDieta'].toString();
+                              }
+                              if (r['observaciones'] != null) {
+                                _observacionesCtrl.text =
+                                    r['observaciones'].toString();
+                              }
+                              if (r['inicioDieta'] != null &&
+                                  r['inicioDieta'].toString().isNotEmpty) {
+                                _inicioDietaCtrl.text =
+                                    r['inicioDieta'].toString();
+                              }
+                              if (r['fechaReevaluacion'] != null &&
+                                  r['fechaReevaluacion'].toString().isNotEmpty) {
+                                _fechaReevaluacionCtrl.text =
+                                    r['fechaReevaluacion'].toString();
+                              }
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                    'Datos del registro histórico cargados.'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                          child: const Text('Cargar',
+                              style: TextStyle(fontSize: 11)),
+                        ),
+                      );
+                    }).toList(),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1069,8 +1500,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           Container(
             key: _diagnosticosSectionKey,
             child: SelectorDiagnosticosWidget(
+              key: ValueKey(_selectedPaciente?.id ?? 'sin_paciente'),
               empresaId: widget.empresaId,
               onDiagnosticosChanged: _onDiagnosticosChanged,
+              initialMedicos: _diagnosticosMedicosSeleccionados,
+              initialNutricionales: _diagnosticosNutricionalesSeleccionados,
             ),
           ),
 
@@ -1564,14 +1998,28 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   Builder(
                     builder: (context) {
                       final selectedMenu = menuSeleccionado!;
-                      return Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: kTiemposComida.map((tiempo) {
-                          final total = _totalItemsTiempo(selectedMenu, tiempo);
+                      // Usar GridView 2×2 para evitar overflow horizontal
+                      final tiempos = kTiemposComida.toList();
+                      return GridView.count(
+                        crossAxisCount: 2,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        mainAxisSpacing: 6,
+                        crossAxisSpacing: 6,
+                        childAspectRatio: 3.8,
+                        children: tiempos.map((tiempo) {
+                          final total =
+                              _totalItemsTiempo(selectedMenu, tiempo);
                           return Chip(
-                            avatar: const Icon(Icons.restaurant, size: 16),
-                            label: Text('$tiempo: $total ítems'),
+                            avatar: const Icon(Icons.restaurant, size: 14),
+                            label: Text(
+                              '$tiempo: $total',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
                           );
                         }).toList(),
                       );
@@ -1732,67 +2180,314 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   }
 
   Widget _buildEvidenciasTabContent(bool isCompact) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final service = NutricionService();
+    return StreamBuilder<Map<String, dynamic>?>(
+      stream: service.streamFirma(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+      ),
+      builder: (context, firmaSnap) {
+        final firmaData = firmaSnap.data;
+        final firmaUrl = firmaData?['urlFirma']?.toString() ?? '';
+        final selloUrl = firmaData?['urlSello']?.toString() ?? '';
+        final tieneFirma = firmaUrl.isNotEmpty;
+        final tieneSello = selloUrl.isNotEmpty;
+
+        return StreamBuilder<Map<String, dynamic>?>(
+          stream: service.streamEvidenciasProceso(
+            empresaId: widget.empresaId,
+            userId: widget.userId,
+          ),
+          builder: (context, evidSnap) {
+            final evidData = evidSnap.data ?? {};
+            // Recolectar todas las URLs de evidencias (cualquier campo que termine en Url
+            // y no sea firma ni sello)
+            final evidenciasUrls = evidData.entries
+                .where((e) =>
+                    e.key.endsWith('Url') &&
+                    e.value != null &&
+                    (e.value as String).isNotEmpty)
+                .map((e) => e.value as String)
+                .toList();
+
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Sección fotos de evidencia
+                  _buildChecklistTile(
+                    'Fotos de evidencia',
+                    'Adjunta fotografías del proceso como evidencia del servicio.',
+                    icon: Icons.photo_camera,
+                  ),
+                  // Preview fotos de evidencia
+                  if (evidenciasUrls.isNotEmpty) ...[
+                    SizedBox(
+                      height: 110,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: evidenciasUrls.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(width: 8),
+                        itemBuilder: (context, i) => ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            evidenciasUrls[i],
+                            width: 120,
+                            height: 110,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                              width: 120,
+                              height: 110,
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.broken_image),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  OutlinedButton.icon(
+                    onPressed: () => _subirFotoEvidencia(service),
+                    icon: const Icon(Icons.add_a_photo_outlined),
+                    label: const Text('Agregar foto de evidencia'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Sección firma y sello
+                  _buildChecklistTile(
+                    'Firma y sello del profesional',
+                    tieneFirma && tieneSello
+                        ? 'Firma y sello cargados correctamente.'
+                        : 'Carga tu firma y sello en el módulo de Firmas para habilitar el reporte.',
+                    icon: tieneFirma && tieneSello
+                        ? Icons.verified
+                        : Icons.draw,
+                    onTap: () => _openModule(
+                      tabIndex: 3,
+                      title: 'Firmas nutricionales',
+                      isCompact: isCompact,
+                      child: NutricionFirmasScreen(
+                        empresaId: widget.empresaId,
+                        userId: widget.userId,
+                      ),
+                    ),
+                  ),
+
+                  // Indicador de estado firma/sello
+                  Row(
+                    children: [
+                      _buildFirmaEstadoPill(
+                          'Firma', tieneFirma, Icons.draw_outlined),
+                      const SizedBox(width: 8),
+                      _buildFirmaEstadoPill(
+                          'Sello', tieneSello, Icons.verified_outlined),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // Botón generar reporte PDF
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: (tieneFirma && tieneSello && !_generandoReporte)
+                          ? () => _generarReportePDF(
+                                firmaUrl: firmaUrl,
+                                selloUrl: selloUrl,
+                                evidenciasUrls: evidenciasUrls,
+                              )
+                          : null,
+                      icon: _generandoReporte
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.picture_as_pdf),
+                      label: Text(_generandoReporte
+                          ? 'Generando PDF...'
+                          : !tieneFirma || !tieneSello
+                              ? 'Requiere firma y sello para generar reporte'
+                              : 'Generar reporte PDF'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  if (!tieneFirma || !tieneSello) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline,
+                            size: 14,
+                            color: Theme.of(context).colorScheme.error),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Ve al módulo de Firmas y carga tu firma y sello '
+                            'antes de generar el reporte.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFirmaEstadoPill(String label, bool ok, IconData icon) {
+    final color = ok ? Colors.green : Colors.orange;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildChecklistTile(
-            'Fotos de evidencia',
-            'Adjunta fotografías del proceso de toma de muestras y dietas.',
-            icon: Icons.photo_camera,
-          ),
-          // CONEXIÓN con nutricion_firmas_screen.dart
-          _buildChecklistTile(
-            'Firma y consentimiento',
-            'Paciente y nutricionista firman digitalmente.',
-            icon: Icons.draw,
-            onTap: () => _openModule(
-              tabIndex: 3,
-              title: 'Firmas nutricionales',
-              isCompact: isCompact,
-              child: NutricionFirmasScreen(
-                empresaId: widget.empresaId,
-                userId: widget.userId,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => setState(() => _evidenciaCargada = true),
-                  icon: const Icon(Icons.cloud_upload),
-                  label: const Text('Cargar evidencias'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.picture_as_pdf),
-                  label: const Text('Generar reporte'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+          Icon(ok ? Icons.check_circle : icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            ok ? '$label cargada' : '$label pendiente',
+            style: TextStyle(
+                fontSize: 11, color: color, fontWeight: FontWeight.w600),
           ),
         ],
       ),
     );
   }
+
+  Future<void> _subirFotoEvidencia(NutricionService service) async {
+    final picked = await _picker.pickImage(
+        source: ImageSource.gallery, imageQuality: 85);
+    if (picked == null) return;
+    final bytes = await picked.readAsBytes();
+    try {
+      await service.guardarEvidenciaProceso(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        bytes: bytes,
+        tipo: 'evidencia_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      if (mounted) setState(() => _evidenciaCargada = true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto de evidencia cargada.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cargar foto: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _generarReportePDF({
+    required String firmaUrl,
+    required String selloUrl,
+    required List<String> evidenciasUrls,
+  }) async {
+    if (_selectedPaciente == null && _nombreCompletoCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(children: [
+            Icon(Icons.warning, color: Colors.white),
+            SizedBox(width: 8),
+            Text('Selecciona o registra un paciente primero.'),
+          ]),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _generandoReporte = true);
+    try {
+      final pacienteData = {
+        'nombreCompleto': _nombreCompletoCtrl.text.trim(),
+        'documento': _documentoCtrl.text.trim(),
+        'regimenAfiliacion': _regimenCtrl.text.trim(),
+        'diagnosticoMedico': _diagnosticoMedicoCtrl.text.trim(),
+        'diagnosticoNutricional': _diagnosticoNutriCtrl.text.trim(),
+        'tipoDietaSugerida': _tipoDietaCtrl.text.trim(),
+        'duracionDieta': _duracionCtrl.text.trim(),
+        'observaciones': _observacionesCtrl.text.trim(),
+        'inicioDieta': _inicioDietaCtrl.text.trim(),
+        'fechaReevaluacion': _fechaReevaluacionCtrl.text.trim(),
+      };
+
+      final pdfBytes = await NutricionPdfService().generarReportePDF(
+        userId: widget.userId,
+        pacienteData: pacienteData,
+        firmaUrl: firmaUrl,
+        selloUrl: selloUrl,
+        evidenciasUrls: evidenciasUrls,
+      );
+
+      if (!mounted) return;
+
+      // Guardar el PDF en directorio temporal y abrirlo
+      final dir = await getTemporaryDirectory();
+      final nombre = _nombreCompletoCtrl.text
+          .trim()
+          .replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+      final fecha = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+      final filePath =
+          '${dir.path}/reporte_nutri_${nombre}_$fecha.pdf';
+      await File(filePath).writeAsBytes(pdfBytes);
+      await OpenFilex.open(filePath);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(children: [
+              const Icon(Icons.error, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Error generando PDF: $e')),
+            ]),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generandoReporte = false);
+    }
+  }
+
 
   Widget _buildChecklistTile(
       String title,
@@ -2063,6 +2758,29 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     );
   }
 
+  void _limpiarFormulario() {
+    _nombreCompletoCtrl.clear();
+    _documentoCtrl.clear();
+    _regimenCtrl.clear();
+    _diagnosticoMedicoCtrl.clear();
+    _diagnosticoNutriCtrl.clear();
+    _tipoDietaCtrl.clear();
+    _duracionCtrl.clear();
+    _observacionesCtrl.clear();
+    _inicioDietaCtrl.text = DateFormat('dd/MM/yyyy').format(DateTime.now());
+    _fechaReevaluacionCtrl.clear();
+    _diagnosticosMedicosSeleccionados = [];
+    _diagnosticosNutricionalesSeleccionados = [];
+    _dietasSugeridasActuales = [];
+    _dietasSeleccionadas.clear();
+    _fechaReevaluacion = null;
+    _periodoSeleccionado = null;
+    _fechaInicioDieta = DateTime.now();
+    _pacienteGuardado = false;
+    _evidenciaCargada = false;
+    _pasoActual = 0;
+  }
+
   // ✅ MODIFICADO: ahora guarda evaluación diagnóstica (si hay selección) + directorio
   Future<bool> _guardarEnDirectorio() async {
     final nombre = _nombreCompletoCtrl.text.trim();
@@ -2141,23 +2859,40 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         }
       }
 
-      // 2) Guardar en directorio (lo que ya hacías)
-      await nutricionService.guardarDirectorioNutricion(
+      // 2) Guardar en directorio (datos del paciente)
+      final datosPaciente = {
+        'nombreCompleto': nombre,
+        'documento': _documentoCtrl.text.trim(),
+        'regimenAfiliacion': _regimenCtrl.text.trim(),
+        'diagnosticoMedico': _diagnosticoMedicoCtrl.text.trim(),
+        'diagnosticoNutricional': _diagnosticoNutriCtrl.text.trim(),
+        'tipoDietaSugerida': _tipoDietaCtrl.text.trim(),
+        'duracionDieta': _duracionCtrl.text.trim(),
+        'observaciones': _observacionesCtrl.text.trim(),
+        'inicioDieta': _inicioDietaCtrl.text.trim(),
+        'fechaReevaluacion': _fechaReevaluacionCtrl.text.trim(),
+        // Guardar diagnósticos y dietas seleccionados como listas
+        'diagnosticosMedicosData': _diagnosticosMedicosSeleccionados
+            .map((d) => d.toMap())
+            .toList(),
+        'diagnosticosNutricionalesData': _diagnosticosNutricionalesSeleccionados
+            .map((d) => d.toMap())
+            .toList(),
+        'dietasSeleccionadasData': List<String>.from(_dietasSeleccionadas),
+      };
+      final pacienteId = await nutricionService.guardarDirectorioNutricion(
         empresaId: widget.empresaId,
         userId: widget.userId,
-        data: {
-          'nombreCompleto': nombre,
-          'documento': _documentoCtrl.text.trim(),
-          'regimenAfiliacion': _regimenCtrl.text.trim(),
-          'diagnosticoMedico': _diagnosticoMedicoCtrl.text.trim(),
-          'diagnosticoNutricional': _diagnosticoNutriCtrl.text.trim(),
-          'tipoDietaSugerida': _tipoDietaCtrl.text.trim(),
-          'duracionDieta': _duracionCtrl.text.trim(),
-          'observaciones': _observacionesCtrl.text.trim(),
-          'inicioDieta': _inicioDietaCtrl.text.trim(),
-          'fechaReevaluacion': _fechaReevaluacionCtrl.text.trim(),
-        },
+        data: datosPaciente,
         id: _documentoCtrl.text.trim(),
+      );
+
+      // 3) Guardar historial de cambios
+      await nutricionService.guardarHistorialPaciente(
+        empresaId: widget.empresaId,
+        pacienteId: pacienteId,
+        userId: widget.userId,
+        datos: datosPaciente,
       );
 
       if (!mounted) return true;
@@ -2562,6 +3297,17 @@ class _PacienteInfo {
   final String documento;
   final String diagnosticoMedico;
   final String diagnosticoNutricional;
+  // Campos extendidos para carga completa
+  final String regimenAfiliacion;
+  final String tipoDietaSugerida;
+  final String duracionDieta;
+  final String observaciones;
+  final String inicioDieta;
+  final String fechaReevaluacion;
+  // Diagnósticos y dietas seleccionables (para restaurar chips)
+  final List<DiagnosticoMedico> diagnosticosMedicos;
+  final List<DiagnosticoNutricional> diagnosticosNutricionales;
+  final List<String> dietasSeleccionadas;
 
   const _PacienteInfo({
     required this.id,
@@ -2569,6 +3315,15 @@ class _PacienteInfo {
     required this.documento,
     this.diagnosticoMedico = '',
     this.diagnosticoNutricional = '',
+    this.regimenAfiliacion = '',
+    this.tipoDietaSugerida = '',
+    this.duracionDieta = '',
+    this.observaciones = '',
+    this.inicioDieta = '',
+    this.fechaReevaluacion = '',
+    this.diagnosticosMedicos = const [],
+    this.diagnosticosNutricionales = const [],
+    this.dietasSeleccionadas = const [],
   });
 }
 

@@ -55,6 +55,10 @@ dependencies:
 
   http: ^1.5.0
 
+  # PDF
+  pdf: ^3.11.1
+  printing: ^5.13.2
+
   # Localización
   flutter_localizations:
     sdk: flutter

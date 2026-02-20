@@ -472,19 +472,19 @@ class _PacienteDialogState extends State<PacienteDialog> {
   @override
   Widget build(BuildContext context) {
     final esEdicion = _ex != null;
+    final screenH = MediaQuery.of(context).size.height;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Encabezado ──────────────────────────────────────────────
-              Row(
+        constraints: BoxConstraints(maxWidth: 480, maxHeight: screenH * 0.88),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Encabezado fijo (no scrollea) ────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 0),
+              child: Row(
                 children: [
                   Icon(
                     esEdicion ? Icons.edit : Icons.person_add,
@@ -508,61 +508,76 @@ class _PacienteDialogState extends State<PacienteDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 4),
+            const Divider(height: 1),
 
-              // ── Foto centrada ────────────────────────────────────────────
-              Center(child: _buildFotoCarnet()),
-              const SizedBox(height: 16),
+            // ── Contenido scrolleable ─────────────────────────────────────
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Foto centrada ──────────────────────────────────────
+                    Center(child: _buildFotoCarnet()),
+                    const SizedBox(height: 16),
 
-              // ── Nombres y apellidos ──────────────────────────────────────
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildTextField(
-                      'Nombres',
-                      _nombresCtrl,
-                      icon: Icons.person_outline,
+                    // ── Nombres y apellidos ────────────────────────────────
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildTextField(
+                            'Nombres',
+                            _nombresCtrl,
+                            icon: Icons.person_outline,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _buildTextField(
+                            'Apellidos',
+                            _apellidosCtrl,
+                            icon: Icons.person_outline,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _buildTextField(
-                      'Apellidos',
-                      _apellidosCtrl,
-                      icon: Icons.person_outline,
+                    const SizedBox(height: 10),
+
+                    // ── Tipo de documento ──────────────────────────────────
+                    _buildDropdown(),
+                    const SizedBox(height: 10),
+
+                    // ── Número de documento ────────────────────────────────
+                    _buildTextField(
+                      'Número de documento',
+                      _documentoCtrl,
+                      icon: Icons.badge_outlined,
+                      keyboardType: TextInputType.number,
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
 
-              // ── Tipo de documento ────────────────────────────────────────
-              _buildDropdown(),
-              const SizedBox(height: 10),
-
-              // ── Número de documento ──────────────────────────────────────
-              _buildTextField(
-                'Número de documento',
-                _documentoCtrl,
-                icon: Icons.badge_outlined,
-                keyboardType: TextInputType.number,
-              ),
-
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _error!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12,
-                  ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                  ],
                 ),
-              ],
+              ),
+            ),
 
-              const SizedBox(height: 20),
-
-              // ── Acciones ─────────────────────────────────────────────────
-              Row(
+            // ── Acciones fijas abajo ──────────────────────────────────────
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
@@ -587,6 +602,7 @@ class _PacienteDialogState extends State<PacienteDialog> {
                   ),
                 ],
               ),
+            ),
             ],
           ),
         ),

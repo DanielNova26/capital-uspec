@@ -18,6 +18,7 @@ class NutricionService {
   static const String _collAlertas = 'TBL_ALERTAS_NUTRICION';
   static const String _collDirectorio = 'TBL_DIRECTORIO_NUTRICION';
   static const String _collEvidencias = 'TBL_EVIDENCIAS_NUTRICION';
+  static const String _collHistorialPacientes = 'TBL_HISTORIAL_NUTRICION';
 
   static const String _collPlantillasMenus = 'TBL_PLANTILLAS_MENUS';
   static const String _collIngredientes = 'TBL_INGREDIENTES';
@@ -1004,6 +1005,44 @@ class NutricionService {
       });
     }
     await batch.commit();
+  }
+
+  // ─── Historial de cambios del paciente ──────────────────────────────
+  /// Guarda una entrada en el historial cada vez que se actualizan datos del paciente.
+  Future<void> guardarHistorialPaciente({
+    required String empresaId,
+    required String pacienteId,
+    required String userId,
+    required Map<String, dynamic> datos,
+  }) async {
+    final colRef = _db
+        .collection(_collHistorialPacientes)
+        .doc('$empresaId-$pacienteId')
+        .collection('registros');
+    await colRef.add({
+      'empresaId': empresaId,
+      'pacienteId': pacienteId,
+      'registradoPor': userId,
+      'registradoEn': FieldValue.serverTimestamp(),
+      ...datos,
+    });
+  }
+
+  /// Escucha el historial de un paciente ordenado por fecha descendente.
+  Stream<List<Map<String, dynamic>>> streamHistorialPaciente({
+    required String empresaId,
+    required String pacienteId,
+  }) {
+    return _db
+        .collection(_collHistorialPacientes)
+        .doc('$empresaId-$pacienteId')
+        .collection('registros')
+        .orderBy('registradoEn', descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((d) => {'id': d.id, ...d.data()})
+            .toList());
   }
 }
 

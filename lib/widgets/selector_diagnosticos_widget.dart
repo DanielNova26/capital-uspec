@@ -14,10 +14,18 @@ class SelectorDiagnosticosWidget extends StatefulWidget {
       List<DiagnosticoNutricional> nutricionales,
       ) onDiagnosticosChanged;
 
+  /// Diagnósticos médicos ya seleccionados (para cargar paciente existente)
+  final List<DiagnosticoMedico> initialMedicos;
+
+  /// Diagnósticos nutricionales ya seleccionados (para cargar paciente existente)
+  final List<DiagnosticoNutricional> initialNutricionales;
+
   const SelectorDiagnosticosWidget({
     super.key,
     required this.empresaId,
     required this.onDiagnosticosChanged,
+    this.initialMedicos = const [],
+    this.initialNutricionales = const [],
   });
 
   @override
@@ -30,19 +38,59 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   List<DiagnosticoMedico>? _catalogoCie11;
 
   final _busquedaMedicoCtrl = TextEditingController();
-  final List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados = [];
+  late final List<DiagnosticoMedico> _diagnosticosMedicosSeleccionados;
   List<DiagnosticoMedico> _resultadosMedicos = [];
   bool _buscandoMedico = false;
   bool _mostrarResultadosMedicos = false;
 
   final _busquedaNutriCtrl = TextEditingController();
-  final List<DiagnosticoNutricional> _diagnosticosNutricionalesSeleccionados = [];
+  late final List<DiagnosticoNutricional> _diagnosticosNutricionalesSeleccionados;
   List<DiagnosticoNutricional> _resultadosNutri = [];
   bool _buscandoNutri = false;
   bool _mostrarResultadosNutri = false;
 
   Timer? _debounceMedico;
   Timer? _debounceNutri;
+
+  @override
+  void initState() {
+    super.initState();
+    // Inicializar con los valores previos (paciente existente)
+    _diagnosticosMedicosSeleccionados =
+        List<DiagnosticoMedico>.from(widget.initialMedicos);
+    _diagnosticosNutricionalesSeleccionados =
+        List<DiagnosticoNutricional>.from(widget.initialNutricionales);
+  }
+
+  @override
+  void didUpdateWidget(SelectorDiagnosticosWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Si cambian los iniciales (cambio de paciente), recargar
+    final mismosMedicos = oldWidget.initialMedicos.length ==
+            widget.initialMedicos.length &&
+        oldWidget.initialMedicos.every((m) => widget.initialMedicos
+            .any((n) => n.codigoCie11 == m.codigoCie11));
+    final mismosNutri = oldWidget.initialNutricionales.length ==
+            widget.initialNutricionales.length &&
+        oldWidget.initialNutricionales.every((m) =>
+            widget.initialNutricionales.any((n) => n.codigo == m.codigo));
+    if (!mismosMedicos || !mismosNutri) {
+      setState(() {
+        _diagnosticosMedicosSeleccionados
+          ..clear()
+          ..addAll(widget.initialMedicos);
+        _diagnosticosNutricionalesSeleccionados
+          ..clear()
+          ..addAll(widget.initialNutricionales);
+        _busquedaMedicoCtrl.clear();
+        _busquedaNutriCtrl.clear();
+        _resultadosMedicos = [];
+        _resultadosNutri = [];
+        _mostrarResultadosMedicos = false;
+        _mostrarResultadosNutri = false;
+      });
+    }
+  }
 
   @override
   void dispose() {
