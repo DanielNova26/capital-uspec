@@ -24,6 +24,7 @@ import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
 import '../nutricion/nutricion_dashboard_screen.dart';
+import '../compras/compras_dashboard_screen.dart';
 // Drawer modularizado
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
@@ -744,6 +745,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final isGerencia = appIdLower == 'gerenciadashboard';
           final isDoc = appIdLower == 'gestiondocumental';
           final isNutricion = appIdLower == 'nutriciondashboard';
+          final isCompras = appIdLower == 'comprasdashboard';
           final visibleByRole = role == 'desarrollador';
           final visibleByAssign = assignedLower.contains(appIdLower);
           final visibleDocByAssign = isDoc && visibleByAssign;
@@ -752,6 +754,7 @@ class _HomeScreenState extends State<HomeScreen> {
               (isAdmin && (visibleByRole || visibleByAssign)) ||
               (isGerencia && (visibleByRole || visibleByAssign)) ||
               (isNutricion && (visibleByRole || visibleByAssign)) ||
+              (isCompras && (visibleByRole || visibleByAssign)) ||
               visibleDocByAssign;
         }).map((doc) {
           final data = doc.data();
@@ -779,6 +782,10 @@ class _HomeScreenState extends State<HomeScreen> {
           icon = const Icon(Icons.restaurant_menu,
           size: 32, color: Colors.white);
           break;
+          case 'comprasdashboard':
+            icon = const Icon(Icons.local_shipping,
+                size: 32, color: Colors.white);
+            break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
           }
@@ -825,6 +832,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => NutricionDashboardScreen(
+                        userId: cedula,
+                        empresaId: empresaId,
+                      ),
+                    ),
+                  );
+                  break;
+                case 'comprasdashboard':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ComprasDashboardScreen(
                         userId: cedula,
                         empresaId: empresaId,
                       ),
