@@ -124,6 +124,20 @@ class ComprasDashboardScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               _MenuTile(
+                icon: Icons.label_important,
+                titulo: 'Marcas',
+                subtitulo: 'Gestionar marcas vinculadas a productos',
+                color: const Color(0xFF1976D2),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        _MarcasScreen(empresaId: empresaId, svc: svc),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _MenuTile(
                 icon: Icons.local_shipping,
                 titulo: 'Recepción de Mercancía',
                 subtitulo: 'Registrar llegada de proveedores con documentos',
@@ -572,6 +586,7 @@ class _DocAttachButton extends StatelessWidget {
   final String label;
   final DocAdjunto? doc;
   final bool required_;
+  final bool uploading;
   final VoidCallback onAttach;
   final VoidCallback? onView;
 
@@ -579,6 +594,7 @@ class _DocAttachButton extends StatelessWidget {
     required this.label,
     required this.doc,
     this.required_ = false,
+    this.uploading = false,
     required this.onAttach,
     this.onView,
   });
@@ -606,18 +622,31 @@ class _DocAttachButton extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: onAttach,
-                icon: Icon(
-                  tiene ? Icons.check_circle : Icons.upload_file,
-                  size: 16,
-                  color: tiene ? kComprasGreen : kComprasPrimary,
-                ),
+                onPressed: uploading ? null : onAttach,
+                icon: uploading
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(
+                        tiene ? Icons.check_circle : Icons.upload_file,
+                        size: 16,
+                        color: tiene ? kComprasGreen : kComprasPrimary,
+                      ),
                 label: Text(
-                  tiene ? (doc!.nombre ?? 'Adjunto') : 'Adjuntar / Escanear',
+                  uploading
+                      ? 'Subiendo...'
+                      : tiene
+                          ? (doc!.nombre ?? 'Adjunto')
+                          : 'Adjuntar / Escanear',
                   style: TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
-                      color: tiene ? kComprasGreen : kComprasPrimary),
+                      color: uploading
+                          ? Colors.grey
+                          : tiene
+                              ? kComprasGreen
+                              : kComprasPrimary),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
@@ -1577,6 +1606,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   String? _categoria;
   bool _perecedero = false;
   bool _guardando = false;
+  List<MarcaRef> _marcasProducto = [];
+  List<MarcaDoc> _todasMarcas = [];
+  bool _loadingMarcas = true;
 
   bool get isNew => widget.existing == null;
 
@@ -1589,6 +1621,28 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     _unidad = p?.unidadMedida.isNotEmpty == true ? p!.unidadMedida : null;
     _categoria = p?.categoria.isNotEmpty == true ? p!.categoria : null;
     _perecedero = p?.esPerecedero ?? false;
+    _marcasProducto = List.from(p?.marcas ?? []);
+    _loadMarcas();
+  }
+
+  Future<void> _loadMarcas() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_COMPRAS_MARCAS')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      if (!mounted) return;
+      final list = snap.docs
+          .map((d) => MarcaDoc.fromMap(d.id, d.data()))
+          .toList()
+        ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+      setState(() {
+        _todasMarcas = list;
+        _loadingMarcas = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMarcas = false);
+    }
   }
 
   @override
@@ -1596,6 +1650,30 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     _codigoCtrl.dispose();
     _nombreCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _agregarMarca() async {
+    // Mostrar sólo las marcas que aún no están vinculadas
+    final yaVinculadas = _marcasProducto.map((r) => r.marcaId).toSet();
+    final disponibles =
+        _todasMarcas.where((m) => !yaVinculadas.contains(m.id)).toList();
+    if (disponibles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('No hay marcas disponibles. Crea marcas desde el menú.')));
+      return;
+    }
+    final seleccionada = await showModalBottomSheet<MarcaDoc>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _MarcaSelectorSheet(marcas: disponibles),
+    );
+    if (seleccionada != null && mounted) {
+      setState(() => _marcasProducto.add(seleccionada.toRef()));
+    }
   }
 
   Future<void> _guardar() async {
@@ -1621,6 +1699,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
         unidadMedida: _normalizarUM(_unidad!),
         categoria: _categoria!,
         esPerecedero: _perecedero,
+        marcas: _marcasProducto,
         createdAt: widget.existing?.createdAt ?? Timestamp.now(),
       );
       await widget.svc.guardarProducto(p, isNew: isNew);
@@ -1750,7 +1829,90 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                 contentPadding: EdgeInsets.zero,
                 dense: true,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
+              // ── Marcas vinculadas ─────────────────────────────────────────
+              Row(
+                children: [
+                  const Icon(Icons.label_important,
+                      size: 16, color: Color(0xFF1976D2)),
+                  const SizedBox(width: 6),
+                  const Text('Marcas del producto',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  if (_loadingMarcas)
+                    const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_marcasProducto.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    'Sin marcas vinculadas',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 13,
+                        color: Colors.blueGrey.shade400),
+                  ),
+                )
+              else
+                ...List.generate(_marcasProducto.length, (i) {
+                  final ref = _marcasProducto[i];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    color: const Color(0xFFE3F2FD),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: const BorderSide(
+                            color: Color(0xFF90CAF9), width: 0.8)),
+                    child: ListTile(
+                      dense: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                      leading: const Icon(Icons.label,
+                          size: 18, color: Color(0xFF1976D2)),
+                      title: Text('${ref.codigo} – ${ref.descripcion}',
+                          style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.remove_circle_outline,
+                            size: 18, color: Colors.redAccent),
+                        onPressed: () =>
+                            setState(() => _marcasProducto.removeAt(i)),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ),
+                  );
+                }),
+              const SizedBox(height: 8),
+              if (!_loadingMarcas)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _agregarMarca,
+                    icon: const Icon(Icons.add, size: 16,
+                        color: Color(0xFF1976D2)),
+                    label: const Text('Agregar marca',
+                        style: TextStyle(
+                            fontFamily: _kFont, color: Color(0xFF1976D2))),
+                    style: OutlinedButton.styleFrom(
+                        side:
+                            const BorderSide(color: Color(0xFF1976D2)),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 10)),
+                  ),
+                ),
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -1774,6 +1936,110 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SELECTOR DE MARCA para ProductoFormSheet (bottom sheet con búsqueda)
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _MarcaSelectorSheet extends StatefulWidget {
+  final List<MarcaDoc> marcas;
+  const _MarcaSelectorSheet({required this.marcas});
+  @override
+  State<_MarcaSelectorSheet> createState() => _MarcaSelectorSheetState();
+}
+
+class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
+  final _ctrl = TextEditingController();
+  String _q = '';
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _q.isEmpty
+        ? widget.marcas
+        : widget.marcas
+            .where((m) =>
+                m.descripcion.toLowerCase().contains(_q) ||
+                m.codigo.toLowerCase().contains(_q))
+            .toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 10),
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(4)),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: Row(
+            children: [
+              const Icon(Icons.label_important, color: Color(0xFF1976D2)),
+              const SizedBox(width: 8),
+              const Text('Seleccionar Marca',
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: TextField(
+            controller: _ctrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Buscar marca...',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+            ),
+            style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+            onChanged: (v) => setState(() => _q = v.toLowerCase()),
+          ),
+        ),
+        ConstrainedBox(
+          constraints:
+              BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.4),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: filtered.length,
+            itemBuilder: (_, i) {
+              final m = filtered[i];
+              return ListTile(
+                leading: const Icon(Icons.label,
+                    size: 18, color: Color(0xFF1976D2)),
+                title: Text(m.descripcion,
+                    style: const TextStyle(
+                        fontFamily: _kFont, fontSize: 14)),
+                subtitle: Text(m.codigo,
+                    style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: Colors.black54)),
+                onTap: () => Navigator.pop(context, m),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }
@@ -1948,13 +2214,12 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
 
 class _RecepcionEntry {
   ProductoDoc? producto;
-  final TextEditingController marcaCtrl = TextEditingController();
+  MarcaDoc? marcaSeleccionada;
+  String pendingMarcaId = ''; // para restaurar al editar
   Map<String, DocAdjunto> documentos = {};
   bool expandido = false;
 
   _RecepcionEntry();
-
-  void dispose() => marcaCtrl.dispose();
 }
 
 class _NuevaRecepcionScreen extends StatefulWidget {
@@ -1979,6 +2244,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   List<_RecepcionEntry> _entries = [];
   List<ProveedorDoc> _proveedores = [];
   List<ProductoDoc> _productos = [];
+  List<MarcaDoc> _marcas = [];
   bool _guardando = false;
   bool _loadingProvs = true;
 
@@ -1987,17 +2253,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   @override
   void initState() {
     super.initState();
-    _cargarDatos();
     if (!isNew) {
       final r = widget.existing!;
       _ordenCtrl.text = r.ordenCompra;
       _entries = r.productos.map((rp) {
         final e = _RecepcionEntry();
-        e.marcaCtrl.text = rp.marca;
+        e.pendingMarcaId = rp.marcaId;
         e.documentos = Map.from(rp.documentos);
         return e;
       }).toList();
     }
+    _cargarDatos();
   }
 
   Future<void> _cargarDatos() async {
@@ -2010,6 +2276,10 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           .get();
       final prSnap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_PRODUCTOS')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      final mSnap = await FirebaseFirestore.instance
+          .collection('TBL_COMPRAS_MARCAS')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
 
@@ -2025,9 +2295,15 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           .toList()
         ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
+      final marcas = mSnap.docs
+          .map((d) => MarcaDoc.fromMap(d.id, d.data()))
+          .toList()
+        ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+
       setState(() {
         _proveedores = provs;
         _productos = prods;
+        _marcas = marcas;
 
         if (!isNew) {
           final r = widget.existing!;
@@ -2042,10 +2318,18 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
               i < _entries.length && i < r.productos.length;
               i++) {
             final rp = r.productos[i];
+            // Restaurar producto
             try {
               _entries[i].producto =
                   _productos.firstWhere((p) => p.id == rp.productoId);
             } catch (_) {}
+            // Restaurar marca
+            if (_entries[i].pendingMarcaId.isNotEmpty) {
+              try {
+                _entries[i].marcaSeleccionada = _marcas
+                    .firstWhere((m) => m.id == _entries[i].pendingMarcaId);
+              } catch (_) {}
+            }
           }
         }
       });
@@ -2067,9 +2351,6 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   void dispose() {
     _provCtrl.dispose();
     _ordenCtrl.dispose();
-    for (final e in _entries) {
-      e.dispose();
-    }
     super.dispose();
   }
 
@@ -2098,7 +2379,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           productoId: e.producto!.id,
           nombre: e.producto!.nombre,
           categoria: e.producto!.categoria,
-          marca: e.marcaCtrl.text.trim(),
+          marcaId: e.marcaSeleccionada?.id ?? '',
+          marca: e.marcaSeleccionada?.descripcion ?? '',
           documentos: e.documentos,
         );
       }).toList();
@@ -2138,7 +2420,6 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   }
 
   void _eliminarEntrada(int idx) {
-    _entries[idx].dispose();
     setState(() => _entries.removeAt(idx));
   }
 
@@ -2152,7 +2433,10 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       builder: (_) => _ProductoSelectorSheet(productos: _productos),
     );
     if (seleccionado != null) {
-      setState(() => _entries[idx].producto = seleccionado);
+      setState(() {
+        _entries[idx].producto = seleccionado;
+        _entries[idx].marcaSeleccionada = null; // limpiar marca al cambiar producto
+      });
     }
   }
 
@@ -2328,6 +2612,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                       onVerDoc: (key) => _abrirUrl(
                           context, e.documentos[key]?.url),
                       onChanged: () => setState(() {}),
+                      todasMarcas: _marcas,
+                      onMarcaChanged: (m) =>
+                          setState(() => _entries[idx].marcaSeleccionada = m),
                     );
                   }),
                   const SizedBox(height: 10),
@@ -2381,6 +2668,8 @@ class _ProductoEntryCard extends StatelessWidget {
   final void Function(String key) onAdjuntarDoc;
   final void Function(String key) onVerDoc;
   final VoidCallback onChanged;
+  final List<MarcaDoc> todasMarcas;
+  final void Function(MarcaDoc?) onMarcaChanged;
 
   const _ProductoEntryCard({
     required this.idx,
@@ -2390,6 +2679,8 @@ class _ProductoEntryCard extends StatelessWidget {
     required this.onAdjuntarDoc,
     required this.onVerDoc,
     required this.onChanged,
+    required this.todasMarcas,
+    required this.onMarcaChanged,
   });
 
   @override
@@ -2500,35 +2791,122 @@ class _ProductoEntryCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Divider(height: 16),
-                  TextField(
-                    controller: entry.marcaCtrl,
-                    decoration: _inputDecoration('Marca').copyWith(
-                        hintText: 'Nombre de la marca',
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10)),
-                    style:
-                        const TextStyle(fontFamily: _kFont, fontSize: 13),
-                    onChanged: (_) => onChanged(),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text('Documentos',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black54)),
-                  const SizedBox(height: 8),
-                  ...kDocRecepcionLabels.entries.map((e) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _DocAttachButton(
-                          label: e.value,
-                          doc: entry.documentos[e.key],
-                          onAttach: () => onAdjuntarDoc(e.key),
-                          onView: entry.documentos[e.key]?.tieneDoc == true
-                              ? () => onVerDoc(e.key)
-                              : null,
+                  Builder(builder: (context) {
+                    if (entry.producto == null) return const SizedBox.shrink();
+                    final linkedIds = entry.producto!.marcas
+                        .map((r) => r.marcaId)
+                        .toSet();
+                    final disponibles = todasMarcas
+                        .where((m) => linkedIds.contains(m.id))
+                        .toList();
+                    if (disponibles.isEmpty) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                      )),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 15, color: Colors.black45),
+                            SizedBox(width: 6),
+                            Text(
+                              'Sin marcas configuradas para este producto',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 12,
+                                  color: Colors.black45),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    final currentId = entry.marcaSeleccionada?.id;
+                    final validId = disponibles.any((m) => m.id == currentId)
+                        ? currentId
+                        : null;
+                    return DropdownButtonFormField<String>(
+                      value: validId,
+                      decoration: _inputDecoration('Marca').copyWith(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                      ),
+                      isExpanded: true,
+                      items: [
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('— Sin selección —',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 13,
+                                  color: Colors.black45)),
+                        ),
+                        ...disponibles.map((m) => DropdownMenuItem(
+                              value: m.id,
+                              child: Text('${m.codigo} – ${m.descripcion}',
+                                  style: const TextStyle(
+                                      fontFamily: _kFont, fontSize: 13)),
+                            )),
+                      ],
+                      onChanged: (id) {
+                        if (id == null) {
+                          onMarcaChanged(null);
+                        } else {
+                          try {
+                            onMarcaChanged(disponibles
+                                .firstWhere((m) => m.id == id));
+                          } catch (_) {}
+                        }
+                        onChanged();
+                      },
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          color: Colors.black87),
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Text('Documentos requeridos',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black54)),
+                      const Spacer(),
+                      if (entry.producto?.categoria != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: kComprasPrimary.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(entry.producto!.categoria,
+                              style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 10,
+                                  color: kComprasPrimary)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ...docsParaCategoria(entry.producto?.categoria)
+                      .map((key) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _DocAttachButton(
+                              label: kDocRecepcionLabels[key] ?? key,
+                              doc: entry.documentos[key],
+                              onAttach: () => onAdjuntarDoc(key),
+                              onView: entry.documentos[key]?.tieneDoc == true
+                                  ? () => onVerDoc(key)
+                                  : null,
+                            ),
+                          )),
                 ],
               ),
             ),
@@ -2673,8 +3051,21 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
         foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabCtrl,
-          indicatorColor: Colors.white,
-          labelStyle: const TextStyle(fontFamily: _kFont, fontSize: 13),
+          indicator: UnderlineTabIndicator(
+            borderSide: const BorderSide(width: 3, color: kComprasAccent),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelColor: Colors.white,
+          unselectedLabelColor: const Color(0xFFB3E5FC),
+          labelStyle: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 13,
+              fontWeight: FontWeight.w700),
+          unselectedLabelStyle: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 13,
+              fontWeight: FontWeight.w500),
           tabs: const [
             Tab(icon: Icon(Icons.business, size: 18), text: 'Por Proveedor'),
             Tab(icon: Icon(Icons.inventory_2, size: 18), text: 'Por Producto'),
@@ -2814,7 +3205,13 @@ class _ConsultaProveedorTabState extends State<_ConsultaProveedorTab> {
                           fontFamily: _kFont, color: Colors.black45));
                 }
                 return Column(
-                  children: lista.map((r) => _RecepcionResumenCard(r)).toList(),
+                  children: lista
+                      .map((r) => _RecepcionResumenCard(
+                            r,
+                            svc: widget.svc,
+                            empresaId: widget.empresaId,
+                          ))
+                      .toList(),
                 );
               },
             ),
@@ -3060,11 +3457,15 @@ class _ConsultaProductoTabState extends State<_ConsultaProductoTab> {
                 }
                 return Column(
                   children: lista.map((r) {
-                    // Mostrar solo el producto correspondiente
                     final rp = r.productos.firstWhere(
                         (p) => p.productoId == _seleccionado!.id,
                         orElse: () => const RecepcionProducto());
-                    return _RecepcionResumenCard(r, highlight: rp);
+                    return _RecepcionResumenCard(
+                      r,
+                      highlight: rp,
+                      svc: widget.svc,
+                      empresaId: widget.empresaId,
+                    );
                   }).toList(),
                 );
               },
@@ -3079,8 +3480,15 @@ class _ConsultaProductoTabState extends State<_ConsultaProductoTab> {
 class _RecepcionResumenCard extends StatefulWidget {
   final RecepcionDoc recepcion;
   final RecepcionProducto? highlight;
+  final ComprasService? svc;
+  final String? empresaId;
 
-  const _RecepcionResumenCard(this.recepcion, {this.highlight});
+  const _RecepcionResumenCard(
+    this.recepcion, {
+    this.highlight,
+    this.svc,
+    this.empresaId,
+  });
 
   @override
   State<_RecepcionResumenCard> createState() => _RecepcionResumenCardState();
@@ -3088,11 +3496,84 @@ class _RecepcionResumenCard extends StatefulWidget {
 
 class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
   bool _expandido = false;
+  late RecepcionDoc _r;
+  final Map<String, bool> _subiendo = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _r = widget.recepcion;
+  }
+
+  /// Sube o reemplaza un documento de un producto en una recepción existente
+  Future<void> _subirDocProducto(int productoIdx, String docKey) async {
+    if (widget.svc == null || widget.empresaId == null) return;
+    final p = _r.productos[productoIdx];
+    final nombreSug =
+        '${_r.nit}_${p.nombre}_${kDocRecepcionLabels[docKey] ?? docKey}';
+
+    final doc = await _mostrarEscaneador(
+      context,
+      empresaId: widget.empresaId!,
+      carpeta: 'recepciones',
+      nombreSugerido: nombreSug,
+      svc: widget.svc!,
+    );
+    if (doc == null || !mounted) return;
+
+    final subiendoKey = '${productoIdx}_$docKey';
+    setState(() => _subiendo[subiendoKey] = true);
+    try {
+      // Construir productos actualizados con el nuevo doc
+      final nuevosProductos = List<RecepcionProducto>.from(_r.productos);
+      nuevosProductos[productoIdx] = RecepcionProducto(
+        productoId: p.productoId,
+        nombre: p.nombre,
+        categoria: p.categoria,
+        marcaId: p.marcaId,
+        marca: p.marca,
+        documentos: {...p.documentos, docKey: doc},
+      );
+      final nuevaRecepcion = RecepcionDoc(
+        id: _r.id,
+        empresaId: _r.empresaId,
+        fecha: _r.fecha,
+        proveedorId: _r.proveedorId,
+        nit: _r.nit,
+        razonSocial: _r.razonSocial,
+        ordenCompra: _r.ordenCompra,
+        productos: nuevosProductos,
+        productoIds: _r.productoIds,
+        createdAt: _r.createdAt,
+      );
+      await widget.svc!.guardarRecepcion(nuevaRecepcion);
+      if (mounted) {
+        setState(() => _r = nuevaRecepcion);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Documento guardado correctamente'),
+          backgroundColor: kComprasGreen,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error al guardar: $e'),
+            backgroundColor: kComprasRed));
+      }
+    } finally {
+      if (mounted) setState(() => _subiendo.remove(subiendoKey));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final r = widget.recepcion;
-    final hl = widget.highlight;
+    final r = _r;
+    final hl = widget.highlight != null
+        ? r.productos.firstWhere(
+            (p) => p.productoId == widget.highlight!.productoId,
+            orElse: () => widget.highlight!)
+        : null;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -3173,12 +3654,13 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                           '${r.productos.length} producto${r.productos.length == 1 ? '' : 's'}',
                           kComprasPrimary),
                       const Spacer(),
-                      // Si viene highlight, mostrar sus docs en el resumen
+                      // Indicador de docs del highlight
                       if (hl != null) ...[
-                        ...kDocRecepcionLabels.entries.map((e) {
-                          final tiene = hl.documentos[e.key]?.tieneDoc == true;
+                        ...docsParaCategoria(hl.categoria).map((key) {
+                          final tiene =
+                              hl.documentos[key]?.tieneDoc == true;
                           return Tooltip(
-                            message: e.value,
+                            message: kDocRecepcionLabels[key] ?? key,
                             child: Container(
                               width: 10,
                               height: 10,
@@ -3200,7 +3682,6 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                           color: Colors.black38),
                     ],
                   ),
-                  // Si hay highlight (consultando por producto), mostrar marca
                   if (hl != null && hl.marca.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Row(
@@ -3229,92 +3710,558 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Productos recibidos',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black54)),
+                  Row(
+                    children: [
+                      const Text('Productos recibidos',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black54)),
+                      const Spacer(),
+                      if (widget.svc != null)
+                        const Tooltip(
+                          message: 'Toca un documento para cargarlo',
+                          child: Row(
+                            children: [
+                              Icon(Icons.upload_file,
+                                  size: 13, color: kComprasPrimary),
+                              SizedBox(width: 3),
+                              Text('Editable',
+                                  style: TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 10,
+                                      color: kComprasPrimary)),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
-                  ...r.productos.map((rp) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                            color: const Color(0xFFF0F4FF),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                                color: kComprasPrimary.withOpacity(0.15))),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                  ...r.productos.asMap().entries.map((entry) {
+                    final productoIdx = entry.key;
+                    final rp = entry.value;
+                    final docsKeys = docsParaCategoria(rp.categoria);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFFF0F4FF),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                              color: kComprasPrimary.withOpacity(0.15))),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Nombre + categoría
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(rp.nombre,
+                                    style: const TextStyle(
+                                        fontFamily: _kFont,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13)),
+                              ),
+                              _Chip(rp.categoria, kComprasPrimary),
+                            ],
+                          ),
+                          // Marca
+                          if (rp.marca.isNotEmpty) ...[
+                            const SizedBox(height: 4),
                             Row(
                               children: [
-                                Expanded(
-                                  child: Text(rp.nombre,
-                                      style: const TextStyle(
-                                          fontFamily: _kFont,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 13)),
-                                ),
-                                _Chip(rp.categoria, kComprasPrimary),
+                                const Icon(Icons.local_offer,
+                                    size: 12, color: Colors.black38),
+                                const SizedBox(width: 4),
+                                Text('Marca: ${rp.marca}',
+                                    style: const TextStyle(
+                                        fontFamily: _kFont,
+                                        fontSize: 11,
+                                        color: Colors.black54)),
                               ],
                             ),
-                            if (rp.marca.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  const Icon(Icons.local_offer,
-                                      size: 12, color: Colors.black38),
-                                  const SizedBox(width: 4),
-                                  Text('Marca: ${rp.marca}',
-                                      style: const TextStyle(
-                                          fontFamily: _kFont,
-                                          fontSize: 11,
-                                          color: Colors.black54)),
-                                ],
-                              ),
-                            ],
-                            if (rp.documentos.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 4,
-                                children: kDocRecepcionLabels.entries
-                                    .map((e) {
-                                  final tiene =
-                                      rp.documentos[e.key]?.tieneDoc == true;
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                          tiene
-                                              ? Icons.check_circle
-                                              : Icons.radio_button_unchecked,
-                                          size: 13,
-                                          color: tiene
-                                              ? kComprasGreen
-                                              : Colors.grey.shade400),
-                                      const SizedBox(width: 3),
-                                      Text(e.value,
+                          ],
+                          const SizedBox(height: 8),
+                          // Documentos — interactivos si hay svc
+                          ...docsKeys.map((key) {
+                            final doc = rp.documentos[key];
+                            final tiene = doc?.tieneDoc == true;
+                            final subiendo =
+                                _subiendo['${productoIdx}_$key'] == true;
+                            if (widget.svc != null) {
+                              // Modo editable — botones con carga/ver
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: _DocAttachButton(
+                                  label: kDocRecepcionLabels[key] ?? key,
+                                  doc: doc,
+                                  uploading: subiendo,
+                                  onAttach: () => _subirDocProducto(
+                                      productoIdx, key),
+                                  onView: tiene
+                                      ? () => _abrirUrl(
+                                          context, doc!.url)
+                                      : null,
+                                ),
+                              );
+                            } else {
+                              // Modo solo lectura — chips de estado
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                        tiene
+                                            ? Icons.check_circle
+                                            : Icons.radio_button_unchecked,
+                                        size: 14,
+                                        color: tiene
+                                            ? kComprasGreen
+                                            : Colors.grey.shade400),
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                          kDocRecepcionLabels[key] ?? key,
                                           style: TextStyle(
                                               fontFamily: _kFont,
-                                              fontSize: 10,
+                                              fontSize: 11,
                                               color: tiene
                                                   ? kComprasGreen
                                                   : Colors.grey.shade500)),
-                                    ],
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ],
-                        ),
-                      )),
+                                    ),
+                                    if (tiene)
+                                      InkWell(
+                                        onTap: () => _abrirUrl(
+                                            context, doc!.url),
+                                        child: const Text('Ver',
+                                            style: TextStyle(
+                                                fontFamily: _kFont,
+                                                fontSize: 11,
+                                                color: kComprasPrimary,
+                                                decoration:
+                                                    TextDecoration.underline)),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            }
+                          }),
+                        ],
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MARCAS SCREEN — listado de marcas
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _MarcasScreen extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+
+  const _MarcasScreen({required this.empresaId, required this.svc});
+
+  @override
+  State<_MarcasScreen> createState() => _MarcasScreenState();
+}
+
+class _MarcasScreenState extends State<_MarcasScreen> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _abrirForm({MarcaDoc? existing}) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: _MarcaFormSheet(
+            empresaId: widget.empresaId, svc: widget.svc, existing: existing),
+      ),
+    );
+  }
+
+  Future<void> _eliminar(MarcaDoc m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar marca',
+            style: TextStyle(fontFamily: _kFont)),
+        content: Text(
+            '¿Eliminar "${m.descripcion}"? Esta acción no se puede deshacer.',
+            style: const TextStyle(fontFamily: _kFont)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: kComprasRed),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      try {
+        await widget.svc.eliminarMarca(m.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Marca eliminada'),
+              backgroundColor: kComprasGreen));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Error: $e'), backgroundColor: kComprasRed));
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kComprasBg,
+      appBar: AppBar(
+        title: const Text('Marcas',
+            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF1976D2),
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _abrirForm(),
+        backgroundColor: const Color(0xFF1976D2),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Nueva Marca', style: TextStyle(fontFamily: _kFont)),
+      ),
+      body: Column(
+        children: [
+          // Buscador
+          Container(
+            color: const Color(0xFF1976D2),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: TextField(
+              controller: _searchCtrl,
+              style:
+                  const TextStyle(fontFamily: _kFont, color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Buscar marca...',
+                hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                prefixIcon:
+                    const Icon(Icons.search, color: Colors.white70),
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.15),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(
+                    vertical: 8, horizontal: 12),
+              ),
+              onChanged: (v) =>
+                  setState(() => _query = v.toLowerCase()),
+            ),
+          ),
+          // Lista
+          Expanded(
+            child: StreamBuilder<List<MarcaDoc>>(
+              stream: widget.svc.streamMarcas(widget.empresaId),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snap.hasError) {
+                  return Center(
+                      child: Text('Error: ${snap.error}',
+                          style: const TextStyle(fontFamily: _kFont)));
+                }
+                final todas = snap.data ?? [];
+                final list = _query.isEmpty
+                    ? todas
+                    : todas
+                        .where((m) =>
+                            m.descripcion.toLowerCase().contains(_query) ||
+                            m.codigo.toLowerCase().contains(_query))
+                        .toList();
+                if (list.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.label_off,
+                            size: 60,
+                            color: Colors.blueGrey.shade200),
+                        const SizedBox(height: 12),
+                        Text(
+                          _query.isEmpty
+                              ? 'No hay marcas registradas'
+                              : 'Sin resultados para "$_query"',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              color: Colors.blueGrey.shade400),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: list.length,
+                  itemBuilder: (_, i) {
+                    final m = list[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        leading: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1976D2).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.label,
+                              color: Color(0xFF1976D2), size: 22),
+                        ),
+                        title: Text(m.descripcion,
+                            style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15)),
+                        subtitle: Text(m.codigo,
+                            style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black54)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined,
+                                  size: 20,
+                                  color: Color(0xFF1976D2)),
+                              onPressed: () => _abrirForm(existing: m),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline,
+                                  size: 20, color: Colors.redAccent),
+                              onPressed: () => _eliminar(m),
+                            ),
+                          ],
+                        ),
+                        onTap: () => _abrirForm(existing: m),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MARCA FORM SHEET — crear / editar marca (bottom sheet)
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _MarcaFormSheet extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+  final MarcaDoc? existing;
+
+  const _MarcaFormSheet(
+      {required this.empresaId, required this.svc, this.existing});
+
+  @override
+  State<_MarcaFormSheet> createState() => _MarcaFormSheetState();
+}
+
+class _MarcaFormSheetState extends State<_MarcaFormSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _codigoCtrl;
+  late final TextEditingController _descCtrl;
+  bool _guardando = false;
+  bool _generandoCodigo = false;
+
+  bool get isNew => widget.existing == null;
+
+  @override
+  void initState() {
+    super.initState();
+    _codigoCtrl =
+        TextEditingController(text: widget.existing?.codigo ?? '');
+    _descCtrl =
+        TextEditingController(text: widget.existing?.descripcion ?? '');
+    if (isNew) {
+      _generarCodigo();
+    }
+  }
+
+  Future<void> _generarCodigo() async {
+    setState(() => _generandoCodigo = true);
+    try {
+      final codigo =
+          await widget.svc.generarCodigoMarca(widget.empresaId);
+      if (mounted) setState(() => _codigoCtrl.text = codigo);
+    } catch (_) {
+      // Si falla la generación, el usuario puede escribirlo manualmente
+    } finally {
+      if (mounted) setState(() => _generandoCodigo = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _codigoCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _guardar() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _guardando = true);
+    try {
+      final m = MarcaDoc(
+        id: widget.existing?.id ?? '',
+        empresaId: widget.empresaId,
+        codigo: _codigoCtrl.text.trim().toUpperCase(),
+        descripcion: _normalizarNombre(_descCtrl.text),
+        createdAt: widget.existing?.createdAt ?? Timestamp.now(),
+      );
+      await widget.svc.guardarMarca(m, isNew: isNew);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isNew ? 'Marca creada' : 'Marca actualizada'),
+          backgroundColor: kComprasGreen,
+        ));
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
+      }
+    } finally {
+      if (mounted) setState(() => _guardando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(4)),
+              ),
+            ),
+            Row(
+              children: [
+                const Icon(Icons.label_important, color: Color(0xFF1976D2)),
+                const SizedBox(width: 8),
+                Text(isNew ? 'Nueva Marca' : 'Editar Marca',
+                    style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Código
+            TextFormField(
+              controller: _codigoCtrl,
+              decoration: _inputDecoration('Código *').copyWith(
+                hintText: 'MRC-0001',
+                prefixIcon: _generandoCodigo
+                    ? const Padding(
+                        padding: EdgeInsets.all(10),
+                        child: SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2)))
+                    : const Icon(Icons.tag, size: 18),
+                helperText: 'Auto-generado, editable si es necesario',
+              ),
+              style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.1),
+              textCapitalization: TextCapitalization.characters,
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
+            ),
+            const SizedBox(height: 14),
+            // Descripción
+            TextFormField(
+              controller: _descCtrl,
+              decoration: _inputDecoration('Descripción / Nombre *')
+                  .copyWith(hintText: 'Ej: Nike, Zenú, Colanta'),
+              style: const TextStyle(fontFamily: _kFont, fontSize: 14),
+              textCapitalization: TextCapitalization.words,
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _guardando ? null : _guardar,
+                icon: _guardando
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save),
+                label: Text(_guardando ? 'Guardando...' : 'Guardar',
+                    style: const TextStyle(fontFamily: _kFont)),
+                style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF1976D2),
+                    padding: const EdgeInsets.symmetric(vertical: 14)),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
       ),
     );
   }

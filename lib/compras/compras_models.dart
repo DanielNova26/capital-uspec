@@ -37,35 +37,82 @@ const List<String> kDepartamentos = [
   'Sucre', 'Tolima', 'Valle del Cauca', 'Vaupés', 'Vichada',
 ];
 
-// Claves de documentos de proveedores
-const String kDocRut = 'rut';
-const String kDocCertExistencia = 'certExistencia';
-const String kDocActaInspeccion = 'actaInspeccion';
-const String kDocOtro1 = 'otro1';
-const String kDocOtro2 = 'otro2';
-const String kDocOtro3 = 'otro3';
+// Los documentos requeridos ya no se definen aquí con constantes hardcodeadas.
+// La fuente de verdad es la colección TBL_COMPRAS_REQ_DOCUMENTOS en Firestore,
+// gestionada por ReqEngine (compras_req_engine.dart).
 
-const Map<String, String> kDocProveedorLabels = {
-  kDocRut: 'RUT',
-  kDocCertExistencia: 'Cert. de Existencia',
-  kDocActaInspeccion: 'Acta Inspección Sanitaria',
-  kDocOtro1: 'Otro 1',
-  kDocOtro2: 'Otro 2',
-  kDocOtro3: 'Otro 3',
-};
+// ══════════════════════════════════════════════════════════════════════════════
+// MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)
+// ══════════════════════════════════════════════════════════════════════════════
 
-// Claves de documentos en recepción por producto
-const String kDocGuiaSacrificio = 'guiaSacrificio';
-const String kDocDeclImport = 'declImport';
-const String kDocOtroR1 = 'otroR1';
-const String kDocOtroR2 = 'otroR2';
+class MarcaRef {
+  final String marcaId;
+  final String codigo;
+  final String descripcion;
 
-const Map<String, String> kDocRecepcionLabels = {
-  kDocGuiaSacrificio: 'Guía Sacrificio',
-  kDocDeclImport: 'Decl. Importación',
-  kDocOtroR1: 'Otro 1',
-  kDocOtroR2: 'Otro 2',
-};
+  const MarcaRef({
+    required this.marcaId,
+    required this.codigo,
+    required this.descripcion,
+  });
+
+  factory MarcaRef.fromMap(Map<String, dynamic> m) => MarcaRef(
+        marcaId: m['marcaId'] as String? ?? '',
+        codigo: m['codigo'] as String? ?? '',
+        descripcion: m['descripcion'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toMap() => {
+        'marcaId': marcaId,
+        'codigo': codigo,
+        'descripcion': descripcion,
+      };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MarcaDoc  (colección TBL_COMPRAS_MARCAS)
+// ══════════════════════════════════════════════════════════════════════════════
+
+class MarcaDoc {
+  final String id;
+  final String empresaId;
+  final String codigo;       // auto-generado: MRC-0001
+  final String descripcion;
+  final Timestamp createdAt;
+  final Timestamp? updatedAt;
+
+  const MarcaDoc({
+    this.id = '',
+    required this.empresaId,
+    required this.codigo,
+    required this.descripcion,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  factory MarcaDoc.fromMap(String id, Map<String, dynamic> m) => MarcaDoc(
+        id: id,
+        empresaId: m['empresaId'] as String? ?? '',
+        codigo: m['codigo'] as String? ?? '',
+        descripcion: m['descripcion'] as String? ?? '',
+        createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+        updatedAt: m['updatedAt'] as Timestamp?,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'empresaId': empresaId,
+        'codigo': codigo,
+        'descripcion': descripcion,
+        'createdAt': createdAt,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+  MarcaRef toRef() => MarcaRef(
+        marcaId: id,
+        codigo: codigo,
+        descripcion: descripcion,
+      );
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // DocAdjunto
@@ -233,6 +280,7 @@ class ProductoDoc {
   final String unidadMedida;
   final String categoria;
   final bool esPerecedero;
+  final List<MarcaRef> marcas;
   final Timestamp createdAt;
   final Timestamp? updatedAt;
 
@@ -244,6 +292,7 @@ class ProductoDoc {
     required this.unidadMedida,
     required this.categoria,
     this.esPerecedero = false,
+    this.marcas = const [],
     required this.createdAt,
     this.updatedAt,
   });
@@ -256,6 +305,10 @@ class ProductoDoc {
         unidadMedida: m['unidadMedida'] as String? ?? '',
         categoria: m['categoria'] as String? ?? '',
         esPerecedero: m['esPerecedero'] as bool? ?? false,
+        marcas: ((m['marcas'] as List?) ?? [])
+            .cast<Map<String, dynamic>>()
+            .map(MarcaRef.fromMap)
+            .toList(),
         createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
         updatedAt: m['updatedAt'] as Timestamp?,
       );
@@ -267,9 +320,35 @@ class ProductoDoc {
         'unidadMedida': unidadMedida,
         'categoria': categoria,
         'esPerecedero': esPerecedero,
+        'marcas': marcas.map((r) => r.toMap()).toList(),
         'createdAt': createdAt,
         'updatedAt': FieldValue.serverTimestamp(),
       };
+
+  ProductoDoc copyWith({
+    String? id,
+    String? empresaId,
+    String? codigo,
+    String? nombre,
+    String? unidadMedida,
+    String? categoria,
+    bool? esPerecedero,
+    List<MarcaRef>? marcas,
+    Timestamp? createdAt,
+    Timestamp? updatedAt,
+  }) =>
+      ProductoDoc(
+        id: id ?? this.id,
+        empresaId: empresaId ?? this.empresaId,
+        codigo: codigo ?? this.codigo,
+        nombre: nombre ?? this.nombre,
+        unidadMedida: unidadMedida ?? this.unidadMedida,
+        categoria: categoria ?? this.categoria,
+        esPerecedero: esPerecedero ?? this.esPerecedero,
+        marcas: marcas ?? this.marcas,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -280,14 +359,18 @@ class RecepcionProducto {
   final String productoId;
   final String nombre;
   final String categoria;
-  final String marca;
+  final String marcaId;      // ID de MarcaDoc (puede ser vacío)
+  final String marca;        // Descripción de la marca (para mostrar)
+  final String origen;       // 'NACIONAL' | 'IMPORTADO' — default 'NACIONAL'
   final Map<String, DocAdjunto> documentos;
 
   const RecepcionProducto({
     this.productoId = '',
     this.nombre = '',
     this.categoria = '',
+    this.marcaId = '',
     this.marca = '',
+    this.origen = 'NACIONAL',
     this.documentos = const {},
   });
 
@@ -297,7 +380,9 @@ class RecepcionProducto {
       productoId: m['productoId'] as String? ?? '',
       nombre: m['nombre'] as String? ?? '',
       categoria: m['categoria'] as String? ?? '',
+      marcaId: m['marcaId'] as String? ?? '',
       marca: m['marca'] as String? ?? '',
+      origen: m['origen'] as String? ?? 'NACIONAL',
       documentos: rawDocs.map(
         (k, v) => MapEntry(k, DocAdjunto.fromMap(v as Map<String, dynamic>?)),
       ),
@@ -308,9 +393,30 @@ class RecepcionProducto {
         'productoId': productoId,
         'nombre': nombre,
         'categoria': categoria,
+        'marcaId': marcaId,
         'marca': marca,
+        'origen': origen,
         'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
       };
+
+  RecepcionProducto copyWith({
+    String? productoId,
+    String? nombre,
+    String? categoria,
+    String? marcaId,
+    String? marca,
+    String? origen,
+    Map<String, DocAdjunto>? documentos,
+  }) =>
+      RecepcionProducto(
+        productoId: productoId ?? this.productoId,
+        nombre: nombre ?? this.nombre,
+        categoria: categoria ?? this.categoria,
+        marcaId: marcaId ?? this.marcaId,
+        marca: marca ?? this.marca,
+        origen: origen ?? this.origen,
+        documentos: documentos ?? this.documentos,
+      );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

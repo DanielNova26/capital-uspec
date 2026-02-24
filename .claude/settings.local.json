@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dart analyze:*)"
+      "Bash(dart analyze:*)",
+      "Bash(python:*)",
+      "Bash(\"/c/Users/SERVICIO TECNICO/AppData/Local/Programs/Python/Python313/python.exe\":*)",
+      "Bash(py -3 -c:*)",
+      "Bash(py -3 -m pip install openpyxl)",
+      "Bash(\"/c/Users/SERVICIO TECNICO/AppData/Local/Programs/Python/Python313/Scripts/pip.exe\" install openpyxl)",
+      "Bash(cmd //c \"\"\"C:\\\\Users\\\\SERVICIO TECNICO\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\Scripts\\\\pip.exe\"\" show openpyxl\")",
+      "Bash(cmd //c \"C:\\\\Users\\\\SERVICIOT~1\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\Scripts\\\\pip.exe show openpyxl\")",
+      "Bash(powershell.exe -Command \"& 'C:\\\\Users\\\\SERVICIO TECNICO\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\Scripts\\\\pip.exe' show openpyxl\":*)",
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\SERVICIO TECNICO\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\'' -Filter ''*.exe''\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Users\\\\SERVICIO TECNICO\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\'' -Recurse -Filter ''python.exe'' | Select-Object FullName\")",
+      "Bash(powershell.exe -Command \"Get-ChildItem ''C:\\\\Python313\\\\'' -Filter ''*.exe'' | Select-Object FullName\")",
+      "Bash(powershell.exe -Command:*)",
+      "Bash(PYTHONPATH=\"/c/Users/SERVICIO TECNICO/AppData/Local/Programs/Python/Python313/Lib/site-packages\" /c/Windows/py:*)",
+      "Bash(PYTHONPATH=\"/c/Users/SERVICIO TECNICO/AppData/Local/Programs/Python/Python313/Lib/site-packages\" /c/Windows/py -c:*)",
+      "Bash(python3:*)"
     ]
   }
 }
