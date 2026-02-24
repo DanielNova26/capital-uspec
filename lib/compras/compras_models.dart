@@ -40,6 +40,66 @@ const List<String> kDepartamentos = [
 // Los documentos requeridos ya no se definen aquí con constantes hardcodeadas.
 // La fuente de verdad es la colección TBL_COMPRAS_REQ_DOCUMENTOS en Firestore,
 // gestionada por ReqEngine (compras_req_engine.dart).
+//
+// COMPATIBILIDAD TEMPORAL:
+// Algunas pantallas aún consumen estas constantes mientras terminan su migración
+// al motor dinámico. Las llaves están alineadas con KEY_APP de REQ_DOCUMENTOS.
+const String kDocRut = 'rut';
+const String kDocCertExistencia = 'camaraComercio';
+const String kDocActaInspeccion = 'actaIvcPlanta';
+
+const Map<String, String> kDocProveedorLabels = {
+  'rut': 'RUT del proveedor',
+  'camaraComercio': 'Cámara de comercio vigente',
+  'fichaTecnicaProv': 'Ficha técnica del producto',
+  'actaIvcPlanta': 'Acta IVC planta de producción (vigencia menor a 1 año)',
+  'actaIvcVehiculo': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+  'examenMedico': 'Examen médico del conductor con énfasis en alimentos',
+  'cursoManipulacion':
+  'Certificado/curso de manipulación de alimentos del conductor/manipulador',
+};
+
+const Map<String, String> kDocRecepcionLabels = {
+  'guiaTransporte': 'Guía de transporte',
+  'guiaSacrificio': 'Guía de sacrificio',
+  'certCalidad': 'Certificado de calidad',
+  'fichaTecnica': 'Ficha técnica (copia vigente)',
+  'evidenciaEtiqueta':
+  'Evidencia fotográfica del rótulo/etiqueta del empaque',
+  'fechaVencimientoEtiqueta':
+  'Fecha de vencimiento impresa en el empaque (verificación/evidencia)',
+  'declImport': 'Declaración de Importación (DIAN)',
+  'docTransporte': 'Documento de transporte (BL/AWB/Carta porte)',
+  'mandatoAduanas': 'Mandato o poder del agente de aduanas',
+  'vistoInvima': 'Visto Bueno Sanitario',
+  'permisoZoo': 'Permiso Zoosanitario de Importación',
+  'certSanitariaImport': 'Certificación sanitaria de importación',
+  'fichaTecnicaEs': 'Ficha técnica de la materia prima en español',
+  'etiquetaEspanol': 'Etiqueta en idioma español (evidencia fotográfica)',
+  'soporteRegistroInvima': 'Soporte de registro sanitario INVIMA',
+  'fichaTecnicaDosificacion':
+  'Ficha técnica con registro sanitario y dosificaciones (uso alimentario)',
+  'hojaSeguridad': 'Hoja de seguridad (SGA) con 16 parámetros',
+  'sustanciasPermitidas':
+  'Listado/soporte de sustancias permitidas para uso en proceso alimentario',
+  'rotuladoSGA':
+  'Etiqueta SGA: pictogramas, palabra de advertencia, H/P, identificación y proveedor (evidencia)',
+  'rotuladoInfoBasica':
+  'Rotulado: nombre alimento, contenido neto, fabricante/fraccionador, lote, vencimiento, conservación, ciudad, etc. (evidencia)',
+  'rotuladoAditivos': 'Declaración de aditivos',
+  'rotuladoIngredientes':
+  'Lista de ingredientes y declaración de agua añadida (evidencia)',
+  'rotuladoDenominacion': 'Denominación del producto (evidencia)',
+  'rotuladoLoteFechas':
+  'Rotulado: lote, peso neto, fechas, conservación y datos del fabricante (evidencia)',
+  'rotuladoAdvertencias':
+  'Rotulado: advertencias (alérgenos, sodio, azúcares, etc.) (evidencia)',
+  'rotuladoRegistroInvima':
+  'Registro sanitario INVIMA visible en etiqueta (evidencia)',
+  'rotuladoImportOrigen':
+  'Rotulado: información obligatoria incluyendo país de origen (evidencia)',
+  'rotuladoFrontal810': 'Etiquetado nutricional frontal (evidencia)',
+};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)

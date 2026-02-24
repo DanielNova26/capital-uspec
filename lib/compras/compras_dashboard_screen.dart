@@ -51,6 +51,63 @@ String _fmtFechaHora(Timestamp ts) {
   return DateFormat('dd/MM/yyyy HH:mm', 'es').format(ts.toDate());
 }
 
+
+List<String> docsParaCategoria(String? categoria) {
+  final cat = (categoria ?? '').trim().toLowerCase();
+
+  // Puente de compatibilidad: hasta terminar la migración completa al motor
+  // dinámico (ReqEngine), usamos un subconjunto por categoría para evitar
+  // sobre-exigir documentos en vistas históricas/resumen.
+  final base = <String>[
+    'certCalidad',
+    'fichaTecnica',
+    'evidenciaEtiqueta',
+    'fechaVencimientoEtiqueta',
+  ];
+
+  final proteina = <String>[
+    'guiaTransporte',
+    'guiaSacrificio',
+    'permisoZoo',
+    'vistoInvima',
+    'declImport',
+    'docTransporte',
+  ];
+
+  final aseo = <String>[
+    'hojaSeguridad',
+    'sustanciasPermitidas',
+    'rotuladoSGA',
+  ];
+
+  final fruver = <String>[
+    'permisoZoo',
+    'vistoInvima',
+    'declImport',
+  ];
+
+  final merged = <String>[...base];
+  if (cat.contains('prote')) merged.addAll(proteina);
+  if (cat.contains('aseo')) merged.addAll(aseo);
+  if (cat.contains('fruv')) merged.addAll(fruver);
+
+  if (merged.length == base.length) {
+    // Categoría no clasificada: mantener solo documentos universales.
+    merged.addAll([
+      'guiaTransporte',
+      'docTransporte',
+    ]);
+  }
+
+  // Únicos + existentes en mapa de etiquetas para evitar llaves inválidas.
+  final uniques = <String>[];
+  for (final key in merged) {
+    if (!kDocRecepcionLabels.containsKey(key)) continue;
+    if (!uniques.contains(key)) uniques.add(key);
+  }
+  return uniques;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPRAS DASHBOARD SCREEN — pantalla principal (hub)
 // ══════════════════════════════════════════════════════════════════════════════
