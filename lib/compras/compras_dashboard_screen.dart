@@ -664,11 +664,16 @@ class _DocAttachButton extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(label,
+            Expanded(
+                child: Text(
+                    label,
                 style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
-                    color: Colors.grey.shade600)),
+                    color: Colors.grey.shade600),
+                  softWrap: true,
+                ),
+            ),
             if (required_)
               Text(' *',
                   style: const TextStyle(color: Colors.red, fontSize: 12)),
