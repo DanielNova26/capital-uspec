@@ -124,11 +124,18 @@ class ComprasService {
           .map((s) {
             final list = s.docs
                 .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
-                .where((r) => r.productos.any((p) =>
-                p.documentos.values.any((d) =>
-                d.tieneDoc &&
-                    (d.estadoCalidad.isEmpty ||
-                        d.estadoCalidad == 'pendiente'))))
+                .where(
+                  (r) => r.productos.any(
+                    (p) => p.documentos.values.any(
+                        (d) =>
+                    d.tieneDoc &&
+                        (d.estadoCalidad.isEmpty ||
+                            d.estadoCalidad == 'pendiente' ||
+                            d.estadoCalidad ==
+                                'pendiente_revision_calidad')
+                ),
+              ),
+            )
                 .toList();
             list.sort((a, b) => b.fecha.compareTo(a.fecha));
             return list;

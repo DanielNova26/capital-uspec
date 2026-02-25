@@ -900,7 +900,7 @@ class _DocAttachButton extends StatelessWidget {
   }
 
   String get _estadoLabel {
-    if (doc?.pendiente == true) return ' · Pendiente revisión';
+    if (doc?.pendiente == true) return ' · Pendiente revisión calidad';
     if (doc?.aprobado == true) return ' · Aprobado';
     if (doc?.rechazado == true) return ' · Rechazado';
     return '';
@@ -1935,6 +1935,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   String _origen = 'NACIONAL'; // 'NACIONAL' | 'IMPORTADO'
   DocAdjunto? _fichaTecnica;
   bool _subiendoFicha = false;
+  final TextEditingController _obsFichaCtrl = TextEditingController();
+  Map<String, DocAdjunto> _fichasPorMarca = {};
 
   bool get isNew => widget.existing == null;
 
@@ -1950,6 +1952,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     _marcasProducto = List.from(p?.marcas ?? []);
     _origen = p?.origen ?? 'NACIONAL';
     _fichaTecnica = p?.fichaTecnica;
+    _obsFichaCtrl.text = p?.fichaTecnica?.observacionActualizacion ?? '';
+    _fichasPorMarca = Map<String, DocAdjunto>.from(p?.fichasTecnicasPorMarca ?? {});
     _loadMarcas();
     _loadProductosExistentes();
   }
@@ -2018,6 +2022,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   void dispose() {
     _codigoCtrl.dispose();
     _nombreCtrl.dispose();
+    _obsFichaCtrl.dispose();
     super.dispose();
   }
 
@@ -2030,7 +2035,28 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
       svc: widget.svc,
     );
     if (doc != null && mounted) {
-      setState(() => _fichaTecnica = doc);
+      setState(() {
+        _fichaTecnica = doc.copyWith(
+          observacionActualizacion: _obsFichaCtrl.text.trim(),
+        );
+      });
+    }
+  }
+
+  Future<void> _subirFichaTecnicaMarca(MarcaRef marca) async {
+    final doc = await _mostrarEscaneador(
+      context,
+      empresaId: widget.empresaId,
+      carpeta: 'productos_fichas_marcas',
+      nombreSugerido: 'FichaTecnica_${_nombreCtrl.text.trim()}_${marca.codigo}',
+      svc: widget.svc,
+    );
+    if (doc != null && mounted) {
+      setState(() {
+        _fichasPorMarca[marca.marcaId] = doc.copyWith(
+          observacionActualizacion: _obsFichaCtrl.text.trim(),
+        );
+      });
     }
   }
 
@@ -2112,6 +2138,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     setState(() => _guardando = true);
     try {
       final codigo = _codigoCtrl.text.trim().toUpperCase();
+      final fichaTecnicaConObs = _fichaTecnica?.copyWith(
+        observacionActualizacion: _obsFichaCtrl.text.trim(),
+      );
       final p = ProductoDoc(
         id: widget.existing?.id ?? '',
         empresaId: widget.empresaId,
@@ -2122,7 +2151,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
         esPerecedero: _perecedero,
         marcas: _marcasProducto,
         origen: _origen,
-        fichaTecnica: _fichaTecnica,
+        fichaTecnica: fichaTecnicaConObs,
+        fichasTecnicasPorMarca: _fichasPorMarca,
         createdAt: widget.existing?.createdAt ?? Timestamp.now(),
       );
       await widget.svc.guardarProducto(p, isNew: isNew);
@@ -2302,6 +2332,16 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                     ? () => _abrirUrl(context, _fichaTecnica!.url)
                     : null,
               ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _obsFichaCtrl,
+                decoration: _inputDecoration('Observación de actualización de ficha').copyWith(
+                  hintText: 'Explique por qué se actualiza la ficha técnica',
+                  prefixIcon: const Icon(Icons.note_alt_outlined, size: 18),
+                ),
+                maxLines: 2,
+                style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+              ),
               const SizedBox(height: 20),
               const Text(
                 'Documentos que se solicitarán en recepción',
@@ -2396,13 +2436,56 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                               fontFamily: _kFont,
                               fontSize: 13,
                               fontWeight: FontWeight.w500)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.remove_circle_outline,
-                            size: 18, color: Colors.redAccent),
-                        onPressed: () =>
-                            setState(() => _marcasProducto.removeAt(i)),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                      subtitle: _fichasPorMarca[ref.marcaId]?.tieneDoc == true
+                          ? const Text(
+                        'Ficha técnica por marca cargada',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                          color: kComprasGreen,
+                        ),
+                      )
+                          : const Text(
+                        'Sin ficha técnica por marca',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                          color: Colors.black45,
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.upload_file,
+                                size: 18, color: Color(0xFF1976D2)),
+                            tooltip: 'Cargar ficha técnica de esta marca',
+                            onPressed: () => _subirFichaTecnicaMarca(ref),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                          if (_fichasPorMarca[ref.marcaId]?.tieneDoc == true)
+                            IconButton(
+                              icon: const Icon(Icons.search,
+                                  size: 18, color: Color(0xFF1976D2)),
+                              tooltip: 'Ver ficha técnica de esta marca',
+                              onPressed: () => _abrirUrl(
+                                  context,
+                                  _fichasPorMarca[ref.marcaId]!.url),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline,
+                                size: 18, color: Colors.redAccent),
+                            onPressed: () => setState(() {
+                              final removed = _marcasProducto.removeAt(i);
+                              _fichasPorMarca.remove(removed.marcaId);
+                            }),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -2985,7 +3068,10 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     );
     if (doc != null) {
       // Marcar como pendiente de revisión calidad
-      final docPendiente = doc.copyWith(estadoCalidad: 'pendiente');
+      final docPendiente = doc.copyWith(
+        estadoCalidad: 'pendiente_revision_calidad',
+        observacionActualizacion: _entries[idx].observacionesCtrl.text.trim(),
+      );
       setState(() => _entries[idx].documentos[key] = docPendiente);
     }
   }
@@ -3410,43 +3496,61 @@ class _ProductoEntryCard extends StatelessWidget {
                     );
                   }),
                   const SizedBox(height: 12),
-                  // ─ Ficha técnica del producto (lupa) ─
-                  if (producto?.fichaTecnica?.tieneDoc == true) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.description,
-                              size: 16, color: Colors.blue),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text('Ficha técnica del producto disponible',
-                                style: TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 12,
-                                    color: Colors.blue)),
+                  // ─ Ficha técnica (preferir por marca, fallback producto) ─
+                  Builder(builder: (context) {
+                    if (producto == null) return const SizedBox.shrink();
+                    final fichaMarca = entry.marcaSeleccionada != null
+                        ? producto.fichasTecnicasPorMarca[entry.marcaSeleccionada!.id]
+                        : null;
+                    final ficha = (fichaMarca?.tieneDoc == true)
+                        ? fichaMarca
+                        : producto.fichaTecnica;
+                    if (ficha?.tieneDoc != true) return const SizedBox.shrink();
+                    final usandoMarca = fichaMarca?.tieneDoc == true;
+                    return Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue.shade200),
                           ),
-                          IconButton(
-                            onPressed: () => _abrirUrl(
-                                context, producto!.fichaTecnica!.url),
-                            icon: const Icon(Icons.search,
-                                size: 18, color: Colors.blue),
-                            tooltip: 'Ver ficha técnica del producto',
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                                minWidth: 32, minHeight: 32),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.description,
+                                  size: 16, color: Colors.blue),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  usandoMarca
+                                      ? 'Ficha técnica de la marca seleccionada disponible'
+                                      : 'Ficha técnica del producto disponible',
+                                  style: const TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 12,
+                                      color: Colors.blue),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => _abrirUrl(context, ficha!.url),
+                                icon: const Icon(Icons.search,
+                                    size: 18, color: Colors.blue),
+                                tooltip: usandoMarca
+                                    ? 'Ver ficha técnica de la marca seleccionada'
+                                    : 'Ver ficha técnica del producto',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                    minWidth: 32, minHeight: 32),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    );
+                  }),
                   // ─ Documentos requeridos ─
                   Row(
                     children: [
@@ -4118,14 +4222,19 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
     try {
       // Construir productos actualizados con el nuevo doc
       final nuevosProductos = List<RecepcionProducto>.from(_r.productos);
-      final docPendiente = doc.copyWith(estadoCalidad: 'pendiente');
+      final docPendiente = doc.copyWith(
+        estadoCalidad: 'pendiente_revision_calidad',
+        observacionActualizacion: p.observaciones,
+      );
       nuevosProductos[productoIdx] = RecepcionProducto(
         productoId: p.productoId,
         nombre: p.nombre,
         categoria: p.categoria,
         marcaId: p.marcaId,
         marca: p.marca,
+        origen: p.origen,
         documentos: {...p.documentos, docKey: docPendiente},
+        observaciones: p.observaciones,
       );
       final nuevaRecepcion = RecepcionDoc(
         id: _r.id,
@@ -4137,6 +4246,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
         ordenCompra: _r.ordenCompra,
         productos: nuevosProductos,
         productoIds: _r.productoIds,
+        creadoPor: _r.creadoPor,
         createdAt: _r.createdAt,
       );
       await widget.svc!.guardarRecepcion(nuevaRecepcion);
@@ -5178,8 +5288,9 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 final doc = e.value;
                 if (!doc.tieneDoc) return false;
                 return doc.estadoCalidad.isEmpty ||
-                    doc.estadoCalidad == 'pendiente';
-              })
+                    doc.estadoCalidad == 'pendiente' ||
+                    doc.estadoCalidad == 'pendiente_revision_calidad';
+                  })
                   .toList();
               if (docsPendientes.isEmpty) return <Widget>[];
               return [
@@ -5264,6 +5375,27 @@ class _RecepcionCalidadCard extends StatelessWidget {
                                     ),
                                 ],
                               ),
+                              if (doc.observacionActualizacion?.trim().isNotEmpty == true) ...[
+                                const SizedBox(height: 6),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.orange.shade200),
+                                  ),
+                                  child: Text(
+                                    'Obs. actualización: ${doc.observacionActualizacion!.trim()}',
+                                    style: const TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 11,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
                               Row(
                                 children: [
                                   Expanded(

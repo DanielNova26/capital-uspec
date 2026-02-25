@@ -190,6 +190,8 @@ class MarcaDoc {
 
 /// Estados de revisión de calidad para un documento adjunto.
 /// - '' (vacío): sin gestión de calidad (doc antiguo o no aplica)
+/// - 'pendiente': estado legado (compatibilidad)
+/// - 'pendiente_revision_calidad': subido por bodega/compras y pendiente de revisión
 /// - 'pendiente': subido por bodega/compras, esperando revisión de calidad
 /// - 'aprobado': aprobado por calidad
 /// - 'rechazado': rechazado por calidad (con observación)
@@ -200,6 +202,7 @@ class DocAdjunto {
   final Timestamp? fechaSubida;
   /// Estado de revisión calidad: '' | 'pendiente' | 'aprobado' | 'rechazado'
   final String estadoCalidad;
+  final String? observacionActualizacion;
   final String? observacionCalidad;
   final String? revisadoPor;
   final Timestamp? fechaRevision;
@@ -210,13 +213,17 @@ class DocAdjunto {
     this.path,
     this.fechaSubida,
     this.estadoCalidad = '',
+    this.observacionActualizacion,
     this.observacionCalidad,
     this.revisadoPor,
     this.fechaRevision,
   });
 
   bool get tieneDoc => url != null && url!.isNotEmpty;
-  bool get pendiente => estadoCalidad == 'pendiente';
+  bool get pendienteRevisionCalidad =>
+      estadoCalidad == 'pendiente_revision_calidad' ||
+          estadoCalidad == 'pendiente';
+  bool get pendiente => pendienteRevisionCalidad;
   bool get aprobado => estadoCalidad == 'aprobado';
   bool get rechazado => estadoCalidad == 'rechazado';
 
@@ -228,6 +235,7 @@ class DocAdjunto {
       path: m['path'] as String?,
       fechaSubida: m['fechaSubida'] as Timestamp?,
       estadoCalidad: m['estadoCalidad'] as String? ?? '',
+      observacionActualizacion: m['observacionActualizacion'] as String?,
       observacionCalidad: m['observacionCalidad'] as String?,
       revisadoPor: m['revisadoPor'] as String?,
       fechaRevision: m['fechaRevision'] as Timestamp?,
@@ -241,6 +249,7 @@ class DocAdjunto {
         'fechaSubida': fechaSubida,
         'estadoCalidad': estadoCalidad,
         'observacionCalidad': observacionCalidad,
+    'observacionActualizacion': observacionActualizacion,
         'revisadoPor': revisadoPor,
         'fechaRevision': fechaRevision,
       };
@@ -252,6 +261,7 @@ class DocAdjunto {
     Timestamp? fechaSubida,
     String? estadoCalidad,
     String? observacionCalidad,
+    String? observacionActualizacion,
     String? revisadoPor,
     Timestamp? fechaRevision,
   }) =>
@@ -262,6 +272,8 @@ class DocAdjunto {
         fechaSubida: fechaSubida ?? this.fechaSubida,
         estadoCalidad: estadoCalidad ?? this.estadoCalidad,
         observacionCalidad: observacionCalidad ?? this.observacionCalidad,
+        observacionActualizacion:
+        observacionActualizacion ?? this.observacionActualizacion,
         revisadoPor: revisadoPor ?? this.revisadoPor,
         fechaRevision: fechaRevision ?? this.fechaRevision,
       );
@@ -393,6 +405,8 @@ class ProductoDoc {
   final String origen;
   /// Ficha técnica del producto (antes estaba a nivel de proveedor)
   final DocAdjunto? fichaTecnica;
+  /// Ficha técnica por marca vinculada al producto (marcaId -> DocAdjunto)
+  final Map<String, DocAdjunto> fichasTecnicasPorMarca;
   final Timestamp createdAt;
   final Timestamp? updatedAt;
 
@@ -407,6 +421,7 @@ class ProductoDoc {
     this.marcas = const [],
     this.origen = 'NACIONAL',
     this.fichaTecnica,
+    this.fichasTecnicasPorMarca = const {},
     required this.createdAt,
     this.updatedAt,
   });
@@ -427,6 +442,12 @@ class ProductoDoc {
         fichaTecnica: m['fichaTecnica'] != null
             ? DocAdjunto.fromMap(m['fichaTecnica'] as Map<String, dynamic>?)
             : null,
+    fichasTecnicasPorMarca:
+    ((m['fichasTecnicasPorMarca'] as Map<String, dynamic>?) ?? {})
+        .map((k, v) => MapEntry(
+        k,
+        DocAdjunto.fromMap(
+            (v as Map?)?.cast<String, dynamic>()))),
         createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
         updatedAt: m['updatedAt'] as Timestamp?,
       );
@@ -441,6 +462,8 @@ class ProductoDoc {
         'marcas': marcas.map((r) => r.toMap()).toList(),
         'origen': origen,
         'fichaTecnica': fichaTecnica?.toMap(),
+    'fichasTecnicasPorMarca':
+    fichasTecnicasPorMarca.map((k, v) => MapEntry(k, v.toMap())),
         'createdAt': createdAt,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -456,6 +479,7 @@ class ProductoDoc {
     List<MarcaRef>? marcas,
     String? origen,
     DocAdjunto? fichaTecnica,
+    Map<String, DocAdjunto>? fichasTecnicasPorMarca,
     bool clearFichaTecnica = false,
     Timestamp? createdAt,
     Timestamp? updatedAt,
@@ -471,6 +495,8 @@ class ProductoDoc {
         marcas: marcas ?? this.marcas,
         origen: origen ?? this.origen,
         fichaTecnica: clearFichaTecnica ? null : (fichaTecnica ?? this.fichaTecnica),
+        fichasTecnicasPorMarca:
+        fichasTecnicasPorMarca ?? this.fichasTecnicasPorMarca,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
