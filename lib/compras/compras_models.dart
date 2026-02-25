@@ -9,6 +9,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 const List<String> kCategoriasCompras = [
   'Abarrotes',
   'Aseo',
+  'Desechables',
   'Equipos',
   'Fruver',
   'Menaje',
@@ -48,10 +49,11 @@ const String kDocRut = 'rut';
 const String kDocCertExistencia = 'camaraComercio';
 const String kDocActaInspeccion = 'actaIvcPlanta';
 
+/// Documentos a nivel de PROVEEDOR.
+/// NOTA: fichaTecnicaProv fue movido al nivel de PRODUCTO (ProductoDoc.fichaTecnica).
 const Map<String, String> kDocProveedorLabels = {
   'rut': 'RUT del proveedor',
   'camaraComercio': 'Cámara de comercio vigente',
-  'fichaTecnicaProv': 'Ficha técnica del producto',
   'actaIvcPlanta': 'Acta IVC planta de producción (vigencia menor a 1 año)',
   'actaIvcVehiculo': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
   'examenMedico': 'Examen médico del conductor con énfasis en alimentos',
@@ -100,6 +102,14 @@ const Map<String, String> kDocRecepcionLabels = {
   'Rotulado: información obligatoria incluyendo país de origen (evidencia)',
   'rotuladoFrontal810': 'Etiquetado nutricional frontal (evidencia)',
 };
+
+/// Roles de usuario en el módulo Compras/Bodega.
+/// calidad: permisos completos + aprobación de documentos
+/// compras: gestión de proveedores/productos/recepciones (requiere aprobación calidad)
+/// bodega: solo recepción de mercancía
+const String kRolCalidad = 'calidad';
+const String kRolCompras = 'compras';
+const String kRolBodega = 'bodega';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)
@@ -178,15 +188,37 @@ class MarcaDoc {
 // DocAdjunto
 // ══════════════════════════════════════════════════════════════════════════════
 
+/// Estados de revisión de calidad para un documento adjunto.
+/// - '' (vacío): sin gestión de calidad (doc antiguo o no aplica)
+/// - 'pendiente': subido por bodega/compras, esperando revisión de calidad
+/// - 'aprobado': aprobado por calidad
+/// - 'rechazado': rechazado por calidad (con observación)
 class DocAdjunto {
   final String? url;
   final String? nombre;
   final String? path;
   final Timestamp? fechaSubida;
+  /// Estado de revisión calidad: '' | 'pendiente' | 'aprobado' | 'rechazado'
+  final String estadoCalidad;
+  final String? observacionCalidad;
+  final String? revisadoPor;
+  final Timestamp? fechaRevision;
 
-  const DocAdjunto({this.url, this.nombre, this.path, this.fechaSubida});
+  const DocAdjunto({
+    this.url,
+    this.nombre,
+    this.path,
+    this.fechaSubida,
+    this.estadoCalidad = '',
+    this.observacionCalidad,
+    this.revisadoPor,
+    this.fechaRevision,
+  });
 
   bool get tieneDoc => url != null && url!.isNotEmpty;
+  bool get pendiente => estadoCalidad == 'pendiente';
+  bool get aprobado => estadoCalidad == 'aprobado';
+  bool get rechazado => estadoCalidad == 'rechazado';
 
   factory DocAdjunto.fromMap(Map<String, dynamic>? m) {
     if (m == null) return const DocAdjunto();
@@ -195,6 +227,10 @@ class DocAdjunto {
       nombre: m['nombre'] as String?,
       path: m['path'] as String?,
       fechaSubida: m['fechaSubida'] as Timestamp?,
+      estadoCalidad: m['estadoCalidad'] as String? ?? '',
+      observacionCalidad: m['observacionCalidad'] as String?,
+      revisadoPor: m['revisadoPor'] as String?,
+      fechaRevision: m['fechaRevision'] as Timestamp?,
     );
   }
 
@@ -203,6 +239,10 @@ class DocAdjunto {
         'nombre': nombre,
         'path': path,
         'fechaSubida': fechaSubida,
+        'estadoCalidad': estadoCalidad,
+        'observacionCalidad': observacionCalidad,
+        'revisadoPor': revisadoPor,
+        'fechaRevision': fechaRevision,
       };
 
   DocAdjunto copyWith({
@@ -210,12 +250,20 @@ class DocAdjunto {
     String? nombre,
     String? path,
     Timestamp? fechaSubida,
+    String? estadoCalidad,
+    String? observacionCalidad,
+    String? revisadoPor,
+    Timestamp? fechaRevision,
   }) =>
       DocAdjunto(
         url: url ?? this.url,
         nombre: nombre ?? this.nombre,
         path: path ?? this.path,
         fechaSubida: fechaSubida ?? this.fechaSubida,
+        estadoCalidad: estadoCalidad ?? this.estadoCalidad,
+        observacionCalidad: observacionCalidad ?? this.observacionCalidad,
+        revisadoPor: revisadoPor ?? this.revisadoPor,
+        fechaRevision: fechaRevision ?? this.fechaRevision,
       );
 }
 
@@ -341,6 +389,10 @@ class ProductoDoc {
   final String categoria;
   final bool esPerecedero;
   final List<MarcaRef> marcas;
+  /// 'NACIONAL' | 'IMPORTADO' — determina la documentación requerida en recepción
+  final String origen;
+  /// Ficha técnica del producto (antes estaba a nivel de proveedor)
+  final DocAdjunto? fichaTecnica;
   final Timestamp createdAt;
   final Timestamp? updatedAt;
 
@@ -353,6 +405,8 @@ class ProductoDoc {
     required this.categoria,
     this.esPerecedero = false,
     this.marcas = const [],
+    this.origen = 'NACIONAL',
+    this.fichaTecnica,
     required this.createdAt,
     this.updatedAt,
   });
@@ -369,6 +423,10 @@ class ProductoDoc {
             .cast<Map<String, dynamic>>()
             .map(MarcaRef.fromMap)
             .toList(),
+        origen: m['origen'] as String? ?? 'NACIONAL',
+        fichaTecnica: m['fichaTecnica'] != null
+            ? DocAdjunto.fromMap(m['fichaTecnica'] as Map<String, dynamic>?)
+            : null,
         createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
         updatedAt: m['updatedAt'] as Timestamp?,
       );
@@ -381,6 +439,8 @@ class ProductoDoc {
         'categoria': categoria,
         'esPerecedero': esPerecedero,
         'marcas': marcas.map((r) => r.toMap()).toList(),
+        'origen': origen,
+        'fichaTecnica': fichaTecnica?.toMap(),
         'createdAt': createdAt,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -394,6 +454,9 @@ class ProductoDoc {
     String? categoria,
     bool? esPerecedero,
     List<MarcaRef>? marcas,
+    String? origen,
+    DocAdjunto? fichaTecnica,
+    bool clearFichaTecnica = false,
     Timestamp? createdAt,
     Timestamp? updatedAt,
   }) =>
@@ -406,6 +469,8 @@ class ProductoDoc {
         categoria: categoria ?? this.categoria,
         esPerecedero: esPerecedero ?? this.esPerecedero,
         marcas: marcas ?? this.marcas,
+        origen: origen ?? this.origen,
+        fichaTecnica: clearFichaTecnica ? null : (fichaTecnica ?? this.fichaTecnica),
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -421,8 +486,10 @@ class RecepcionProducto {
   final String categoria;
   final String marcaId;      // ID de MarcaDoc (puede ser vacío)
   final String marca;        // Descripción de la marca (para mostrar)
-  final String origen;       // 'NACIONAL' | 'IMPORTADO' — default 'NACIONAL'
+  final String origen;       // 'NACIONAL' | 'IMPORTADO' — hereda del ProductoDoc
   final Map<String, DocAdjunto> documentos;
+  /// Observaciones del operador (bodega) sobre esta recepción del producto
+  final String observaciones;
 
   const RecepcionProducto({
     this.productoId = '',
@@ -432,6 +499,7 @@ class RecepcionProducto {
     this.marca = '',
     this.origen = 'NACIONAL',
     this.documentos = const {},
+    this.observaciones = '',
   });
 
   factory RecepcionProducto.fromMap(Map<String, dynamic> m) {
@@ -446,6 +514,7 @@ class RecepcionProducto {
       documentos: rawDocs.map(
         (k, v) => MapEntry(k, DocAdjunto.fromMap(v as Map<String, dynamic>?)),
       ),
+      observaciones: m['observaciones'] as String? ?? '',
     );
   }
 
@@ -457,6 +526,7 @@ class RecepcionProducto {
         'marca': marca,
         'origen': origen,
         'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
+        'observaciones': observaciones,
       };
 
   RecepcionProducto copyWith({
@@ -467,6 +537,7 @@ class RecepcionProducto {
     String? marca,
     String? origen,
     Map<String, DocAdjunto>? documentos,
+    String? observaciones,
   }) =>
       RecepcionProducto(
         productoId: productoId ?? this.productoId,
@@ -476,6 +547,7 @@ class RecepcionProducto {
         marca: marca ?? this.marca,
         origen: origen ?? this.origen,
         documentos: documentos ?? this.documentos,
+        observaciones: observaciones ?? this.observaciones,
       );
 }
 
@@ -493,6 +565,7 @@ class RecepcionDoc {
   final String ordenCompra;
   final List<RecepcionProducto> productos;
   final List<String> productoIds; // para consultas con array-contains
+  final String creadoPor;         // userId de quien creó la recepción
   final Timestamp createdAt;
 
   const RecepcionDoc({
@@ -505,6 +578,7 @@ class RecepcionDoc {
     this.ordenCompra = '',
     required this.productos,
     this.productoIds = const [],
+    this.creadoPor = '',
     required this.createdAt,
   });
 
@@ -521,6 +595,7 @@ class RecepcionDoc {
             .map(RecepcionProducto.fromMap)
             .toList(),
         productoIds: List<String>.from(m['productoIds'] as List? ?? []),
+        creadoPor: m['creadoPor'] as String? ?? '',
         createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
       );
 
@@ -533,6 +608,111 @@ class RecepcionDoc {
         'ordenCompra': ordenCompra,
         'productos': productos.map((p) => p.toMap()).toList(),
         'productoIds': productoIds,
+        'creadoPor': creadoPor,
         'createdAt': FieldValue.serverTimestamp(),
+      };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ComprasRolDoc  (colección TBL_COMPRAS_ROLES)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Asignación de rol de un usuario en el módulo Compras.
+class ComprasRolDoc {
+  final String id;
+  final String empresaId;
+  final String userId;
+  final String cedula;
+  final String nombre;
+  /// 'calidad' | 'compras' | 'bodega'
+  final String rol;
+  final Timestamp createdAt;
+
+  const ComprasRolDoc({
+    this.id = '',
+    required this.empresaId,
+    required this.userId,
+    required this.cedula,
+    required this.nombre,
+    required this.rol,
+    required this.createdAt,
+  });
+
+  factory ComprasRolDoc.fromMap(String id, Map<String, dynamic> m) =>
+      ComprasRolDoc(
+        id: id,
+        empresaId: m['empresaId'] as String? ?? '',
+        userId: m['userId'] as String? ?? '',
+        cedula: m['cedula'] as String? ?? '',
+        nombre: m['nombre'] as String? ?? '',
+        rol: m['rol'] as String? ?? '',
+        createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+      );
+
+  Map<String, dynamic> toMap() => {
+        'empresaId': empresaId,
+        'userId': userId,
+        'cedula': cedula,
+        'nombre': nombre,
+        'rol': rol,
+        'createdAt': createdAt,
+      };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NotificacionComprasDoc  (colección TBL_COMPRAS_NOTIFICACIONES)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Notificación enviada a bodega cuando calidad rechaza un documento.
+class NotificacionComprasDoc {
+  final String id;
+  final String empresaId;
+  /// userId destinatario (quien subió el documento — bodega)
+  final String userId;
+  final String recepcionId;
+  final String productoNombre;
+  final String docKey;
+  final String docLabel;
+  final String motivo;
+  final Timestamp createdAt;
+  final bool leida;
+
+  const NotificacionComprasDoc({
+    this.id = '',
+    required this.empresaId,
+    required this.userId,
+    required this.recepcionId,
+    required this.productoNombre,
+    required this.docKey,
+    required this.docLabel,
+    required this.motivo,
+    required this.createdAt,
+    this.leida = false,
+  });
+
+  factory NotificacionComprasDoc.fromMap(String id, Map<String, dynamic> m) =>
+      NotificacionComprasDoc(
+        id: id,
+        empresaId: m['empresaId'] as String? ?? '',
+        userId: m['userId'] as String? ?? '',
+        recepcionId: m['recepcionId'] as String? ?? '',
+        productoNombre: m['productoNombre'] as String? ?? '',
+        docKey: m['docKey'] as String? ?? '',
+        docLabel: m['docLabel'] as String? ?? '',
+        motivo: m['motivo'] as String? ?? '',
+        createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+        leida: m['leida'] as bool? ?? false,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'empresaId': empresaId,
+        'userId': userId,
+        'recepcionId': recepcionId,
+        'productoNombre': productoNombre,
+        'docKey': docKey,
+        'docLabel': docLabel,
+        'motivo': motivo,
+        'createdAt': createdAt,
+        'leida': leida,
       };
 }

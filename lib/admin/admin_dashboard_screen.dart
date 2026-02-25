@@ -6,6 +6,7 @@ import 'package:todo/services/diagnosticos_service.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
 import '../compras/compras_req_seed.dart';
 import '../compras/compras_service.dart';
+import '../compras/compras_models.dart';
 
 import 'admin_repository.dart';
 import 'migrations/admin_migration_service.dart';
@@ -1564,7 +1565,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
       child: DefaultTabController(
-        length: 8,
+        length: 9,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
@@ -1583,6 +1584,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 Tab(icon: Icon(Icons.cleaning_services), text: 'Limpieza'),
                 Tab(icon: Icon(Icons.medical_information), text: 'Diagnósticos'),
                 Tab(icon: Icon(Icons.rule_folder), text: 'Req. Compras'),
+                Tab(icon: Icon(Icons.verified_user), text: 'Roles Compras'),
               ],
             ),
           ),
@@ -1603,6 +1605,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _tabCleanup(),
                     _tabDiagnosticos(),
                     _tabReqCompras(),
+                    _tabRolesCompras(),
                   ],
                 ),
               ),
@@ -2519,6 +2522,235 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── Tab Roles Compras ─────────────────────────────────────────────────────
+
+  Widget _tabRolesCompras() {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) {
+      return const Center(
+        child: Text('Selecciona una empresa',
+            style: TextStyle(fontFamily: kArial)),
+      );
+    }
+    final svc = ComprasService();
+    final roles = [kRolCalidad, kRolCompras, kRolBodega];
+    final rolesLabels = {
+      kRolCalidad: 'Calidad',
+      kRolCompras: 'Compras',
+      kRolBodega: 'Bodega',
+    };
+    final rolesIcons = {
+      kRolCalidad: Icons.verified_user,
+      kRolCompras: Icons.shopping_cart,
+      kRolBodega: Icons.warehouse,
+    };
+    final rolesColors = {
+      kRolCalidad: Colors.green.shade700,
+      kRolCompras: kAdminPrimary,
+      kRolBodega: Colors.blue.shade700,
+    };
+
+    return StreamBuilder<List<ComprasRolDoc>>(
+      stream: svc.streamComprasRoles(empresaId),
+      builder: (ctx, snapRoles) {
+        final rolesActuales = snapRoles.data ?? [];
+        return ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              color: kAdminCard,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.verified_user, color: kAdminPrimary),
+                        SizedBox(width: 8),
+                        Text(
+                          'Roles en Compras & Bodega',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Asigna a cada usuario su rol en el módulo de Compras. '
+                      'Calidad: aprueba documentos. Compras: gestiona proveedores/productos. '
+                      'Bodega: solo recepción de mercancía.',
+                      style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Roles actuales
+            if (rolesActuales.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Text('Roles asignados',
+                    style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14)),
+              ),
+              ...rolesActuales.map((r) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            (rolesColors[r.rol] ?? kAdminPrimary)
+                                .withOpacity(0.15),
+                        child: Icon(
+                          rolesIcons[r.rol] ?? Icons.person,
+                          color: rolesColors[r.rol] ?? kAdminPrimary,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(r.nombre,
+                          style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                          '${rolesLabels[r.rol] ?? r.rol} · ${r.cedula}',
+                          style: const TextStyle(
+                              fontFamily: kArial, fontSize: 12)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red),
+                        tooltip: 'Quitar rol',
+                        onPressed: () async {
+                          final ok = await _confirm(
+                            title: 'Quitar rol',
+                            message:
+                                '¿Quitar el rol de ${rolesLabels[r.rol]} a ${r.nombre}?',
+                            confirmText: 'Quitar',
+                          );
+                          if (ok) {
+                            await svc.eliminarComprasRol(r.id);
+                            _snack('Rol eliminado');
+                          }
+                        },
+                      ),
+                    ),
+                  )),
+              const Divider(height: 24),
+            ],
+            // Asignar nuevo rol
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text('Asignar rol a usuario',
+                  style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14)),
+            ),
+            ..._users.map((userDoc) {
+              final data = userDoc.data();
+              final nombre = _userName(data, userDoc.id);
+              final cedula = _safe(data['cedula']);
+              final userId = userDoc.id;
+              // Rol actual del usuario
+              ComprasRolDoc? rolActual;
+              try {
+                rolActual = rolesActuales.firstWhere(
+                    (r) => r.userId == userId || r.cedula == cedula);
+              } catch (_) {}
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(nombre,
+                                style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13)),
+                            Text(cedula,
+                                style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: 11,
+                                    color: Colors.black54)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: rolActual?.rol,
+                        hint: const Text('Sin rol',
+                            style: TextStyle(
+                                fontFamily: kArial, fontSize: 12)),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text('Sin rol',
+                                style: TextStyle(
+                                    fontFamily: kArial, fontSize: 12)),
+                          ),
+                          ...roles.map((r) => DropdownMenuItem<String>(
+                                value: r,
+                                child: Row(
+                                  children: [
+                                    Icon(rolesIcons[r],
+                                        size: 14,
+                                        color: rolesColors[r]),
+                                    const SizedBox(width: 4),
+                                    Text(rolesLabels[r] ?? r,
+                                        style: const TextStyle(
+                                            fontFamily: kArial,
+                                            fontSize: 12)),
+                                  ],
+                                ),
+                              )),
+                        ],
+                        onChanged: (nuevoRol) async {
+                          if (nuevoRol == null) {
+                            // Quitar rol si existe
+                            if (rolActual != null) {
+                              await svc.eliminarComprasRol(rolActual.id);
+                              _snack('Rol eliminado de $nombre');
+                            }
+                            return;
+                          }
+                          final doc = ComprasRolDoc(
+                            id: rolActual?.id ?? '',
+                            empresaId: empresaId,
+                            userId: userId,
+                            cedula: cedula,
+                            nombre: nombre,
+                            rol: nuevoRol,
+                            createdAt: Timestamp.now(),
+                          );
+                          await svc.guardarComprasRol(
+                              doc, isNew: rolActual == null);
+                          _snack(
+                              'Rol ${rolesLabels[nuevoRol]} asignado a $nombre');
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
     );
   }
 }

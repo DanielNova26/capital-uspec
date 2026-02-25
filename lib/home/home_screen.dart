@@ -25,6 +25,7 @@ import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
+import '../compras/compras_service.dart';
 // Drawer modularizado
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
@@ -344,6 +345,28 @@ class _HomeScreenState extends State<HomeScreen> {
     _tokenSub?.cancel();
     _notifSub?.cancel();
     super.dispose();
+  }
+
+  /// Navega a ComprasDashboard buscando el rol del usuario en el módulo Compras.
+  Future<void> _abrirCompras(
+      BuildContext context, String userId, String empresaId) async {
+    String? rolCompras;
+    try {
+      final rolDoc = await ComprasService()
+          .getRolUsuario(empresaId, userId);
+      rolCompras = rolDoc?.rol;
+    } catch (_) {}
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ComprasDashboardScreen(
+          userId: userId,
+          empresaId: empresaId,
+          rolCompras: rolCompras,
+        ),
+      ),
+    );
   }
 
   void _startNotifListener(String userId) {
@@ -839,15 +862,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                   break;
                 case 'comprasdashboard':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ComprasDashboardScreen(
-                        userId: cedula,
-                        empresaId: empresaId,
-                      ),
-                    ),
-                  );
+                  // Buscar el rol del usuario en el módulo Compras
+                  _abrirCompras(context, cedula, empresaId);
                   break;
                 default:
                   ScaffoldMessenger.of(context).showSnackBar(
