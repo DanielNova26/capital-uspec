@@ -1,4 +1,4 @@
-// lib/compras/compras_dashboard_screen.dart
+// lib/compras/compras_req_excel_parser.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1665,6 +1665,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   bool _guardando = false;
   List<MarcaRef> _marcasProducto = [];
   List<MarcaDoc> _todasMarcas = [];
+  List<ProductoDoc> _productosExistentes = [];
   bool _loadingMarcas = true;
 
   bool get isNew => widget.existing == null;
@@ -1680,6 +1681,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     _perecedero = p?.esPerecedero ?? false;
     _marcasProducto = List.from(p?.marcas ?? []);
     _loadMarcas();
+    _loadProductosExistentes();
   }
 
   Future<void> _loadMarcas() async {
@@ -1700,6 +1702,46 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     } catch (_) {
       if (mounted) setState(() => _loadingMarcas = false);
     }
+  }
+
+  Future<void> _loadProductosExistentes() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_COMPRAS_PRODUCTOS')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _productosExistentes = snap.docs
+            .map((d) => ProductoDoc.fromMap(d.id, d.data()))
+            .toList();
+      });
+    } catch (_) {}
+  }
+
+  ProductoDoc? _buscarCoincidenciaProducto({
+    required String codigo,
+    required String nombre,
+  }) {
+    final code = codigo.trim().toUpperCase();
+    final name = _normalizarNombre(nombre).toLowerCase();
+    for (final p in _productosExistentes) {
+      if (!isNew && p.id == widget.existing?.id) continue;
+      final sameCode = p.codigo.trim().toUpperCase() == code;
+      final sameName = p.nombre.trim().toLowerCase() == name;
+      if (sameCode || sameName) return p;
+    }
+    return null;
+  }
+
+  bool _pareceProteina(String texto) {
+    final t = texto.toLowerCase();
+    return t.contains('prote') ||
+        t.contains('carne') ||
+        t.contains('pollo') ||
+        t.contains('cerdo') ||
+        t.contains('pescado') ||
+        t.contains('res');
   }
 
   @override
@@ -1745,6 +1787,45 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
           const SnackBar(content: Text('Seleccione la categoría')));
       return;
     }
+
+    final coincidencia = _buscarCoincidenciaProducto(
+      codigo: _codigoCtrl.text,
+      nombre: _nombreCtrl.text,
+    );
+    if (coincidencia != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          'Ya existe un producto similar (${coincidencia.codigo} - ${coincidencia.nombre}). Revise antes de crear uno nuevo.',
+        ),
+        backgroundColor: kComprasRed,
+      ));
+      return;
+    }
+
+    final textoProducto = '${_codigoCtrl.text} ${_nombreCtrl.text}';
+    if (_categoria != 'Proteína' && _pareceProteina(textoProducto)) {
+      final continuar = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Posible producto de proteína'),
+          content: const Text(
+            'Detectamos palabras asociadas a proteína. Si aplica, seleccione la categoría Proteína para exigir la documentación correcta en recepción.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Revisar categoría'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Continuar'),
+            ),
+          ],
+        ),
+      );
+      if (continuar != true) return;
+    }
+
     setState(() => _guardando = true);
     try {
       final codigo = _codigoCtrl.text.trim().toUpperCase();
@@ -1887,6 +1968,46 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                 dense: true,
               ),
               const SizedBox(height: 20),
+              const Text(
+                'Documentos que se solicitarán en recepción',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: kComprasPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blue.shade100),
+                ),
+                child: (_categoria == null)
+                    ? const Text(
+                  'Seleccione una categoría para previsualizar los documentos obligatorios.',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                )
+                    : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: docsParaCategoria(_categoria)
+                      .map((key) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '• ${kDocRecepcionLabels[key] ?? key}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ))
+                      .toList(),
+                ),
+              ),
+              const SizedBox(height: 16),
               // ── Marcas vinculadas ─────────────────────────────────────────
               Row(
                 children: [

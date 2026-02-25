@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:todo/services/diagnosticos_service.dart';
+import 'package:todo/services/compras_req_excel_parser.dart';
+import '../compras/compras_req_seed.dart';
+import '../compras/compras_service.dart';
 
 import 'admin_repository.dart';
 import 'migrations/admin_migration_service.dart';
@@ -55,6 +58,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _diagnosticosFileName;
   Uint8List? _diagnosticosBytes;
   Map<String, int>? _diagnosticosImportResult;
+  bool _importandoReqCompras = false;
+  final ComprasReqExcelParser _comprasReqParser = ComprasReqExcelParser();
+  String? _reqComprasFileName;
+  Uint8List? _reqComprasBytes;
+  Map<String, int>? _reqComprasImportResult;
 
   @override
   void initState() {
@@ -835,13 +843,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadLogs() async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return [];
-    final snap = await FirebaseFirestore.instance
-        .collection('TBL_MIGRATIONS_LOGS')
-        .where('empresaId', isEqualTo: empresaId)
-        .orderBy('createdAt', descending: true)
-        .limit(50)
-        .get();
-    return snap.docs;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_MIGRATIONS_LOGS')
+          .where('empresaId', isEqualTo: empresaId)
+          .limit(200)
+          .get();
+      final docs = [...snap.docs];
+      docs.sort((a, b) {
+        final aTs = (a.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
+        final bTs = (b.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
+        return bTs.compareTo(aTs);
+      });
+      return docs.take(50).toList();
+    } catch (e) {
+      _snack('No fue posible cargar logs: $e');
+      return [];
+    }
   }
 
   // ---------------- LIMPIEZA: RESETEAR DATOS DE USUARIOS ----------------
@@ -1061,6 +1079,221 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _sembrarReqComprasBase() async {
+    if (_empresaId == null || _empresaId!.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    final ok = await _confirm(
+      title: 'Cargar requisitos de Compras',
+      message:
+      'Esto reemplazará los requisitos documentales de Compras de la empresa seleccionada con la parametrización base (incluye proteína, abarrotes y aseo).',
+      confirmText: 'Cargar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoReqCompras = true);
+    try {
+      await sembrarReqDocumentos(_empresaId!, ComprasService());
+      _snack('Requisitos de Compras cargados correctamente.');
+    } catch (e) {
+      _snack('Error al cargar requisitos de Compras: $e');
+    } finally {
+      if (mounted) setState(() => _importandoReqCompras = false);
+    }
+  }
+
+  Future<void> _pickReqComprasExcel() async {
+    final picked = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    setState(() {
+      _reqComprasFileName = file.name;
+      _reqComprasBytes = file.bytes;
+      _reqComprasImportResult = null;
+    });
+  }
+
+  Future<void> _importarReqComprasExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _reqComprasBytes;
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (bytes == null) {
+      _snack('Primero selecciona un archivo Excel.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Importar REQ_DOCUMENTOS desde Excel',
+      message:
+      'Se reemplazarán los requisitos actuales de Compras para la empresa activa con lo cargado en el Excel.',
+      confirmText: 'Importar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoReqCompras = true);
+    try {
+      final parsed = _comprasReqParser.parse(bytes: bytes, empresaId: empresaId);
+      if (parsed.docs.isEmpty) {
+        _snack('No se detectaron filas válidas en la hoja REQ_DOCUMENTOS.');
+        return;
+      }
+
+      await ComprasService().importarReqDocumentos(empresaId, parsed.docs);
+      if (!mounted) return;
+      setState(() {
+        _reqComprasImportResult = {
+          'importados': parsed.docs.length,
+          'omitidos': parsed.skippedRows,
+        };
+      });
+      _snack(
+          'Requisitos de Compras importados: ${parsed.docs.length} (omitidos: ${parsed.skippedRows}).');
+    } catch (e) {
+      _snack('Error al importar requisitos de Compras: $e');
+    } finally {
+      if (mounted) setState(() => _importandoReqCompras = false);
+    }
+  }
+
+  Widget _tabReqCompras() {
+    final result = _reqComprasImportResult;
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Card(
+          color: kAdminCard,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.rule_folder, color: kAdminPrimary),
+                    SizedBox(width: 8),
+                    Text(
+                      'Requisitos documentales de Compras',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Esta sección prepara la aplicación para exigir documentación desde la creación/recepción de productos según categoría (incluyendo proteína).',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: const Text(
+                    'Opciones disponibles:\n1) Cargar base REQ_DOCUMENTOS (v3).\n2) Subir tu Excel desde este panel para reemplazar la parametrización.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _importandoReqCompras ? null : _pickReqComprasExcel,
+                  icon: const Icon(Icons.attach_file),
+                  label: Text(
+                    _reqComprasFileName == null
+                        ? 'Seleccionar Excel REQ_DOCUMENTOS'
+                        : _reqComprasFileName!,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0F766E),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importandoReqCompras ? null : _importarReqComprasExcel,
+                    icon: const Icon(Icons.file_upload_outlined),
+                    label: const Text(
+                      'Importar Excel de requisitos',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kAdminPrimary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importandoReqCompras ? null : _sembrarReqComprasBase,
+                    icon: _importandoReqCompras
+                        ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.upload_file),
+                    label: Text(
+                      _importandoReqCompras
+                          ? 'Cargando...'
+                          : 'Cargar requisitos base de Compras',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                if (result != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      border: Border.all(color: Colors.green.shade200),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Última importación: ${result['importados'] ?? 0} filas cargadas • ${result['omitidos'] ?? 0} omitidas.',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _tabDiagnosticos() {
@@ -1331,12 +1564,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
       child: DefaultTabController(
-        length: 7,
+        length: 8,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
             bottom: const TabBar(
+              isScrollable: true,
               indicatorColor: kAdminAccent,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
               labelStyle: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
               tabs: [
                 Tab(icon: Icon(Icons.people_alt), text: 'Usuarios'),
@@ -1346,6 +1582,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 Tab(icon: Icon(Icons.history), text: 'Logs'),
                 Tab(icon: Icon(Icons.cleaning_services), text: 'Limpieza'),
                 Tab(icon: Icon(Icons.medical_information), text: 'Diagnósticos'),
+                Tab(icon: Icon(Icons.rule_folder), text: 'Req. Compras'),
               ],
             ),
           ),
@@ -1365,6 +1602,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _tabLogs(),
                     _tabCleanup(),
                     _tabDiagnosticos(),
+                    _tabReqCompras(),
                   ],
                 ),
               ),
