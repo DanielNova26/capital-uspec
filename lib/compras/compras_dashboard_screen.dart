@@ -156,13 +156,7 @@ class ComprasDashboardScreen extends StatelessWidget {
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          // Badge de notificaciones para bodega y compras
-          if (!_esCalidad)
-            _NotifBadge(
-              empresaId: empresaId,
-              userId: userId,
-              svc: svc,
-            ),
+          // La campana de notificaciones vive en Home; no en el módulo.
         ],
       ),
       body: SafeArea(
@@ -4124,13 +4118,14 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
     try {
       // Construir productos actualizados con el nuevo doc
       final nuevosProductos = List<RecepcionProducto>.from(_r.productos);
+      final docPendiente = doc.copyWith(estadoCalidad: 'pendiente');
       nuevosProductos[productoIdx] = RecepcionProducto(
         productoId: p.productoId,
         nombre: p.nombre,
         categoria: p.categoria,
         marcaId: p.marcaId,
         marca: p.marca,
-        documentos: {...p.documentos, docKey: doc},
+        documentos: {...p.documentos, docKey: docPendiente},
       );
       final nuevaRecepcion = RecepcionDoc(
         id: _r.id,
@@ -5179,7 +5174,12 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 return <Widget>[];
               }
               final docsPendientes = rp.documentos.entries
-                  .where((e) => e.value.estadoCalidad == 'pendiente')
+                  .where((e) {
+                final doc = e.value;
+                if (!doc.tieneDoc) return false;
+                return doc.estadoCalidad.isEmpty ||
+                    doc.estadoCalidad == 'pendiente';
+              })
                   .toList();
               if (docsPendientes.isEmpty) return <Widget>[];
               return [

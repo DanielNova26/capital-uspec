@@ -113,8 +113,9 @@ class ComprasService {
             return list;
           });
 
-  /// Stream de recepciones con al menos un documento en estado 'pendiente'.
-  /// Para la pantalla de revisión de Calidad.
+  /// Stream de recepciones con al menos un documento por revisar en calidad.
+  /// Incluye documentos con estado 'pendiente' y documentos históricos con
+  /// archivo adjunto pero sin estadoCalidad explícito.
   Stream<List<RecepcionDoc>> streamPendientesRevision(String empresaId) =>
       _db
           .collection('TBL_COMPRAS_RECEPCIONES')
@@ -124,7 +125,10 @@ class ComprasService {
             final list = s.docs
                 .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
                 .where((r) => r.productos.any((p) =>
-                    p.documentos.values.any((d) => d.estadoCalidad == 'pendiente')))
+                p.documentos.values.any((d) =>
+                d.tieneDoc &&
+                    (d.estadoCalidad.isEmpty ||
+                        d.estadoCalidad == 'pendiente'))))
                 .toList();
             list.sort((a, b) => b.fecha.compareTo(a.fecha));
             return list;
