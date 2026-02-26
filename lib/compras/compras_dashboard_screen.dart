@@ -1933,9 +1933,6 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   List<ProductoDoc> _productosExistentes = [];
   bool _loadingMarcas = true;
   String _origen = 'NACIONAL'; // 'NACIONAL' | 'IMPORTADO'
-  DocAdjunto? _fichaTecnica;
-  bool _subiendoFicha = false;
-  final TextEditingController _obsFichaCtrl = TextEditingController();
   Map<String, DocAdjunto> _fichasPorMarca = {};
 
   bool get isNew => widget.existing == null;
@@ -1951,8 +1948,6 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     _perecedero = p?.esPerecedero ?? false;
     _marcasProducto = List.from(p?.marcas ?? []);
     _origen = p?.origen ?? 'NACIONAL';
-    _fichaTecnica = p?.fichaTecnica;
-    _obsFichaCtrl.text = p?.fichaTecnica?.observacionActualizacion ?? '';
     _fichasPorMarca = Map<String, DocAdjunto>.from(p?.fichasTecnicasPorMarca ?? {});
     _loadMarcas();
     _loadProductosExistentes();
@@ -2022,42 +2017,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   void dispose() {
     _codigoCtrl.dispose();
     _nombreCtrl.dispose();
-    _obsFichaCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> _subirFichaTecnica() async {
-    final doc = await _mostrarEscaneador(
-      context,
-      empresaId: widget.empresaId,
-      carpeta: 'productos_fichas',
-      nombreSugerido: 'FichaTecnica_${_nombreCtrl.text.trim()}',
-      svc: widget.svc,
-    );
-    if (doc != null && mounted) {
-      setState(() {
-        _fichaTecnica = doc.copyWith(
-          observacionActualizacion: _obsFichaCtrl.text.trim(),
-        );
-      });
-    }
-  }
-
-  Future<void> _subirFichaTecnicaMarca(MarcaRef marca) async {
-    final doc = await _mostrarEscaneador(
-      context,
-      empresaId: widget.empresaId,
-      carpeta: 'productos_fichas_marcas',
-      nombreSugerido: 'FichaTecnica_${_nombreCtrl.text.trim()}_${marca.codigo}',
-      svc: widget.svc,
-    );
-    if (doc != null && mounted) {
-      setState(() {
-        _fichasPorMarca[marca.marcaId] = doc.copyWith(
-          observacionActualizacion: _obsFichaCtrl.text.trim(),
-        );
-      });
-    }
   }
 
   Future<void> _agregarMarca() async {
@@ -2138,9 +2098,6 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     setState(() => _guardando = true);
     try {
       final codigo = _codigoCtrl.text.trim().toUpperCase();
-      final fichaTecnicaConObs = _fichaTecnica?.copyWith(
-        observacionActualizacion: _obsFichaCtrl.text.trim(),
-      );
       final p = ProductoDoc(
         id: widget.existing?.id ?? '',
         empresaId: widget.empresaId,
@@ -2151,7 +2108,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
         esPerecedero: _perecedero,
         marcas: _marcasProducto,
         origen: _origen,
-        fichaTecnica: fichaTecnicaConObs,
+        fichaTecnica: widget.existing?.fichaTecnica,
         fichasTecnicasPorMarca: _fichasPorMarca,
         createdAt: widget.existing?.createdAt ?? Timestamp.now(),
       );
@@ -2315,33 +2272,6 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                 ],
               ),
               const SizedBox(height: 14),
-              // ── Ficha técnica del producto ────────────────────────────────
-              const Text('Ficha técnica del producto',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black54)),
-              const SizedBox(height: 6),
-              _DocAttachButton(
-                label: 'Ficha técnica (PDF o imagen)',
-                doc: _fichaTecnica,
-                uploading: _subiendoFicha,
-                onAttach: _subirFichaTecnica,
-                onView: _fichaTecnica?.tieneDoc == true
-                    ? () => _abrirUrl(context, _fichaTecnica!.url)
-                    : null,
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _obsFichaCtrl,
-                decoration: _inputDecoration('Observación de actualización de ficha').copyWith(
-                  hintText: 'Explique por qué se actualiza la ficha técnica',
-                  prefixIcon: const Icon(Icons.note_alt_outlined, size: 18),
-                ),
-                maxLines: 2,
-                style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-              ),
               const SizedBox(height: 20),
               const Text(
                 'Documentos que se solicitarán en recepción',
@@ -2436,17 +2366,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                               fontFamily: _kFont,
                               fontSize: 13,
                               fontWeight: FontWeight.w500)),
-                      subtitle: _fichasPorMarca[ref.marcaId]?.tieneDoc == true
-                          ? const Text(
-                        'Ficha técnica por marca cargada',
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11,
-                          color: kComprasGreen,
-                        ),
-                      )
-                          : const Text(
-                        'Sin ficha técnica por marca',
+                      subtitle: const Text(
+                        'La ficha técnica se actualiza en recepción de mercancía',
                         style: TextStyle(
                           fontFamily: _kFont,
                           fontSize: 11,
@@ -2456,15 +2377,6 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.upload_file,
-                                size: 18, color: Color(0xFF1976D2)),
-                            tooltip: 'Cargar ficha técnica de esta marca',
-                            onPressed: () => _subirFichaTecnicaMarca(ref),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                          if (_fichasPorMarca[ref.marcaId]?.tieneDoc == true)
                             IconButton(
                               icon: const Icon(Icons.search,
                                   size: 18, color: Color(0xFF1976D2)),
@@ -3056,6 +2968,15 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   }
 
   Future<void> _adjuntarDocProducto(int idx, String key) async {
+    if (key == 'fichaTecnica' &&
+        _entries[idx].observacionesCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+          'Antes de cargar la ficha técnica, registre la observación de por qué se actualiza.',
+        ),
+      ));
+      return;
+    }
     final p = _entries[idx].producto;
     final nombreSug =
         '${_proveedor?.nit ?? ''}_${p?.nombre ?? 'prod'}_${kDocRecepcionLabels[key] ?? key}';
@@ -3594,9 +3515,11 @@ class _ProductoEntryCard extends StatelessWidget {
                   // ─ Observaciones ─
                   TextField(
                     controller: entry.observacionesCtrl,
-                    decoration: _inputDecoration('Observaciones').copyWith(
+                    decoration: _inputDecoration(
+                      'Observaciones de actualización (obligatorio para ficha técnica)',
+                    ).copyWith(
                       hintText:
-                          'Novedades, razón de actualización de documentos...',
+                      'Explique por qué se actualiza el documento (especialmente ficha técnica)...',
                       prefixIcon: const Icon(Icons.note_alt_outlined, size: 18),
                     ),
                     maxLines: 2,
