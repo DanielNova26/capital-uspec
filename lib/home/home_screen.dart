@@ -24,6 +24,8 @@ import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
 import '../nutricion/nutricion_dashboard_screen.dart';
+import '../compras/compras_dashboard_screen.dart';
+import '../compras/compras_service.dart';
 // Drawer modularizado
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
@@ -343,6 +345,28 @@ class _HomeScreenState extends State<HomeScreen> {
     _tokenSub?.cancel();
     _notifSub?.cancel();
     super.dispose();
+  }
+
+  /// Navega a ComprasDashboard buscando el rol del usuario en el módulo Compras.
+  Future<void> _abrirCompras(
+      BuildContext context, String userId, String empresaId) async {
+    String? rolCompras;
+    try {
+      final rolDoc = await ComprasService()
+          .getRolUsuario(empresaId, userId);
+      rolCompras = rolDoc?.rol;
+    } catch (_) {}
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ComprasDashboardScreen(
+          userId: userId,
+          empresaId: empresaId,
+          rolCompras: rolCompras,
+        ),
+      ),
+    );
   }
 
   void _startNotifListener(String userId) {
@@ -744,6 +768,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final isGerencia = appIdLower == 'gerenciadashboard';
           final isDoc = appIdLower == 'gestiondocumental';
           final isNutricion = appIdLower == 'nutriciondashboard';
+          final isCompras = appIdLower == 'comprasdashboard';
           final visibleByRole = role == 'desarrollador';
           final visibleByAssign = assignedLower.contains(appIdLower);
           final visibleDocByAssign = isDoc && visibleByAssign;
@@ -752,6 +777,7 @@ class _HomeScreenState extends State<HomeScreen> {
               (isAdmin && (visibleByRole || visibleByAssign)) ||
               (isGerencia && (visibleByRole || visibleByAssign)) ||
               (isNutricion && (visibleByRole || visibleByAssign)) ||
+              (isCompras && (visibleByRole || visibleByAssign)) ||
               visibleDocByAssign;
         }).map((doc) {
           final data = doc.data();
@@ -779,6 +805,10 @@ class _HomeScreenState extends State<HomeScreen> {
           icon = const Icon(Icons.restaurant_menu,
           size: 32, color: Colors.white);
           break;
+          case 'comprasdashboard':
+            icon = const Icon(Icons.local_shipping,
+                size: 32, color: Colors.white);
+            break;
             default:
               icon = const Icon(Icons.apps, size: 32, color: Colors.white);
           }
@@ -830,6 +860,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   );
+                  break;
+                case 'comprasdashboard':
+                  // Buscar el rol del usuario en el módulo Compras
+                  _abrirCompras(context, cedula, empresaId);
                   break;
                 default:
                   ScaffoldMessenger.of(context).showSnackBar(

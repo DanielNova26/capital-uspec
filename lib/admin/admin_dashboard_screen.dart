@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:todo/services/diagnosticos_service.dart';
+import 'package:todo/services/compras_req_excel_parser.dart';
+import 'package:todo/services/compras_proveedores_excel_parser.dart';
+import 'package:todo/services/compras_productos_excel_parser.dart';
+import '../compras/compras_req_seed.dart';
+import '../compras/compras_service.dart';
+import '../compras/compras_models.dart';
 
 import 'admin_repository.dart';
 import 'migrations/admin_migration_service.dart';
@@ -55,6 +61,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _diagnosticosFileName;
   Uint8List? _diagnosticosBytes;
   Map<String, int>? _diagnosticosImportResult;
+  bool _importandoReqCompras = false;
+  final ComprasReqExcelParser _comprasReqParser = ComprasReqExcelParser();
+  String? _reqComprasFileName;
+  Uint8List? _reqComprasBytes;
+  Map<String, int>? _reqComprasImportResult;
+
+  // Proveedores: carga masiva desde Excel
+  final ComprasProveedoresExcelParser _proveedoresParser =
+      ComprasProveedoresExcelParser();
+  String? _proveedoresFileName;
+  Uint8List? _proveedoresBytes;
+  Map<String, int>? _proveedoresImportResult;
+  bool _importandoProveedores = false;
+
+  // Productos: carga masiva desde Excel
+  final ComprasProductosExcelParser _productosParser =
+      ComprasProductosExcelParser();
+  String? _productosFileName;
+  Uint8List? _productosBytes;
+  Map<String, int>? _productosImportResult;
+  bool _importandoProductos = false;
 
   @override
   void initState() {
@@ -835,13 +862,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadLogs() async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return [];
-    final snap = await FirebaseFirestore.instance
-        .collection('TBL_MIGRATIONS_LOGS')
-        .where('empresaId', isEqualTo: empresaId)
-        .orderBy('createdAt', descending: true)
-        .limit(50)
-        .get();
-    return snap.docs;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_MIGRATIONS_LOGS')
+          .where('empresaId', isEqualTo: empresaId)
+          .limit(200)
+          .get();
+      final docs = [...snap.docs];
+      docs.sort((a, b) {
+        final aTs = (a.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
+        final bTs = (b.data()['createdAt'] as Timestamp?) ?? Timestamp(0, 0);
+        return bTs.compareTo(aTs);
+      });
+      return docs.take(50).toList();
+    } catch (e) {
+      _snack('No fue posible cargar logs: $e');
+      return [];
+    }
   }
 
   // ---------------- LIMPIEZA: RESETEAR DATOS DE USUARIOS ----------------
@@ -1061,6 +1098,563 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<void> _pickProveedoresExcel() async {
+    final picked = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    setState(() {
+      _proveedoresFileName = file.name;
+      _proveedoresBytes = file.bytes;
+      _proveedoresImportResult = null;
+    });
+  }
+
+  Future<void> _importarProveedoresExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _proveedoresBytes;
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (bytes == null) {
+      _snack('Primero selecciona un archivo Excel de proveedores.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Importar proveedores desde Excel',
+      message:
+          'Se agregarán los proveedores del archivo a la empresa seleccionada. '
+          'Los proveedores con NIT ya existente serán omitidos.',
+      confirmText: 'Importar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoProveedores = true);
+    try {
+      final parsed = _proveedoresParser.parse(
+        bytes: bytes,
+        empresaId: empresaId,
+      );
+      if (parsed.proveedores.isEmpty) {
+        _snack('No se detectaron filas válidas en el archivo.');
+        return;
+      }
+
+      final result = await ComprasService()
+          .importarProveedores(empresaId, parsed.proveedores);
+      if (!mounted) return;
+      setState(() {
+        _proveedoresImportResult = {
+          'importados': result['importados'] ?? 0,
+          'omitidos': (result['omitidos'] ?? 0) + parsed.skippedRows,
+        };
+      });
+      _snack(
+        'Proveedores importados: ${result['importados'] ?? 0} '
+        '(omitidos: ${(result['omitidos'] ?? 0) + parsed.skippedRows}).',
+      );
+    } catch (e) {
+      _snack('Error al importar proveedores: $e');
+    } finally {
+      if (mounted) setState(() => _importandoProveedores = false);
+    }
+  }
+
+  Future<void> _pickProductosExcel() async {
+    final picked = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    setState(() {
+      _productosFileName = file.name;
+      _productosBytes = file.bytes;
+      _productosImportResult = null;
+    });
+  }
+
+  Future<void> _importarProductosExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _productosBytes;
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (bytes == null) {
+      _snack('Primero selecciona un archivo Excel de productos.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Importar productos desde Excel',
+      message:
+          'Se agregarán los productos del archivo a la empresa seleccionada. '
+          'Los productos con código o nombre ya existente serán omitidos.',
+      confirmText: 'Importar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoProductos = true);
+    try {
+      final parsed = _productosParser.parse(
+        bytes: bytes,
+        empresaId: empresaId,
+        categoriasValidas: kCategoriasCompras,
+        unidadesValidas: kUnidadesMedida,
+      );
+      if (parsed.productos.isEmpty) {
+        _snack('No se detectaron filas válidas en el archivo.');
+        return;
+      }
+
+      final result =
+          await ComprasService().importarProductos(empresaId, parsed.productos);
+      if (!mounted) return;
+      setState(() {
+        _productosImportResult = {
+          'importados': result['importados'] ?? 0,
+          'omitidos': (result['omitidos'] ?? 0) + parsed.skippedRows,
+        };
+      });
+      _snack(
+        'Productos importados: ${result['importados'] ?? 0} '
+        '(omitidos: ${(result['omitidos'] ?? 0) + parsed.skippedRows}).',
+      );
+    } catch (e) {
+      _snack('Error al importar productos: $e');
+    } finally {
+      if (mounted) setState(() => _importandoProductos = false);
+    }
+  }
+
+  Future<void> _sembrarReqComprasBase() async {
+    if (_empresaId == null || _empresaId!.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    final ok = await _confirm(
+      title: 'Cargar requisitos de Compras',
+      message:
+      'Esto reemplazará los requisitos documentales de Compras de la empresa seleccionada con la parametrización base (incluye proteína, abarrotes y aseo).',
+      confirmText: 'Cargar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoReqCompras = true);
+    try {
+      await sembrarReqDocumentos(_empresaId!, ComprasService());
+      _snack('Requisitos de Compras cargados correctamente.');
+    } catch (e) {
+      _snack('Error al cargar requisitos de Compras: $e');
+    } finally {
+      if (mounted) setState(() => _importandoReqCompras = false);
+    }
+  }
+
+  Future<void> _pickReqComprasExcel() async {
+    final picked = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    setState(() {
+      _reqComprasFileName = file.name;
+      _reqComprasBytes = file.bytes;
+      _reqComprasImportResult = null;
+    });
+  }
+
+  Future<void> _importarReqComprasExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _reqComprasBytes;
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (bytes == null) {
+      _snack('Primero selecciona un archivo Excel.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Importar REQ_DOCUMENTOS desde Excel',
+      message:
+      'Se reemplazarán los requisitos actuales de Compras para la empresa activa con lo cargado en el Excel.',
+      confirmText: 'Importar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoReqCompras = true);
+    try {
+      final parsed = _comprasReqParser.parse(bytes: bytes, empresaId: empresaId);
+      if (parsed.docs.isEmpty) {
+        _snack('No se detectaron filas válidas en la hoja REQ_DOCUMENTOS.');
+        return;
+      }
+
+      await ComprasService().importarReqDocumentos(empresaId, parsed.docs);
+      if (!mounted) return;
+      setState(() {
+        _reqComprasImportResult = {
+          'importados': parsed.docs.length,
+          'omitidos': parsed.skippedRows,
+        };
+      });
+      _snack(
+          'Requisitos de Compras importados: ${parsed.docs.length} (omitidos: ${parsed.skippedRows}).');
+    } catch (e) {
+      _snack('Error al importar requisitos de Compras: $e');
+    } finally {
+      if (mounted) setState(() => _importandoReqCompras = false);
+    }
+  }
+
+  Widget _tabReqCompras() {
+    final result = _reqComprasImportResult;
+    final provResult = _proveedoresImportResult;
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Card(
+          color: kAdminCard,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.rule_folder, color: kAdminPrimary),
+                    SizedBox(width: 8),
+                    Text(
+                      'Requisitos documentales de Compras',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Esta sección prepara la aplicación para exigir documentación desde la creación/recepción de productos según categoría (incluyendo proteína).',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: const Text(
+                    'Opciones disponibles:\n1) Cargar base REQ_DOCUMENTOS (v3).\n2) Subir tu Excel desde este panel para reemplazar la parametrización.',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _importandoReqCompras ? null : _pickReqComprasExcel,
+                  icon: const Icon(Icons.attach_file),
+                  label: Text(
+                    _reqComprasFileName == null
+                        ? 'Seleccionar Excel REQ_DOCUMENTOS'
+                        : _reqComprasFileName!,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0F766E),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importandoReqCompras ? null : _importarReqComprasExcel,
+                    icon: const Icon(Icons.file_upload_outlined),
+                    label: const Text(
+                      'Importar Excel de requisitos',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kAdminPrimary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importandoReqCompras ? null : _sembrarReqComprasBase,
+                    icon: _importandoReqCompras
+                        ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.upload_file),
+                    label: Text(
+                      _importandoReqCompras
+                          ? 'Cargando...'
+                          : 'Cargar requisitos base de Compras',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                if (result != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      border: Border.all(color: Colors.green.shade200),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Última importación: ${result['importados'] ?? 0} filas cargadas • ${result['omitidos'] ?? 0} omitidas.',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // ── Carga masiva de proveedores ──────────────────────────────────
+        Card(
+          color: kAdminCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.amber.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.store_outlined,
+                        color: Color(0xFFB45309), size: 24),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Carga masiva de proveedores',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Sube un Excel con el maestro inicial de proveedores de la empresa. '
+                  'Columnas requeridas: NIT, RAZON SOCIAL. '
+                  'Opcionales: DIRECCION, TELEFONO, CORREO, DEPARTAMENTO, CIUDAD, PROV. LOCAL (SI/NO).\n'
+                  'Los proveedores con NIT ya registrado serán omitidos.',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed:
+                      _importandoProveedores ? null : _pickProveedoresExcel,
+                  icon: const Icon(Icons.attach_file),
+                  label: Text(
+                    _proveedoresFileName == null
+                        ? 'Seleccionar Excel de proveedores'
+                        : _proveedoresFileName!,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFB45309),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importandoProveedores
+                        ? null
+                        : _importarProveedoresExcel,
+                    icon: _importandoProveedores
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.file_upload_outlined),
+                    label: Text(
+                      _importandoProveedores
+                          ? 'Importando...'
+                          : 'Importar proveedores desde Excel',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                if (provResult != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      border: Border.all(color: Colors.amber.shade300),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Última importación: ${provResult['importados'] ?? 0} proveedores cargados • ${provResult['omitidos'] ?? 0} omitidos (NIT duplicado o fila inválida).',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // ── Carga masiva de productos ──────────────────────────────────
+        Builder(builder: (_) {
+          final prodResult = _productosImportResult;
+          return Card(
+            color: kAdminCard,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.green.shade200),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.inventory_2_outlined,
+                          color: Colors.green.shade700, size: 24),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Carga masiva de productos',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Sube un Excel con el maestro inicial de productos de la empresa. '
+                    'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA, UNIDAD_MEDIDA. '
+                    'Opcionales: CODIGO_PRODUCTO, ORIGEN (NACIONAL/IMPORTADO), PERECEDERO (SI/NO).\n'
+                    'Los productos con código o nombre ya registrado serán omitidos.',
+                    style: TextStyle(fontFamily: kArial, height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _importandoProductos ? null : _pickProductosExcel,
+                    icon: const Icon(Icons.attach_file),
+                    label: Text(
+                      _productosFileName == null
+                          ? 'Seleccionar Excel de productos'
+                          : _productosFileName!,
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: _importandoProductos
+                          ? null
+                          : _importarProductosExcel,
+                      icon: _importandoProductos
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.file_upload_outlined),
+                      label: Text(
+                        _importandoProductos
+                            ? 'Importando...'
+                            : 'Importar productos desde Excel',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (prodResult != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        border: Border.all(color: Colors.green.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'Última importación: ${prodResult['importados'] ?? 0} productos cargados • ${prodResult['omitidos'] ?? 0} omitidos (duplicado o fila inválida).',
+                        style: const TextStyle(fontFamily: kArial),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
+    );
   }
 
   Widget _tabDiagnosticos() {
@@ -1331,12 +1925,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
       ),
       child: DefaultTabController(
-        length: 7,
+        length: 9,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
             bottom: const TabBar(
+              isScrollable: true,
               indicatorColor: kAdminAccent,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
               labelStyle: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
               tabs: [
                 Tab(icon: Icon(Icons.people_alt), text: 'Usuarios'),
@@ -1346,6 +1943,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                 Tab(icon: Icon(Icons.history), text: 'Logs'),
                 Tab(icon: Icon(Icons.cleaning_services), text: 'Limpieza'),
                 Tab(icon: Icon(Icons.medical_information), text: 'Diagnósticos'),
+                Tab(icon: Icon(Icons.rule_folder), text: 'Req. Compras'),
+                Tab(icon: Icon(Icons.verified_user), text: 'Roles Compras'),
               ],
             ),
           ),
@@ -1365,6 +1964,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _tabLogs(),
                     _tabCleanup(),
                     _tabDiagnosticos(),
+                    _tabReqCompras(),
+                    _tabRolesCompras(),
                   ],
                 ),
               ),
@@ -2281,6 +2882,235 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── Tab Roles Compras ─────────────────────────────────────────────────────
+
+  Widget _tabRolesCompras() {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) {
+      return const Center(
+        child: Text('Selecciona una empresa',
+            style: TextStyle(fontFamily: kArial)),
+      );
+    }
+    final svc = ComprasService();
+    final roles = [kRolCalidad, kRolCompras, kRolBodega];
+    final rolesLabels = {
+      kRolCalidad: 'Calidad',
+      kRolCompras: 'Compras',
+      kRolBodega: 'Bodega',
+    };
+    final rolesIcons = {
+      kRolCalidad: Icons.verified_user,
+      kRolCompras: Icons.shopping_cart,
+      kRolBodega: Icons.warehouse,
+    };
+    final rolesColors = {
+      kRolCalidad: Colors.green.shade700,
+      kRolCompras: kAdminPrimary,
+      kRolBodega: Colors.blue.shade700,
+    };
+
+    return StreamBuilder<List<ComprasRolDoc>>(
+      stream: svc.streamComprasRoles(empresaId),
+      builder: (ctx, snapRoles) {
+        final rolesActuales = snapRoles.data ?? [];
+        return ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              color: kAdminCard,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.verified_user, color: kAdminPrimary),
+                        SizedBox(width: 8),
+                        Text(
+                          'Roles en Compras & Bodega',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Asigna a cada usuario su rol en el módulo de Compras. '
+                      'Calidad: aprueba documentos. Compras: gestiona proveedores/productos. '
+                      'Bodega: solo recepción de mercancía.',
+                      style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Roles actuales
+            if (rolesActuales.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Text('Roles asignados',
+                    style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14)),
+              ),
+              ...rolesActuales.map((r) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            (rolesColors[r.rol] ?? kAdminPrimary)
+                                .withOpacity(0.15),
+                        child: Icon(
+                          rolesIcons[r.rol] ?? Icons.person,
+                          color: rolesColors[r.rol] ?? kAdminPrimary,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(r.nombre,
+                          style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                          '${rolesLabels[r.rol] ?? r.rol} · ${r.cedula}',
+                          style: const TextStyle(
+                              fontFamily: kArial, fontSize: 12)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.red),
+                        tooltip: 'Quitar rol',
+                        onPressed: () async {
+                          final ok = await _confirm(
+                            title: 'Quitar rol',
+                            message:
+                                '¿Quitar el rol de ${rolesLabels[r.rol]} a ${r.nombre}?',
+                            confirmText: 'Quitar',
+                          );
+                          if (ok) {
+                            await svc.eliminarComprasRol(r.id);
+                            _snack('Rol eliminado');
+                          }
+                        },
+                      ),
+                    ),
+                  )),
+              const Divider(height: 24),
+            ],
+            // Asignar nuevo rol
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text('Asignar rol a usuario',
+                  style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14)),
+            ),
+            ..._users.map((userDoc) {
+              final data = userDoc.data();
+              final nombre = _userName(data, userDoc.id);
+              final cedula = _safe(data['cedula']);
+              final userId = userDoc.id;
+              // Rol actual del usuario
+              ComprasRolDoc? rolActual;
+              try {
+                rolActual = rolesActuales.firstWhere(
+                    (r) => r.userId == userId || r.cedula == cedula);
+              } catch (_) {}
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(nombre,
+                                style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13)),
+                            Text(cedula,
+                                style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: 11,
+                                    color: Colors.black54)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: rolActual?.rol,
+                        hint: const Text('Sin rol',
+                            style: TextStyle(
+                                fontFamily: kArial, fontSize: 12)),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text('Sin rol',
+                                style: TextStyle(
+                                    fontFamily: kArial, fontSize: 12)),
+                          ),
+                          ...roles.map((r) => DropdownMenuItem<String>(
+                                value: r,
+                                child: Row(
+                                  children: [
+                                    Icon(rolesIcons[r],
+                                        size: 14,
+                                        color: rolesColors[r]),
+                                    const SizedBox(width: 4),
+                                    Text(rolesLabels[r] ?? r,
+                                        style: const TextStyle(
+                                            fontFamily: kArial,
+                                            fontSize: 12)),
+                                  ],
+                                ),
+                              )),
+                        ],
+                        onChanged: (nuevoRol) async {
+                          if (nuevoRol == null) {
+                            // Quitar rol si existe
+                            if (rolActual != null) {
+                              await svc.eliminarComprasRol(rolActual.id);
+                              _snack('Rol eliminado de $nombre');
+                            }
+                            return;
+                          }
+                          final doc = ComprasRolDoc(
+                            id: rolActual?.id ?? '',
+                            empresaId: empresaId,
+                            userId: userId,
+                            cedula: cedula,
+                            nombre: nombre,
+                            rol: nuevoRol,
+                            createdAt: Timestamp.now(),
+                          );
+                          await svc.guardarComprasRol(
+                              doc, isNew: rolActual == null);
+                          _snack(
+                              'Rol ${rolesLabels[nuevoRol]} asignado a $nombre');
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
     );
   }
 }
