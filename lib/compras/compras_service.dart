@@ -65,6 +65,47 @@ class ComprasService {
   Future<void> eliminarProveedor(String id) =>
       _db.collection('TBL_COMPRAS_PROVEEDORES').doc(id).delete();
 
+  /// Importa una lista de proveedores desde Excel.
+  /// Omite los que ya existen (mismo NIT para la empresa).
+  /// Retorna {'importados': n, 'omitidos': n}.
+  Future<Map<String, int>> importarProveedores(
+    String empresaId,
+    List<ProveedorDoc> proveedores,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_PROVEEDORES')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final nitsExistentes = {
+      for (final d in snap.docs) (d.data()['nit'] as String? ?? ''): d.id
+    };
+
+    var imported = 0;
+    var omitidos = 0;
+    const batchSize = 400;
+    var batch = _db.batch();
+    var count = 0;
+
+    for (final p in proveedores) {
+      if (nitsExistentes.containsKey(p.nit)) {
+        omitidos++;
+        continue;
+      }
+      final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc();
+      batch.set(ref, p.toMap());
+      imported++;
+      count++;
+      if (count >= batchSize) {
+        await batch.commit();
+        batch = _db.batch();
+        count = 0;
+      }
+    }
+    if (count > 0) await batch.commit();
+
+    return {'importados': imported, 'omitidos': omitidos};
+  }
+
   // ─── RECEPCIONES ────────────────────────────────────────────────────────────
 
   Stream<List<RecepcionDoc>> streamRecepciones(String empresaId) => _db
@@ -410,6 +451,169 @@ class ComprasService {
         batch.set(col.doc(), doc.toMap());
       }
       await batch.commit();
+    }
+  }
+
+  // ─── FICHAS TÉCNICAS (Proveedor + Producto + Marca) ─────────────────────────
+
+  /// Todas las fichas técnicas de la empresa (para pantalla de Calidad y Producto).
+  Stream<List<FichaTecnicaDoc>> streamFichasTecnicas(String empresaId) => _db
+      .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((s) {
+        final list = s.docs
+            .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
+            .toList();
+        list.sort((a, b) => a.productoNombre.compareTo(b.productoNombre));
+        return list;
+      });
+
+  /// Fichas con documentoActual pendiente de revisión de calidad.
+  Stream<List<FichaTecnicaDoc>> streamFichasTecnicasPendientes(
+      String empresaId) =>
+      _db
+          .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+          .where('empresaId', isEqualTo: empresaId)
+          .snapshots()
+          .map((s) {
+            return s.docs
+                .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
+                .where((f) {
+              final doc = f.documentoActual;
+              if (doc == null || !doc.tieneDoc) return false;
+              return doc.estadoCalidad.isEmpty ||
+                  doc.estadoCalidad == 'pendiente' ||
+                  doc.estadoCalidad == 'pendiente_revision_calidad';
+            }).toList()
+              ..sort((a, b) => a.productoNombre.compareTo(b.productoNombre));
+          });
+
+  /// Carga (one-time) todas las fichas técnicas para lookup en recepción.
+  Future<List<FichaTecnicaDoc>> getFichasTecnicas(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return snap.docs
+        .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
+        .toList();
+  }
+
+  /// Crea o actualiza una ficha técnica.
+  /// Al actualizar (isNew=false), mueve documentoActual al historial y marca el
+  /// nuevo documento como 'pendiente_revision_calidad'.
+  /// [observacion] es obligatorio cuando isNew=false.
+  Future<String> guardarFichaTecnica(
+    FichaTecnicaDoc ficha, {
+    required bool isNew,
+    String observacion = '',
+    String actualizadoPor = '',
+  }) async {
+    FichaTecnicaDoc fichaFinal = ficha;
+
+    if (!isNew && ficha.documentoActual != null) {
+      // Archivar versión anterior en historial
+      final anterior = ficha.documentoActual!;
+      final entrada = FichaTecnicaHistorial(
+        url: anterior.url ?? '',
+        nombre: anterior.nombre ?? '',
+        path: anterior.path,
+        observacion: observacion,
+        actualizadoPor: actualizadoPor,
+        fecha: Timestamp.now(),
+        estadoCalidadFinal: anterior.estadoCalidad,
+      );
+      fichaFinal = ficha.copyWith(
+        historial: [...ficha.historial, entrada],
+      );
+    }
+
+    // Marcar el nuevo documentoActual como pendiente de calidad
+    if (fichaFinal.documentoActual != null) {
+      fichaFinal = fichaFinal.copyWith(
+        documentoActual: fichaFinal.documentoActual!.copyWith(
+          estadoCalidad: 'pendiente_revision_calidad',
+          observacionActualizacion: observacion.isEmpty ? null : observacion,
+        ),
+      );
+    }
+
+    final ref = isNew
+        ? _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc()
+        : _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(ficha.id);
+    await ref.set(fichaFinal.toMap(), SetOptions(merge: true));
+    return ref.id;
+  }
+
+  /// Aprueba la ficha técnica (documentoActual.estadoCalidad = 'aprobado').
+  Future<void> aprobarFichaTecnica({
+    required String fichaId,
+    required String revisadoPor,
+  }) async {
+    final ref = _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(fichaId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final ficha = FichaTecnicaDoc.fromMap(snap.id, snap.data()!);
+    if (ficha.documentoActual == null) return;
+
+    await ref.update({
+      'documentoActual': ficha.documentoActual!
+          .copyWith(
+            estadoCalidad: 'aprobado',
+            revisadoPor: revisadoPor,
+            fechaRevision: Timestamp.now(),
+          )
+          .toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Rechaza la ficha técnica y envía notificación al subidor.
+  Future<void> rechazarFichaTecnica({
+    required String fichaId,
+    required String motivo,
+    required String revisadoPor,
+    required String creadoPor,
+    required String empresaId,
+    required String productoNombre,
+    required String marcaNombre,
+    required String proveedorNombre,
+  }) async {
+    final ref = _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(fichaId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final ficha = FichaTecnicaDoc.fromMap(snap.id, snap.data()!);
+    if (ficha.documentoActual == null) return;
+
+    await ref.update({
+      'documentoActual': ficha.documentoActual!
+          .copyWith(
+            estadoCalidad: 'rechazado',
+            observacionCalidad: motivo,
+            revisadoPor: revisadoPor,
+            fechaRevision: Timestamp.now(),
+          )
+          .toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    // Notificar al usuario que subió la ficha
+    if (creadoPor.isNotEmpty) {
+      final label = marcaNombre.isEmpty
+          ? 'Ficha Técnica – $productoNombre ($proveedorNombre)'
+          : 'Ficha Técnica – $productoNombre / $marcaNombre ($proveedorNombre)';
+      final notif = NotificacionComprasDoc(
+        empresaId: empresaId,
+        userId: creadoPor,
+        recepcionId: 'ficha:$fichaId',
+        productoNombre: productoNombre,
+        docKey: 'fichaTecnica',
+        docLabel: label,
+        motivo: motivo,
+        createdAt: Timestamp.now(),
+      );
+      await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
     }
   }
 }

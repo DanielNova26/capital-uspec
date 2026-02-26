@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:todo/services/diagnosticos_service.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
+import 'package:todo/services/compras_proveedores_excel_parser.dart';
 import '../compras/compras_req_seed.dart';
 import '../compras/compras_service.dart';
 import '../compras/compras_models.dart';
@@ -64,6 +65,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   String? _reqComprasFileName;
   Uint8List? _reqComprasBytes;
   Map<String, int>? _reqComprasImportResult;
+
+  // Proveedores: carga masiva desde Excel
+  final ComprasProveedoresExcelParser _proveedoresParser =
+      ComprasProveedoresExcelParser();
+  String? _proveedoresFileName;
+  Uint8List? _proveedoresBytes;
+  Map<String, int>? _proveedoresImportResult;
+  bool _importandoProveedores = false;
 
   @override
   void initState() {
@@ -1082,6 +1091,73 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
+  Future<void> _pickProveedoresExcel() async {
+    final picked = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    setState(() {
+      _proveedoresFileName = file.name;
+      _proveedoresBytes = file.bytes;
+      _proveedoresImportResult = null;
+    });
+  }
+
+  Future<void> _importarProveedoresExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _proveedoresBytes;
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (bytes == null) {
+      _snack('Primero selecciona un archivo Excel de proveedores.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Importar proveedores desde Excel',
+      message:
+          'Se agregarán los proveedores del archivo a la empresa seleccionada. '
+          'Los proveedores con NIT ya existente serán omitidos.',
+      confirmText: 'Importar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoProveedores = true);
+    try {
+      final parsed = _proveedoresParser.parse(
+        bytes: bytes,
+        empresaId: empresaId,
+      );
+      if (parsed.proveedores.isEmpty) {
+        _snack('No se detectaron filas válidas en el archivo.');
+        return;
+      }
+
+      final result = await ComprasService()
+          .importarProveedores(empresaId, parsed.proveedores);
+      if (!mounted) return;
+      setState(() {
+        _proveedoresImportResult = {
+          'importados': result['importados'] ?? 0,
+          'omitidos': (result['omitidos'] ?? 0) + parsed.skippedRows,
+        };
+      });
+      _snack(
+        'Proveedores importados: ${result['importados'] ?? 0} '
+        '(omitidos: ${(result['omitidos'] ?? 0) + parsed.skippedRows}).',
+      );
+    } catch (e) {
+      _snack('Error al importar proveedores: $e');
+    } finally {
+      if (mounted) setState(() => _importandoProveedores = false);
+    }
+  }
+
   Future<void> _sembrarReqComprasBase() async {
     if (_empresaId == null || _empresaId!.isEmpty) {
       _snack('Selecciona una empresa primero.');
@@ -1168,6 +1244,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _tabReqCompras() {
     final result = _reqComprasImportResult;
+    final provResult = _proveedoresImportResult;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -1285,6 +1362,107 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     ),
                     child: Text(
                       'Última importación: ${result['importados'] ?? 0} filas cargadas • ${result['omitidos'] ?? 0} omitidas.',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // ── Carga masiva de proveedores ──────────────────────────────────
+        Card(
+          color: kAdminCard,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.amber.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.store_outlined,
+                        color: Color(0xFFB45309), size: 24),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Carga masiva de proveedores',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Sube un Excel con el maestro inicial de proveedores de la empresa. '
+                  'Columnas requeridas: NIT, RAZON SOCIAL. '
+                  'Opcionales: DIRECCION, TELEFONO, CORREO, DEPARTAMENTO, CIUDAD, PROV. LOCAL (SI/NO).\n'
+                  'Los proveedores con NIT ya registrado serán omitidos.',
+                  style: TextStyle(fontFamily: kArial, height: 1.4),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed:
+                      _importandoProveedores ? null : _pickProveedoresExcel,
+                  icon: const Icon(Icons.attach_file),
+                  label: Text(
+                    _proveedoresFileName == null
+                        ? 'Seleccionar Excel de proveedores'
+                        : _proveedoresFileName!,
+                    style: const TextStyle(fontFamily: kArial),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFB45309),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: _importandoProveedores
+                        ? null
+                        : _importarProveedoresExcel,
+                    icon: _importandoProveedores
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.file_upload_outlined),
+                    label: Text(
+                      _importandoProveedores
+                          ? 'Importando...'
+                          : 'Importar proveedores desde Excel',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                if (provResult != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade50,
+                      border: Border.all(color: Colors.amber.shade300),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Última importación: ${provResult['importados'] ?? 0} proveedores cargados • ${provResult['omitidos'] ?? 0} omitidos (NIT duplicado o fila inválida).',
                       style: const TextStyle(fontFamily: kArial),
                     ),
                   ),

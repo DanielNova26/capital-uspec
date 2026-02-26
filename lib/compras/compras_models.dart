@@ -742,3 +742,172 @@ class NotificacionComprasDoc {
         'leida': leida,
       };
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FichaTecnicaHistorial
+// Versión archivada de una ficha técnica (al ser reemplazada por una nueva).
+// ══════════════════════════════════════════════════════════════════════════════
+
+class FichaTecnicaHistorial {
+  final String url;
+  final String nombre;
+  final String? path;
+  /// Motivo obligatorio de la actualización (por qué se reemplazó).
+  final String observacion;
+  /// userId que realizó la actualización.
+  final String actualizadoPor;
+  final Timestamp fecha;
+  /// Estado de calidad que tenía el documento al momento de ser archivado.
+  final String estadoCalidadFinal;
+
+  const FichaTecnicaHistorial({
+    required this.url,
+    required this.nombre,
+    this.path,
+    required this.observacion,
+    required this.actualizadoPor,
+    required this.fecha,
+    this.estadoCalidadFinal = '',
+  });
+
+  factory FichaTecnicaHistorial.fromMap(Map<String, dynamic> m) =>
+      FichaTecnicaHistorial(
+        url: m['url'] as String? ?? '',
+        nombre: m['nombre'] as String? ?? '',
+        path: m['path'] as String?,
+        observacion: m['observacion'] as String? ?? '',
+        actualizadoPor: m['actualizadoPor'] as String? ?? '',
+        fecha: m['fecha'] as Timestamp? ?? Timestamp.now(),
+        estadoCalidadFinal: m['estadoCalidadFinal'] as String? ?? '',
+      );
+
+  Map<String, dynamic> toMap() => {
+        'url': url,
+        'nombre': nombre,
+        'path': path,
+        'observacion': observacion,
+        'actualizadoPor': actualizadoPor,
+        'fecha': fecha,
+        'estadoCalidadFinal': estadoCalidadFinal,
+      };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FichaTecnicaDoc
+// Ficha técnica específica de un Proveedor + Producto + Marca.
+// Colección: TBL_COMPRAS_FICHAS_TECNICAS
+// ══════════════════════════════════════════════════════════════════════════════
+
+class FichaTecnicaDoc {
+  final String id;
+  final String empresaId;
+  final String proveedorId;
+  final String proveedorNombre;
+  final String productoId;
+  final String productoNombre;
+  final String productoCategoria;
+  /// '' cuando el producto no tiene marca.
+  final String marcaId;
+  final String marcaNombre;
+  /// Ficha vigente con su estado de calidad.
+  final DocAdjunto? documentoActual;
+  /// Versiones anteriores archivadas.
+  final List<FichaTecnicaHistorial> historial;
+  /// userId que subió la ficha (para enviar notificaciones si calidad rechaza).
+  final String creadoPor;
+  final Timestamp createdAt;
+  final Timestamp? updatedAt;
+
+  const FichaTecnicaDoc({
+    this.id = '',
+    required this.empresaId,
+    required this.proveedorId,
+    required this.proveedorNombre,
+    required this.productoId,
+    required this.productoNombre,
+    this.productoCategoria = '',
+    this.marcaId = '',
+    this.marcaNombre = '',
+    this.documentoActual,
+    this.historial = const [],
+    required this.creadoPor,
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  factory FichaTecnicaDoc.fromMap(String id, Map<String, dynamic> m) =>
+      FichaTecnicaDoc(
+        id: id,
+        empresaId: m['empresaId'] as String? ?? '',
+        proveedorId: m['proveedorId'] as String? ?? '',
+        proveedorNombre: m['proveedorNombre'] as String? ?? '',
+        productoId: m['productoId'] as String? ?? '',
+        productoNombre: m['productoNombre'] as String? ?? '',
+        productoCategoria: m['productoCategoria'] as String? ?? '',
+        marcaId: m['marcaId'] as String? ?? '',
+        marcaNombre: m['marcaNombre'] as String? ?? '',
+        documentoActual: m['documentoActual'] != null
+            ? DocAdjunto.fromMap(
+                (m['documentoActual'] as Map?)?.cast<String, dynamic>())
+            : null,
+        historial: ((m['historial'] as List?) ?? [])
+            .cast<Map<String, dynamic>>()
+            .map(FichaTecnicaHistorial.fromMap)
+            .toList(),
+        creadoPor: m['creadoPor'] as String? ?? '',
+        createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+        updatedAt: m['updatedAt'] as Timestamp?,
+      );
+
+  Map<String, dynamic> toMap() => {
+        'empresaId': empresaId,
+        'proveedorId': proveedorId,
+        'proveedorNombre': proveedorNombre,
+        'productoId': productoId,
+        'productoNombre': productoNombre,
+        'productoCategoria': productoCategoria,
+        'marcaId': marcaId,
+        'marcaNombre': marcaNombre,
+        'documentoActual': documentoActual?.toMap(),
+        'historial': historial.map((h) => h.toMap()).toList(),
+        'creadoPor': creadoPor,
+        'createdAt': createdAt,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+  FichaTecnicaDoc copyWith({
+    String? id,
+    String? empresaId,
+    String? proveedorId,
+    String? proveedorNombre,
+    String? productoId,
+    String? productoNombre,
+    String? productoCategoria,
+    String? marcaId,
+    String? marcaNombre,
+    DocAdjunto? documentoActual,
+    bool clearDocumentoActual = false,
+    List<FichaTecnicaHistorial>? historial,
+    String? creadoPor,
+    Timestamp? createdAt,
+    Timestamp? updatedAt,
+  }) =>
+      FichaTecnicaDoc(
+        id: id ?? this.id,
+        empresaId: empresaId ?? this.empresaId,
+        proveedorId: proveedorId ?? this.proveedorId,
+        proveedorNombre: proveedorNombre ?? this.proveedorNombre,
+        productoId: productoId ?? this.productoId,
+        productoNombre: productoNombre ?? this.productoNombre,
+        productoCategoria: productoCategoria ?? this.productoCategoria,
+        marcaId: marcaId ?? this.marcaId,
+        marcaNombre: marcaNombre ?? this.marcaNombre,
+        documentoActual: clearDocumentoActual
+            ? null
+            : (documentoActual ?? this.documentoActual),
+        historial: historial ?? this.historial,
+        creadoPor: creadoPor ?? this.creadoPor,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+}

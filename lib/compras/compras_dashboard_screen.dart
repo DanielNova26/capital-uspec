@@ -30,6 +30,29 @@ const String _kFont = 'Arial';
 // HELPERS
 // ══════════════════════════════════════════════════════════════════════════════
 
+/// Busca en kDepartamentos el valor que coincida con [raw] ignorando
+/// mayúsculas/minúsculas y tildes. Devuelve null si no hay coincidencia,
+/// lo que evita el crash del DropdownButtonFormField cuando el valor
+/// almacenado tiene variante de acento diferente (ej. "Antioquía" vs "Antioquia").
+String? _matchDepartamento(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  String strip(String s) => s
+      .trim()
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ü', 'u')
+      .replaceAll('ñ', 'n');
+  final canon = strip(raw);
+  for (final d in kDepartamentos) {
+    if (strip(d) == canon) return d;
+  }
+  return null; // no match → dropdown queda vacío, sin crash
+}
+
 String _normalizarNombre(String input) {
   final trimmed = input.trim();
   if (trimmed.isEmpty) return trimmed;
@@ -217,7 +240,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (_) => _ProductosScreen(
-                          empresaId: empresaId, svc: svc),
+                          empresaId: empresaId, svc: svc, userId: userId),
                     ),
                   ),
                 ),
@@ -1335,7 +1358,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
     _telCtrl = TextEditingController(text: p?.telefono ?? '');
     _emailCtrl = TextEditingController(text: p?.email ?? '');
     _ciudadCtrl = TextEditingController(text: p?.ciudad ?? '');
-    _departamento = p?.departamento.isNotEmpty == true ? p!.departamento : null;
+    _departamento = _matchDepartamento(p?.departamento);
     _esLocal = p?.esLocal ?? false;
     _categorias = List.from(p?.categorias ?? []);
     _documentos = Map.from(p?.documentos ?? {});
@@ -1626,8 +1649,10 @@ InputDecoration _inputDecoration(String label) => InputDecoration(
 class _ProductosScreen extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
+  final String userId;
 
-  const _ProductosScreen({required this.empresaId, required this.svc});
+  const _ProductosScreen(
+      {required this.empresaId, required this.svc, required this.userId});
 
   @override
   State<_ProductosScreen> createState() => _ProductosScreenState();
@@ -1753,6 +1778,7 @@ class _ProductosScreenState extends State<_ProductosScreen> {
           empresaId: widget.empresaId,
           svc: widget.svc,
           existing: existing,
+          userId: widget.userId,
         ),
       );
 
@@ -1912,9 +1938,13 @@ class _ProductoFormSheet extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
   final ProductoDoc? existing;
+  final String userId;
 
   const _ProductoFormSheet(
-      {required this.empresaId, required this.svc, this.existing});
+      {required this.empresaId,
+      required this.svc,
+      this.existing,
+      required this.userId});
 
   @override
   State<_ProductoFormSheet> createState() => _ProductoFormSheetState();
@@ -2367,7 +2397,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                               fontSize: 13,
                               fontWeight: FontWeight.w500)),
                       subtitle: const Text(
-                        'La ficha técnica se actualiza en recepción de mercancía',
+                        'Gestiona fichas técnicas por proveedor',
                         style: TextStyle(
                           fontFamily: _kFont,
                           fontSize: 11,
@@ -2377,16 +2407,37 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                            IconButton(
-                              icon: const Icon(Icons.search,
-                                  size: 18, color: Color(0xFF1976D2)),
-                              tooltip: 'Ver ficha técnica de esta marca',
-                              onPressed: () => _abrirUrl(
-                                  context,
-                                  _fichasPorMarca[ref.marcaId]!.url),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
+                          IconButton(
+                            icon: const Icon(Icons.description_outlined,
+                                size: 18, color: Color(0xFF1976D2)),
+                            tooltip: 'Fichas técnicas por proveedor',
+                            onPressed: widget.existing == null
+                                ? null
+                                : () => showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      useSafeArea: true,
+                                      backgroundColor: Colors.white,
+                                      shape: const RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.vertical(
+                                              top: Radius.circular(20))),
+                                      builder: (_) =>
+                                          _FichasTecnicasPorMarcaSheet(
+                                        empresaId: widget.empresaId,
+                                        svc: widget.svc,
+                                        productoId: widget.existing!.id,
+                                        productoNombre:
+                                            widget.existing!.nombre,
+                                        productoCategoria:
+                                            widget.existing!.categoria,
+                                        marcaId: ref.marcaId,
+                                        marcaNombre: ref.descripcion,
+                                        userId: widget.userId,
+                                      ),
+                                    ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
                           IconButton(
                             icon: const Icon(Icons.remove_circle_outline,
                                 size: 18, color: Colors.redAccent),
@@ -2443,6 +2494,639 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FICHAS TÉCNICAS POR MARCA — gestión desde formulario de producto
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
+  final String empresaId;
+  final ComprasService svc;
+  final String productoId;
+  final String productoNombre;
+  final String productoCategoria;
+  final String marcaId;
+  final String marcaNombre;
+  final String userId;
+
+  const _FichasTecnicasPorMarcaSheet({
+    required this.empresaId,
+    required this.svc,
+    required this.productoId,
+    required this.productoNombre,
+    required this.productoCategoria,
+    required this.marcaId,
+    required this.marcaNombre,
+    required this.userId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      maxChildSize: 0.95,
+      minChildSize: 0.4,
+      builder: (_, ctrl) => Column(
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                const Icon(Icons.description, color: Color(0xFF0277BD)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(productoNombre,
+                          style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700)),
+                      if (marcaNombre.isNotEmpty)
+                        Text('Marca: $marcaNombre',
+                            style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black54)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 20),
+          Expanded(
+            child: StreamBuilder<List<FichaTecnicaDoc>>(
+              stream: svc.streamFichasTecnicas(empresaId),
+              builder: (ctx, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final fichas = (snap.data ?? [])
+                    .where((f) =>
+                        f.productoId == productoId && f.marcaId == marcaId)
+                    .toList()
+                  ..sort((a, b) => a.proveedorNombre.compareTo(b.proveedorNombre));
+
+                return ListView(
+                  controller: ctrl,
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
+                  children: [
+                    ...fichas.map((f) => _FichaProveedorCard(
+                          ficha: f,
+                          svc: svc,
+                          userId: userId,
+                          empresaId: empresaId,
+                          productoId: productoId,
+                          productoNombre: productoNombre,
+                          productoCategoria: productoCategoria,
+                          marcaId: marcaId,
+                          marcaNombre: marcaNombre,
+                        )),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => showModalBottomSheet(
+                        context: ctx,
+                        isScrollControlled: true,
+                        useSafeArea: true,
+                        backgroundColor: Colors.white,
+                        shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(20))),
+                        builder: (_) => _SubirFichaSheet(
+                          empresaId: empresaId,
+                          svc: svc,
+                          productoId: productoId,
+                          productoNombre: productoNombre,
+                          productoCategoria: productoCategoria,
+                          marcaId: marcaId,
+                          marcaNombre: marcaNombre,
+                          userId: userId,
+                          fichasExistentes: fichas,
+                        ),
+                      ),
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Agregar ficha para otro proveedor',
+                          style: TextStyle(fontFamily: _kFont)),
+                      style: OutlinedButton.styleFrom(
+                          side:
+                              const BorderSide(color: Color(0xFF0277BD)),
+                          padding: const EdgeInsets.symmetric(vertical: 10)),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FichaProveedorCard extends StatelessWidget {
+  final FichaTecnicaDoc ficha;
+  final ComprasService svc;
+  final String userId;
+  final String empresaId;
+  final String productoId;
+  final String productoNombre;
+  final String productoCategoria;
+  final String marcaId;
+  final String marcaNombre;
+
+  const _FichaProveedorCard({
+    required this.ficha,
+    required this.svc,
+    required this.userId,
+    required this.empresaId,
+    required this.productoId,
+    required this.productoNombre,
+    required this.productoCategoria,
+    required this.marcaId,
+    required this.marcaNombre,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final doc = ficha.documentoActual;
+    Color badgeColor;
+    String badgeLabel;
+    if (doc == null || !doc.tieneDoc) {
+      badgeColor = Colors.grey;
+      badgeLabel = 'Sin ficha';
+    } else if (doc.aprobado) {
+      badgeColor = kComprasGreen;
+      badgeLabel = 'Aprobada';
+    } else if (doc.rechazado) {
+      badgeColor = kComprasRed;
+      badgeLabel = 'Rechazada';
+    } else {
+      badgeColor = const Color(0xFFB45309);
+      badgeLabel = 'Pendiente';
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(ficha.proveedorNombre,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13)),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                      color: badgeColor.withAlpha(30),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: badgeColor)),
+                  child: Text(badgeLabel,
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: badgeColor)),
+                ),
+              ],
+            ),
+            if (doc != null && doc.tieneDoc) ...[
+              const SizedBox(height: 4),
+              Text(doc.nombre ?? '',
+                  style: const TextStyle(
+                      fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+              if (doc.observacionActualizacion?.isNotEmpty == true)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Obs: ${doc.observacionActualizacion}',
+                    style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.black45),
+                  ),
+                ),
+              if (doc.rechazado && doc.observacionCalidad?.isNotEmpty == true)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Motivo rechazo: ${doc.observacionCalidad}',
+                    style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 11,
+                        color: kComprasRed),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                if (doc != null && doc.tieneDoc)
+                  TextButton.icon(
+                    onPressed: () =>
+                        _abrirUrl(context, doc.url),
+                    icon: const Icon(Icons.open_in_new, size: 14),
+                    label: const Text('Ver PDF',
+                        style:
+                            TextStyle(fontFamily: _kFont, fontSize: 12)),
+                    style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4)),
+                  ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    useSafeArea: true,
+                    backgroundColor: Colors.white,
+                    shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(20))),
+                    builder: (_) => _SubirFichaSheet(
+                      empresaId: empresaId,
+                      svc: svc,
+                      productoId: productoId,
+                      productoNombre: productoNombre,
+                      productoCategoria: productoCategoria,
+                      marcaId: marcaId,
+                      marcaNombre: marcaNombre,
+                      userId: userId,
+                      fichasExistentes: [],
+                      fichaExistente: ficha,
+                    ),
+                  ),
+                  icon: const Icon(Icons.upload_file, size: 14,
+                      color: Color(0xFF0277BD)),
+                  label: Text(
+                      doc != null && doc.tieneDoc ? 'Actualizar' : 'Subir',
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: Color(0xFF0277BD))),
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4)),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SUBIR / ACTUALIZAR FICHA TÉCNICA — bottom sheet
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _SubirFichaSheet extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+  final String productoId;
+  final String productoNombre;
+  final String productoCategoria;
+  final String marcaId;
+  final String marcaNombre;
+  final String userId;
+  /// Fichas ya existentes para el producto+marca (para validar unicidad proveedor).
+  final List<FichaTecnicaDoc> fichasExistentes;
+  /// Si se pasa, es actualización de la ficha existente.
+  final FichaTecnicaDoc? fichaExistente;
+
+  const _SubirFichaSheet({
+    required this.empresaId,
+    required this.svc,
+    required this.productoId,
+    required this.productoNombre,
+    required this.productoCategoria,
+    required this.marcaId,
+    required this.marcaNombre,
+    required this.userId,
+    required this.fichasExistentes,
+    this.fichaExistente,
+  });
+
+  @override
+  State<_SubirFichaSheet> createState() => _SubirFichaSheetState();
+}
+
+class _SubirFichaSheetState extends State<_SubirFichaSheet> {
+  final _obsCtrl = TextEditingController();
+  bool get isUpdate => widget.fichaExistente != null;
+
+  // Proveedor seleccionado (sólo para fichas nuevas)
+  ProveedorDoc? _proveedor;
+  List<ProveedorDoc> _proveedores = [];
+  bool _loadingProvs = true;
+
+  // Archivo
+  String? _fileName;
+  Uint8List? _fileBytes;
+  bool _subiendo = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarProveedores();
+  }
+
+  @override
+  void dispose() {
+    _obsCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _cargarProveedores() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('TBL_COMPRAS_PROVEEDORES')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+    if (!mounted) return;
+    setState(() {
+      _proveedores = snap.docs
+          .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
+          .toList()
+        ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
+      // Pre-seleccionar si es actualización
+      if (isUpdate) {
+        try {
+          _proveedor = _proveedores.firstWhere(
+              (p) => p.id == widget.fichaExistente!.proveedorId);
+        } catch (_) {}
+      }
+      _loadingProvs = false;
+    });
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final f = result.files.first;
+    setState(() {
+      _fileName = f.name;
+      _fileBytes = f.bytes;
+    });
+  }
+
+  Future<void> _subir() async {
+    if (!isUpdate && _proveedor == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Selecciona un proveedor.',
+              style: TextStyle(fontFamily: _kFont))));
+      return;
+    }
+    if (isUpdate && _obsCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ingresa el motivo de la actualización.',
+              style: TextStyle(fontFamily: _kFont))));
+      return;
+    }
+    if (_fileBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Selecciona un archivo PDF o imagen.',
+              style: TextStyle(fontFamily: _kFont))));
+      return;
+    }
+
+    setState(() => _subiendo = true);
+    try {
+      final ext = _fileName?.split('.').last.toLowerCase() ?? 'pdf';
+      final contentType =
+          ext == 'pdf' ? 'application/pdf' : 'image/$ext';
+      final doc = await widget.svc.subirBytes(
+        bytes: _fileBytes!,
+        empresaId: widget.empresaId,
+        carpeta: 'fichas_tecnicas',
+        nombre: _fileName ?? 'ficha.pdf',
+        contentType: contentType,
+        pendienteCalidad: false, // guardarFichaTecnica marca pendiente_revision_calidad
+      );
+
+      final prov = isUpdate
+          ? ProveedorDoc(
+              id: widget.fichaExistente!.proveedorId,
+              empresaId: widget.empresaId,
+              nit: '',
+              razonSocial: widget.fichaExistente!.proveedorNombre,
+              createdAt: Timestamp.now())
+          : _proveedor!;
+
+      final ficha = FichaTecnicaDoc(
+        id: isUpdate ? widget.fichaExistente!.id : '',
+        empresaId: widget.empresaId,
+        proveedorId: prov.id,
+        proveedorNombre: prov.razonSocial,
+        productoId: widget.productoId,
+        productoNombre: widget.productoNombre,
+        productoCategoria: widget.productoCategoria,
+        marcaId: widget.marcaId,
+        marcaNombre: widget.marcaNombre,
+        documentoActual: doc,
+        historial: isUpdate ? widget.fichaExistente!.historial : [],
+        creadoPor: widget.userId,
+        createdAt: isUpdate
+            ? widget.fichaExistente!.createdAt
+            : Timestamp.now(),
+      );
+
+      await widget.svc.guardarFichaTecnica(
+        ficha,
+        isNew: !isUpdate,
+        observacion: _obsCtrl.text.trim(),
+        actualizadoPor: widget.userId,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              isUpdate
+                  ? 'Ficha actualizada. Pendiente de revisión de calidad.'
+                  : 'Ficha cargada. Pendiente de revisión de calidad.',
+              style: const TextStyle(fontFamily: _kFont))));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: $e',
+              style: const TextStyle(fontFamily: _kFont))));
+    } finally {
+      if (mounted) setState(() => _subiendo = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Text(
+            isUpdate
+                ? 'Actualizar ficha técnica'
+                : 'Agregar ficha técnica',
+            style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 16,
+                fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${widget.productoNombre}'
+            '${widget.marcaNombre.isNotEmpty ? ' / ${widget.marcaNombre}' : ''}',
+            style: const TextStyle(
+                fontFamily: _kFont, fontSize: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 16),
+          // Proveedor
+          if (!isUpdate)
+            _loadingProvs
+                ? const LinearProgressIndicator()
+                : DropdownButtonFormField<ProveedorDoc>(
+                    value: _proveedor,
+                    decoration: const InputDecoration(
+                      labelText: 'Proveedor *',
+                      labelStyle: TextStyle(fontFamily: _kFont),
+                      border: OutlineInputBorder(),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    isExpanded: true,
+                    items: _proveedores
+                        .where((p) => widget.fichasExistentes
+                            .every((f) => f.proveedorId != p.id))
+                        .map((p) => DropdownMenuItem(
+                              value: p,
+                              child: Text(p.razonSocial,
+                                  style: const TextStyle(
+                                      fontFamily: _kFont, fontSize: 13),
+                                  overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => _proveedor = v),
+                  ),
+          if (!isUpdate) const SizedBox(height: 12),
+          if (isUpdate)
+            Container(
+              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                children: [
+                  const Icon(Icons.store, size: 16, color: Colors.black54),
+                  const SizedBox(width: 8),
+                  Text(widget.fichaExistente!.proveedorNombre,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          // Observación
+          TextFormField(
+            controller: _obsCtrl,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: isUpdate
+                  ? 'Motivo de actualización *'
+                  : 'Observación (opcional)',
+              labelStyle: const TextStyle(fontFamily: _kFont),
+              hintText: isUpdate
+                  ? '¿Por qué se actualiza la ficha técnica?'
+                  : 'Nota inicial sobre la ficha…',
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          // Archivo
+          OutlinedButton.icon(
+            onPressed: _subiendo ? null : _pickFile,
+            icon: const Icon(Icons.attach_file, size: 16),
+            label: Text(
+              _fileName ?? 'Seleccionar PDF o imagen',
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
+            style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12)),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0277BD),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12)),
+              onPressed: _subiendo ? null : _subir,
+              icon: _subiendo
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.upload_file),
+              label: Text(
+                _subiendo
+                    ? 'Subiendo...'
+                    : (isUpdate ? 'Actualizar ficha' : 'Subir ficha'),
+                style: const TextStyle(
+                    fontFamily: _kFont, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2765,10 +3449,24 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   List<ProveedorDoc> _proveedores = [];
   List<ProductoDoc> _productos = [];
   List<MarcaDoc> _marcas = [];
+  List<FichaTecnicaDoc> _fichasTecnicas = [];
   bool _guardando = false;
   bool _loadingProvs = true;
 
   bool get isNew => widget.existing == null;
+
+  /// Busca la ficha técnica para una entrada (proveedor + producto + marca).
+  FichaTecnicaDoc? _fichaParaEntry(_RecepcionEntry e) {
+    if (_proveedor == null || e.producto == null) return null;
+    try {
+      return _fichasTecnicas.firstWhere((f) =>
+          f.proveedorId == _proveedor!.id &&
+          f.productoId == e.producto!.id &&
+          f.marcaId == (e.marcaSeleccionada?.id ?? ''));
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -2821,10 +3519,13 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           .toList()
         ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
 
+      final fichas = await widget.svc.getFichasTecnicas(widget.empresaId);
+
       setState(() {
         _proveedores = provs;
         _productos = prods;
         _marcas = marcas;
+        _fichasTecnicas = fichas;
 
         if (!isNew) {
           final r = widget.existing!;
@@ -3156,6 +3857,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                       todasMarcas: _marcas,
                       onMarcaChanged: (m) =>
                           setState(() => _entries[idx].marcaSeleccionada = m),
+                      fichaTecnicaDoc: _fichaParaEntry(e),
                     );
                   }),
                   const SizedBox(height: 10),
@@ -3211,6 +3913,9 @@ class _ProductoEntryCard extends StatelessWidget {
   final VoidCallback onChanged;
   final List<MarcaDoc> todasMarcas;
   final void Function(MarcaDoc?) onMarcaChanged;
+  /// Ficha técnica encontrada en la colección TBL_COMPRAS_FICHAS_TECNICAS para
+  /// este proveedor + producto + marca. Null si no existe todavía.
+  final FichaTecnicaDoc? fichaTecnicaDoc;
 
   const _ProductoEntryCard({
     required this.idx,
@@ -3222,6 +3927,7 @@ class _ProductoEntryCard extends StatelessWidget {
     required this.onChanged,
     required this.todasMarcas,
     required this.onMarcaChanged,
+    this.fichaTecnicaDoc,
   });
 
   @override
@@ -3417,54 +4123,122 @@ class _ProductoEntryCard extends StatelessWidget {
                     );
                   }),
                   const SizedBox(height: 12),
-                  // ─ Ficha técnica (preferir por marca, fallback producto) ─
+                  // ─ Ficha técnica (nueva colección primero, fallback producto) ─
                   Builder(builder: (context) {
                     if (producto == null) return const SizedBox.shrink();
-                    final fichaMarca = entry.marcaSeleccionada != null
-                        ? producto.fichasTecnicasPorMarca[entry.marcaSeleccionada!.id]
+
+                    // 1. Ficha de la nueva colección (pasada como parámetro)
+                    final fichaDoc = fichaTecnicaDoc;
+
+                    // 2. Fallback: fichasTecnicasPorMarca / fichaTecnica del producto
+                    final fichaMarcaLegacy = entry.marcaSeleccionada != null
+                        ? producto.fichasTecnicasPorMarca[
+                            entry.marcaSeleccionada!.id]
                         : null;
-                    final ficha = (fichaMarca?.tieneDoc == true)
-                        ? fichaMarca
+                    final fichaLegacy = (fichaMarcaLegacy?.tieneDoc == true)
+                        ? fichaMarcaLegacy
                         : producto.fichaTecnica;
-                    if (ficha?.tieneDoc != true) return const SizedBox.shrink();
-                    final usandoMarca = fichaMarca?.tieneDoc == true;
+
+                    // Si no hay ninguna fuente, no mostrar
+                    if (fichaDoc == null && fichaLegacy?.tieneDoc != true) {
+                      return const SizedBox.shrink();
+                    }
+
+                    // Determinar fuente y estado
+                    final doc = fichaDoc?.documentoActual ?? fichaLegacy;
+                    final url = doc?.url;
+
+                    Color badgeColor;
+                    String badgeLabel;
+                    String badgeTip;
+                    if (fichaDoc != null) {
+                      final d = fichaDoc.documentoActual;
+                      if (d == null || !d.tieneDoc) {
+                        badgeColor = Colors.grey;
+                        badgeLabel = 'Sin ficha';
+                        badgeTip = 'No hay ficha técnica registrada';
+                      } else if (d.aprobado) {
+                        badgeColor = kComprasGreen;
+                        badgeLabel = 'Aprobada';
+                        badgeTip = 'Ficha técnica aprobada por calidad';
+                      } else if (d.rechazado) {
+                        badgeColor = kComprasRed;
+                        badgeLabel = 'Rechazada';
+                        badgeTip =
+                            'Ficha rechazada: ${d.observacionCalidad ?? ''}';
+                      } else {
+                        badgeColor = const Color(0xFFB45309);
+                        badgeLabel = 'Pendiente';
+                        badgeTip = 'Ficha técnica pendiente de revisión';
+                      }
+                    } else {
+                      badgeColor = Colors.blue;
+                      badgeLabel = 'Disponible';
+                      badgeTip = 'Ficha técnica del producto';
+                    }
+
                     return Column(
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
+                            color: badgeColor.withAlpha(20),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.blue.shade200),
+                            border: Border.all(
+                                color: badgeColor.withAlpha(80)),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.description,
-                                  size: 16, color: Colors.blue),
+                              Icon(Icons.description,
+                                  size: 16, color: badgeColor),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Text(
-                                  usandoMarca
-                                      ? 'Ficha técnica de la marca seleccionada disponible'
-                                      : 'Ficha técnica del producto disponible',
-                                  style: const TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 12,
-                                      color: Colors.blue),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Ficha técnica',
+                                        style: TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 12,
+                                            fontWeight:
+                                                FontWeight.w600)),
+                                    Text(badgeTip,
+                                        style: TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 11,
+                                            color: badgeColor)),
+                                  ],
                                 ),
                               ),
-                              IconButton(
-                                onPressed: () => _abrirUrl(context, ficha!.url),
-                                icon: const Icon(Icons.search,
-                                    size: 18, color: Colors.blue),
-                                tooltip: usandoMarca
-                                    ? 'Ver ficha técnica de la marca seleccionada'
-                                    : 'Ver ficha técnica del producto',
-                                padding: EdgeInsets.zero,
-                                constraints: const BoxConstraints(
-                                    minWidth: 32, minHeight: 32),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 3),
+                                decoration: BoxDecoration(
+                                    color: badgeColor.withAlpha(30),
+                                    borderRadius:
+                                        BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: badgeColor)),
+                                child: Text(badgeLabel,
+                                    style: TextStyle(
+                                        fontFamily: _kFont,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: badgeColor)),
                               ),
+                              if (url != null && url.isNotEmpty)
+                                IconButton(
+                                  onPressed: () =>
+                                      _abrirUrl(context, url),
+                                  icon: const Icon(Icons.open_in_new,
+                                      size: 16),
+                                  tooltip: 'Ver ficha técnica',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                      minWidth: 32, minHeight: 32),
+                                ),
                             ],
                           ),
                         ),
@@ -5081,71 +5855,317 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                 ],
               ),
             ),
-          // ── Lista ──
+          // ── Lista combinada: fichas técnicas + recepciones ──
           Expanded(
-            child: StreamBuilder<List<RecepcionDoc>>(
-              stream: widget.svc
-                  .streamPendientesRevision(widget.empresaId),
-              builder: (ctx, snap) {
-                if (snap.connectionState ==
-                    ConnectionState.waiting) {
-                  return const Center(
-                      child: CircularProgressIndicator());
-                }
-                var lista = snap.data ?? [];
-                // Filtro producto
-                if (_filtroProducto.isNotEmpty) {
-                  lista = lista
-                      .where((r) => r.productos.any((p) => p.nombre
-                          .toLowerCase()
-                          .contains(_filtroProducto)))
-                      .toList();
-                }
-                // Filtro fecha
-                if (_filtroFecha != null) {
-                  lista = lista.where((r) {
-                    final d = r.fecha.toDate();
-                    return d.year == _filtroFecha!.year &&
-                        d.month == _filtroFecha!.month &&
-                        d.day == _filtroFecha!.day;
-                  }).toList();
-                }
-                if (lista.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+            child: ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                // ── Fichas técnicas pendientes de calidad ──
+                StreamBuilder<List<FichaTecnicaDoc>>(
+                  stream: widget.svc
+                      .streamFichasTecnicasPendientes(widget.empresaId),
+                  builder: (_, fSnap) {
+                    final fichas = fSnap.data ?? [];
+                    if (fichas.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.verified_user,
-                            size: 64,
-                            color: Colors.green.shade300),
-                        const SizedBox(height: 16),
-                        const Text('Sin documentos pendientes',
-                            style: TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600)),
-                        const Text('Todo está al día',
-                            style: TextStyle(
-                                fontFamily: _kFont,
-                                color: Colors.black54)),
+                        Row(
+                          children: [
+                            const Icon(Icons.description,
+                                size: 18, color: Color(0xFF0277BD)),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Fichas Técnicas pendientes (${fichas.length})',
+                              style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                  color: Color(0xFF0277BD)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ...fichas.map((f) => _FichaCalidadCard(
+                              ficha: f,
+                              svc: widget.svc,
+                              userId: widget.userId,
+                            )),
+                        const Divider(height: 24, thickness: 1),
                       ],
-                    ),
-                  );
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: lista.length,
-                  itemBuilder: (_, i) => _RecepcionCalidadCard(
-                    recepcion: lista[i],
-                    svc: widget.svc,
-                    userId: widget.userId,
-                    filtroProducto: _filtroProducto,
-                  ),
-                );
-              },
+                    );
+                  },
+                ),
+                // ── Recepciones pendientes de calidad ──
+                StreamBuilder<List<RecepcionDoc>>(
+                  stream: widget.svc
+                      .streamPendientesRevision(widget.empresaId),
+                  builder: (ctx, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                          child: CircularProgressIndicator());
+                    }
+                    var lista = snap.data ?? [];
+                    if (_filtroProducto.isNotEmpty) {
+                      lista = lista
+                          .where((r) => r.productos.any((p) => p.nombre
+                              .toLowerCase()
+                              .contains(_filtroProducto)))
+                          .toList();
+                    }
+                    if (_filtroFecha != null) {
+                      lista = lista.where((r) {
+                        final d = r.fecha.toDate();
+                        return d.year == _filtroFecha!.year &&
+                            d.month == _filtroFecha!.month &&
+                            d.day == _filtroFecha!.day;
+                      }).toList();
+                    }
+                    if (lista.isEmpty) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(height: 40),
+                            Icon(Icons.verified_user,
+                                size: 64, color: Colors.green.shade300),
+                            const SizedBox(height: 16),
+                            const Text('Sin documentos de recepción pendientes',
+                                style: TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600)),
+                            const Text('Todo está al día',
+                                style: TextStyle(
+                                    fontFamily: _kFont,
+                                    color: Colors.black54)),
+                          ],
+                        ),
+                      );
+                    }
+                    return Column(
+                      children: List.generate(
+                        lista.length,
+                        (i) => _RecepcionCalidadCard(
+                          recepcion: lista[i],
+                          svc: widget.svc,
+                          userId: widget.userId,
+                          filtroProducto: _filtroProducto,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FICHA TÉCNICA CARD para pantalla de Calidad
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _FichaCalidadCard extends StatelessWidget {
+  final FichaTecnicaDoc ficha;
+  final ComprasService svc;
+  final String userId;
+
+  const _FichaCalidadCard({
+    required this.ficha,
+    required this.svc,
+    required this.userId,
+  });
+
+  Future<void> _aprobar(BuildContext context) async {
+    try {
+      await svc.aprobarFichaTecnica(
+          fichaId: ficha.id, revisadoPor: userId);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ficha técnica aprobada.',
+              style: TextStyle(fontFamily: _kFont))));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: $e',
+              style: const TextStyle(fontFamily: _kFont))));
+    }
+  }
+
+  Future<void> _rechazar(BuildContext context) async {
+    final motivoCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rechazar ficha técnica',
+            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w700)),
+        content: TextField(
+          controller: motivoCtrl,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            labelText: 'Motivo del rechazo *',
+            labelStyle: TextStyle(fontFamily: _kFont),
+            border: OutlineInputBorder(),
+            hintText: 'Describe el motivo del rechazo…',
+          ),
+          style: const TextStyle(fontFamily: _kFont),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar',
+                  style: TextStyle(fontFamily: _kFont))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: kComprasRed),
+            onPressed: () {
+              if (motivoCtrl.text.trim().isEmpty) return;
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Rechazar',
+                style: TextStyle(
+                    fontFamily: _kFont, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || motivoCtrl.text.trim().isEmpty) return;
+    try {
+      await svc.rechazarFichaTecnica(
+        fichaId: ficha.id,
+        motivo: motivoCtrl.text.trim(),
+        revisadoPor: userId,
+        creadoPor: ficha.creadoPor,
+        empresaId: ficha.empresaId,
+        productoNombre: ficha.productoNombre,
+        marcaNombre: ficha.marcaNombre,
+        proveedorNombre: ficha.proveedorNombre,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Ficha técnica rechazada. Se notificó al usuario.',
+              style: TextStyle(fontFamily: _kFont))));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: $e',
+              style: const TextStyle(fontFamily: _kFont))));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final doc = ficha.documentoActual;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFF90CAF9), width: 0.8)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.description_outlined,
+                    size: 20, color: Color(0xFF0277BD)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(ficha.productoNombre,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (ficha.marcaNombre.isNotEmpty)
+              Text('Marca: ${ficha.marcaNombre}',
+                  style: const TextStyle(
+                      fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+            Text('Proveedor: ${ficha.proveedorNombre}',
+                style: const TextStyle(
+                    fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+            if (doc?.observacionActualizacion?.isNotEmpty == true) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.amber.shade200)),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline,
+                        size: 14, color: Color(0xFFB45309)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Obs. actualización: ${doc!.observacionActualizacion}',
+                        style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Color(0xFFB45309)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                if (doc?.tieneDoc == true)
+                  TextButton.icon(
+                    onPressed: () => _abrirUrl(context, doc!.url),
+                    icon: const Icon(Icons.open_in_new, size: 14),
+                    label: const Text('Ver PDF',
+                        style: TextStyle(fontFamily: _kFont, fontSize: 12)),
+                    style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4)),
+                  ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: () => _rechazar(context),
+                  icon: const Icon(Icons.cancel_outlined,
+                      size: 16, color: kComprasRed),
+                  label: const Text('Rechazar',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: kComprasRed)),
+                  style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4)),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: kComprasGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8)),
+                  onPressed: () => _aprobar(context),
+                  icon: const Icon(Icons.check_circle_outline, size: 16),
+                  label: const Text('Aprobar',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
