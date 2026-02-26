@@ -106,6 +106,59 @@ class ComprasService {
     return {'importados': imported, 'omitidos': omitidos};
   }
 
+  /// Importa una lista de productos desde Excel.
+  /// Omite los que ya existen (mismo código para la empresa).
+  /// Si el código está vacío se usa el nombre como clave de deduplicación.
+  /// Retorna {'importados': n, 'omitidos': n}.
+  Future<Map<String, int>> importarProductos(
+    String empresaId,
+    List<ProductoDoc> productos,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_PRODUCTOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+
+    // Clave de dedup: código (si existe) o nombre lowercase
+    final existentes = <String>{};
+    for (final d in snap.docs) {
+      final data = d.data();
+      final cod = (data['codigo'] as String? ?? '').trim();
+      final nom = (data['nombre'] as String? ?? '').trim().toLowerCase();
+      if (cod.isNotEmpty) existentes.add(cod.toLowerCase());
+      if (nom.isNotEmpty) existentes.add(nom);
+    }
+
+    var imported = 0;
+    var omitidos = 0;
+    const batchSize = 400;
+    var batch = _db.batch();
+    var count = 0;
+
+    for (final p in productos) {
+      final clave = p.codigo.isNotEmpty
+          ? p.codigo.toLowerCase()
+          : p.nombre.toLowerCase();
+      if (existentes.contains(clave)) {
+        omitidos++;
+        continue;
+      }
+      existentes.add(clave); // evita duplicados dentro del mismo archivo
+      final ref = _db.collection('TBL_COMPRAS_PRODUCTOS').doc();
+      batch.set(ref, p.toMap());
+      imported++;
+      count++;
+      if (count >= batchSize) {
+        await batch.commit();
+        batch = _db.batch();
+        count = 0;
+      }
+    }
+    if (count > 0) await batch.commit();
+
+    return {'importados': imported, 'omitidos': omitidos};
+  }
+
   // ─── RECEPCIONES ────────────────────────────────────────────────────────────
 
   Stream<List<RecepcionDoc>> streamRecepciones(String empresaId) => _db

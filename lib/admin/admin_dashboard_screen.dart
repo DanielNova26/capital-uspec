@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:todo/services/diagnosticos_service.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
 import 'package:todo/services/compras_proveedores_excel_parser.dart';
+import 'package:todo/services/compras_productos_excel_parser.dart';
 import '../compras/compras_req_seed.dart';
 import '../compras/compras_service.dart';
 import '../compras/compras_models.dart';
@@ -73,6 +74,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Uint8List? _proveedoresBytes;
   Map<String, int>? _proveedoresImportResult;
   bool _importandoProveedores = false;
+
+  // Productos: carga masiva desde Excel
+  final ComprasProductosExcelParser _productosParser =
+      ComprasProductosExcelParser();
+  String? _productosFileName;
+  Uint8List? _productosBytes;
+  Map<String, int>? _productosImportResult;
+  bool _importandoProductos = false;
 
   @override
   void initState() {
@@ -1158,6 +1167,75 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
+  Future<void> _pickProductosExcel() async {
+    final picked = await FilePicker.platform.pickFiles(
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xlsm', 'xls'],
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    setState(() {
+      _productosFileName = file.name;
+      _productosBytes = file.bytes;
+      _productosImportResult = null;
+    });
+  }
+
+  Future<void> _importarProductosExcel() async {
+    final empresaId = _empresaId ?? '';
+    final bytes = _productosBytes;
+    if (empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (bytes == null) {
+      _snack('Primero selecciona un archivo Excel de productos.');
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Importar productos desde Excel',
+      message:
+          'Se agregarán los productos del archivo a la empresa seleccionada. '
+          'Los productos con código o nombre ya existente serán omitidos.',
+      confirmText: 'Importar',
+    );
+    if (!ok) return;
+
+    setState(() => _importandoProductos = true);
+    try {
+      final parsed = _productosParser.parse(
+        bytes: bytes,
+        empresaId: empresaId,
+        categoriasValidas: kCategoriasCompras,
+        unidadesValidas: kUnidadesMedida,
+      );
+      if (parsed.productos.isEmpty) {
+        _snack('No se detectaron filas válidas en el archivo.');
+        return;
+      }
+
+      final result =
+          await ComprasService().importarProductos(empresaId, parsed.productos);
+      if (!mounted) return;
+      setState(() {
+        _productosImportResult = {
+          'importados': result['importados'] ?? 0,
+          'omitidos': (result['omitidos'] ?? 0) + parsed.skippedRows,
+        };
+      });
+      _snack(
+        'Productos importados: ${result['importados'] ?? 0} '
+        '(omitidos: ${(result['omitidos'] ?? 0) + parsed.skippedRows}).',
+      );
+    } catch (e) {
+      _snack('Error al importar productos: $e');
+    } finally {
+      if (mounted) setState(() => _importandoProductos = false);
+    }
+  }
+
   Future<void> _sembrarReqComprasBase() async {
     if (_empresaId == null || _empresaId!.isEmpty) {
       _snack('Selecciona una empresa primero.');
@@ -1471,6 +1549,110 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        // ── Carga masiva de productos ──────────────────────────────────
+        Builder(builder: (_) {
+          final prodResult = _productosImportResult;
+          return Card(
+            color: kAdminCard,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.green.shade200),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.inventory_2_outlined,
+                          color: Colors.green.shade700, size: 24),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Carga masiva de productos',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Sube un Excel con el maestro inicial de productos de la empresa. '
+                    'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA, UNIDAD_MEDIDA. '
+                    'Opcionales: CODIGO_PRODUCTO, ORIGEN (NACIONAL/IMPORTADO), PERECEDERO (SI/NO).\n'
+                    'Los productos con código o nombre ya registrado serán omitidos.',
+                    style: TextStyle(fontFamily: kArial, height: 1.4),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed:
+                        _importandoProductos ? null : _pickProductosExcel,
+                    icon: const Icon(Icons.attach_file),
+                    label: Text(
+                      _productosFileName == null
+                          ? 'Seleccionar Excel de productos'
+                          : _productosFileName!,
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: _importandoProductos
+                          ? null
+                          : _importarProductosExcel,
+                      icon: _importandoProductos
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.file_upload_outlined),
+                      label: Text(
+                        _importandoProductos
+                            ? 'Importando...'
+                            : 'Importar productos desde Excel',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (prodResult != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        border: Border.all(color: Colors.green.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'Última importación: ${prodResult['importados'] ?? 0} productos cargados • ${prodResult['omitidos'] ?? 0} omitidos (duplicado o fila inválida).',
+                        style: const TextStyle(fontFamily: kArial),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        }),
       ],
     );
   }
