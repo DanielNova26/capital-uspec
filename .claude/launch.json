@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "capital-uspec-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npx serve -s build/web -l 8080"],
+      "port": 8080
+    }
+  ]
+}

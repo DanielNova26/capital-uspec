@@ -314,7 +314,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== Adjuntos / Foto ====================
   final ImagePicker _picker = ImagePicker();
-  File? _photo;
+  XFile? _photo;
   final List<PlatformFile> _pickedFiles = [];
 
   // ==================== Ubicación ====================
@@ -946,7 +946,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _takePhoto() async {
     try {
       final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-      if (x != null) setState(() => _photo = File(x.path));
+      if (x != null) setState(() => _photo = x);
     } catch (_) {}
   }
 
@@ -960,7 +960,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         insetPadding: const EdgeInsets.all(12),
         child: GestureDetector(
           onTap: () => Navigator.pop(context),
-          child: InteractiveViewer(child: Image.file(_photo!, fit: BoxFit.contain)),
+          child: InteractiveViewer(
+            child: kIsWeb
+                ? Image.network(_photo!.path, fit: BoxFit.contain)
+                : Image.file(File(_photo!.path), fit: BoxFit.contain),
+          ),
         ),
       ),
     );
@@ -1771,12 +1775,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           alignment: Alignment.centerLeft,
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              _photo!,
-                              height: 120,
-                              width: 90,
-                              fit: BoxFit.cover,
-                            ),
+                            child: kIsWeb
+                                ? Image.network(_photo!.path, height: 120, width: 90, fit: BoxFit.cover)
+                                : Image.file(File(_photo!.path), height: 120, width: 90, fit: BoxFit.cover),
                           ),
                         ),
 

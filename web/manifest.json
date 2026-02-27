@@ -1,11 +1,11 @@
 {
-    "name": "capital_uspec",
-    "short_name": "capital_uspec",
+    "name": "To-Do",
+    "short_name": "To-Do",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "Aplicaicon principal de Capital Uspec",
+    "background_color": "#000000",
+    "theme_color": "#0078D7",
+    "description": "Aplicación de Gestión Empresarial",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

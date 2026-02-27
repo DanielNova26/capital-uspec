@@ -133,7 +133,7 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     ];
 
     // base
-    final raw = await File(x.path).readAsBytes();
+    final raw = await x.readAsBytes();
     final codec = await ui.instantiateImageCodec(raw);
     final frame = await codec.getNextFrame();
     final img = frame.image;

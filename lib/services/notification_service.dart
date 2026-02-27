@@ -97,7 +97,7 @@ class NotificationsService {
     // 2) Crear canal Android con máxima importancia (coincide con AndroidManifest)
     final android = _fln.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    if (android != null && Platform.isAndroid) {
+    if (android != null && !kIsWeb && Platform.isAndroid) {
       final channel = AndroidNotificationChannel(
         'tasks_high',
         'Tareas',
@@ -284,12 +284,14 @@ class NotificationsService {
 
   /// Registra el token en la función registerDeviceToken (doc por cédula).
   static Future<void> _registerTokenWithCedula(String token) async {
-    final platform = Platform.operatingSystem;
-    final deviceName = Platform.isAndroid
-        ? 'Android'
-        : Platform.isIOS
-        ? 'iOS'
-        : platform;
+    final platform = kIsWeb ? 'web' : Platform.operatingSystem;
+    final deviceName = kIsWeb
+        ? 'Web'
+        : Platform.isAndroid
+            ? 'Android'
+            : Platform.isIOS
+                ? 'iOS'
+                : platform;
     try {
       final cedula = await _resolveCedula();
       if (cedula == null) {

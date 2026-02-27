@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -2462,16 +2464,27 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
       if (!mounted) return;
 
-      // Guardar el PDF en directorio temporal y abrirlo
-      final dir = await getTemporaryDirectory();
       final nombre = _nombreCompletoCtrl.text
           .trim()
           .replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
       final fecha = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
-      final filePath =
-          '${dir.path}/reporte_nutri_${nombre}_$fecha.pdf';
-      await File(filePath).writeAsBytes(pdfBytes);
-      await OpenFilex.open(filePath);
+      final fileName = 'reporte_nutri_${nombre}_$fecha.pdf';
+
+      if (kIsWeb) {
+        // En web: descarga directa en el navegador
+        await FileSaver.instance.saveFile(
+          name: 'reporte_nutri_${nombre}_$fecha',
+          bytes: pdfBytes,
+          fileExtension: 'pdf',
+          mimeType: MimeType.pdf,
+        );
+      } else {
+        // En móvil/desktop: guardar y abrir
+        final dir = await getTemporaryDirectory();
+        final filePath = '${dir.path}/$fileName';
+        await File(filePath).writeAsBytes(pdfBytes);
+        await OpenFilex.open(filePath);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

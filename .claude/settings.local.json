@@ -16,7 +16,20 @@
       "Bash(powershell.exe -Command:*)",
       "Bash(PYTHONPATH=\"/c/Users/SERVICIO TECNICO/AppData/Local/Programs/Python/Python313/Lib/site-packages\" /c/Windows/py:*)",
       "Bash(PYTHONPATH=\"/c/Users/SERVICIO TECNICO/AppData/Local/Programs/Python/Python313/Lib/site-packages\" /c/Windows/py -c:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(flutter build web --no-tree-shake-icons)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(where flutter)",
+      "Bash(where python3)",
+      "Bash(where python)",
+      "Bash(where py)",
+      "Bash(where node)",
+      "Bash(where npx)",
+      "Bash(flutter build web --no-tree-shake-icons --no-wasm-dry-run)",
+      "Bash(firebase --version)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase login --no-localhost)",
+      "Bash(firebase deploy --only hosting:to-do-gestion --project integra360-94704)"
     ]
   }
 }

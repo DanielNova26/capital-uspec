@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -138,7 +139,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
     if (x == null) return;
 
-    final raw = await File(x.path).readAsBytes();
+    final raw = await x.readAsBytes();
     final img = await _decodeUiImage(raw);
 
     final wm = await _buildWatermarkedBytes(
@@ -152,12 +153,15 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     );
     if (wm == null) return;
 
-    // guarda temporal y agrega a lista
     final name = 'evid_${DateTime.now().millisecondsSinceEpoch}.png';
-    final dir = Directory.systemTemp;
-    final file = File('${dir.path}/$name')..writeAsBytesSync(wm);
+    String? filePath;
+    if (!kIsWeb) {
+      final dir = Directory.systemTemp;
+      final file = File('${dir.path}/$name')..writeAsBytesSync(wm);
+      filePath = file.path;
+    }
     setState(() {
-      _picked.add(PlatformFile(name: name, path: file.path, size: file.lengthSync(), bytes: wm));
+      _picked.add(PlatformFile(name: name, path: filePath, size: wm.length, bytes: wm));
       _photos.add(_PhotoMeta(name: name, when: DateTime.now(), lat: _pos?.latitude, lng: _pos?.longitude));
     });
   }

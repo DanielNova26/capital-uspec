@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -30,6 +31,13 @@ import '../compras/compras_service.dart';
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
 import 'task_history_screen.dart' hide kArial;
+// Pantallas para sidebar web
+import 'package:firebase_auth/firebase_auth.dart';
+import '../login/login_screen.dart';
+import 'profile_screen.dart' hide kArial;
+import 'team_screen.dart' hide kArial;
+import 'create_task_screen.dart' hide kArial;
+import 'team_overview_screen.dart' hide kArial;
 
 class HomeScreen extends StatefulWidget {
   final String username; // cédula o username (docId en TBL_USUARIOS)
@@ -193,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
     var token = await _safeGetToken();
     if (token != null && token.isNotEmpty) return token;
 
-    if (Platform.isIOS) {
+    if (!kIsWeb && Platform.isIOS) {
       var apnsToken = await FirebaseMessaging.instance.getAPNSToken();
       debugPrint('[FCM] APNS token (retry path): $apnsToken');
 
@@ -218,12 +226,14 @@ class _HomeScreenState extends State<HomeScreen> {
     required String token,
     required String userId,
   }) async {
-    final platform = Platform.operatingSystem;
-    final deviceName = Platform.isAndroid
-        ? 'Android'
-        : Platform.isIOS
-        ? 'iOS'
-        : platform;
+    final platform = kIsWeb ? 'web' : Platform.operatingSystem;
+    final deviceName = kIsWeb
+        ? 'Web'
+        : Platform.isAndroid
+            ? 'Android'
+            : Platform.isIOS
+                ? 'iOS'
+                : platform;
     try {
       final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
       await fun.call({
@@ -449,7 +459,7 @@ class _HomeScreenState extends State<HomeScreen> {
             await _persistFcmToken(token: newToken, userId: userId);
           });
 
-      if (Platform.isIOS) {
+      if (!kIsWeb && Platform.isIOS) {
         final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
         debugPrint('[FCM] APNS token: $apnsToken');
       }
@@ -733,6 +743,170 @@ class _HomeScreenState extends State<HomeScreen> {
     await _markAllAsRead(cedula: cedula, notifications: notifications);
   }
 
+  // ============= WEB SIDEBAR =============
+
+  Widget _buildWebSidebar(BuildContext context, String userId) {
+    const bg = Color(0xFF0F2847);
+    return Container(
+      width: 240,
+      color: bg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Logo + título
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
+            child: Row(children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset('assets/logo.png', width: 36, height: 36),
+              ),
+              const SizedBox(width: 12),
+              const Text('To-Do',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: kArial)),
+            ]),
+          ),
+          const Divider(color: Color(0xFF1E3A5F), height: 1),
+          const SizedBox(height: 4),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                _sidebarItem(Icons.assignment_ind_outlined, 'Tareas asignadas',
+                    () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => AssignedTasksScreen(userId: userId)))),
+                _sidebarItem(Icons.add_task, 'Crear tarea',
+                    () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => CreateTaskScreen(currentUserId: userId)))),
+                _sidebarItem(Icons.history, 'Historial',
+                    () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => TaskHistoryScreen(userId: userId)))),
+                _sidebarItem(Icons.group_outlined, 'Mi equipo',
+                    () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => TeamScreen(userId: userId)))),
+                _sidebarItem(Icons.supervised_user_circle_outlined, 'Actividades del equipo',
+                    () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => TeamOverviewScreen(userId: userId)))),
+                _sidebarItem(Icons.person_outline, 'Perfil',
+                    () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => ProfileScreen(userId: userId)))),
+              ],
+            ),
+          ),
+          const Divider(color: Color(0xFF1E3A5F), height: 1),
+          _sidebarItem(
+            Icons.logout, 'Cerrar sesión',
+            () async {
+              await FirebaseAuth.instance.signOut();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (_) => false,
+                );
+              }
+            },
+            iconColor: Colors.redAccent,
+            textColor: Colors.redAccent,
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  Widget _sidebarItem(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    Color iconColor = const Color(0xFF93B4D4),
+    Color textColor = Colors.white,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        hoverColor: const Color(0xFF1A3A6A),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
+          child: Row(children: [
+            Icon(icon, color: iconColor, size: 20),
+            const SizedBox(width: 14),
+            Flexible(
+              child: Text(label,
+                  style: TextStyle(
+                      color: textColor, fontFamily: kArial, fontSize: 14)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebTopBar(BuildContext context, String saludo, int unreadCount,
+      List<Map<String, dynamic>> notifications, String cedula) {
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 4,
+              offset: const Offset(0, 2))
+        ],
+      ),
+      child: Row(children: [
+        const Icon(Icons.home_outlined, color: Color(0xFF6B7280), size: 20),
+        const SizedBox(width: 10),
+        Text('Bienvenido, $saludo 👋',
+            style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF111827))),
+        const Spacer(),
+        IconButton(
+          tooltip: 'Notificaciones',
+          onPressed: () => _showNotificationsSheet(
+              cedula: cedula, notifications: notifications),
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.notifications_outlined,
+                  color: Color(0xFF374151), size: 24),
+              if (unreadCount > 0)
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10)),
+                    constraints:
+                        const BoxConstraints(minWidth: 18, minHeight: 16),
+                    child: Text(unreadCount > 9 ? '9+' : '$unreadCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+      ]),
+    );
+  }
+
   // ============= Apps grid/horizontal =============
   Widget _buildAppsSection({
     required String empresaId,
@@ -883,42 +1057,77 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        Widget buildTile(_AppItem a) => GestureDetector(
+        // Tarjeta estilo web (desktop)
+        Widget buildWebCard(_AppItem a) => Card(
+          elevation: 1,
+          margin: EdgeInsets.zero,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: a.onTap,
+            hoverColor: scheme.primary.withOpacity(0.05),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(children: [
+                Container(
+                  width: 46, height: 46,
+                  decoration: BoxDecoration(
+                      color: scheme.primary, borderRadius: BorderRadius.circular(10)),
+                  child: Center(child: a.iconBuilder()),
+                ),
+                const SizedBox(width: 14),
+                Expanded(child: Text(a.nombre,
+                    style: const TextStyle(fontFamily: kArial, fontSize: 15, fontWeight: FontWeight.w600))),
+                const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              ]),
+            ),
+          ),
+        );
+
+        // Ícono móvil (pequeño círculo)
+        Widget buildMobileTile(_AppItem a) => GestureDetector(
           onTap: a.onTap,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: scheme.primary,
-                child: a.iconBuilder(),
-              ),
+              CircleAvatar(radius: 28, backgroundColor: scheme.primary, child: a.iconBuilder()),
               const SizedBox(height: 4),
               SizedBox(
                 width: 120,
-                child: Text(
-                  a.nombre,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontFamily: kArial, fontSize: 14),
-                ),
+                child: Text(a.nombre, textAlign: TextAlign.center, maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontFamily: kArial, fontSize: 14)),
               ),
             ],
           ),
         );
 
-        if (tiles.length == 1) {
-          return Center(child: buildTile(tiles.first));
+        // Desktop: columna de tarjetas
+        if (kIsWeb && MediaQuery.of(context).size.width > 800) {
+          return Column(
+            children: tiles.map((t) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: buildWebCard(t),
+            )).toList(),
+          );
         }
 
+        if (tiles.length == 1) return Center(child: buildMobileTile(tiles.first));
+
+        // Tablet (600-800): wrap de íconos
+        if (MediaQuery.of(context).size.width > 600) {
+          return Wrap(spacing: 16, runSpacing: 12,
+              children: tiles.map(buildMobileTile).toList());
+        }
+
+        // Móvil: scroll horizontal
         return SizedBox(
           height: 120,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: tiles.length,
             separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (_, i) => buildTile(tiles[i]),
+            itemBuilder: (_, i) => buildMobileTile(tiles[i]),
           ),
         );
       },
@@ -1352,190 +1561,220 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _events = map;
 
-    return Scaffold(
-                      drawer: AppDrawer(userId: effectiveId),
-                      appBar: AppBar(
-                        backgroundColor: scheme.primary,
-                        foregroundColor: scheme.onPrimary,
-                        leading: Builder(
-                          builder: (ctx) => IconButton(
-                            icon: const Icon(Icons.menu),
-                            onPressed: () => Scaffold.of(ctx).openDrawer(),
-                          ),
-                        ),
-                        title: Text('Bienvenido, $saludo',
-                            style: const TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w600)),
-                        centerTitle: true,
-                        actions: [
-                          IconButton(
-                            tooltip: 'Notificaciones',
-                            onPressed: () => _showNotificationsSheet(
-                              cedula: effectiveId,
-                              notifications: notifications,
-                            ),
-                            icon: Stack(
-                              clipBehavior: Clip.none,
+    // ── Calendario (widget reutilizable) ──────────────────────────
+    Widget calendarWidget = Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: TableCalendar(
+          locale: 'es_CO',
+          startingDayOfWeek: StartingDayOfWeek.monday,
+          firstDay: DateTime(2000),
+          lastDay: DateTime.now().add(const Duration(days: 365)),
+          focusedDay: _focusedDay,
+          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+          onDaySelected: (selected, focused) {
+            setState(() { _selectedDay = selected; _focusedDay = focused; });
+          },
+          eventLoader: _getEventsForDay,
+          calendarStyle: CalendarStyle(
+            markersMaxCount: 4,
+            markerDecoration: BoxDecoration(color: scheme.primary, shape: BoxShape.circle),
+          ),
+          calendarBuilders: CalendarBuilders(
+            markerBuilder: (context, day, events) {
+              if (events.isEmpty) return const SizedBox.shrink();
+              final color = _calendarMarkerColor(events.cast<Map<String, dynamic>>());
+              return Positioned(
+                bottom: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+                  child: Text('${events.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    Widget activitiesWidget = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text('Actividades (${DateFormat('dd/MM/yyyy', 'es').format(_selectedDay)})',
+            style: const TextStyle(fontFamily: kArial, fontSize: 15, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        if (_getEventsForDay(_selectedDay).isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('No hay actividades para este día.',
+                style: TextStyle(fontFamily: kArial, color: Colors.black54)),
+          )
+        else
+          ..._getEventsForDay(_selectedDay).map(
+            (evt) => ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.event, color: scheme.primary),
+              title: Text(evt['title'] as String? ?? '', style: const TextStyle(fontFamily: kArial)),
+              subtitle: Text(evt['description'] as String? ?? '', style: const TextStyle(fontFamily: kArial)),
+            ),
+          ),
+      ],
+    );
+
+    // ── Layout DESKTOP (sidebar + 2 columnas) ──────────────────────
+    final isDesktop = kIsWeb && MediaQuery.of(context).size.width > 800;
+
+    if (isDesktop) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF3F4F6),
+        body: Row(
+          children: [
+            _buildWebSidebar(context, effectiveId),
+            Expanded(
+              child: Column(
+                children: [
+                  _buildWebTopBar(context, saludo, unreadCount, notifications, effectiveId),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(28),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Columna izquierda: módulos + tareas
+                          Expanded(
+                            flex: 6,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(Icons.notifications_none),
-                                if (unreadCount > 0)
-                                  Positioned(
-                                    right: -2,
-                                    top: -2,
-                                    child: AnimatedSwitcher(
-                                      duration: const Duration(milliseconds: 260),
-                                      transitionBuilder: (child, animation) => ScaleTransition(
-                                        scale: CurvedAnimation(
-                                          parent: animation,
-                                          curve: Curves.easeOutBack,
-                                        ),
-                                        child: FadeTransition(opacity: animation, child: child),
-                                      ),
-                                      child: Container(
-                                        key: ValueKey<int>(unreadCount),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 5, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red,
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        constraints: const BoxConstraints(
-                                            minWidth: 18, minHeight: 16),
-                                        child: Text(
-                                          unreadCount > 9 ? '9+' : '$unreadCount',
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                const Text('Mis módulos',
+                                    style: TextStyle(fontFamily: kArial, fontSize: 18,
+                                        fontWeight: FontWeight.bold, color: Color(0xFF111827))),
+                                const SizedBox(height: 14),
+                                _buildAppsSection(empresaId: empresaId, role: role,
+                                    assignedApps: assignedApps, cedula: effectiveId),
+                                const SizedBox(height: 32),
+                                const Text('Tareas del día',
+                                    style: TextStyle(fontFamily: kArial, fontSize: 18,
+                                        fontWeight: FontWeight.bold, color: Color(0xFF111827))),
+                                const SizedBox(height: 14),
+                                _buildTodayTasksSlider(
+                                    assignedToMe: assignedDocs, iCreated: createdDocs, myId: effectiveId),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 28),
+                          // Columna derecha: calendario
+                          SizedBox(
+                            width: 370,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Calendario',
+                                    style: TextStyle(fontFamily: kArial, fontSize: 18,
+                                        fontWeight: FontWeight.bold, color: Color(0xFF111827))),
+                                const SizedBox(height: 14),
+                                calendarWidget,
+                                activitiesWidget,
+                              ],
+                            ),
+                          ),
                         ],
                       ),
-                      body: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Mis Apps',
-                                style: TextStyle(
-                                    fontFamily: kArial,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 8),
-                            _buildAppsSection(
-                              empresaId: empresaId,
-                              role: role,
-                              assignedApps: assignedApps,
-                              cedula: effectiveId,
-                            ),
-                            const SizedBox(height: 24),
-                            const Text('Tareas del día',
-                                style: TextStyle(
-                                    fontFamily: kArial,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 8),
-                            _buildTodayTasksSlider(
-                              assignedToMe: assignedDocs,
-                              iCreated: createdDocs,
-                              myId: effectiveId,
-                            ),
-                            const SizedBox(height: 24),
-                            const Text('Calendario',
-                                style: TextStyle(
-                                    fontFamily: kArial,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 8),
-                            TableCalendar(
-                              locale: 'es_CO',
-                              startingDayOfWeek: StartingDayOfWeek.monday,
-                              firstDay: DateTime(2000),
-                              lastDay: DateTime.now().add(const Duration(days: 365)),
-                              focusedDay: _focusedDay,
-                              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                              onDaySelected: (selected, focused) {
-                                setState(() {
-                                  _selectedDay = selected;
-                                  _focusedDay = focused;
-                                });
-                              },
-                              eventLoader: _getEventsForDay,
-                              calendarStyle: CalendarStyle(
-                                markersMaxCount: 4,
-                                markerDecoration: BoxDecoration(
-                                  color: scheme.primary,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              calendarBuilders: CalendarBuilders(
-                                markerBuilder: (context, day, events) {
-                                  if (events.isEmpty) return const SizedBox.shrink();
-                                  final raw = events.cast<Map<String, dynamic>>();
-                                  final color = _calendarMarkerColor(raw);
-                                  return Positioned(
-                                    bottom: 2,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: color,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        '${events.length}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Actividades (${DateFormat('dd/MM/yyyy', 'es').format(_selectedDay)})',
-                              style: const TextStyle(
-                                  fontFamily: kArial,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            if (_getEventsForDay(_selectedDay).isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Text(
-                                  'No hay actividades para este día.',
-                                  style: TextStyle(fontFamily: kArial, color: Colors.black54),
-                                ),
-                              )
-                            else
-                              ..._getEventsForDay(_selectedDay).map(
-                                    (evt) => ListTile(
-                                  dense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  leading: Icon(Icons.event, color: scheme.primary),
-                                  title: Text(evt['title'] as String? ?? '',
-                                      style: const TextStyle(fontFamily: kArial)),
-                                  subtitle: Text(evt['description'] as String? ?? '',
-                                      style: const TextStyle(fontFamily: kArial)),
-                                ),
-                              ),
-                          ],
-                        ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── Layout MOBILE (drawer + appbar) ────────────────────────────
+    return Scaffold(
+      drawer: AppDrawer(userId: effectiveId),
+      appBar: AppBar(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
+        title: Text('Bienvenido, $saludo',
+            style: const TextStyle(fontFamily: kArial, fontSize: 20, fontWeight: FontWeight.w600)),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Notificaciones',
+            onPressed: () => _showNotificationsSheet(cedula: effectiveId, notifications: notifications),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_none),
+                if (unreadCount > 0)
+                  Positioned(
+                    right: -2, top: -2,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 260),
+                      transitionBuilder: (child, animation) => ScaleTransition(
+                        scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
+                        child: FadeTransition(opacity: animation, child: child),
                       ),
+                      child: Container(
+                        key: ValueKey<int>(unreadCount),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(10)),
+                        constraints: const BoxConstraints(minWidth: 18, minHeight: 16),
+                        child: Text(unreadCount > 9 ? '9+' : '$unreadCount',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Mis Apps',
+                    style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                _buildAppsSection(empresaId: empresaId, role: role,
+                    assignedApps: assignedApps, cedula: effectiveId),
+                const SizedBox(height: 24),
+                const Text('Tareas del día',
+                    style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                _buildTodayTasksSlider(
+                    assignedToMe: assignedDocs, iCreated: createdDocs, myId: effectiveId),
+                const SizedBox(height: 24),
+                const Text('Calendario',
+                    style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                calendarWidget,
+                activitiesWidget,
+              ],
+            ),
+          ),
+        ),
+      ),
     );
     },
                     );

@@ -24,7 +24,7 @@
   },
   "hosting": [
     {
-      "site": "integra360",
+      "site": "to-do-gestion",
       "public": "build/web",
       "ignore": [
         "firebase.json",

@@ -35,17 +35,23 @@ Future<void> _initFirebaseAndPushCore() async {
   //   al desarrollar en simuladores o sin App Attest configurado.
   // - En release fuerza los proveedores reales (Play Integrity / App Attest)
   //   con fallback a DeviceCheck en iOS para evitar 403 de "attestation failed".
-  await FirebaseAppCheck.instance.activate(
-    androidProvider:
-        kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
-    appleProvider: kReleaseMode
-        ? AppleProvider.appAttestWithDeviceCheckFallback
-        : AppleProvider.debug,
-  );
+  // En web se omite App Check (requiere reCAPTCHA site key en producción).
+  if (!kIsWeb) {
+    await FirebaseAppCheck.instance.activate(
+      androidProvider:
+          kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+      appleProvider: kReleaseMode
+          ? AppleProvider.appAttestWithDeviceCheckFallback
+          : AppleProvider.debug,
+    );
+  }
 
   // NotificationsService maneja: notificaciones locales, FCM foreground,
   // onMessageOpenedApp, getInitialMessage y deep-linking con navigatorKey.
-  await NotificationsService.init(navigatorKey: navigatorKey);
+  // En web no se usan notificaciones locales (dart:io no soportado).
+  if (!kIsWeb) {
+    await NotificationsService.init(navigatorKey: navigatorKey);
+  }
 }
 
 Future<void> main() async {
@@ -84,7 +90,7 @@ class ToDoApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
-      title: 'ToDo',
+      title: 'To-Do',
       debugShowCheckedModeBanner: false,
 
       // 👇 Localización en español

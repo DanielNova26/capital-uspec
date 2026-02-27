@@ -234,7 +234,7 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 88);
       if (x == null) return;
 
-      final raw = await File(x.path).readAsBytes();
+      final raw = await x.readAsBytes();
       final img = await _decodeUiImage(raw);
 
       final wm = await _buildWatermarkedBytes(
