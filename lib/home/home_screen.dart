@@ -784,13 +784,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         builder: (_) => CreateTaskScreen(currentUserId: userId)))),
                 _sidebarItem(Icons.history, 'Historial',
                     () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => TaskHistoryScreen(userId: userId)))),
+                        builder: (_) => TaskHistoryScreen(currentUserId: userId)))),
                 _sidebarItem(Icons.group_outlined, 'Mi equipo',
                     () => Navigator.push(context, MaterialPageRoute(
                         builder: (_) => TeamScreen(userId: userId)))),
                 _sidebarItem(Icons.supervised_user_circle_outlined, 'Actividades del equipo',
                     () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => TeamOverviewScreen(userId: userId)))),
+                        builder: (_) => TeamOverviewScreen(currentUserId: userId)))),
                 _sidebarItem(Icons.person_outline, 'Perfil',
                     () => Navigator.push(context, MaterialPageRoute(
                         builder: (_) => ProfileScreen(userId: userId)))),

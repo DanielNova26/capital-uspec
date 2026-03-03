@@ -2,9 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_dropzone/flutter_dropzone.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:url_launcher/url_launcher.dart';
@@ -13,6 +15,7 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 
 import 'compras_models.dart';
 import 'compras_service.dart';
+import 'compras_req_engine.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // COLORES DEL MÓDULO
@@ -170,6 +173,12 @@ class ComprasDashboardScreen extends StatelessWidget {
       colorRol = kComprasPrimary;
     }
 
+    final isDesktop = kIsWeb && MediaQuery.of(context).size.width > 800;
+
+    if (isDesktop) {
+      return _buildWebLayout(context, svc, subtituloRol, colorRol);
+    }
+
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
@@ -178,9 +187,6 @@ class ComprasDashboardScreen extends StatelessWidget {
         backgroundColor: kComprasPrimary,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          // La campana de notificaciones vive en Home; no en el módulo.
-        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -200,21 +206,14 @@ class ComprasDashboardScreen extends StatelessWidget {
                       fontSize: 16,
                       color: colorRol)),
               const SizedBox(height: 24),
-
-              // ── Proveedores (no disponible para bodega) ──
               if (!_soloRecepcion) ...[
                 _MenuTile(
                   icon: Icons.business,
                   titulo: 'Proveedores',
                   subtitulo: 'Registrar y gestionar proveedores',
                   color: const Color(0xFF1565C0),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => _ProveedoresScreen(
-                          empresaId: empresaId, svc: svc),
-                    ),
-                  ),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => _ProveedoresScreen(empresaId: empresaId, svc: svc))),
                 ),
                 const SizedBox(height: 14),
                 _MenuTile(
@@ -222,13 +221,8 @@ class ComprasDashboardScreen extends StatelessWidget {
                   titulo: 'Marcas',
                   subtitulo: 'Gestionar marcas vinculadas a productos',
                   color: const Color(0xFF1976D2),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          _MarcasScreen(empresaId: empresaId, svc: svc),
-                    ),
-                  ),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => _MarcasScreen(empresaId: empresaId, svc: svc))),
                 ),
                 const SizedBox(height: 14),
                 _MenuTile(
@@ -236,35 +230,19 @@ class ComprasDashboardScreen extends StatelessWidget {
                   titulo: 'Productos',
                   subtitulo: 'Catálogo de productos del almacén',
                   color: const Color(0xFF0277BD),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => _ProductosScreen(
-                          empresaId: empresaId, svc: svc, userId: userId),
-                    ),
-                  ),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => _ProductosScreen(empresaId: empresaId, svc: svc, userId: userId))),
                 ),
                 const SizedBox(height: 14),
               ],
-
-              // ── Recepción (visible para todos) ──
               _MenuTile(
                 icon: Icons.local_shipping,
                 titulo: 'Recepción de Mercancía',
                 subtitulo: 'Registrar llegada de proveedores con documentos',
                 color: kComprasPrimary,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => _RecepcionesScreen(
-                        empresaId: empresaId,
-                        svc: svc,
-                        userId: userId),
-                  ),
-                ),
+                onTap: () => Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => _RecepcionesScreen(empresaId: empresaId, svc: svc, userId: userId))),
               ),
-
-              // ── Consultas (no disponible para bodega) ──
               if (!_soloRecepcion) ...[
                 const SizedBox(height: 14),
                 _MenuTile(
@@ -272,17 +250,10 @@ class ComprasDashboardScreen extends StatelessWidget {
                   titulo: 'Consultas',
                   subtitulo: 'Consultar por proveedor o producto',
                   color: const Color(0xFF283593),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => _ConsultasScreen(
-                          empresaId: empresaId, svc: svc),
-                    ),
-                  ),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc))),
                 ),
               ],
-
-              // ── Calidad (solo para rol calidad) ──
               if (_esCalidad) ...[
                 const SizedBox(height: 14),
                 _MenuTile(
@@ -290,20 +261,224 @@ class ComprasDashboardScreen extends StatelessWidget {
                   titulo: 'Revisión de Calidad',
                   subtitulo: 'Aprobar o rechazar documentos de recepción',
                   color: const Color(0xFF15803D),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => _CalidadScreen(
-                          empresaId: empresaId,
-                          svc: svc,
-                          userId: userId),
-                    ),
-                  ),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => _CalidadScreen(empresaId: empresaId, svc: svc, userId: userId))),
                 ),
               ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildWebLayout(BuildContext context, ComprasService svc,
+      String subtituloRol, Color colorRol) {
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget card({
+      required IconData icon,
+      required String titulo,
+      required String subtitulo,
+      required Color color,
+      required VoidCallback onTap,
+    }) {
+      return SizedBox(
+        width: 420,
+        child: Card(
+          elevation: 2,
+          shadowColor: color.withOpacity(0.18),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            hoverColor: color.withOpacity(0.05),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: Icon(icon, color: color, size: 27),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(titulo,
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: color)),
+                  const SizedBox(height: 5),
+                  Text(subtitulo,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: Colors.black54)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF3F4F6),
+      body: Column(
+        children: [
+          // Header
+          Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF1565C0), Color(0xFF1E88E5)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(40, 32, 40, 32),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(Icons.shopping_cart_outlined,
+                      color: Colors.white, size: 32),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Compras & Bodega',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white)),
+                      const SizedBox(height: 4),
+                      Text(subtituloRol,
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                              color: Colors.white.withOpacity(0.85))),
+                    ],
+                  ),
+                ),
+                if (rolCompras != null)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.4), width: 1),
+                    ),
+                    child: Text(
+                      rolCompras!.toUpperCase(),
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 1),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Cards
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(32),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: Wrap(
+                    spacing: 20,
+                    runSpacing: 20,
+                    children: [
+                      if (!_soloRecepcion) ...[
+                        card(
+                          icon: Icons.business,
+                          titulo: 'Proveedores',
+                          subtitulo: 'Registrar y gestionar proveedores',
+                          color: const Color(0xFF1565C0),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => _ProveedoresScreen(
+                                  empresaId: empresaId, svc: svc))),
+                        ),
+                        card(
+                          icon: Icons.label_important,
+                          titulo: 'Marcas',
+                          subtitulo: 'Gestionar marcas vinculadas a productos',
+                          color: const Color(0xFF1976D2),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(
+                              builder: (_) =>
+                                  _MarcasScreen(empresaId: empresaId, svc: svc))),
+                        ),
+                        card(
+                          icon: Icons.inventory_2,
+                          titulo: 'Productos',
+                          subtitulo: 'Catálogo de productos del almacén',
+                          color: const Color(0xFF0277BD),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => _ProductosScreen(
+                                  empresaId: empresaId, svc: svc, userId: userId))),
+                        ),
+                      ],
+                      card(
+                        icon: Icons.local_shipping,
+                        titulo: 'Recepción de Mercancía',
+                        subtitulo:
+                            'Registrar llegada de proveedores con documentos',
+                        color: kComprasPrimary,
+                        onTap: () => Navigator.push(context, MaterialPageRoute(
+                            builder: (_) => _RecepcionesScreen(
+                                empresaId: empresaId,
+                                svc: svc,
+                                userId: userId))),
+                      ),
+                      if (!_soloRecepcion)
+                        card(
+                          icon: Icons.manage_search,
+                          titulo: 'Consultas',
+                          subtitulo: 'Consultar por proveedor o producto',
+                          color: const Color(0xFF283593),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => _ConsultasScreen(
+                                  empresaId: empresaId, svc: svc))),
+                        ),
+                      if (_esCalidad)
+                        card(
+                          icon: Icons.verified_user,
+                          titulo: 'Revisión de Calidad',
+                          subtitulo:
+                              'Aprobar o rechazar documentos de recepción',
+                          color: const Color(0xFF15803D),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => _CalidadScreen(
+                                  empresaId: empresaId,
+                                  svc: svc,
+                                  userId: userId))),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -563,6 +738,8 @@ class _ScannerSheetState extends State<_ScannerSheet> {
   final List<Uint8List> _imagenes = [];
   bool _subiendo = false;
   final _picker = ImagePicker();
+  DropzoneViewController? _dropCtrl;
+  bool _isDragging = false;
 
   Future<void> _tomarFoto() async {
     final img = await _picker.pickImage(
@@ -655,6 +832,143 @@ class _ScannerSheetState extends State<_ScannerSheet> {
     }
   }
 
+  // Zona drag-and-drop visible en web cuando no hay imágenes
+  Widget _buildWebDropZoneArea(ScrollController scrollCtrl) {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Stack(
+        children: [
+          // Visual del área
+          GestureDetector(
+            onTap: _subiendo ? null : _desdeArchivo,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: _isDragging
+                    ? kComprasPrimary.withOpacity(0.07)
+                    : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _isDragging
+                      ? kComprasPrimary
+                      : Colors.grey.shade300,
+                  width: _isDragging ? 2 : 1.5,
+                  style: BorderStyle.solid,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.cloud_upload_outlined,
+                    size: 64,
+                    color: _isDragging
+                        ? kComprasPrimary
+                        : Colors.grey.shade300,
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    _isDragging
+                        ? '¡Suelta el archivo!'
+                        : 'Arrastra tu archivo aquí',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: _isDragging
+                            ? kComprasPrimary
+                            : Colors.black54),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'o haz clic para seleccionar',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 13,
+                        color: Colors.grey.shade500),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'PDF · JPG · PNG — Se guarda como PDF',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                          color: Colors.grey.shade500),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // DropzoneView invisible que captura eventos del navegador
+          if (!_subiendo)
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.01,
+                child: DropzoneView(
+                  onCreated: (ctrl) => _dropCtrl = ctrl,
+                  onHover: () => setState(() => _isDragging = true),
+                  onLeave: () => setState(() => _isDragging = false),
+                  onDrop: _handleWebDrop,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // Solo se usa en web: maneja el archivo arrastrado y lo sube como PDF
+  Future<void> _handleWebDrop(dynamic event) async {
+    if (!mounted) return;
+    setState(() => _isDragging = false);
+    if (_dropCtrl == null) return;
+    final name = await _dropCtrl!.getFilename(event);
+    final ext = name.toLowerCase().split('.').last;
+    if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Solo se permiten PDF, JPG o PNG',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    final bytes = await _dropCtrl!.getFileData(event);
+    if (ext == 'pdf') {
+      // PDF: subir directamente
+      setState(() => _subiendo = true);
+      try {
+        final doc = await widget.svc.subirBytes(
+          bytes: bytes,
+          empresaId: widget.empresaId,
+          carpeta: widget.carpeta,
+          nombre: name,
+          contentType: 'application/pdf',
+        );
+        if (mounted) Navigator.pop(context, doc);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error al subir: $e')));
+        }
+      } finally {
+        if (mounted) setState(() => _subiendo = false);
+      }
+    } else {
+      // Imagen: agregar a la lista y convertir a PDF
+      setState(() => _imagenes.add(bytes));
+      await _convertirYSubir();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
@@ -695,158 +1009,216 @@ class _ScannerSheetState extends State<_ScannerSheet> {
             ),
           ),
           const Divider(height: 1),
-          // Thumbnails
+          // Thumbnails / Drag zone
           Expanded(
             child: _imagenes.isEmpty
-                ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.camera_alt_outlined,
-                          size: 56, color: Colors.grey.shade300),
-                      const SizedBox(height: 12),
-                      Text('Sin imágenes capturadas',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              color: Colors.grey.shade500)),
-                      const SizedBox(height: 6),
-                      Text('Usa la cámara o selecciona un archivo',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              color: Colors.grey.shade400)),
-                    ],
-                  )
-                : GridView.builder(
-                    controller: scrollCtrl,
-                    padding: const EdgeInsets.all(12),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                    ),
-                    itemCount: _imagenes.length,
-                    itemBuilder: (ctx, i) => ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Stack(
-                        fit: StackFit.expand,
+                ? (kIsWeb
+                    ? _buildWebDropZoneArea(scrollCtrl)
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Image.memory(_imagenes[i], fit: BoxFit.cover),
-                          Positioned(
-                            top: 6,
-                            right: 6,
-                            child: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _imagenes.removeAt(i)),
-                              child: Container(
-                                decoration: const BoxDecoration(
-                                    color: Colors.red, shape: BoxShape.circle),
-                                padding: const EdgeInsets.all(3),
-                                child: const Icon(Icons.close,
-                                    size: 14, color: Colors.white),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 6,
-                            left: 6,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.black54,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text('Pág. ${i + 1}',
-                                  style: const TextStyle(
-                                      fontSize: 10, color: Colors.white)),
-                            ),
-                          ),
+                          Icon(Icons.camera_alt_outlined,
+                              size: 56, color: Colors.grey.shade300),
+                          const SizedBox(height: 12),
+                          Text('Sin imágenes capturadas',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  color: Colors.grey.shade500)),
+                          const SizedBox(height: 6),
+                          Text('Usa la cámara o selecciona un archivo',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 12,
+                                  color: Colors.grey.shade400)),
                         ],
-                      ),
-                    ),
-                  ),
+                      ))
+                : (_subiendo && kIsWeb
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const CircularProgressIndicator(color: kComprasPrimary),
+                          const SizedBox(height: 16),
+                          Text('Convirtiendo y subiendo como PDF…',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  color: Colors.grey.shade600)),
+                        ],
+                      )
+                    : GridView.builder(
+                        controller: scrollCtrl,
+                        padding: const EdgeInsets.all(12),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: _imagenes.length,
+                        itemBuilder: (ctx, i) => ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.memory(_imagenes[i], fit: BoxFit.cover),
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _imagenes.removeAt(i)),
+                                  child: Container(
+                                    decoration: const BoxDecoration(
+                                        color: Colors.red,
+                                        shape: BoxShape.circle),
+                                    padding: const EdgeInsets.all(3),
+                                    child: const Icon(Icons.close,
+                                        size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                bottom: 6,
+                                left: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text('Pág. ${i + 1}',
+                                      style: const TextStyle(
+                                          fontSize: 10, color: Colors.white)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )),
           ),
           // Botones
           Container(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
                     color: Colors.black12,
                     blurRadius: 6,
-                    offset: const Offset(0, -2))
+                    offset: Offset(0, -2))
               ],
             ),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _subiendo ? null : _tomarFoto,
-                        icon: const Icon(Icons.camera_alt, size: 18),
-                        label: const Text('Cámara',
-                            style: TextStyle(fontFamily: _kFont)),
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: kComprasPrimary,
-                            side: const BorderSide(color: kComprasPrimary)),
+            child: kIsWeb
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _subiendo ? null : _desdeArchivo,
+                          icon: const Icon(Icons.upload_file, size: 18),
+                          label: const Text('Seleccionar archivo (PDF/img)',
+                              style: TextStyle(fontFamily: _kFont)),
+                          style: OutlinedButton.styleFrom(
+                              foregroundColor: kComprasPrimary,
+                              side: const BorderSide(color: kComprasPrimary)),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _subiendo ? null : _desdeGaleria,
-                        icon: const Icon(Icons.photo_library, size: 18),
-                        label: const Text('Galería',
-                            style: TextStyle(fontFamily: _kFont)),
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: kComprasPrimary,
-                            side: const BorderSide(color: kComprasPrimary)),
+                      if (_imagenes.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed:
+                                (_subiendo || _imagenes.isEmpty) ? null : _convertirYSubir,
+                            icon: _subiendo
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.picture_as_pdf, size: 18),
+                            label: Text(
+                                _subiendo
+                                    ? 'Subiendo…'
+                                    : 'PDF (${_imagenes.length} pág.)',
+                                style: const TextStyle(fontFamily: _kFont)),
+                            style: FilledButton.styleFrom(
+                                backgroundColor: kComprasPrimary),
+                          ),
+                        ),
+                      ],
+                    ],
+                  )
+                : Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _subiendo ? null : _tomarFoto,
+                              icon: const Icon(Icons.camera_alt, size: 18),
+                              label: const Text('Cámara',
+                                  style: TextStyle(fontFamily: _kFont)),
+                              style: OutlinedButton.styleFrom(
+                                  foregroundColor: kComprasPrimary,
+                                  side: const BorderSide(
+                                      color: kComprasPrimary)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _subiendo ? null : _desdeGaleria,
+                              icon: const Icon(Icons.photo_library, size: 18),
+                              label: const Text('Galería',
+                                  style: TextStyle(fontFamily: _kFont)),
+                              style: OutlinedButton.styleFrom(
+                                  foregroundColor: kComprasPrimary,
+                                  side: const BorderSide(
+                                      color: kComprasPrimary)),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _subiendo ? null : _desdeArchivo,
-                        icon: const Icon(Icons.attach_file, size: 18),
-                        label: const Text('Archivo (PDF/img)',
-                            style: TextStyle(fontFamily: _kFont)),
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.grey.shade700),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _subiendo ? null : _desdeArchivo,
+                              icon: const Icon(Icons.attach_file, size: 18),
+                              label: const Text('Archivo (PDF/img)',
+                                  style: TextStyle(fontFamily: _kFont)),
+                              style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.grey.shade700),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: (_subiendo || _imagenes.isEmpty)
+                                  ? null
+                                  : _convertirYSubir,
+                              icon: _subiendo
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white))
+                                  : const Icon(Icons.picture_as_pdf, size: 18),
+                              label: Text(
+                                  _subiendo
+                                      ? 'Subiendo...'
+                                      : 'PDF (${_imagenes.length} pág.)',
+                                  style:
+                                      const TextStyle(fontFamily: _kFont)),
+                              style: FilledButton.styleFrom(
+                                  backgroundColor: kComprasPrimary),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: (_subiendo || _imagenes.isEmpty)
-                            ? null
-                            : _convertirYSubir,
-                        icon: _subiendo
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white))
-                            : const Icon(Icons.picture_as_pdf, size: 18),
-                        label: Text(
-                            _subiendo
-                                ? 'Subiendo...'
-                                : 'PDF (${_imagenes.length} pág.)',
-                            style: const TextStyle(fontFamily: _kFont)),
-                        style: FilledButton.styleFrom(
-                            backgroundColor: kComprasPrimary),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -881,13 +1253,16 @@ Future<DocAdjunto?> _mostrarEscaneador(
 // DOC ATTACH BUTTON — botón reutilizable para adjuntar documentos
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _DocAttachButton extends StatelessWidget {
+class _DocAttachButton extends StatefulWidget {
   final String label;
   final DocAdjunto? doc;
   final bool required_;
   final bool uploading;
   final VoidCallback onAttach;
   final VoidCallback? onView;
+  /// Solo web: callback que recibe bytes + nombre y sube el archivo.
+  /// El caller es responsable de actualizar su estado con el DocAdjunto resultante.
+  final Future<void> Function(Uint8List bytes, String name)? onWebUpload;
 
   const _DocAttachButton({
     required this.label,
@@ -896,60 +1271,133 @@ class _DocAttachButton extends StatelessWidget {
     this.uploading = false,
     required this.onAttach,
     this.onView,
+    this.onWebUpload,
   });
 
+  @override
+  State<_DocAttachButton> createState() => _DocAttachButtonState();
+}
+
+class _DocAttachButtonState extends State<_DocAttachButton> {
+  DropzoneViewController? _dropCtrl;
+  bool _isDragging = false;
+  bool _webUploading = false;
+
+  static const int _maxBytes = 10 * 1024 * 1024; // 10 MB
+
   Color get _borderColor {
-    if (doc?.pendiente == true) return Colors.orange;
-    if (doc?.aprobado == true) return kComprasGreen;
-    if (doc?.rechazado == true) return kComprasRed;
-    if (doc?.tieneDoc == true) return kComprasGreen;
+    if (widget.doc?.pendiente == true) return Colors.orange;
+    if (widget.doc?.aprobado == true) return kComprasGreen;
+    if (widget.doc?.rechazado == true) return kComprasRed;
+    if (widget.doc?.tieneDoc == true) return kComprasGreen;
     return Colors.grey.shade300;
   }
 
   Color get _iconColor {
-    if (doc?.pendiente == true) return Colors.orange;
-    if (doc?.aprobado == true) return kComprasGreen;
-    if (doc?.rechazado == true) return kComprasRed;
-    if (doc?.tieneDoc == true) return kComprasGreen;
+    if (widget.doc?.pendiente == true) return Colors.orange;
+    if (widget.doc?.aprobado == true) return kComprasGreen;
+    if (widget.doc?.rechazado == true) return kComprasRed;
+    if (widget.doc?.tieneDoc == true) return kComprasGreen;
     return kComprasPrimary;
   }
 
   IconData get _icon {
-    if (doc?.pendiente == true) return Icons.hourglass_empty;
-    if (doc?.aprobado == true) return Icons.check_circle;
-    if (doc?.rechazado == true) return Icons.cancel;
-    if (doc?.tieneDoc == true) return Icons.check_circle;
+    if (widget.doc?.pendiente == true) return Icons.hourglass_empty;
+    if (widget.doc?.aprobado == true) return Icons.check_circle;
+    if (widget.doc?.rechazado == true) return Icons.cancel;
+    if (widget.doc?.tieneDoc == true) return Icons.check_circle;
     return Icons.upload_file;
   }
 
   String get _estadoLabel {
-    if (doc?.pendiente == true) return ' · Pendiente revisión calidad';
-    if (doc?.aprobado == true) return ' · Aprobado';
-    if (doc?.rechazado == true) return ' · Rechazado';
+    if (widget.doc?.pendiente == true) return ' · Pendiente revisión calidad';
+    if (widget.doc?.aprobado == true) return ' · Aprobado';
+    if (widget.doc?.rechazado == true) return ' · Rechazado';
     return '';
+  }
+
+  bool get _isUploading => widget.uploading || _webUploading;
+
+  Future<void> _handleWebFilePick() async {
+    if (_isUploading || widget.onWebUpload == null) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final f = result.files.first;
+    if (f.bytes == null) return;
+    await _processWebBytes(f.bytes!, f.name);
+  }
+
+  Future<void> _handleWebDrop(dynamic event) async {
+    if (!mounted) return;
+    setState(() => _isDragging = false);
+    if (_dropCtrl == null || widget.onWebUpload == null) return;
+    final name = await _dropCtrl!.getFilename(event);
+    final ext = name.toLowerCase().split('.').last;
+    if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Solo se permiten PDF, JPG o PNG',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    final bytes = await _dropCtrl!.getFileData(event);
+    await _processWebBytes(bytes, name);
+  }
+
+  Future<void> _processWebBytes(Uint8List bytes, String name) async {
+    if (bytes.length > _maxBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('El archivo supera el límite de 10 MB',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    setState(() => _webUploading = true);
+    try {
+      await widget.onWebUpload!(bytes, name);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error al subir: $e',
+                style: const TextStyle(fontFamily: _kFont))));
+      }
+    } finally {
+      if (mounted) setState(() => _webUploading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final tiene = doc?.tieneDoc == true;
+    final tiene = widget.doc?.tieneDoc == true;
+
+    if (kIsWeb) {
+      return _buildWeb(tiene);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
             Expanded(
-                child: Text(
-                    label,
+              child: Text(
+                widget.label,
                 style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
                     color: Colors.grey.shade600),
-                  softWrap: true,
-                ),
+                softWrap: true,
+              ),
             ),
-            if (required_)
-              Text(' *',
-                  style: const TextStyle(color: Colors.red, fontSize: 12)),
+            if (widget.required_)
+              const Text(' *',
+                  style: TextStyle(color: Colors.red, fontSize: 12)),
           ],
         ),
         const SizedBox(height: 4),
@@ -957,23 +1405,23 @@ class _DocAttachButton extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: uploading ? null : onAttach,
-                icon: uploading
+                onPressed: widget.uploading ? null : widget.onAttach,
+                icon: widget.uploading
                     ? const SizedBox(
                         width: 14,
                         height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2))
                     : Icon(_icon, size: 16, color: _iconColor),
                 label: Text(
-                  uploading
+                  widget.uploading
                       ? 'Subiendo...'
                       : tiene
-                          ? '${doc!.nombre ?? 'Adjunto'}$_estadoLabel'
+                          ? '${widget.doc!.nombre ?? 'Adjunto'}$_estadoLabel'
                           : 'Adjuntar / Escanear',
                   style: TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
-                      color: uploading ? Colors.grey : _iconColor),
+                      color: widget.uploading ? Colors.grey : _iconColor),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
@@ -985,10 +1433,10 @@ class _DocAttachButton extends StatelessWidget {
                 ),
               ),
             ),
-            if (tiene && onView != null) ...[
+            if (tiene && widget.onView != null) ...[
               const SizedBox(width: 6),
               IconButton(
-                onPressed: onView,
+                onPressed: widget.onView,
                 icon: const Icon(Icons.open_in_new,
                     size: 18, color: Colors.blue),
                 tooltip: 'Ver documento',
@@ -999,8 +1447,8 @@ class _DocAttachButton extends StatelessWidget {
             ],
           ],
         ),
-        // Mostrar observación de calidad si fue rechazado
-        if (doc?.rechazado == true && doc?.observacionCalidad != null) ...[
+        if (widget.doc?.rechazado == true &&
+            widget.doc?.observacionCalidad != null) ...[
           const SizedBox(height: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1010,7 +1458,7 @@ class _DocAttachButton extends StatelessWidget {
               border: Border.all(color: Colors.red.shade200),
             ),
             child: Text(
-              'Motivo: ${doc!.observacionCalidad}',
+              'Motivo: ${widget.doc!.observacionCalidad}',
               style: TextStyle(
                   fontFamily: _kFont,
                   fontSize: 11,
@@ -1019,6 +1467,235 @@ class _DocAttachButton extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  // ── Web layout ──────────────────────────────────────────────────────────────
+
+  Widget _buildWeb(bool tiene) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label
+        Row(children: [
+          Expanded(
+            child: Text(widget.label,
+                style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.grey.shade600),
+                softWrap: true),
+          ),
+          if (widget.required_)
+            const Text(' *',
+                style: TextStyle(color: Colors.red, fontSize: 12)),
+        ]),
+        const SizedBox(height: 6),
+        // Drop zone o fila de archivo adjunto
+        tiene ? _buildWebFileRow() : _buildWebDropZone(),
+        // Observación de calidad
+        if (widget.doc?.rechazado == true &&
+            widget.doc?.observacionCalidad != null) ...[
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Text(
+              'Motivo: ${widget.doc!.observacionCalidad}',
+              style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.red.shade700),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildWebDropZone() {
+    return SizedBox(
+      height: 86,
+      child: Stack(children: [
+        // Visual del área
+        GestureDetector(
+          onTap: _isUploading ? null : _handleWebFilePick,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: _isDragging
+                  ? kComprasPrimary.withOpacity(0.07)
+                  : Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: _isDragging
+                    ? kComprasPrimary
+                    : Colors.grey.shade300,
+                width: _isDragging ? 2 : 1,
+              ),
+            ),
+            child: _isUploading
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2,
+                              color: kComprasPrimary)),
+                      const SizedBox(width: 10),
+                      Text('Subiendo...',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 12,
+                              color: Colors.grey.shade600)),
+                    ],
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.cloud_upload_outlined,
+                        size: 28,
+                        color: _isDragging
+                            ? kComprasPrimary
+                            : Colors.grey.shade400,
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isDragging
+                                ? '¡Suelta aquí!'
+                                : 'Arrastra o haz clic para cargar',
+                            style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _isDragging
+                                    ? kComprasPrimary
+                                    : Colors.black54),
+                          ),
+                          Text(
+                            'PDF · JPG · PNG · Máx. 10 MB',
+                            style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 10,
+                                color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+          ),
+        ),
+        // DropzoneView invisible que captura eventos del sistema
+        if (!_isUploading && widget.onWebUpload != null)
+          Positioned.fill(
+            child: Opacity(
+              opacity: 0.01,
+              child: DropzoneView(
+                onCreated: (ctrl) => _dropCtrl = ctrl,
+                onHover: () => setState(() => _isDragging = true),
+                onLeave: () => setState(() => _isDragging = false),
+                onDrop: _handleWebDrop,
+              ),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  Widget _buildWebFileRow() {
+    final doc = widget.doc!;
+    final nombre = doc.nombre ?? 'Adjunto';
+    final ext = nombre.split('.').last.toLowerCase();
+    final isImg = ['jpg', 'jpeg', 'png'].contains(ext);
+
+    Color statusColor = kComprasGreen;
+    String statusText = 'Adjunto';
+    IconData statusIcon = Icons.check_circle;
+    if (doc.pendiente == true) {
+      statusColor = Colors.orange;
+      statusText = 'Pendiente revisión';
+      statusIcon = Icons.hourglass_empty;
+    } else if (doc.rechazado == true) {
+      statusColor = kComprasRed;
+      statusText = 'Rechazado';
+      statusIcon = Icons.cancel;
+    } else if (doc.aprobado == true) {
+      statusColor = kComprasGreen;
+      statusText = 'Aprobado';
+      statusIcon = Icons.verified;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: statusColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: statusColor.withOpacity(0.3), width: 1),
+      ),
+      child: Row(
+        children: [
+          Icon(isImg ? Icons.image : Icons.picture_as_pdf,
+              color: statusColor, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nombre,
+                  style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Row(children: [
+                  Icon(statusIcon, size: 11, color: statusColor),
+                  const SizedBox(width: 3),
+                  Text(statusText,
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 10,
+                          color: statusColor)),
+                ]),
+              ],
+            ),
+          ),
+          if (widget.onView != null)
+            TextButton.icon(
+              onPressed: widget.onView,
+              icon: const Icon(Icons.open_in_new, size: 14),
+              label: const Text('Ver',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 11)),
+              style: TextButton.styleFrom(
+                  foregroundColor: Colors.blue,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4)),
+            ),
+          if (widget.onWebUpload != null)
+            TextButton.icon(
+              onPressed: _isUploading ? null : _handleWebFilePick,
+              icon: const Icon(Icons.swap_horiz, size: 14),
+              label: const Text('Cambiar',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 11)),
+              style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey.shade600,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4)),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -1603,6 +2280,22 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                     onView: _documentos[key]?.tieneDoc == true
                         ? () => _abrirUrl(context, _documentos[key]!.url)
                         : null,
+                    onWebUpload: (bytes, name) async {
+                      final ext = name.toLowerCase().split('.').last;
+                      final ct = ext == 'pdf'
+                          ? 'application/pdf'
+                          : 'image/$ext';
+                      final doc = await widget.svc.subirBytes(
+                        bytes: bytes,
+                        empresaId: widget.empresaId,
+                        carpeta: 'proveedores',
+                        nombre:
+                            '${_nitCtrl.text}_${kDocProveedorLabels[key] ?? key}_$name',
+                        contentType: ct,
+                      );
+                      setState(() =>
+                          _documentos = {..._documentos, key: doc});
+                    },
                   ),
                 );
               }),
@@ -2851,6 +3544,10 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   Uint8List? _fileBytes;
   bool _subiendo = false;
 
+  // Web drag-and-drop
+  DropzoneViewController? _dropCtrl;
+  bool _isDragging = false;
+
   @override
   void initState() {
     super.initState();
@@ -2897,6 +3594,178 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       _fileName = f.name;
       _fileBytes = f.bytes;
     });
+  }
+
+  Future<void> _handleWebDrop(dynamic event) async {
+    if (!mounted) return;
+    setState(() => _isDragging = false);
+    if (_dropCtrl == null) return;
+    final name = await _dropCtrl!.getFilename(event);
+    final ext = name.toLowerCase().split('.').last;
+    if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Solo se permiten PDF, JPG o PNG',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    final bytes = await _dropCtrl!.getFileData(event);
+    setState(() {
+      _fileName = name;
+      _fileBytes = bytes;
+    });
+  }
+
+  Widget _buildFileZone() {
+    if (!kIsWeb) {
+      return OutlinedButton.icon(
+        onPressed: _subiendo ? null : _pickFile,
+        icon: const Icon(Icons.attach_file, size: 16),
+        label: Text(
+          _fileName ?? 'Seleccionar PDF o imagen',
+          style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+          overflow: TextOverflow.ellipsis,
+        ),
+        style: OutlinedButton.styleFrom(
+            padding:
+                const EdgeInsets.symmetric(vertical: 10, horizontal: 12)),
+      );
+    }
+
+    // Web: zona drag-and-drop
+    return SizedBox(
+      height: 140,
+      child: Stack(
+        children: [
+          // Visual
+          GestureDetector(
+            onTap: _subiendo ? null : _pickFile,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: _isDragging
+                    ? kComprasPrimary.withOpacity(0.07)
+                    : (_fileBytes != null
+                        ? Colors.green.shade50
+                        : Colors.grey.shade50),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _isDragging
+                      ? kComprasPrimary
+                      : (_fileBytes != null
+                          ? Colors.green.shade400
+                          : Colors.grey.shade300),
+                  width: _isDragging ? 2 : 1.5,
+                ),
+              ),
+              child: _fileBytes != null
+                  ? _buildFilePreview()
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.cloud_upload_outlined,
+                          size: 34,
+                          color: _isDragging
+                              ? kComprasPrimary
+                              : Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _isDragging
+                              ? '¡Suelta el archivo!'
+                              : 'Arrastra tu archivo aquí',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _isDragging
+                                  ? kComprasPrimary
+                                  : Colors.black54),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'o haz clic para seleccionar',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 11,
+                              color: Colors.grey.shade500),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'PDF · JPG · PNG',
+                          style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 10,
+                              color: Colors.grey.shade400),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+          // DropzoneView invisible que captura drag del sistema
+          if (!_subiendo)
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.01,
+                child: DropzoneView(
+                  onCreated: (ctrl) => _dropCtrl = ctrl,
+                  onHover: () => setState(() => _isDragging = true),
+                  onLeave: () => setState(() => _isDragging = false),
+                  onDrop: _handleWebDrop,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilePreview() {
+    final ext = (_fileName ?? '').split('.').last.toLowerCase();
+    final isImg = ['jpg', 'jpeg', 'png'].contains(ext);
+    return Row(
+      children: [
+        const SizedBox(width: 16),
+        Icon(
+          isImg ? Icons.image : Icons.picture_as_pdf,
+          color: isImg ? Colors.blue.shade600 : Colors.red.shade600,
+          size: 38,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                _fileName ?? '',
+                style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600),
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Haz clic para cambiar',
+                style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Icon(Icons.check_circle,
+              color: Colors.green.shade600, size: 22),
+        ),
+      ],
+    );
   }
 
   Future<void> _subir() async {
@@ -3088,19 +3957,8 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             style: const TextStyle(fontFamily: _kFont, fontSize: 13),
           ),
           const SizedBox(height: 12),
-          // Archivo
-          OutlinedButton.icon(
-            onPressed: _subiendo ? null : _pickFile,
-            icon: const Icon(Icons.attach_file, size: 16),
-            label: Text(
-              _fileName ?? 'Seleccionar PDF o imagen',
-              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-              overflow: TextOverflow.ellipsis,
-            ),
-            style: OutlinedButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12)),
-          ),
+          // Archivo (botón normal en móvil, zona drag-and-drop en web)
+          _buildFileZone(),
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -3858,6 +4716,35 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                       onMarcaChanged: (m) =>
                           setState(() => _entries[idx].marcaSeleccionada = m),
                       fichaTecnicaDoc: _fichaParaEntry(e),
+                      onWebUploadDoc: (key, bytes, name) async {
+                        if (key == 'fichaTecnica' &&
+                            _entries[idx]
+                                .observacionesCtrl
+                                .text
+                                .trim()
+                                .isEmpty) {
+                          throw Exception(
+                              'Registra la observación antes de cargar la ficha técnica.');
+                        }
+                        final ext = name.toLowerCase().split('.').last;
+                        final ct = ext == 'pdf'
+                            ? 'application/pdf'
+                            : 'image/$ext';
+                        final doc = await widget.svc.subirBytes(
+                          bytes: bytes,
+                          empresaId: widget.empresaId,
+                          carpeta: 'recepciones',
+                          nombre: name,
+                          contentType: ct,
+                        );
+                        final docPendiente = doc.copyWith(
+                          estadoCalidad: 'pendiente_revision_calidad',
+                          observacionActualizacion:
+                              _entries[idx].observacionesCtrl.text.trim(),
+                        );
+                        setState(() =>
+                            _entries[idx].documentos[key] = docPendiente);
+                      },
                     );
                   }),
                   const SizedBox(height: 10),
@@ -3916,6 +4803,9 @@ class _ProductoEntryCard extends StatelessWidget {
   /// Ficha técnica encontrada en la colección TBL_COMPRAS_FICHAS_TECNICAS para
   /// este proveedor + producto + marca. Null si no existe todavía.
   final FichaTecnicaDoc? fichaTecnicaDoc;
+  /// Solo web: recibe (key, bytes, name) y sube el archivo directamente.
+  final Future<void> Function(String key, Uint8List bytes, String name)?
+      onWebUploadDoc;
 
   const _ProductoEntryCard({
     required this.idx,
@@ -3928,6 +4818,7 @@ class _ProductoEntryCard extends StatelessWidget {
     required this.todasMarcas,
     required this.onMarcaChanged,
     this.fichaTecnicaDoc,
+    this.onWebUploadDoc,
   });
 
   @override
@@ -4282,6 +5173,10 @@ class _ProductoEntryCard extends StatelessWidget {
                               onAttach: () => onAdjuntarDoc(key),
                               onView: entry.documentos[key]?.tieneDoc == true
                                   ? () => onVerDoc(key)
+                                  : null,
+                              onWebUpload: onWebUploadDoc != null
+                                  ? (bytes, name) =>
+                                      onWebUploadDoc!(key, bytes, name)
                                   : null,
                             ),
                           )),
@@ -5203,6 +6098,66 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                                       ? () => _abrirUrl(
                                           context, doc!.url)
                                       : null,
+                                  onWebUpload: (bytes, name) async {
+                                    final ext = name
+                                        .toLowerCase()
+                                        .split('.')
+                                        .last;
+                                    final ct = ext == 'pdf'
+                                        ? 'application/pdf'
+                                        : 'image/$ext';
+                                    final uploadedDoc =
+                                        await widget.svc!.subirBytes(
+                                      bytes: bytes,
+                                      empresaId: widget.empresaId!,
+                                      carpeta: 'recepciones',
+                                      nombre: name,
+                                      contentType: ct,
+                                    );
+                                    final p = _r.productos[productoIdx];
+                                    final docPendiente =
+                                        uploadedDoc.copyWith(
+                                      estadoCalidad:
+                                          'pendiente_revision_calidad',
+                                      observacionActualizacion:
+                                          p.observaciones,
+                                    );
+                                    final nuevosProductos =
+                                        List<RecepcionProducto>.from(
+                                            _r.productos);
+                                    nuevosProductos[productoIdx] =
+                                        RecepcionProducto(
+                                      productoId: p.productoId,
+                                      nombre: p.nombre,
+                                      categoria: p.categoria,
+                                      marcaId: p.marcaId,
+                                      marca: p.marca,
+                                      origen: p.origen,
+                                      documentos: {
+                                        ...p.documentos,
+                                        key: docPendiente
+                                      },
+                                      observaciones: p.observaciones,
+                                    );
+                                    final nuevaRecepcion = RecepcionDoc(
+                                      id: _r.id,
+                                      empresaId: _r.empresaId,
+                                      fecha: _r.fecha,
+                                      proveedorId: _r.proveedorId,
+                                      nit: _r.nit,
+                                      razonSocial: _r.razonSocial,
+                                      ordenCompra: _r.ordenCompra,
+                                      productos: nuevosProductos,
+                                      productoIds: _r.productoIds,
+                                      creadoPor: _r.creadoPor,
+                                      createdAt: _r.createdAt,
+                                    );
+                                    await widget.svc!
+                                        .guardarRecepcion(nuevaRecepcion);
+                                    if (mounted) {
+                                      setState(() => _r = nuevaRecepcion);
+                                    }
+                                  },
                                 ),
                               );
                             } else {
@@ -5745,6 +6700,43 @@ class _CalidadScreenState extends State<_CalidadScreen> {
   DateTime? _filtroFecha;
   final _searchCtrl = TextEditingController();
   bool _soloRechazados = false;
+  ReqEngine? _reqEngine;
+  bool _cargandoReq = true;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.svc.cargarReqEngine(widget.empresaId).then((engine) {
+      if (mounted) setState(() { _reqEngine = engine; _cargandoReq = false; });
+    }).catchError((_) {
+      if (mounted) setState(() { _cargandoReq = false; });
+    });
+  }
+
+  bool _recepcionTieneIncompletos(RecepcionDoc r) {
+    final engine = _reqEngine;
+    for (final rp in r.productos) {
+      if (engine != null && !engine.isEmpty) {
+        final requeridos = engine.docsRecepcion(
+          categoriaProducto: rp.categoria,
+          origenProducto: rp.origen,
+          etapa: 'CADA_PEDIDO',
+        );
+        if (engine.getFaltantes(rp.documentos, requeridos).isNotEmpty) return true;
+      }
+      if (rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado)) return true;
+    }
+    return false;
+  }
+
+  bool _proveedorTieneIncompletos(ProveedorDoc p) {
+    final engine = _reqEngine;
+    if (engine != null && !engine.isEmpty) {
+      final requeridos = engine.docsProveedor(p.categorias);
+      if (engine.getFaltantes(p.documentos, requeridos).isNotEmpty) return true;
+    }
+    return p.documentos.values.any((d) => d.tieneDoc && !d.aprobado);
+  }
 
   @override
   void dispose() {
@@ -5896,66 +6888,112 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                     );
                   },
                 ),
-                // ── Recepciones pendientes de calidad ──
-                StreamBuilder<List<RecepcionDoc>>(
-                  stream: widget.svc
-                      .streamPendientesRevision(widget.empresaId),
-                  builder: (ctx, snap) {
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return const Center(
-                          child: CircularProgressIndicator());
-                    }
-                    var lista = snap.data ?? [];
-                    if (_filtroProducto.isNotEmpty) {
-                      lista = lista
-                          .where((r) => r.productos.any((p) => p.nombre
-                              .toLowerCase()
-                              .contains(_filtroProducto)))
+                // ── Recepciones (todas, filtradas por incompletos) ──
+                if (_cargandoReq)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else
+                  StreamBuilder<List<RecepcionDoc>>(
+                    stream: widget.svc.streamRecepciones(widget.empresaId),
+                    builder: (ctx, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      var lista = (snap.data ?? [])
+                          .where(_recepcionTieneIncompletos)
                           .toList();
-                    }
-                    if (_filtroFecha != null) {
-                      lista = lista.where((r) {
-                        final d = r.fecha.toDate();
-                        return d.year == _filtroFecha!.year &&
-                            d.month == _filtroFecha!.month &&
-                            d.day == _filtroFecha!.day;
-                      }).toList();
-                    }
-                    if (lista.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const SizedBox(height: 40),
-                            Icon(Icons.verified_user,
-                                size: 64, color: Colors.green.shade300),
-                            const SizedBox(height: 16),
-                            const Text('Sin documentos de recepción pendientes',
-                                style: TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600)),
-                            const Text('Todo está al día',
-                                style: TextStyle(
-                                    fontFamily: _kFont,
-                                    color: Colors.black54)),
-                          ],
+                      if (_filtroProducto.isNotEmpty) {
+                        lista = lista
+                            .where((r) => r.productos.any((p) => p.nombre
+                                .toLowerCase()
+                                .contains(_filtroProducto)))
+                            .toList();
+                      }
+                      if (_filtroFecha != null) {
+                        lista = lista.where((r) {
+                          final d = r.fecha.toDate();
+                          return d.year == _filtroFecha!.year &&
+                              d.month == _filtroFecha!.month &&
+                              d.day == _filtroFecha!.day;
+                        }).toList();
+                      }
+                      if (lista.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const SizedBox(height: 40),
+                              Icon(Icons.verified_user,
+                                  size: 64, color: Colors.green.shade300),
+                              const SizedBox(height: 16),
+                              const Text('Sin documentos de recepción pendientes',
+                                  style: TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600)),
+                              const Text('Todo está al día',
+                                  style: TextStyle(
+                                      fontFamily: _kFont,
+                                      color: Colors.black54)),
+                            ],
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: List.generate(
+                          lista.length,
+                          (i) => _RecepcionCalidadCard(
+                            recepcion: lista[i],
+                            svc: widget.svc,
+                            userId: widget.userId,
+                            filtroProducto: _filtroProducto,
+                            reqEngine: _reqEngine,
+                          ),
                         ),
                       );
-                    }
-                    return Column(
-                      children: List.generate(
-                        lista.length,
-                        (i) => _RecepcionCalidadCard(
-                          recepcion: lista[i],
-                          svc: widget.svc,
-                          userId: widget.userId,
-                          filtroProducto: _filtroProducto,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    },
+                  ),
+                // ── Proveedores con documentación incompleta ──
+                if (!_cargandoReq)
+                  StreamBuilder<List<ProveedorDoc>>(
+                    stream: widget.svc.streamProveedores(widget.empresaId),
+                    builder: (_, pSnap) {
+                      final provs = (pSnap.data ?? [])
+                          .where(_proveedorTieneIncompletos)
+                          .toList();
+                      if (provs.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 24, thickness: 1),
+                          Row(
+                            children: [
+                              const Icon(Icons.business,
+                                  size: 18, color: Color(0xFF7B3F00)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Documentos de Proveedores (${provs.length})',
+                                style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                    color: Color(0xFF7B3F00)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ...provs.map((p) => _ProveedorCalidadCard(
+                                proveedor: p,
+                                svc: widget.svc,
+                                userId: widget.userId,
+                                reqEngine: _reqEngine,
+                              )),
+                        ],
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -6176,20 +7214,21 @@ class _RecepcionCalidadCard extends StatelessWidget {
   final ComprasService svc;
   final String userId;
   final String filtroProducto;
+  final ReqEngine? reqEngine;
 
   const _RecepcionCalidadCard({
     required this.recepcion,
     required this.svc,
     required this.userId,
     required this.filtroProducto,
+    this.reqEngine,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -6214,36 +7253,72 @@ class _RecepcionCalidadCard extends StatelessWidget {
                         color: Colors.black45)),
               ],
             ),
+            if (recepcion.ordenCompra.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text('OC: ${recepcion.ordenCompra}',
+                  style: const TextStyle(
+                      fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+            ],
             const Divider(height: 16),
-            // Productos con docs pendientes
+            // Productos con todos los docs requeridos
             ...recepcion.productos.asMap().entries.expand((entry) {
               final productoIdx = entry.key;
               final rp = entry.value;
-              // Filtrar por nombre de producto si hay búsqueda
               if (filtroProducto.isNotEmpty &&
-                  !rp.nombre
-                      .toLowerCase()
-                      .contains(filtroProducto)) {
+                  !rp.nombre.toLowerCase().contains(filtroProducto)) {
                 return <Widget>[];
               }
-              final docsPendientes = rp.documentos.entries
-                  .where((e) {
-                final doc = e.value;
-                if (!doc.tieneDoc) return false;
-                return doc.estadoCalidad.isEmpty ||
-                    doc.estadoCalidad == 'pendiente' ||
-                    doc.estadoCalidad == 'pendiente_revision_calidad';
-                  })
+
+              final engine = reqEngine;
+              final requeridos = (engine != null && !engine.isEmpty)
+                  ? engine.docsRecepcion(
+                      categoriaProducto: rp.categoria,
+                      origenProducto: rp.origen,
+                      etapa: 'CADA_PEDIDO',
+                    )
+                  : <ReqDocAplic>[];
+
+              // Docs subidos que no están en la lista de requeridos (legacy/extra)
+              final keysRequeridos = requeridos.map((r) => r.keyApp).toSet();
+              final docsExtra = rp.documentos.entries
+                  .where((e) =>
+                      e.value.tieneDoc &&
+                      !e.value.aprobado &&
+                      !keysRequeridos.contains(e.key))
                   .toList();
-              if (docsPendientes.isEmpty) return <Widget>[];
+
+              // ¿Hay algo que mostrar?
+              final faltantesSet = (engine != null && !engine.isEmpty)
+                  ? engine
+                      .getFaltantes(rp.documentos, requeridos)
+                      .map((r) => r.keyApp)
+                      .toSet()
+                  : <String>{};
+              final tieneAlgo = faltantesSet.isNotEmpty ||
+                  rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado) ||
+                  (requeridos.isEmpty &&
+                      rp.documentos.values.any((d) => d.tieneDoc));
+              if (!tieneAlgo) return <Widget>[];
+
+              // Contar docs aprobados vs requeridos
+              final totalReq = requeridos.length;
+              final aprobadosCount = requeridos
+                  .where((r) => rp.documentos[r.keyApp]?.aprobado == true)
+                  .length;
+
               return [
                 Container(
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
+                    color: faltantesSet.isNotEmpty
+                        ? Colors.amber.shade50
+                        : Colors.orange.shade50,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.orange.shade200),
+                    border: Border.all(
+                        color: faltantesSet.isNotEmpty
+                            ? Colors.amber.shade300
+                            : Colors.orange.shade200),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -6260,11 +7335,30 @@ class _RecepcionCalidadCard extends StatelessWidget {
                                     fontWeight: FontWeight.w600,
                                     fontSize: 13)),
                           ),
-                          _Chip(rp.origen, rp.origen == 'IMPORTADO'
-                              ? Colors.purple.shade700
-                              : Colors.green.shade700),
+                          if (rp.marca.isNotEmpty)
+                            _Chip(rp.marca, kComprasPrimary),
+                          const SizedBox(width: 4),
+                          _Chip(
+                              rp.origen,
+                              rp.origen == 'IMPORTADO'
+                                  ? Colors.purple.shade700
+                                  : Colors.green.shade700),
                         ],
                       ),
+                      if (totalReq > 0) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '$aprobadosCount/$totalReq docs aprobados',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            color: aprobadosCount == totalReq
+                                ? kComprasGreen
+                                : Colors.orange.shade800,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                       if (rp.observaciones.isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text('Obs: ${rp.observaciones}',
@@ -6275,127 +7369,37 @@ class _RecepcionCalidadCard extends StatelessWidget {
                                 color: Colors.black54)),
                       ],
                       const SizedBox(height: 8),
-                      ...docsPendientes.map((docEntry) {
-                        final docKey = docEntry.key;
-                        final doc = docEntry.value;
+                      // Docs requeridos (del ReqEngine)
+                      ...requeridos.map((req) {
+                        final docKey = req.keyApp;
+                        final doc = rp.documentos[docKey];
+                        final label =
+                            kDocRecepcionLabels[docKey] ?? req.documentoRequerido;
                         return Padding(
-                          padding:
-                              const EdgeInsets.only(bottom: 8),
-                          child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.hourglass_empty,
-                                      size: 14,
-                                      color: Colors.orange),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      kDocRecepcionLabels[docKey] ??
-                                          docKey,
-                                      style: const TextStyle(
-                                          fontFamily: _kFont,
-                                          fontSize: 12),
-                                    ),
-                                  ),
-                                  // Ver documento
-                                  if (doc.tieneDoc)
-                                    IconButton(
-                                      onPressed: () =>
-                                          _abrirUrl(context, doc.url),
-                                      icon: const Icon(
-                                          Icons.search,
-                                          size: 18,
-                                          color: Colors.blue),
-                                      tooltip: 'Ver documento',
-                                      padding: EdgeInsets.zero,
-                                      constraints:
-                                          const BoxConstraints(
-                                              minWidth: 32,
-                                              minHeight: 32),
-                                    ),
-                                ],
-                              ),
-                              if (doc.observacionActualizacion?.trim().isNotEmpty == true) ...[
-                                const SizedBox(height: 6),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.orange.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.orange.shade200),
-                                  ),
-                                  child: Text(
-                                    'Obs. actualización: ${doc.observacionActualizacion!.trim()}',
-                                    style: const TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 11,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _aprobarDoc(
-                                              context,
-                                              productoIdx,
-                                              docKey),
-                                      icon: const Icon(
-                                          Icons.check_circle,
-                                          size: 16,
-                                          color: kComprasGreen),
-                                      label: const Text(
-                                          'Aprobar',
-                                          style: TextStyle(
-                                              fontFamily: _kFont,
-                                              fontSize: 12,
-                                              color: kComprasGreen)),
-                                      style: OutlinedButton.styleFrom(
-                                        side: const BorderSide(
-                                            color: kComprasGreen),
-                                        padding:
-                                            const EdgeInsets.symmetric(
-                                                vertical: 6),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () =>
-                                          _rechazarDoc(
-                                              context,
-                                              productoIdx,
-                                              docKey),
-                                      icon: const Icon(Icons.cancel,
-                                          size: 16,
-                                          color: kComprasRed),
-                                      label: const Text(
-                                          'Rechazar',
-                                          style: TextStyle(
-                                              fontFamily: _kFont,
-                                              fontSize: 12,
-                                              color: kComprasRed)),
-                                      style: OutlinedButton.styleFrom(
-                                        side: const BorderSide(
-                                            color: kComprasRed),
-                                        padding:
-                                            const EdgeInsets.symmetric(
-                                                vertical: 6),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildDocRow(
+                            context: context,
+                            docKey: docKey,
+                            label: label,
+                            doc: doc,
+                            productoIdx: productoIdx,
+                          ),
+                        );
+                      }),
+                      // Docs extra subidos (no en la lista de requeridos)
+                      ...docsExtra.map((e) {
+                        final docKey = e.key;
+                        final doc = e.value;
+                        final label =
+                            kDocRecepcionLabels[docKey] ?? docKey;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _buildDocRow(
+                            context: context,
+                            docKey: docKey,
+                            label: label,
+                            doc: doc,
+                            productoIdx: productoIdx,
                           ),
                         );
                       }),
@@ -6407,6 +7411,261 @@ class _RecepcionCalidadCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDocRow({
+    required BuildContext context,
+    required String docKey,
+    required String label,
+    required DocAdjunto? doc,
+    required int productoIdx,
+  }) {
+    final tieneDoc = doc?.tieneDoc == true;
+
+    if (!tieneDoc) {
+      // Sin cargar
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.amber.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.upload_outlined, size: 14, color: Colors.amber.shade800),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.amber.shade900)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade100,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.amber.shade400),
+              ),
+              child: Text('Sin cargar',
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.amber.shade900)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (doc!.aprobado) {
+      // Aprobado — solo visual
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black87)),
+            ),
+            if (doc.tieneDoc)
+              IconButton(
+                onPressed: () => _abrirUrl(context, doc.url),
+                icon: const Icon(Icons.open_in_new,
+                    size: 14, color: Colors.blue),
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 28, minHeight: 28),
+                tooltip: 'Ver documento',
+              ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.green.shade300),
+              ),
+              child: const Text('Aprobado',
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: kComprasGreen)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (doc.rechazado) {
+      // Rechazado — muestra motivo
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.cancel, size: 14, color: kComprasRed),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(label,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: Colors.black87)),
+                ),
+                if (doc.tieneDoc)
+                  IconButton(
+                    onPressed: () => _abrirUrl(context, doc.url),
+                    icon: const Icon(Icons.open_in_new,
+                        size: 14, color: Colors.blue),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                        minWidth: 28, minHeight: 28),
+                    tooltip: 'Ver documento',
+                  ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.red.shade300),
+                  ),
+                  child: const Text('Rechazado',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: kComprasRed)),
+                ),
+              ],
+            ),
+          ),
+          if (doc.observacionCalidad?.isNotEmpty == true)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
+              child: Text(
+                'Motivo: ${doc.observacionCalidad}',
+                style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    color: Colors.red.shade700),
+              ),
+            ),
+        ],
+      );
+    }
+
+    // Pendiente de revisión — botones Aprobar / Rechazar
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.hourglass_empty,
+                size: 14, color: Colors.orange),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontFamily: _kFont, fontSize: 12)),
+            ),
+            if (doc.tieneDoc)
+              IconButton(
+                onPressed: () => _abrirUrl(context, doc.url),
+                icon: const Icon(Icons.search,
+                    size: 18, color: Colors.blue),
+                tooltip: 'Ver documento',
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+          ],
+        ),
+        if (doc.observacionActualizacion?.trim().isNotEmpty == true) ...[
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Text(
+              'Obs. actualización: ${doc.observacionActualizacion!.trim()}',
+              style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.black87),
+            ),
+          ),
+        ],
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () =>
+                    _aprobarDoc(context, productoIdx, docKey),
+                icon: const Icon(Icons.check_circle,
+                    size: 16, color: kComprasGreen),
+                label: const Text('Aprobar',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: kComprasGreen)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: kComprasGreen),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () =>
+                    _rechazarDoc(context, productoIdx, docKey),
+                icon: const Icon(Icons.cancel,
+                    size: 16, color: kComprasRed),
+                label: const Text('Rechazar',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: kComprasRed)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: kComprasRed),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -6427,8 +7686,8 @@ class _RecepcionCalidadCard extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
@@ -6447,8 +7706,439 @@ class _RecepcionCalidadCard extends StatelessWidget {
           children: [
             Text(
               'Documento: ${kDocRecepcionLabels[docKey] ?? docKey}',
-              style: const TextStyle(
-                  fontFamily: _kFont, fontSize: 13),
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: motivoCtrl,
+              decoration: InputDecoration(
+                labelText: 'Motivo del rechazo *',
+                labelStyle: const TextStyle(fontFamily: _kFont),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              maxLines: 3,
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child:
+                const Text('Cancelar', style: TextStyle(fontFamily: _kFont)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kComprasRed,
+                foregroundColor: Colors.white),
+            onPressed: () {
+              if (motivoCtrl.text.trim().isEmpty) return;
+              Navigator.pop(context, true);
+            },
+            child: const Text('Rechazar',
+                style: TextStyle(fontFamily: _kFont)),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+    try {
+      await svc.rechazarDocRecepcion(
+        recepcion: recepcion,
+        productoIdx: productoIdx,
+        docKey: docKey,
+        motivo: motivoCtrl.text.trim(),
+        revisadoPor: userId,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Documento rechazado. Se notificará al usuario.'),
+          backgroundColor: kComprasRed,
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROVEEDOR CALIDAD CARD
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _ProveedorCalidadCard extends StatelessWidget {
+  final ProveedorDoc proveedor;
+  final ComprasService svc;
+  final String userId;
+  final ReqEngine? reqEngine;
+
+  const _ProveedorCalidadCard({
+    required this.proveedor,
+    required this.svc,
+    required this.userId,
+    this.reqEngine,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final engine = reqEngine;
+    final requeridos = (engine != null && !engine.isEmpty)
+        ? engine.docsProveedor(proveedor.categorias)
+        : <ReqDocAplic>[];
+
+    // Docs subidos no en la lista de requeridos
+    final keysRequeridos = requeridos.map((r) => r.keyApp).toSet();
+    final docsExtra = proveedor.documentos.entries
+        .where((e) =>
+            e.value.tieneDoc &&
+            !e.value.aprobado &&
+            !keysRequeridos.contains(e.key))
+        .toList();
+
+    // Contar aprobados vs requeridos
+    final totalReq = requeridos.length;
+    final aprobadosCount = requeridos
+        .where((r) => proveedor.documentos[r.keyApp]?.aprobado == true)
+        .length;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.brown.shade200, width: 0.8)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.business, size: 18, color: Color(0xFF7B3F00)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(proveedor.razonSocial,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text('NIT: ${proveedor.nit}',
+                style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54)),
+            if (totalReq > 0) ...[
+              const SizedBox(height: 4),
+              Text(
+                '$aprobadosCount/$totalReq docs aprobados',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: aprobadosCount == totalReq
+                      ? kComprasGreen
+                      : Colors.orange.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            // Docs requeridos
+            ...requeridos.map((req) {
+              final docKey = req.keyApp;
+              final doc = proveedor.documentos[docKey];
+              final label = kDocProveedorLabels[docKey] ?? req.documentoRequerido;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildDocRow(
+                    context: context, docKey: docKey, label: label, doc: doc),
+              );
+            }),
+            // Docs extra subidos
+            ...docsExtra.map((e) {
+              final docKey = e.key;
+              final doc = e.value;
+              final label = kDocProveedorLabels[docKey] ?? docKey;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildDocRow(
+                    context: context, docKey: docKey, label: label, doc: doc),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDocRow({
+    required BuildContext context,
+    required String docKey,
+    required String label,
+    required DocAdjunto? doc,
+  }) {
+    final tieneDoc = doc?.tieneDoc == true;
+
+    if (!tieneDoc) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.amber.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.amber.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.upload_outlined,
+                size: 14, color: Colors.amber.shade800),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.amber.shade900)),
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade100,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.amber.shade400),
+              ),
+              child: Text('Sin cargar',
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.amber.shade900)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (doc!.aprobado) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black87)),
+            ),
+            IconButton(
+              onPressed: () => _abrirUrl(context, doc.url),
+              icon:
+                  const Icon(Icons.open_in_new, size: 14, color: Colors.blue),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              tooltip: 'Ver documento',
+            ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.green.shade300),
+              ),
+              child: const Text('Aprobado',
+                  style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: kComprasGreen)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (doc.rechazado) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.cancel, size: 14, color: kComprasRed),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(label,
+                      style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: Colors.black87)),
+                ),
+                IconButton(
+                  onPressed: () => _abrirUrl(context, doc.url),
+                  icon: const Icon(Icons.open_in_new,
+                      size: 14, color: Colors.blue),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                      minWidth: 28, minHeight: 28),
+                  tooltip: 'Ver documento',
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.red.shade300),
+                  ),
+                  child: const Text('Rechazado',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: kComprasRed)),
+                ),
+              ],
+            ),
+          ),
+          if (doc.observacionCalidad?.isNotEmpty == true)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4, right: 4),
+              child: Text(
+                'Motivo: ${doc.observacionCalidad}',
+                style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    color: Colors.red.shade700),
+              ),
+            ),
+        ],
+      );
+    }
+
+    // Pendiente — botones Aprobar / Rechazar
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.hourglass_empty,
+                size: 14, color: Colors.orange),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontFamily: _kFont, fontSize: 12)),
+            ),
+            IconButton(
+              onPressed: () => _abrirUrl(context, doc.url),
+              icon: const Icon(Icons.search,
+                  size: 18, color: Colors.blue),
+              tooltip: 'Ver documento',
+              padding: EdgeInsets.zero,
+              constraints:
+                  const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _aprobarDoc(context, docKey),
+                icon: const Icon(Icons.check_circle,
+                    size: 16, color: kComprasGreen),
+                label: const Text('Aprobar',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: kComprasGreen)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: kComprasGreen),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _rechazarDoc(context, docKey),
+                icon: const Icon(Icons.cancel,
+                    size: 16, color: kComprasRed),
+                label: const Text('Rechazar',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: kComprasRed)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: kComprasRed),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _aprobarDoc(BuildContext context, String docKey) async {
+    try {
+      await svc.aprobarDocProveedor(
+        proveedorId: proveedor.id,
+        docKey: docKey,
+        revisadoPor: userId,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Documento aprobado'),
+          backgroundColor: kComprasGreen,
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _rechazarDoc(BuildContext context, String docKey) async {
+    final motivoCtrl = TextEditingController();
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Rechazar documento',
+            style: TextStyle(fontFamily: _kFont)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Documento: ${kDocProveedorLabels[docKey] ?? docKey}',
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -6486,23 +8176,22 @@ class _RecepcionCalidadCard extends StatelessWidget {
     );
     if (confirmar != true) return;
     try {
-      await svc.rechazarDocRecepcion(
-        recepcion: recepcion,
-        productoIdx: productoIdx,
+      await svc.rechazarDocProveedor(
+        proveedorId: proveedor.id,
         docKey: docKey,
         motivo: motivoCtrl.text.trim(),
         revisadoPor: userId,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Documento rechazado. Se notificará al usuario.'),
+          content: Text('Documento rechazado.'),
           backgroundColor: kComprasRed,
         ));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }

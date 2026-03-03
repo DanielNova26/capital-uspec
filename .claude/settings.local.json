@@ -29,7 +29,8 @@
       "Bash(firebase --version)",
       "Bash(firebase projects:list)",
       "Bash(firebase login --no-localhost)",
-      "Bash(firebase deploy --only hosting:to-do-gestion --project integra360-94704)"
+      "Bash(firebase deploy --only hosting:to-do-gestion --project integra360-94704)",
+      "Bash(flutter pub get)"
     ]
   }
 }

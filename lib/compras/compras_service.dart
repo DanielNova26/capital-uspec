@@ -464,6 +464,19 @@ class ComprasService {
 
   // ─── REQ_DOCUMENTOS ─────────────────────────────────────────────────────────
 
+  /// Carga (one-time) el motor de requisitos documentales para la empresa.
+  Future<ReqEngine> cargarReqEngine(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_REQ_DOCUMENTOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('activo', isEqualTo: true)
+        .get();
+    final docs = snap.docs
+        .map((d) => ReqDocumentoDoc.fromMap(d.id, d.data()))
+        .toList();
+    return ReqEngine(docs);
+  }
+
   /// Stream de requisitos documentales activos para la empresa.
   /// Sin orderBy: todo el ordenamiento se hace en cliente.
   Stream<List<ReqDocumentoDoc>> streamReqDocumentos(String empresaId) => _db
@@ -618,6 +631,58 @@ class ComprasService {
             fechaRevision: Timestamp.now(),
           )
           .toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ─── DOCUMENTOS DE PROVEEDOR (revisión calidad) ──────────────────────────────
+
+  /// Aprueba un documento del proveedor (estadoCalidad = 'aprobado').
+  Future<void> aprobarDocProveedor({
+    required String proveedorId,
+    required String docKey,
+    required String revisadoPor,
+  }) async {
+    final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final prov = ProveedorDoc.fromMap(snap.id, snap.data()!);
+    final docActual = prov.documentos[docKey];
+    if (docActual == null || !docActual.tieneDoc) return;
+    final actualizado = Map<String, DocAdjunto>.from(prov.documentos)
+      ..[docKey] = docActual.copyWith(
+        estadoCalidad: 'aprobado',
+        revisadoPor: revisadoPor,
+        fechaRevision: Timestamp.now(),
+      );
+    await ref.update({
+      'documentos': actualizado.map((k, v) => MapEntry(k, v.toMap())),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Rechaza un documento del proveedor (estadoCalidad = 'rechazado').
+  Future<void> rechazarDocProveedor({
+    required String proveedorId,
+    required String docKey,
+    required String motivo,
+    required String revisadoPor,
+  }) async {
+    final ref = _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId);
+    final snap = await ref.get();
+    if (!snap.exists) return;
+    final prov = ProveedorDoc.fromMap(snap.id, snap.data()!);
+    final docActual = prov.documentos[docKey];
+    if (docActual == null || !docActual.tieneDoc) return;
+    final actualizado = Map<String, DocAdjunto>.from(prov.documentos)
+      ..[docKey] = docActual.copyWith(
+        estadoCalidad: 'rechazado',
+        observacionCalidad: motivo,
+        revisadoPor: revisadoPor,
+        fechaRevision: Timestamp.now(),
+      );
+    await ref.update({
+      'documentos': actualizado.map((k, v) => MapEntry(k, v.toMap())),
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
