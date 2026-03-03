@@ -1,14 +1,17 @@
 // lib/compras/compras_req_excel_parser.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter_dropzone/flutter_dropzone.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'web_drag_drop.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
@@ -738,8 +741,28 @@ class _ScannerSheetState extends State<_ScannerSheet> {
   final List<Uint8List> _imagenes = [];
   bool _subiendo = false;
   final _picker = ImagePicker();
-  DropzoneViewController? _dropCtrl;
   bool _isDragging = false;
+  StreamSubscription<bool>? _wDragSub;
+  StreamSubscription<DroppedFile>? _wFileSub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      WebDragDrop.instance.enable();
+      _wDragSub = WebDragDrop.instance.isDragging
+          .listen((v) { if (mounted) setState(() => _isDragging = v); });
+      _wFileSub = WebDragDrop.instance.droppedFile.listen(_onWebFileDrop);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (kIsWeb) WebDragDrop.instance.disable();
+    _wDragSub?.cancel();
+    _wFileSub?.cancel();
+    super.dispose();
+  }
 
   Future<void> _tomarFoto() async {
     final img = await _picker.pickImage(
@@ -834,104 +857,114 @@ class _ScannerSheetState extends State<_ScannerSheet> {
 
   // Zona drag-and-drop visible en web cuando no hay imágenes
   Widget _buildWebDropZoneArea(ScrollController scrollCtrl) {
+    // Zona de arrastre + botón separado para abrir selector de archivo.
+    // El DropzoneView (HTML) captura eventos HTML5 drag; el botón queda fuera
+    // de esa área para que Flutter lo reciba correctamente en CanvasKit.
     return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Stack(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      child: Column(
         children: [
-          // Visual del área
-          GestureDetector(
-            onTap: _subiendo ? null : _desdeArchivo,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: _isDragging
-                    ? kComprasPrimary.withOpacity(0.07)
-                    : Colors.grey.shade50,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
+          // Zona de arrastre
+          Expanded(
+            child: DropTarget(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: double.infinity,
+                decoration: BoxDecoration(
                   color: _isDragging
-                      ? kComprasPrimary
-                      : Colors.grey.shade300,
-                  width: _isDragging ? 2 : 1.5,
-                  style: BorderStyle.solid,
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.cloud_upload_outlined,
-                    size: 64,
+                      ? kComprasPrimary.withOpacity(0.07)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
                     color: _isDragging
                         ? kComprasPrimary
                         : Colors.grey.shade300,
+                    width: _isDragging ? 2 : 1.5,
                   ),
-                  const SizedBox(height: 14),
-                  Text(
-                    _isDragging
-                        ? '¡Suelta el archivo!'
-                        : 'Arrastra tu archivo aquí',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: _isDragging
-                            ? kComprasPrimary
-                            : Colors.black54),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'o haz clic para seleccionar',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 13,
-                        color: Colors.grey.shade500),
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'PDF · JPG · PNG — Se guarda como PDF',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11,
-                          color: Colors.grey.shade500),
-                    ),
-                  ),
-                ],
+                ),
+                child: _subiendo
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const CircularProgressIndicator(
+                              color: kComprasPrimary),
+                          const SizedBox(height: 16),
+                          Text('Convirtiendo y subiendo como PDF…',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  color: Colors.grey.shade600)),
+                        ],
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.cloud_upload_outlined,
+                              size: 64,
+                              color: _isDragging
+                                  ? kComprasPrimary
+                                  : Colors.grey.shade300),
+                          const SizedBox(height: 14),
+                          Text(
+                            _isDragging
+                                ? '¡Suelta el archivo aquí!'
+                                : 'Arrastra el archivo aquí',
+                            style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: _isDragging
+                                    ? kComprasPrimary
+                                    : Colors.black54),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              'PDF · JPG · PNG — Se guarda como PDF',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 11,
+                                  color: Colors.grey.shade500),
+                            ),
+                          ),
+                        ],
+                      ),
               ),
             ),
           ),
-          // DropzoneView invisible que captura eventos del navegador
-          if (!_subiendo)
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.01,
-                child: DropzoneView(
-                  onCreated: (ctrl) => _dropCtrl = ctrl,
-                  onHover: () => setState(() => _isDragging = true),
-                  onLeave: () => setState(() => _isDragging = false),
-                  onDrop: _handleWebDrop,
+          // Botón separado para abrir selector de archivo
+          if (!_subiendo) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _desdeArchivo,
+                icon: const Icon(Icons.folder_open, size: 16),
+                label: const Text('o seleccionar archivo (PDF/img)',
+                    style: TextStyle(fontFamily: _kFont)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: kComprasPrimary,
+                  side: const BorderSide(color: kComprasPrimary),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                 ),
               ),
             ),
+            const SizedBox(height: 8),
+          ],
         ],
       ),
     );
   }
 
-  // Solo se usa en web: maneja el archivo arrastrado y lo sube como PDF
-  Future<void> _handleWebDrop(dynamic event) async {
+  // Recibe archivo arrastrado vía dart:html y lo procesa
+  Future<void> _onWebFileDrop(DroppedFile file) async {
     if (!mounted) return;
-    setState(() => _isDragging = false);
-    if (_dropCtrl == null) return;
-    final name = await _dropCtrl!.getFilename(event);
+    final name = file.name;
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
@@ -941,7 +974,7 @@ class _ScannerSheetState extends State<_ScannerSheet> {
       }
       return;
     }
-    final bytes = await _dropCtrl!.getFileData(event);
+    final bytes = file.bytes;
     if (ext == 'pdf') {
       // PDF: subir directamente
       setState(() => _subiendo = true);
@@ -1253,6 +1286,14 @@ Future<DocAdjunto?> _mostrarEscaneador(
 // DOC ATTACH BUTTON — botón reutilizable para adjuntar documentos
 // ══════════════════════════════════════════════════════════════════════════════
 
+/// Archivo en espera de ser combinado/subido (solo web).
+class _PendingFile {
+  final Uint8List bytes;
+  final String name;
+  const _PendingFile(this.bytes, this.name);
+  bool get isPdf => name.toLowerCase().endsWith('.pdf');
+}
+
 class _DocAttachButton extends StatefulWidget {
   final String label;
   final DocAdjunto? doc;
@@ -1264,6 +1305,9 @@ class _DocAttachButton extends StatefulWidget {
   /// El caller es responsable de actualizar su estado con el DocAdjunto resultante.
   final Future<void> Function(Uint8List bytes, String name)? onWebUpload;
 
+  /// Solo web: elimina el documento ya adjunto (limpia la referencia en el estado del padre).
+  final VoidCallback? onDelete;
+
   const _DocAttachButton({
     required this.label,
     required this.doc,
@@ -1272,6 +1316,7 @@ class _DocAttachButton extends StatefulWidget {
     required this.onAttach,
     this.onView,
     this.onWebUpload,
+    this.onDelete,
   });
 
   @override
@@ -1279,11 +1324,69 @@ class _DocAttachButton extends StatefulWidget {
 }
 
 class _DocAttachButtonState extends State<_DocAttachButton> {
-  DropzoneViewController? _dropCtrl;
   bool _isDragging = false;
   bool _webUploading = false;
+  // Drag-and-drop web
+  final _dropKey = GlobalKey();
+  StreamSubscription<bool>? _wDragSub;
+  StreamSubscription<DroppedFile>? _wFileSub;
+
+  /// Archivos en espera de combinarse y subir (solo web).
+  final List<_PendingFile> _pending = [];
+  bool _combining = false;
 
   static const int _maxBytes = 10 * 1024 * 1024; // 10 MB
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      WebDragDrop.instance.enable();
+      _wDragSub = WebDragDrop.instance.isDragging
+          .listen((v) { if (mounted) setState(() => _isDragging = v); });
+      _wFileSub = WebDragDrop.instance.droppedFile.listen(_onWebFileDrop);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (kIsWeb) WebDragDrop.instance.disable();
+    _wDragSub?.cancel();
+    _wFileSub?.cancel();
+    super.dispose();
+  }
+
+  /// Recibe archivo arrastrado; lo agrega a la cola de pendientes si el cursor
+  /// cayó sobre este widget.
+  void _onWebFileDrop(DroppedFile file) {
+    if (!mounted || _isUploading || _combining || widget.onWebUpload == null) return;
+    // Verificar que el drop ocurrió dentro de los límites de este widget
+    final rb = _dropKey.currentContext?.findRenderObject() as RenderBox?;
+    if (rb != null) {
+      final topLeft = rb.localToGlobal(Offset.zero);
+      final bounds = topLeft & rb.size;
+      if (!bounds.contains(WebDragDrop.instance.lastDropPosition)) return;
+    }
+    final name = file.name;
+    final ext = name.toLowerCase().split('.').last;
+    if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Solo se permiten PDF, JPG o PNG',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    if (file.bytes.length > _maxBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('El archivo supera el límite de 10 MB',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    setState(() => _pending.add(_PendingFile(file.bytes, name)));
+  }
 
   Color get _borderColor {
     if (widget.doc?.pendiente == true) return Colors.orange;
@@ -1319,23 +1422,37 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
   bool get _isUploading => widget.uploading || _webUploading;
 
   Future<void> _handleWebFilePick() async {
-    if (_isUploading || widget.onWebUpload == null) return;
+    if (_isUploading || _combining || widget.onWebUpload == null) return;
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
       withData: true,
+      allowMultiple: true,
     );
     if (result == null || result.files.isEmpty) return;
-    final f = result.files.first;
-    if (f.bytes == null) return;
-    await _processWebBytes(f.bytes!, f.name);
+    final newFiles = <_PendingFile>[];
+    for (final f in result.files) {
+      if (f.bytes == null) continue;
+      if (f.bytes!.length > _maxBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('${f.name}: supera el límite de 10 MB',
+                  style: const TextStyle(fontFamily: _kFont))));
+        }
+        continue;
+      }
+      newFiles.add(_PendingFile(f.bytes!, f.name));
+    }
+    if (newFiles.isNotEmpty && mounted) {
+      setState(() => _pending.addAll(newFiles));
+    }
   }
 
-  Future<void> _handleWebDrop(dynamic event) async {
-    if (!mounted) return;
+  Future<void> _handleWebDrop(DropDoneDetails details) async {
+    if (!mounted || details.files.isEmpty || widget.onWebUpload == null) return;
     setState(() => _isDragging = false);
-    if (_dropCtrl == null || widget.onWebUpload == null) return;
-    final name = await _dropCtrl!.getFilename(event);
+    final xFile = details.files.first;
+    final name = xFile.name;
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
@@ -1345,7 +1462,7 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       }
       return;
     }
-    final bytes = await _dropCtrl!.getFileData(event);
+    final bytes = await xFile.readAsBytes();
     await _processWebBytes(bytes, name);
   }
 
@@ -1369,6 +1486,65 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       }
     } finally {
       if (mounted) setState(() => _webUploading = false);
+    }
+  }
+
+  /// Combina todos los archivos pendientes en un único PDF y lo sube.
+  Future<void> _combinarYSubir() async {
+    if (_pending.isEmpty || widget.onWebUpload == null) return;
+    setState(() => _combining = true);
+    try {
+      Uint8List finalBytes;
+      String finalName;
+
+      if (_pending.length == 1 && _pending.first.isPdf) {
+        // Un único PDF: subir directo sin recodificar
+        finalBytes = _pending.first.bytes;
+        finalName = _pending.first.name;
+      } else {
+        // Combinar en un único PDF
+        final pdfDoc = pw.Document();
+        for (final pf in _pending) {
+          if (pf.isPdf) {
+            // Rasterizar cada página del PDF a imagen
+            await for (final raster
+                in Printing.raster(pf.bytes, dpi: 150)) {
+              final imgBytes = await raster.toPng();
+              final pwImg = pw.MemoryImage(imgBytes);
+              // Reconstituir tamaño original en puntos (150 dpi → puntos a 72 dpi)
+              final wPt = raster.width * 72.0 / 150.0;
+              final hPt = raster.height * 72.0 / 150.0;
+              pdfDoc.addPage(pw.Page(
+                pageFormat: PdfPageFormat(wPt, hPt),
+                margin: pw.EdgeInsets.zero,
+                build: (_) => pw.Image(pwImg, fit: pw.BoxFit.fill),
+              ));
+            }
+          } else {
+            // Imagen: agregar como página A4
+            final pwImg = pw.MemoryImage(pf.bytes);
+            pdfDoc.addPage(pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              margin: const pw.EdgeInsets.all(16),
+              build: (_) =>
+                  pw.Center(child: pw.Image(pwImg, fit: pw.BoxFit.contain)),
+            ));
+          }
+        }
+        finalBytes = await pdfDoc.save();
+        finalName = 'documento_combinado.pdf';
+      }
+
+      await widget.onWebUpload!(finalBytes, finalName);
+      if (mounted) setState(() => _pending.clear());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error al combinar: $e',
+                style: const TextStyle(fontFamily: _kFont))));
+      }
+    } finally {
+      if (mounted) setState(() => _combining = false);
     }
   }
 
@@ -1491,8 +1667,13 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                 style: TextStyle(color: Colors.red, fontSize: 12)),
         ]),
         const SizedBox(height: 6),
-        // Drop zone o fila de archivo adjunto
-        tiene ? _buildWebFileRow() : _buildWebDropZone(),
+        // Zona de contenido según estado
+        if (_pending.isNotEmpty)
+          _buildWebPendingList()
+        else if (tiene)
+          _buildWebFileRow()
+        else
+          _buildWebDropZone(),
         // Observación de calidad
         if (widget.doc?.rechazado == true &&
             widget.doc?.observacionCalidad != null) ...[
@@ -1517,99 +1698,229 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     );
   }
 
-  Widget _buildWebDropZone() {
-    return SizedBox(
-      height: 86,
-      child: Stack(children: [
-        // Visual del área
-        GestureDetector(
-          onTap: _isUploading ? null : _handleWebFilePick,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: _isDragging
-                  ? kComprasPrimary.withOpacity(0.07)
-                  : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: _isDragging
-                    ? kComprasPrimary
-                    : Colors.grey.shade300,
-                width: _isDragging ? 2 : 1,
+  /// Lista de archivos en espera de ser combinados y subidos.
+  Widget _buildWebPendingList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Encabezado con contador y botón "Agregar más"
+        Row(children: [
+          Text(
+            'Archivos a combinar (${_pending.length})',
+            style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                fontWeight: FontWeight.w600),
+          ),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: _combining ? null : _handleWebFilePick,
+            icon: const Icon(Icons.add, size: 14),
+            label: const Text('Agregar más',
+                style: TextStyle(fontFamily: _kFont, fontSize: 11)),
+            style: TextButton.styleFrom(
+                foregroundColor: kComprasPrimary,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+          ),
+        ]),
+        const SizedBox(height: 4),
+        // Lista de archivos pendientes
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            children: _pending.asMap().entries.map((e) {
+              final idx = e.key;
+              final pf = e.value;
+              final ext = pf.name.split('.').last.toLowerCase();
+              final isImg = ['jpg', 'jpeg', 'png'].contains(ext);
+              return ListTile(
+                dense: true,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                leading: Icon(
+                    isImg ? Icons.image : Icons.picture_as_pdf,
+                    size: 18,
+                    color: isImg ? Colors.blue.shade600 : Colors.red.shade600),
+                title: Text(pf.name,
+                    style: const TextStyle(
+                        fontFamily: _kFont, fontSize: 12),
+                    overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                    '${(pf.bytes.length / 1024).toStringAsFixed(0)} KB',
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 10,
+                        color: Colors.grey.shade500)),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close,
+                      size: 16, color: Colors.grey),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 28, minHeight: 28),
+                  onPressed: _combining
+                      ? null
+                      : () => setState(() => _pending.removeAt(idx)),
+                  tooltip: 'Quitar',
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Botones de acción
+        Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _combining
+                  ? null
+                  : () => setState(() => _pending.clear()),
+              icon: const Icon(Icons.clear, size: 13),
+              label: const Text('Cancelar',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 11)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: Colors.grey.shade300),
+                padding: const EdgeInsets.symmetric(vertical: 6),
               ),
             ),
-            child: _isUploading
-                ? Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2,
-                              color: kComprasPrimary)),
-                      const SizedBox(width: 10),
-                      Text('Subiendo...',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              color: Colors.grey.shade600)),
-                    ],
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.cloud_upload_outlined,
-                        size: 28,
-                        color: _isDragging
-                            ? kComprasPrimary
-                            : Colors.grey.shade400,
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _isDragging
-                                ? '¡Suelta aquí!'
-                                : 'Arrastra o haz clic para cargar',
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: FilledButton.icon(
+              onPressed: _combining ? null : _combinarYSubir,
+              icon: _combining
+                  ? const SizedBox(
+                      width: 13,
+                      height: 13,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.merge_type, size: 14),
+              label: Text(
+                _combining
+                    ? 'Combinando...'
+                    : _pending.length == 1
+                        ? 'Subir archivo'
+                        : 'Combinar y subir PDF',
+                style: const TextStyle(
+                    fontFamily: _kFont, fontSize: 11),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: kComprasPrimary,
+                padding: const EdgeInsets.symmetric(vertical: 6),
+              ),
+            ),
+          ),
+        ]),
+      ],
+    );
+  }
+
+  Widget _buildWebDropZone() {
+    // En web: zona drag-and-drop + botón separado para abrir selector
+    // El DropzoneView (HTML) captura los eventos de arrastre del navegador.
+    // El botón queda fuera del área del DropzoneView para que Flutter lo reciba.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Zona de arrastre
+        SizedBox(
+          key: _dropKey,
+          height: 72,
+          child: DropTarget(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: _isDragging
+                    ? kComprasPrimary.withOpacity(0.07)
+                    : (_isUploading
+                        ? Colors.blue.shade50
+                        : Colors.grey.shade50),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: _isDragging
+                      ? kComprasPrimary
+                      : Colors.grey.shade300,
+                  width: _isDragging ? 2 : 1,
+                ),
+              ),
+              child: _isUploading
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: kComprasPrimary)),
+                        const SizedBox(width: 10),
+                        Text('Subiendo...',
                             style: TextStyle(
                                 fontFamily: _kFont,
                                 fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: _isDragging
-                                    ? kComprasPrimary
-                                    : Colors.black54),
-                          ),
-                          Text(
-                            'PDF · JPG · PNG · Máx. 10 MB',
-                            style: TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 10,
-                                color: Colors.grey.shade500),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-          ),
-        ),
-        // DropzoneView invisible que captura eventos del sistema
-        if (!_isUploading && widget.onWebUpload != null)
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.01,
-              child: DropzoneView(
-                onCreated: (ctrl) => _dropCtrl = ctrl,
-                onHover: () => setState(() => _isDragging = true),
-                onLeave: () => setState(() => _isDragging = false),
-                onDrop: _handleWebDrop,
-              ),
+                                color: Colors.grey.shade600)),
+                      ],
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cloud_upload_outlined,
+                            size: 26,
+                            color: _isDragging
+                                ? kComprasPrimary
+                                : Colors.grey.shade400),
+                        const SizedBox(width: 10),
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isDragging
+                                  ? '¡Suelta el archivo aquí!'
+                                  : 'Arrastra el archivo aquí',
+                              style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _isDragging
+                                      ? kComprasPrimary
+                                      : Colors.black54),
+                            ),
+                            Text('PDF · JPG · PNG · Máx. 10 MB',
+                                style: TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 10,
+                                    color: Colors.grey.shade500)),
+                          ],
+                        ),
+                      ],
+                    ),
             ),
           ),
-      ]),
+        ),
+        // Botón separado para abrir selector de archivo
+        if (!_isUploading && widget.onWebUpload != null) ...[
+          const SizedBox(height: 4),
+          OutlinedButton.icon(
+            onPressed: _handleWebFilePick,
+            icon: Icon(Icons.folder_open,
+                size: 13, color: Colors.grey.shade600),
+            label: Text('o seleccionar archivo',
+                style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    color: Colors.grey.shade600)),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: Colors.grey.shade300),
+              padding: const EdgeInsets.symmetric(vertical: 4),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -1686,13 +1997,23 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
           if (widget.onWebUpload != null)
             TextButton.icon(
               onPressed: _isUploading ? null : _handleWebFilePick,
-              icon: const Icon(Icons.swap_horiz, size: 14),
-              label: const Text('Cambiar',
+              icon: const Icon(Icons.add_circle_outline, size: 14),
+              label: const Text('Agregar',
                   style: TextStyle(fontFamily: _kFont, fontSize: 11)),
               style: TextButton.styleFrom(
                   foregroundColor: Colors.grey.shade600,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8, vertical: 4)),
+            ),
+          if (widget.onDelete != null)
+            IconButton(
+              onPressed: _isUploading ? null : widget.onDelete,
+              icon: Icon(Icons.delete_outline,
+                  size: 18, color: Colors.red.shade400),
+              tooltip: 'Eliminar documento',
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              constraints:
+                  const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
         ],
       ),
@@ -2279,6 +2600,10 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                     onAttach: () => _adjuntarDoc(key),
                     onView: _documentos[key]?.tieneDoc == true
                         ? () => _abrirUrl(context, _documentos[key]!.url)
+                        : null,
+                    onDelete: _documentos[key]?.tieneDoc == true
+                        ? () => setState(() =>
+                            _documentos = {..._documentos, key: const DocAdjunto()})
                         : null,
                     onWebUpload: (bytes, name) async {
                       final ext = name.toLowerCase().split('.').last;
@@ -3545,18 +3870,28 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   bool _subiendo = false;
 
   // Web drag-and-drop
-  DropzoneViewController? _dropCtrl;
   bool _isDragging = false;
+  StreamSubscription<bool>? _wDragSub;
+  StreamSubscription<DroppedFile>? _wFileSub;
 
   @override
   void initState() {
     super.initState();
     _cargarProveedores();
+    if (kIsWeb) {
+      WebDragDrop.instance.enable();
+      _wDragSub = WebDragDrop.instance.isDragging
+          .listen((v) { if (mounted) setState(() => _isDragging = v); });
+      _wFileSub = WebDragDrop.instance.droppedFile.listen(_onWebFileDrop);
+    }
   }
 
   @override
   void dispose() {
     _obsCtrl.dispose();
+    if (kIsWeb) WebDragDrop.instance.disable();
+    _wDragSub?.cancel();
+    _wFileSub?.cancel();
     super.dispose();
   }
 
@@ -3596,11 +3931,10 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
     });
   }
 
-  Future<void> _handleWebDrop(dynamic event) async {
+  // Recibe archivo arrastrado vía dart:html
+  void _onWebFileDrop(DroppedFile file) {
     if (!mounted) return;
-    setState(() => _isDragging = false);
-    if (_dropCtrl == null) return;
-    final name = await _dropCtrl!.getFilename(event);
+    final name = file.name;
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
@@ -3610,10 +3944,17 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       }
       return;
     }
-    final bytes = await _dropCtrl!.getFileData(event);
+    if (file.bytes.length > 10 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('El archivo supera el límite de 10 MB',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
     setState(() {
       _fileName = name;
-      _fileBytes = bytes;
+      _fileBytes = file.bytes;
     });
   }
 
@@ -3633,93 +3974,98 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       );
     }
 
-    // Web: zona drag-and-drop
-    return SizedBox(
-      height: 140,
-      child: Stack(
-        children: [
-          // Visual
-          GestureDetector(
-            onTap: _subiendo ? null : _pickFile,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: _isDragging
-                    ? kComprasPrimary.withOpacity(0.07)
-                    : (_fileBytes != null
-                        ? Colors.green.shade50
-                        : Colors.grey.shade50),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
+    // Web: zona drag-and-drop + botón separado para abrir selector de archivo
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Si hay archivo seleccionado, mostrar preview en lugar de la zona
+        if (_fileBytes != null)
+          Container(
+            height: 80,
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green.shade300, width: 1.5),
+            ),
+            child: _buildFilePreview(),
+          )
+        else
+          // Zona de arrastre
+          SizedBox(
+            height: 110,
+            child: DropTarget(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: double.infinity,
+                decoration: BoxDecoration(
                   color: _isDragging
-                      ? kComprasPrimary
-                      : (_fileBytes != null
-                          ? Colors.green.shade400
-                          : Colors.grey.shade300),
-                  width: _isDragging ? 2 : 1.5,
+                      ? kComprasPrimary.withOpacity(0.07)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _isDragging
+                        ? kComprasPrimary
+                        : Colors.grey.shade300,
+                    width: _isDragging ? 2 : 1.5,
+                  ),
                 ),
-              ),
-              child: _fileBytes != null
-                  ? _buildFilePreview()
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.cloud_upload_outlined,
-                          size: 34,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_upload_outlined,
+                        size: 34,
+                        color: _isDragging
+                            ? kComprasPrimary
+                            : Colors.grey.shade400),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isDragging
+                          ? '¡Suelta el archivo aquí!'
+                          : 'Arrastra el archivo aquí',
+                      style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                           color: _isDragging
                               ? kComprasPrimary
-                              : Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _isDragging
-                              ? '¡Suelta el archivo!'
-                              : 'Arrastra tu archivo aquí',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: _isDragging
-                                  ? kComprasPrimary
-                                  : Colors.black54),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'o haz clic para seleccionar',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 11,
-                              color: Colors.grey.shade500),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'PDF · JPG · PNG',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 10,
-                              color: Colors.grey.shade400),
-                        ),
-                      ],
+                              : Colors.black54),
                     ),
-            ),
-          ),
-          // DropzoneView invisible que captura drag del sistema
-          if (!_subiendo)
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.01,
-                child: DropzoneView(
-                  onCreated: (ctrl) => _dropCtrl = ctrl,
-                  onHover: () => setState(() => _isDragging = true),
-                  onLeave: () => setState(() => _isDragging = false),
-                  onDrop: _handleWebDrop,
+                    const SizedBox(height: 2),
+                    Text('PDF · JPG · PNG · Máx. 10 MB',
+                        style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 10,
+                            color: Colors.grey.shade500)),
+                  ],
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+        const SizedBox(height: 6),
+        // Botón separado para abrir selector de archivo
+        OutlinedButton.icon(
+          onPressed: _subiendo ? null : _pickFile,
+          icon: Icon(Icons.folder_open,
+              size: 14,
+              color: _subiendo ? Colors.grey : kComprasPrimary),
+          label: Text(
+            _fileBytes != null
+                ? 'Cambiar archivo'
+                : 'o seleccionar archivo (PDF/img)',
+            style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: _subiendo ? Colors.grey : kComprasPrimary),
+          ),
+          style: OutlinedButton.styleFrom(
+            side: BorderSide(
+                color: _subiendo
+                    ? Colors.grey.shade300
+                    : kComprasPrimary.withOpacity(0.5)),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+        ),
+      ],
     );
   }
 
@@ -4745,6 +5091,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                         setState(() =>
                             _entries[idx].documentos[key] = docPendiente);
                       },
+                      onWebDeleteDoc: (key) =>
+                          setState(() => _entries[idx].documentos.remove(key)),
                     );
                   }),
                   const SizedBox(height: 10),
@@ -4807,6 +5155,9 @@ class _ProductoEntryCard extends StatelessWidget {
   final Future<void> Function(String key, Uint8List bytes, String name)?
       onWebUploadDoc;
 
+  /// Solo web: elimina el documento ya adjunto para la clave indicada.
+  final void Function(String key)? onWebDeleteDoc;
+
   const _ProductoEntryCard({
     required this.idx,
     required this.entry,
@@ -4819,6 +5170,7 @@ class _ProductoEntryCard extends StatelessWidget {
     required this.onMarcaChanged,
     this.fichaTecnicaDoc,
     this.onWebUploadDoc,
+    this.onWebDeleteDoc,
   });
 
   @override
@@ -5173,6 +5525,11 @@ class _ProductoEntryCard extends StatelessWidget {
                               onAttach: () => onAdjuntarDoc(key),
                               onView: entry.documentos[key]?.tieneDoc == true
                                   ? () => onVerDoc(key)
+                                  : null,
+                              onDelete: entry.documentos[key]?.tieneDoc ==
+                                          true &&
+                                      onWebDeleteDoc != null
+                                  ? () => onWebDeleteDoc!(key)
                                   : null,
                               onWebUpload: onWebUploadDoc != null
                                   ? (bytes, name) =>
@@ -6158,6 +6515,50 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                                       setState(() => _r = nuevaRecepcion);
                                     }
                                   },
+                                  onDelete: tiene
+                                      ? () async {
+                                          final p =
+                                              _r.productos[productoIdx];
+                                          final nuevaDocs =
+                                              Map<String, DocAdjunto>.from(
+                                                  p.documentos)
+                                                ..remove(key);
+                                          final nuevosProductos =
+                                              List<RecepcionProducto>.from(
+                                                  _r.productos);
+                                          nuevosProductos[productoIdx] =
+                                              RecepcionProducto(
+                                            productoId: p.productoId,
+                                            nombre: p.nombre,
+                                            categoria: p.categoria,
+                                            marcaId: p.marcaId,
+                                            marca: p.marca,
+                                            origen: p.origen,
+                                            documentos: nuevaDocs,
+                                            observaciones: p.observaciones,
+                                          );
+                                          final nuevaRecepcion = RecepcionDoc(
+                                            id: _r.id,
+                                            empresaId: _r.empresaId,
+                                            fecha: _r.fecha,
+                                            proveedorId: _r.proveedorId,
+                                            nit: _r.nit,
+                                            razonSocial: _r.razonSocial,
+                                            ordenCompra: _r.ordenCompra,
+                                            productos: nuevosProductos,
+                                            productoIds: _r.productoIds,
+                                            creadoPor: _r.creadoPor,
+                                            createdAt: _r.createdAt,
+                                          );
+                                          await widget.svc!
+                                              .guardarRecepcion(
+                                                  nuevaRecepcion);
+                                          if (mounted) {
+                                            setState(
+                                                () => _r = nuevaRecepcion);
+                                          }
+                                        }
+                                      : null,
                                 ),
                               );
                             } else {
