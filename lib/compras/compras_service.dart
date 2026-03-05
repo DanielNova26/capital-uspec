@@ -612,6 +612,31 @@ class ComprasService {
     return ref.id;
   }
 
+  /// Elimina completamente una ficha técnica:
+  /// borra archivo(s) en Storage (doc actual + historial) y el doc en Firestore.
+  Future<void> eliminarFichaTecnica(FichaTecnicaDoc ficha) async {
+    // 1. Borrar archivo del documentoActual
+    final doc = ficha.documentoActual;
+    if (doc != null && doc.path != null && doc.path!.isNotEmpty) {
+      try {
+        await _storage.ref(doc.path!).delete();
+      } catch (_) {}
+    }
+    // 2. Borrar archivos del historial
+    for (final h in ficha.historial) {
+      if (h.path != null && h.path!.isNotEmpty) {
+        try {
+          await _storage.ref(h.path!).delete();
+        } catch (_) {}
+      }
+    }
+    // 3. Eliminar documento de Firestore
+    await _db
+        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+        .doc(ficha.id)
+        .delete();
+  }
+
   /// Aprueba la ficha técnica (documentoActual.estadoCalidad = 'aprobado').
   Future<void> aprobarFichaTecnica({
     required String fichaId,
@@ -637,6 +662,19 @@ class ComprasService {
 
   // ─── DOCUMENTOS DE PROVEEDOR (revisión calidad) ──────────────────────────────
 
+  /// Guarda/actualiza un único documento del proveedor en Firestore
+  /// usando la sintaxis de campo anidado (documentos.<key>) para no pisar
+  /// el resto del map.
+  Future<void> actualizarDocProveedor({
+    required String proveedorId,
+    required String docKey,
+    required DocAdjunto doc,
+  }) =>
+      _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
+        'documentos.$docKey': doc.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
   /// Aprueba un documento del proveedor (estadoCalidad = 'aprobado').
   Future<void> aprobarDocProveedor({
     required String proveedorId,
@@ -661,7 +699,8 @@ class ComprasService {
     });
   }
 
-  /// Rechaza un documento del proveedor (estadoCalidad = 'rechazado').
+  /// Rechaza un documento del proveedor: elimina el archivo de Storage,
+  /// limpia el doc (vuelve a "Sin cargar") y envía notificación al subidor.
   Future<void> rechazarDocProveedor({
     required String proveedorId,
     required String docKey,
@@ -674,17 +713,62 @@ class ComprasService {
     final prov = ProveedorDoc.fromMap(snap.id, snap.data()!);
     final docActual = prov.documentos[docKey];
     if (docActual == null || !docActual.tieneDoc) return;
+
+    // 1. Eliminar el archivo de Firebase Storage
+    if (docActual.path != null && docActual.path!.isNotEmpty) {
+      try {
+        await _storage.ref(docActual.path!).delete();
+      } catch (_) {
+        // Si el archivo ya no existe en Storage, continuar igual
+      }
+    }
+
+    // 2. Resetear el documento a vacío (vuelve a "Sin cargar")
     final actualizado = Map<String, DocAdjunto>.from(prov.documentos)
-      ..[docKey] = docActual.copyWith(
-        estadoCalidad: 'rechazado',
-        observacionCalidad: motivo,
-        revisadoPor: revisadoPor,
-        fechaRevision: Timestamp.now(),
-      );
+      ..[docKey] = const DocAdjunto();
     await ref.update({
       'documentos': actualizado.map((k, v) => MapEntry(k, v.toMap())),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+
+    // 3. Notificar al usuario que subió el documento
+    final subidoPor = docActual.subidoPor ?? '';
+    if (subidoPor.isNotEmpty) {
+      final label = kDocProveedorLabels[docKey] ?? docKey;
+
+      // 3a. Notificación en el módulo Compras (campana del dashboard compras)
+      final notif = NotificacionComprasDoc(
+        empresaId: prov.empresaId,
+        userId: subidoPor,
+        recepcionId: 'proveedor:$proveedorId',
+        productoNombre: prov.razonSocial,
+        docKey: docKey,
+        docLabel: label,
+        motivo: motivo,
+        createdAt: Timestamp.now(),
+      );
+      await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
+
+      // 3b. Notificación estándar (campana del Home / TBL_NOTIFICACIONES)
+      final notifRef = _db
+          .collection('TBL_NOTIFICACIONES')
+          .doc(subidoPor)
+          .collection('notifications')
+          .doc();
+      await notifRef.set({
+        'id': notifRef.id,
+        'title': '📄 Documento rechazado – ${prov.razonSocial}',
+        'description':
+            'El documento "$label" fue rechazado. Motivo: $motivo. '
+            'Por favor corrígelo y vuelve a cargarlo.',
+        'type': 'doc_rechazado',
+        'taskId': 'proveedor:$proveedorId',
+        'fromId': revisadoPor,
+        'fromName': 'Revisión de Calidad',
+        'createdAt': Timestamp.now(),
+        'read': false,
+      });
+    }
   }
 
   /// Rechaza la ficha técnica y envía notificación al subidor.

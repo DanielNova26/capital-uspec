@@ -58,7 +58,12 @@ const Map<String, String> kDocProveedorLabels = {
   'actaIvcVehiculo': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
   'examenMedico': 'Examen médico del conductor con énfasis en alimentos',
   'cursoManipulacion':
-  'Certificado/curso de manipulación de alimentos del conductor/manipulador',
+      'Certificado/curso de manipulación de alimentos del conductor/manipulador',
+  // Docs requeridos por el motor de requisitos a nivel PROVEEDOR
+  'fichaTecnicaProv': 'Ficha técnica del producto',
+  'soporteRegistroInvima': 'Soporte de registro sanitario INVIMA',
+  'fichaTecnicaDosificacion':
+      'Ficha técnica con registro sanitario y dosificaciones',
 };
 
 const Map<String, String> kDocRecepcionLabels = {
@@ -206,6 +211,8 @@ class DocAdjunto {
   final String? observacionCalidad;
   final String? revisadoPor;
   final Timestamp? fechaRevision;
+  /// userId del usuario que subió este documento (para notificaciones de rechazo).
+  final String? subidoPor;
 
   const DocAdjunto({
     this.url,
@@ -217,6 +224,7 @@ class DocAdjunto {
     this.observacionCalidad,
     this.revisadoPor,
     this.fechaRevision,
+    this.subidoPor,
   });
 
   bool get tieneDoc => url != null && url!.isNotEmpty;
@@ -239,6 +247,7 @@ class DocAdjunto {
       observacionCalidad: m['observacionCalidad'] as String?,
       revisadoPor: m['revisadoPor'] as String?,
       fechaRevision: m['fechaRevision'] as Timestamp?,
+      subidoPor: m['subidoPor'] as String?,
     );
   }
 
@@ -249,9 +258,10 @@ class DocAdjunto {
         'fechaSubida': fechaSubida,
         'estadoCalidad': estadoCalidad,
         'observacionCalidad': observacionCalidad,
-    'observacionActualizacion': observacionActualizacion,
+        'observacionActualizacion': observacionActualizacion,
         'revisadoPor': revisadoPor,
         'fechaRevision': fechaRevision,
+        'subidoPor': subidoPor,
       };
 
   DocAdjunto copyWith({
@@ -264,6 +274,7 @@ class DocAdjunto {
     String? observacionActualizacion,
     String? revisadoPor,
     Timestamp? fechaRevision,
+    String? subidoPor,
   }) =>
       DocAdjunto(
         url: url ?? this.url,
@@ -273,9 +284,10 @@ class DocAdjunto {
         estadoCalidad: estadoCalidad ?? this.estadoCalidad,
         observacionCalidad: observacionCalidad ?? this.observacionCalidad,
         observacionActualizacion:
-        observacionActualizacion ?? this.observacionActualizacion,
+            observacionActualizacion ?? this.observacionActualizacion,
         revisadoPor: revisadoPor ?? this.revisadoPor,
         fechaRevision: fechaRevision ?? this.fechaRevision,
+        subidoPor: subidoPor ?? this.subidoPor,
       );
 }
 

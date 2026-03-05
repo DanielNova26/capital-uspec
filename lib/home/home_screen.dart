@@ -123,6 +123,20 @@ class _HomeScreenState extends State<HomeScreen> {
     required String taskId,
     required String cedula,
   }) async {
+    // Documento rechazado (módulo Compras) → navegar directamente al proveedor
+    if ((type == 'doc_rechazado' || type == 'correccion_requerida') &&
+        taskId.startsWith('proveedor:')) {
+      final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
+      if (proveedorId.isNotEmpty && mounted) {
+        await abrirDetalleProveedor(
+          context,
+          userId: cedula,
+          proveedorId: proveedorId,
+        );
+      }
+      return;
+    }
+
     if (taskId.trim().isNotEmpty) {
       try {
         await FirebaseFirestore.instance
@@ -1165,6 +1179,10 @@ class _HomeScreenState extends State<HomeScreen> {
       case 'task_finalizada':
       case 'task_finalizado':
         return 'Tarea finalizada';
+
+      case 'doc_rechazado':
+      case 'correccion_requerida':
+        return 'Corrección requerida';
 
       case 'cita_nutricion_agendada':
         return 'Cita nutricional agendada';

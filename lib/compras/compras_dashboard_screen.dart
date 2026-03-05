@@ -15,6 +15,8 @@ import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:excel/excel.dart' as xl;
+import 'package:file_saver/file_saver.dart';
 
 import 'compras_models.dart';
 import 'compras_service.dart';
@@ -138,6 +140,58 @@ List<String> docsParaCategoria(String? categoria) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// FUNCIÓN PÚBLICA: navegar directamente al detalle de un proveedor
+// (usada desde notificaciones del Home)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Navega directamente al formulario de edición de un proveedor,
+/// cargando sus datos desde Firestore por su ID.
+/// Usada desde las notificaciones de rechazo de documentos.
+Future<void> abrirDetalleProveedor(
+  BuildContext context, {
+  required String userId,
+  required String proveedorId,
+}) async {
+  final svc = ComprasService();
+  ProveedorDoc? prov;
+  String empresaId = '';
+  try {
+    final snap = await FirebaseFirestore.instance
+        .collection('TBL_COMPRAS_PROVEEDORES')
+        .doc(proveedorId)
+        .get();
+    if (snap.exists && snap.data() != null) {
+      prov = ProveedorDoc.fromMap(snap.id, snap.data()!);
+      empresaId = prov.empresaId;
+    }
+  } catch (_) {}
+
+  if (!context.mounted) return;
+
+  if (prov == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No se pudo encontrar el proveedor.'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+    return;
+  }
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _ProveedorFormScreen(
+        empresaId: empresaId,
+        svc: svc,
+        existing: prov,
+        userId: userId,
+      ),
+    ),
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // COMPRAS DASHBOARD SCREEN — pantalla principal (hub)
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -216,7 +270,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                   subtitulo: 'Registrar y gestionar proveedores',
                   color: const Color(0xFF1565C0),
                   onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _ProveedoresScreen(empresaId: empresaId, svc: svc))),
+                      builder: (_) => _ProveedoresScreen(empresaId: empresaId, svc: svc, userId: userId))),
                 ),
                 const SizedBox(height: 14),
                 _MenuTile(
@@ -419,7 +473,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                           color: const Color(0xFF1565C0),
                           onTap: () => Navigator.push(context, MaterialPageRoute(
                               builder: (_) => _ProveedoresScreen(
-                                  empresaId: empresaId, svc: svc))),
+                                  empresaId: empresaId, svc: svc, userId: userId))),
                         ),
                         card(
                           icon: Icons.label_important,
@@ -1360,13 +1414,13 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
   /// cayó sobre este widget.
   void _onWebFileDrop(DroppedFile file) {
     if (!mounted || _isUploading || _combining || widget.onWebUpload == null) return;
-    // Verificar que el drop ocurrió dentro de los límites de este widget
+    // Verificar que el drop ocurrió dentro de los límites de este widget.
+    // Si la zona drop no está visible (rb == null) rechazar el drop.
     final rb = _dropKey.currentContext?.findRenderObject() as RenderBox?;
-    if (rb != null) {
-      final topLeft = rb.localToGlobal(Offset.zero);
-      final bounds = topLeft & rb.size;
-      if (!bounds.contains(WebDragDrop.instance.lastDropPosition)) return;
-    }
+    if (rb == null) return;
+    final topLeft = rb.localToGlobal(Offset.zero);
+    final bounds = topLeft & rb.size;
+    if (!bounds.contains(WebDragDrop.instance.lastDropPosition)) return;
     final name = file.name;
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
@@ -2042,8 +2096,9 @@ void _abrirUrl(BuildContext context, String? url) async {
 class _ProveedoresScreen extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
+  final String userId;
 
-  const _ProveedoresScreen({required this.empresaId, required this.svc});
+  const _ProveedoresScreen({required this.empresaId, required this.svc, required this.userId});
 
   @override
   State<_ProveedoresScreen> createState() => _ProveedoresScreenState();
@@ -2150,6 +2205,7 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
             empresaId: widget.empresaId,
             svc: widget.svc,
             existing: existing,
+            userId: widget.userId,
           ),
         ),
       );
@@ -2318,11 +2374,13 @@ class _ProveedorFormScreen extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
   final ProveedorDoc? existing;
+  final String userId;
 
   const _ProveedorFormScreen({
     required this.empresaId,
     required this.svc,
     this.existing,
+    required this.userId,
   });
 
   @override
@@ -2618,8 +2676,26 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                             '${_nitCtrl.text}_${kDocProveedorLabels[key] ?? key}_$name',
                         contentType: ct,
                       );
+                      // Registrar quién subió el doc y marcarlo pendiente de revisión
+                      final docFinal = doc.copyWith(
+                        subidoPor: widget.userId,
+                        estadoCalidad: 'pendiente_revision_calidad',
+                      );
                       setState(() =>
-                          _documentos = {..._documentos, key: doc});
+                          _documentos = {..._documentos, key: docFinal});
+                      // Auto-guardar en Firestore inmediatamente para que
+                      // Revisión de Calidad lo vea sin tener que pulsar Guardar
+                      if (!isNew) {
+                        try {
+                          await widget.svc.actualizarDocProveedor(
+                            proveedorId: widget.existing!.id,
+                            docKey: key,
+                            doc: docFinal,
+                          );
+                        } catch (_) {
+                          // Si falla, el botón Guardar persiste los cambios
+                        }
+                      }
                     },
                   ),
                 );
@@ -3811,6 +3887,60 @@ class _FichaProveedorCard extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4)),
                 ),
+                // ── Botón eliminar ficha ───────────────────────────────────
+                IconButton(
+                  icon: const Icon(Icons.delete_outline,
+                      size: 18, color: kComprasRed),
+                  tooltip: 'Eliminar ficha técnica',
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  constraints: const BoxConstraints(),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Eliminar ficha técnica',
+                            style: TextStyle(fontFamily: _kFont)),
+                        content: Text(
+                          '¿Eliminar la ficha de "${ficha.proveedorNombre}"?\n'
+                          'Esta acción no se puede deshacer.',
+                          style: const TextStyle(fontFamily: _kFont),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Cancelar'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: FilledButton.styleFrom(
+                                backgroundColor: kComprasRed),
+                            child: const Text('Eliminar'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (ok != true || !context.mounted) return;
+                    try {
+                      await svc.eliminarFichaTecnica(ficha);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Ficha técnica eliminada'),
+                            backgroundColor: kComprasRed,
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                              content: Text('Error: $e'),
+                              backgroundColor: kComprasRed),
+                        );
+                      }
+                    }
+                  },
+                ),
               ],
             ),
           ],
@@ -4873,15 +5003,6 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   }
 
   Future<void> _adjuntarDocProducto(int idx, String key) async {
-    if (key == 'fichaTecnica' &&
-        _entries[idx].observacionesCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-          'Antes de cargar la ficha técnica, registre la observación de por qué se actualiza.',
-        ),
-      ));
-      return;
-    }
     final p = _entries[idx].producto;
     final nombreSug =
         '${_proveedor?.nit ?? ''}_${p?.nombre ?? 'prod'}_${kDocRecepcionLabels[key] ?? key}';
@@ -4893,12 +5014,15 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       svc: widget.svc,
     );
     if (doc != null) {
-      // Marcar como pendiente de revisión calidad
-      final docPendiente = doc.copyWith(
-        estadoCalidad: 'pendiente_revision_calidad',
-        observacionActualizacion: _entries[idx].observacionesCtrl.text.trim(),
-      );
-      setState(() => _entries[idx].documentos[key] = docPendiente);
+      // Solo la ficha técnica entra a revisión de calidad
+      final docFinal = key == 'fichaTecnica'
+          ? doc.copyWith(
+              estadoCalidad: 'pendiente_revision_calidad',
+              observacionActualizacion:
+                  _entries[idx].observacionesCtrl.text.trim(),
+            )
+          : doc;
+      setState(() => _entries[idx].documentos[key] = docFinal);
     }
   }
 
@@ -5063,15 +5187,6 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           setState(() => _entries[idx].marcaSeleccionada = m),
                       fichaTecnicaDoc: _fichaParaEntry(e),
                       onWebUploadDoc: (key, bytes, name) async {
-                        if (key == 'fichaTecnica' &&
-                            _entries[idx]
-                                .observacionesCtrl
-                                .text
-                                .trim()
-                                .isEmpty) {
-                          throw Exception(
-                              'Registra la observación antes de cargar la ficha técnica.');
-                        }
                         final ext = name.toLowerCase().split('.').last;
                         final ct = ext == 'pdf'
                             ? 'application/pdf'
@@ -5083,13 +5198,18 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           nombre: name,
                           contentType: ct,
                         );
-                        final docPendiente = doc.copyWith(
-                          estadoCalidad: 'pendiente_revision_calidad',
-                          observacionActualizacion:
-                              _entries[idx].observacionesCtrl.text.trim(),
-                        );
+                        // Solo la ficha técnica entra a revisión de calidad
+                        final docFinal = key == 'fichaTecnica'
+                            ? doc.copyWith(
+                                estadoCalidad: 'pendiente_revision_calidad',
+                                observacionActualizacion: _entries[idx]
+                                    .observacionesCtrl
+                                    .text
+                                    .trim(),
+                              )
+                            : doc;
                         setState(() =>
-                            _entries[idx].documentos[key] = docPendiente);
+                            _entries[idx].documentos[key] = docFinal);
                       },
                       onWebDeleteDoc: (key) =>
                           setState(() => _entries[idx].documentos.remove(key)),
@@ -5537,21 +5657,24 @@ class _ProductoEntryCard extends StatelessWidget {
                                   : null,
                             ),
                           )),
-                  const SizedBox(height: 10),
-                  // ─ Observaciones ─
-                  TextField(
-                    controller: entry.observacionesCtrl,
-                    decoration: _inputDecoration(
-                      'Observaciones de actualización (obligatorio para ficha técnica)',
-                    ).copyWith(
-                      hintText:
-                      'Explique por qué se actualiza el documento (especialmente ficha técnica)...',
-                      prefixIcon: const Icon(Icons.note_alt_outlined, size: 18),
+                  // ─ Observaciones: solo visible cuando la ficha técnica está cargada ─
+                  if (entry.documentos['fichaTecnica']?.tieneDoc == true) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: entry.observacionesCtrl,
+                      decoration: _inputDecoration(
+                        'Observaciones de la ficha técnica',
+                      ).copyWith(
+                        hintText:
+                            'Explique por qué se actualiza la ficha técnica...',
+                        prefixIcon:
+                            const Icon(Icons.note_alt_outlined, size: 18),
+                      ),
+                      maxLines: 2,
+                      style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                      onChanged: (_) => onChanged(),
                     ),
-                    maxLines: 2,
-                    style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-                    onChanged: (_) => onChanged(),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -5659,6 +5782,35 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
 // CONSULTAS SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ──────────────────────────────────────────────────────────────────────────
+// Helper: genera y descarga un archivo Excel
+// ──────────────────────────────────────────────────────────────────────────
+Future<void> _exportarExcel({
+  required String nombreArchivo,
+  required List<String> columnas,
+  required List<List<String>> filas,
+}) async {
+  final excel = xl.Excel.createExcel();
+  excel.rename('Sheet1', nombreArchivo);
+  final sheet = excel[nombreArchivo];
+
+  // Fila de encabezado
+  sheet.appendRow(columnas.map((c) => xl.TextCellValue(c)).toList());
+
+  // Filas de datos
+  for (final fila in filas) {
+    sheet.appendRow(fila.map((v) => xl.TextCellValue(v)).toList());
+  }
+
+  final bytes = excel.encode()!;
+  await FileSaver.instance.saveFile(
+    name: nombreArchivo,
+    bytes: Uint8List.fromList(bytes),
+    fileExtension: 'xlsx',
+    mimeType: MimeType.microsoftExcel,
+  );
+}
+
 class _ConsultasScreen extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
@@ -5676,7 +5828,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -5696,6 +5848,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
         foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabCtrl,
+          isScrollable: true,
           indicator: UnderlineTabIndicator(
             borderSide: const BorderSide(width: 3, color: kComprasAccent),
             borderRadius: BorderRadius.circular(999),
@@ -5704,55 +5857,59 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
           labelColor: Colors.white,
           unselectedLabelColor: const Color(0xFFB3E5FC),
           labelStyle: const TextStyle(
-              fontFamily: _kFont,
-              fontSize: 13,
-              fontWeight: FontWeight.w700),
+              fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w700),
           unselectedLabelStyle: const TextStyle(
-              fontFamily: _kFont,
-              fontSize: 13,
-              fontWeight: FontWeight.w500),
+              fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w500),
           tabs: const [
-            Tab(icon: Icon(Icons.business, size: 18), text: 'Por Proveedor'),
-            Tab(icon: Icon(Icons.inventory_2, size: 18), text: 'Por Producto'),
+            Tab(icon: Icon(Icons.business, size: 16), text: 'Proveedores'),
+            Tab(icon: Icon(Icons.inventory_2, size: 16), text: 'Productos'),
+            Tab(icon: Icon(Icons.local_offer, size: 16), text: 'Marcas'),
+            Tab(icon: Icon(Icons.receipt_long, size: 16), text: 'Recepciones'),
+            Tab(icon: Icon(Icons.description, size: 16), text: 'Fichas Técnicas'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabCtrl,
         children: [
-          _ConsultaProveedorTab(
-              empresaId: widget.empresaId, svc: widget.svc),
-          _ConsultaProductoTab(
-              empresaId: widget.empresaId, svc: widget.svc),
+          _ConsultaProveedoresTab(empresaId: widget.empresaId, svc: widget.svc),
+          _ConsultaProductosTab(empresaId: widget.empresaId, svc: widget.svc),
+          _ConsultaMarcasTab(empresaId: widget.empresaId, svc: widget.svc),
+          _ConsultaRecepcionesTab(empresaId: widget.empresaId, svc: widget.svc),
+          _ConsultaFichasTab(empresaId: widget.empresaId, svc: widget.svc),
         ],
       ),
     );
   }
 }
 
-// ─── Consulta Por Proveedor ────────────────────────────────────────────────
-
-class _ConsultaProveedorTab extends StatefulWidget {
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB: PROVEEDORES
+// ══════════════════════════════════════════════════════════════════════════════
+class _ConsultaProveedoresTab extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
-
-  const _ConsultaProveedorTab(
-      {required this.empresaId, required this.svc});
-
+  const _ConsultaProveedoresTab({required this.empresaId, required this.svc});
   @override
-  State<_ConsultaProveedorTab> createState() => _ConsultaProveedorTabState();
+  State<_ConsultaProveedoresTab> createState() => _ConsultaProveedoresTabState();
 }
 
-class _ConsultaProveedorTabState extends State<_ConsultaProveedorTab> {
-  final _ctrl = TextEditingController();
-  List<ProveedorDoc> _proveedores = [];
-  ProveedorDoc? _seleccionado;
+class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
+  final _searchCtrl = TextEditingController();
+  List<ProveedorDoc> _todos = [];
   bool _loading = true;
+  bool _exportando = false;
 
   @override
   void initState() {
     super.initState();
     _cargar();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _cargar() async {
@@ -5766,210 +5923,165 @@ class _ConsultaProveedorTabState extends State<_ConsultaProveedorTab> {
           .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
           .toList()
         ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
-      setState(() => _proveedores = lista);
+      setState(() { _todos = lista; _loading = false; });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
-      }
-    } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+  Future<void> _exportar() async {
+    setState(() => _exportando = true);
+    try {
+      final docKeys = kDocProveedorLabels.keys.toList();
+      final columnas = [
+        'NIT', 'Razón Social', 'Dirección', 'Teléfono', 'Email',
+        'Departamento', 'Ciudad', 'Es Local', 'Categorías',
+        ...docKeys.map((k) => kDocProveedorLabels[k]!),
+      ];
+      final filas = _todos.map((p) => [
+        p.nit, p.razonSocial, p.direccion, p.telefono, p.email,
+        p.departamento, p.ciudad, p.esLocal ? 'Sí' : 'No',
+        p.categorias.join(', '),
+        ...docKeys.map((k) => p.documentos[k]?.url ?? 'Sin cargar'),
+      ]).toList();
+      await _exportarExcel(
+        nombreArchivo: 'consulta_proveedores',
+        columnas: columnas,
+        filas: filas,
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+    } finally {
+      if (mounted) setState(() => _exportando = false);
     }
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TypeAheadField<ProveedorDoc>(
-            textFieldConfiguration: TextFieldConfiguration(
-              controller: _ctrl,
-              decoration: _inputDecoration('Buscar proveedor').copyWith(
-                prefixIcon: const Icon(Icons.search, size: 18),
-                hintText: 'Nombre o NIT...',
-              ),
-              style: const TextStyle(fontFamily: _kFont, fontSize: 14),
-            ),
-            suggestionsCallback: (p) => _proveedores
-                .where((x) =>
-                    x.razonSocial.toLowerCase().contains(p.toLowerCase()) ||
-                    x.nit.contains(p))
-                .toList(),
-            itemBuilder: (_, p) => ListTile(
-              dense: true,
-              title: Text(p.razonSocial,
-                  style: const TextStyle(fontFamily: _kFont, fontSize: 13)),
-              subtitle: Text(p.nit,
-                  style:
-                      const TextStyle(fontFamily: _kFont, fontSize: 11)),
-            ),
-            onSuggestionSelected: (p) =>
-                setState(() {
-                  _seleccionado = p;
-                  _ctrl.text = p.razonSocial;
-                }),
-            noItemsFoundBuilder: (_) => const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('Sin resultados',
-                  style: TextStyle(fontFamily: _kFont)),
-            ),
-          ),
-          if (_seleccionado != null) ...[
-            const SizedBox(height: 20),
-            _ProveedorDetalleCard(proveedor: _seleccionado!),
-            const SizedBox(height: 16),
-            const Text('Recepciones registradas',
-                style: TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14)),
-            const SizedBox(height: 10),
-            StreamBuilder<List<RecepcionDoc>>(
-              stream: widget.svc.streamRecepcionesByProveedor(
-                  widget.empresaId, _seleccionado!.id),
-              builder: (_, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final lista = snap.data ?? [];
-                if (lista.isEmpty) {
-                  return const Text('Sin recepciones para este proveedor',
-                      style: TextStyle(
-                          fontFamily: _kFont, color: Colors.black45));
-                }
-                return Column(
-                  children: lista
-                      .map((r) => _RecepcionResumenCard(
-                            r,
-                            svc: widget.svc,
-                            empresaId: widget.empresaId,
-                          ))
-                      .toList(),
-                );
-              },
-            ),
-          ],
-        ],
-      ),
-    );
   }
-}
-
-class _ProveedorDetalleCard extends StatelessWidget {
-  final ProveedorDoc proveedor;
-
-  const _ProveedorDetalleCard({required this.proveedor});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(proveedor.razonSocial,
-              style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15)),
-          const SizedBox(height: 10),
-          _InfoRow(Icons.badge, 'NIT', proveedor.nit),
-          if (proveedor.direccion.isNotEmpty)
-            _InfoRow(Icons.location_on, 'Dirección', proveedor.direccion),
-          if (proveedor.telefono.isNotEmpty)
-            _InfoRow(Icons.phone, 'Teléfono', proveedor.telefono),
-          if (proveedor.ciudad.isNotEmpty)
-            _InfoRow(Icons.map, 'Ciudad',
-                '${proveedor.ciudad}, ${proveedor.departamento}'),
-          _InfoRow(
-              Icons.home_work,
-              'Tipo',
-              proveedor.esLocal ? 'Proveedor local' : 'Proveedor no local'),
-          const SizedBox(height: 10),
-          const Text('Estado de documentos',
-              style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black54)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: kDocProveedorLabels.entries.map((e) {
-              final tiene = proveedor.documentos[e.key]?.tieneDoc == true;
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                      tiene ? Icons.check_circle : Icons.cancel,
-                      size: 14,
-                      color: tiene ? kComprasGreen : kComprasRed),
-                  const SizedBox(width: 3),
-                  Text(e.value,
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11,
-                          color: tiene ? kComprasGreen : kComprasRed)),
-                ],
-              );
-            }).toList(),
-          ),
-          if (proveedor.categorias.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              children: proveedor.categorias
-                  .map((c) => _Chip(c, kComprasPrimary))
-                  .toList(),
-            ),
-          ],
-        ],
-      ),
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    final q = _searchCtrl.text.toLowerCase();
+    final lista = q.isEmpty
+        ? _todos
+        : _todos.where((p) =>
+            p.razonSocial.toLowerCase().contains(q) ||
+            p.nit.contains(q) ||
+            p.ciudad.toLowerCase().contains(q)).toList();
+
+    return Column(
+      children: [
+        _ConsultasToolbar(
+          searchCtrl: _searchCtrl,
+          hint: 'Buscar por nombre, NIT o ciudad...',
+          onSearchChanged: () => setState(() {}),
+          total: lista.length,
+          exportando: _exportando,
+          onExportar: _exportar,
+        ),
+        Expanded(
+          child: lista.isEmpty
+              ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: lista.length,
+                  itemBuilder: (_, i) {
+                    final p = lista[i];
+                    final docsSubidos = kDocProveedorLabels.keys.where((k) => p.documentos[k]?.tieneDoc == true).length;
+                    final totalDocs = kDocProveedorLabels.length;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                        title: Text(p.razonSocial, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                        subtitle: Text('NIT: ${p.nit}  •  ${p.ciudad}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: docsSubidos == totalDocs ? kComprasGreen.withOpacity(0.1) : Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: docsSubidos == totalDocs ? kComprasGreen : Colors.amber.shade400),
+                              ),
+                              child: Text('$docsSubidos/$totalDocs docs',
+                                  style: TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w600,
+                                      color: docsSubidos == totalDocs ? kComprasGreen : Colors.amber.shade800)),
+                            ),
+                            const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                          ],
+                        ),
+                        children: [
+                          // Info general
+                          _InfoRow(Icons.phone, 'Teléfono', p.telefono.isEmpty ? '—' : p.telefono),
+                          _InfoRow(Icons.email, 'Email', p.email.isEmpty ? '—' : p.email),
+                          _InfoRow(Icons.location_on, 'Dirección', p.direccion.isEmpty ? '—' : p.direccion),
+                          _InfoRow(Icons.home_work, 'Tipo', p.esLocal ? 'Local' : 'No local'),
+                          if (p.categorias.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Wrap(spacing: 6, children: p.categorias.map((c) => _Chip(c, kComprasPrimary)).toList()),
+                          ],
+                          const SizedBox(height: 10),
+                          const Text('Documentos', style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black54)),
+                          const SizedBox(height: 6),
+                          ...kDocProveedorLabels.entries.map((e) {
+                            final doc = p.documentos[e.key];
+                            final tiene = doc?.tieneDoc == true;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                children: [
+                                  Icon(tiene ? Icons.check_circle : Icons.radio_button_unchecked,
+                                      size: 14, color: tiene ? kComprasGreen : Colors.grey.shade400),
+                                  const SizedBox(width: 6),
+                                  Expanded(child: Text(e.value, style: TextStyle(fontFamily: _kFont, fontSize: 12, color: tiene ? Colors.black87 : Colors.black38))),
+                                  if (tiene)
+                                    IconButton(
+                                      onPressed: () => _abrirUrl(context, doc!.url),
+                                      icon: const Icon(Icons.open_in_new, size: 14, color: kComprasPrimary),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                      tooltip: 'Ver documento',
+                                    ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
 
-// ─── Consulta Por Producto ────────────────────────────────────────────────
-
-class _ConsultaProductoTab extends StatefulWidget {
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB: PRODUCTOS
+// ══════════════════════════════════════════════════════════════════════════════
+class _ConsultaProductosTab extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
-
-  const _ConsultaProductoTab({required this.empresaId, required this.svc});
-
+  const _ConsultaProductosTab({required this.empresaId, required this.svc});
   @override
-  State<_ConsultaProductoTab> createState() => _ConsultaProductoTabState();
+  State<_ConsultaProductosTab> createState() => _ConsultaProductosTabState();
 }
 
-class _ConsultaProductoTabState extends State<_ConsultaProductoTab> {
-  final _ctrl = TextEditingController();
-  List<ProductoDoc> _productos = [];
-  ProductoDoc? _seleccionado;
+class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
+  final _searchCtrl = TextEditingController();
+  List<ProductoDoc> _todos = [];
   bool _loading = true;
+  bool _exportando = false;
 
   @override
-  void initState() {
-    super.initState();
-    _cargar();
-  }
+  void initState() { super.initState(); _cargar(); }
+
+  @override
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
   Future<void> _cargar() async {
     try {
@@ -5978,144 +6090,570 @@ class _ConsultaProductoTabState extends State<_ConsultaProductoTab> {
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final lista = snap.docs
-          .map((d) => ProductoDoc.fromMap(d.id, d.data()))
-          .toList()
+      final lista = snap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data())).toList()
         ..sort((a, b) => a.nombre.compareTo(b.nombre));
-      setState(() => _productos = lista);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
-      }
-    } finally {
+      setState(() { _todos = lista; _loading = false; });
+    } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
+  Future<void> _exportar() async {
+    setState(() => _exportando = true);
+    try {
+      final columnas = ['Código', 'Nombre', 'Unidad de Medida', 'Categoría', 'Perecedero', 'Origen', 'Marcas'];
+      final filas = _todos.map((p) => [
+        p.codigo, p.nombre, p.unidadMedida, p.categoria,
+        p.esPerecedero ? 'Sí' : 'No', p.origen,
+        p.marcas.map((m) => m.descripcion).join(', '),
+      ]).toList();
+      await _exportarExcel(nombreArchivo: 'consulta_productos', columnas: columnas, filas: filas);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TypeAheadField<ProductoDoc>(
-            textFieldConfiguration: TextFieldConfiguration(
-              controller: _ctrl,
-              decoration: _inputDecoration('Buscar producto').copyWith(
-                prefixIcon: const Icon(Icons.search, size: 18),
-                hintText: 'Nombre, código o categoría...',
-              ),
-              style: const TextStyle(fontFamily: _kFont, fontSize: 14),
-            ),
-            suggestionsCallback: (p) => _productos
-                .where((x) =>
-                    x.nombre.toLowerCase().contains(p.toLowerCase()) ||
-                    x.codigo.toLowerCase().contains(p.toLowerCase()) ||
-                    x.categoria.toLowerCase().contains(p.toLowerCase()))
-                .toList(),
-            itemBuilder: (_, p) => ListTile(
-              dense: true,
-              title: Text(p.nombre,
-                  style: const TextStyle(fontFamily: _kFont, fontSize: 13)),
-              subtitle: Text('${p.codigo} · ${p.categoria}',
-                  style:
-                      const TextStyle(fontFamily: _kFont, fontSize: 11)),
-            ),
-            onSuggestionSelected: (p) =>
-                setState(() {
-                  _seleccionado = p;
-                  _ctrl.text = p.nombre;
-                }),
-            noItemsFoundBuilder: (_) => const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('Sin resultados',
-                  style: TextStyle(fontFamily: _kFont)),
-            ),
-          ),
-          if (_seleccionado != null) ...[
-            const SizedBox(height: 20),
-            // Info del producto
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(_seleccionado!.nombre,
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15)),
+    final q = _searchCtrl.text.toLowerCase();
+    final lista = q.isEmpty ? _todos
+        : _todos.where((p) =>
+            p.nombre.toLowerCase().contains(q) ||
+            p.codigo.toLowerCase().contains(q) ||
+            p.categoria.toLowerCase().contains(q)).toList();
+
+    return Column(
+      children: [
+        _ConsultasToolbar(
+          searchCtrl: _searchCtrl,
+          hint: 'Buscar por nombre, código o categoría...',
+          onSearchChanged: () => setState(() {}),
+          total: lista.length,
+          exportando: _exportando,
+          onExportar: _exportar,
+        ),
+        Expanded(
+          child: lista.isEmpty
+              ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: lista.length,
+                  itemBuilder: (_, i) {
+                    final p = lista[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                        title: Text(p.nombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                        subtitle: Text('${p.codigo}  •  ${p.categoria}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+                        trailing: const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                        children: [
+                          _InfoRow(Icons.straighten, 'Unidad', p.unidadMedida),
+                          _InfoRow(Icons.public, 'Origen', p.origen),
+                          _InfoRow(Icons.eco, 'Perecedero', p.esPerecedero ? 'Sí' : 'No'),
+                          if (p.marcas.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            const Text('Marcas', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                            const SizedBox(height: 4),
+                            Wrap(spacing: 6, runSpacing: 4,
+                              children: p.marcas.map((m) => _Chip(m.descripcion, kComprasPrimary)).toList()),
+                          ],
+                        ],
                       ),
-                      _Chip(_seleccionado!.codigo, Colors.black54),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      _Chip(
-                          _seleccionado!.categoria, const Color(0xFF0277BD)),
-                      _Chip(_seleccionado!.unidadMedida, Colors.blueGrey),
-                      if (_seleccionado!.esPerecedero)
-                        _Chip('Perecedero', Colors.orange.shade700),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text('Recepciones donde aparece este producto',
-                style: TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14)),
-            const SizedBox(height: 10),
-            StreamBuilder<List<RecepcionDoc>>(
-              stream: widget.svc.streamRecepcionesByProducto(
-                  widget.empresaId, _seleccionado!.id),
-              builder: (_, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final lista = snap.data ?? [];
-                if (lista.isEmpty) {
-                  return const Text('Sin recepciones para este producto',
-                      style: TextStyle(
-                          fontFamily: _kFont, color: Colors.black45));
-                }
-                return Column(
-                  children: lista.map((r) {
-                    final rp = r.productos.firstWhere(
-                        (p) => p.productoId == _seleccionado!.id,
-                        orElse: () => const RecepcionProducto());
-                    return _RecepcionResumenCard(
-                      r,
-                      highlight: rp,
-                      svc: widget.svc,
-                      empresaId: widget.empresaId,
                     );
-                  }).toList(),
-                );
-              },
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB: MARCAS
+// ══════════════════════════════════════════════════════════════════════════════
+class _ConsultaMarcasTab extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+  const _ConsultaMarcasTab({required this.empresaId, required this.svc});
+  @override
+  State<_ConsultaMarcasTab> createState() => _ConsultaMarcasTabState();
+}
+
+class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
+  final _searchCtrl = TextEditingController();
+  bool _exportando = false;
+
+  @override
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+
+  Future<void> _exportar(List<MarcaDoc> marcas) async {
+    setState(() => _exportando = true);
+    try {
+      final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+      final columnas = ['Código', 'Descripción', 'Fecha Creación'];
+      final filas = marcas.map((m) => [
+        m.codigo, m.descripcion,
+        fmt.format(m.createdAt.toDate()),
+      ]).toList();
+      await _exportarExcel(nombreArchivo: 'consulta_marcas', columnas: columnas, filas: filas);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<MarcaDoc>>(
+      stream: widget.svc.streamMarcas(widget.empresaId),
+      builder: (_, snap) {
+        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final todos = snap.data ?? [];
+        final q = _searchCtrl.text.toLowerCase();
+        final lista = q.isEmpty ? todos
+            : todos.where((m) => m.descripcion.toLowerCase().contains(q) || m.codigo.toLowerCase().contains(q)).toList();
+
+        return Column(
+          children: [
+            _ConsultasToolbar(
+              searchCtrl: _searchCtrl,
+              hint: 'Buscar marca...',
+              onSearchChanged: () => setState(() {}),
+              total: lista.length,
+              exportando: _exportando,
+              onExportar: () => _exportar(todos),
+            ),
+            Expanded(
+              child: lista.isEmpty
+                  ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(10),
+                      itemCount: lista.length,
+                      itemBuilder: (_, i) {
+                        final m = lista[i];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          child: ListTile(
+                            leading: const CircleAvatar(backgroundColor: Color(0xFF283593), child: Icon(Icons.local_offer, color: Colors.white, size: 18)),
+                            title: Text(m.descripcion, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                            subtitle: Text(m.codigo, style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black45)),
+                            trailing: Text(DateFormat('dd/MM/yyyy', 'es').format(m.createdAt.toDate()),
+                                style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black38)),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB: RECEPCIONES
+// ══════════════════════════════════════════════════════════════════════════════
+class _ConsultaRecepcionesTab extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+  const _ConsultaRecepcionesTab({required this.empresaId, required this.svc});
+  @override
+  State<_ConsultaRecepcionesTab> createState() => _ConsultaRecepcionesTabState();
+}
+
+class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
+  final _searchCtrl = TextEditingController();
+  bool _exportando = false;
+
+  @override
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+
+  Future<void> _exportar(List<RecepcionDoc> recepciones) async {
+    setState(() => _exportando = true);
+    try {
+      final fmt = DateFormat('dd/MM/yyyy', 'es');
+      // Columnas base + todos los doc keys de recepciones más comunes
+      final docKeys = ['certCalidad', 'fichaTecnica', 'evidenciaEtiqueta',
+          'fechaVencimientoEtiqueta', 'guiaTransporte', 'docTransporte',
+          'guiaSacrificio', 'permisoZoo', 'vistoInvima', 'declImport'];
+      final columnas = [
+        'Fecha', 'Orden de Compra', 'Proveedor', 'NIT',
+        'Producto', 'Categoría', 'Marca', 'Origen', 'Observaciones',
+        ...docKeys.map((k) => kDocRecepcionLabels[k] ?? k),
+      ];
+      final filas = <List<String>>[];
+      for (final r in recepciones) {
+        for (final rp in r.productos) {
+          filas.add([
+            fmt.format(r.fecha.toDate()),
+            r.ordenCompra,
+            r.razonSocial,
+            r.nit,
+            rp.nombre,
+            rp.categoria,
+            rp.marca,
+            rp.origen,
+            rp.observaciones,
+            ...docKeys.map((k) => rp.documentos[k]?.url ?? 'Sin cargar'),
+          ]);
+        }
+      }
+      await _exportarExcel(nombreArchivo: 'consulta_recepciones', columnas: columnas, filas: filas);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<RecepcionDoc>>(
+      stream: widget.svc.streamRecepciones(widget.empresaId),
+      builder: (_, snap) {
+        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final todos = (snap.data ?? [])
+          ..sort((a, b) => b.fecha.compareTo(a.fecha));
+        final q = _searchCtrl.text.toLowerCase();
+        final lista = q.isEmpty ? todos
+            : todos.where((r) =>
+                r.razonSocial.toLowerCase().contains(q) ||
+                r.nit.contains(q) ||
+                r.ordenCompra.toLowerCase().contains(q) ||
+                r.productos.any((p) => p.nombre.toLowerCase().contains(q))).toList();
+
+        return Column(
+          children: [
+            _ConsultasToolbar(
+              searchCtrl: _searchCtrl,
+              hint: 'Buscar por proveedor, OC o producto...',
+              onSearchChanged: () => setState(() {}),
+              total: lista.length,
+              exportando: _exportando,
+              onExportar: () => _exportar(todos),
+            ),
+            Expanded(
+              child: lista.isEmpty
+                  ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(10),
+                      itemCount: lista.length,
+                      itemBuilder: (_, i) {
+                        final r = lista[i];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          child: ExpansionTile(
+                            tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                            title: Text(r.razonSocial, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                            subtitle: Text(
+                              '${DateFormat('dd/MM/yyyy', 'es').format(r.fecha.toDate())}  •  OC: ${r.ordenCompra.isEmpty ? '—' : r.ordenCompra}  •  ${r.productos.length} producto(s)',
+                              style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54),
+                            ),
+                            trailing: const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                            children: r.productos.map((rp) {
+                              final docsSubidos = rp.documentos.values.where((d) => d.tieneDoc).length;
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0F4FF),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: kComprasPrimary.withOpacity(0.15)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(children: [
+                                      Expanded(child: Text(rp.nombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 13))),
+                                      if (rp.marca.isNotEmpty) _Chip(rp.marca, kComprasPrimary),
+                                      const SizedBox(width: 4),
+                                      _Chip(rp.origen, rp.origen == 'IMPORTADO' ? Colors.purple.shade700 : Colors.green.shade700),
+                                    ]),
+                                    const SizedBox(height: 4),
+                                    Text('$docsSubidos doc(s) cargado(s)', style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+                                    if (rp.observaciones.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Text('Obs: ${rp.observaciones}', style: const TextStyle(fontFamily: _kFont, fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black54)),
+                                    ],
+                                    const SizedBox(height: 8),
+                                    ...rp.documentos.entries.where((e) => e.value.tieneDoc).map((e) {
+                                      final doc = e.value;
+                                      final label = kDocRecepcionLabels[e.key] ?? e.key;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 4),
+                                        child: Row(children: [
+                                          Icon(doc.aprobado ? Icons.check_circle : (doc.rechazado ? Icons.cancel : Icons.hourglass_empty),
+                                              size: 13,
+                                              color: doc.aprobado ? kComprasGreen : (doc.rechazado ? kComprasRed : Colors.orange)),
+                                          const SizedBox(width: 6),
+                                          Expanded(child: Text(label, style: const TextStyle(fontFamily: _kFont, fontSize: 12))),
+                                          IconButton(
+                                            onPressed: () => _abrirUrl(context, doc.url),
+                                            icon: const Icon(Icons.open_in_new, size: 13, color: kComprasPrimary),
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                            tooltip: 'Ver documento',
+                                          ),
+                                        ]),
+                                      );
+                                    }),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TAB: FICHAS TÉCNICAS
+// ══════════════════════════════════════════════════════════════════════════════
+class _ConsultaFichasTab extends StatefulWidget {
+  final String empresaId;
+  final ComprasService svc;
+  const _ConsultaFichasTab({required this.empresaId, required this.svc});
+  @override
+  State<_ConsultaFichasTab> createState() => _ConsultaFichasTabState();
+}
+
+class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
+  final _searchCtrl = TextEditingController();
+  bool _exportando = false;
+
+  @override
+  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+
+  Future<void> _exportar(List<FichaTecnicaDoc> fichas) async {
+    setState(() => _exportando = true);
+    try {
+      final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+      final columnas = [
+        'Producto', 'Categoría', 'Marca', 'Proveedor',
+        'Estado Calidad', 'Observación Actualización',
+        'Link Documento Actual', 'Fecha Subida',
+        'Versiones en Historial',
+      ];
+      final filas = fichas.map((f) {
+        final doc = f.documentoActual;
+        String estado = '—';
+        if (doc != null) {
+          if (doc.aprobado) estado = 'Aprobado';
+          else if (doc.rechazado) estado = 'Rechazado';
+          else if (doc.pendienteRevisionCalidad) estado = 'Pendiente revisión';
+          else if (doc.tieneDoc) estado = 'Cargado';
+        }
+        return [
+          f.productoNombre,
+          f.productoCategoria,
+          f.marcaNombre,
+          f.proveedorNombre,
+          estado,
+          doc?.observacionActualizacion ?? '—',
+          doc?.url ?? 'Sin cargar',
+          doc?.fechaSubida != null ? fmt.format(doc!.fechaSubida!.toDate()) : '—',
+          '${f.historial.length}',
+        ];
+      }).toList();
+      await _exportarExcel(nombreArchivo: 'consulta_fichas_tecnicas', columnas: columnas, filas: filas);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<FichaTecnicaDoc>>(
+      stream: widget.svc.streamFichasTecnicas(widget.empresaId),
+      builder: (_, snap) {
+        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final todos = snap.data ?? [];
+        final q = _searchCtrl.text.toLowerCase();
+        final lista = q.isEmpty ? todos
+            : todos.where((f) =>
+                f.productoNombre.toLowerCase().contains(q) ||
+                f.marcaNombre.toLowerCase().contains(q) ||
+                f.proveedorNombre.toLowerCase().contains(q)).toList();
+
+        return Column(
+          children: [
+            _ConsultasToolbar(
+              searchCtrl: _searchCtrl,
+              hint: 'Buscar por producto, marca o proveedor...',
+              onSearchChanged: () => setState(() {}),
+              total: lista.length,
+              exportando: _exportando,
+              onExportar: () => _exportar(todos),
+            ),
+            Expanded(
+              child: lista.isEmpty
+                  ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(10),
+                      itemCount: lista.length,
+                      itemBuilder: (_, i) {
+                        final f = lista[i];
+                        final doc = f.documentoActual;
+                        Color badgeColor = Colors.grey;
+                        String badgeLabel = 'Sin cargar';
+                        if (doc != null && doc.tieneDoc) {
+                          if (doc.aprobado) { badgeColor = kComprasGreen; badgeLabel = 'Aprobado'; }
+                          else if (doc.rechazado) { badgeColor = kComprasRed; badgeLabel = 'Rechazado'; }
+                          else if (doc.pendienteRevisionCalidad) { badgeColor = Colors.orange; badgeLabel = 'Pendiente'; }
+                          else { badgeColor = Colors.blueGrey; badgeLabel = 'Cargado'; }
+                        }
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          child: ExpansionTile(
+                            tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                            title: Text(f.productoNombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                            subtitle: Text('${f.marcaNombre}  •  ${f.proveedorNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: badgeColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: badgeColor),
+                                ),
+                                child: Text(badgeLabel, style: TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w600, color: badgeColor)),
+                              ),
+                              const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                            ]),
+                            children: [
+                              if (doc != null && doc.tieneDoc) ...[
+                                _InfoRow(Icons.link, 'Documento actual', ''),
+                                Row(children: [
+                                  const SizedBox(width: 22),
+                                  Expanded(child: Text(doc.nombre ?? '—', style: const TextStyle(fontFamily: _kFont, fontSize: 12), overflow: TextOverflow.ellipsis)),
+                                  IconButton(
+                                    onPressed: () => _abrirUrl(context, doc.url),
+                                    icon: const Icon(Icons.open_in_new, size: 14, color: kComprasPrimary),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                    tooltip: 'Ver documento',
+                                  ),
+                                ]),
+                                if (doc.observacionActualizacion?.isNotEmpty == true)
+                                  _InfoRow(Icons.note_alt_outlined, 'Observación', doc.observacionActualizacion!),
+                              ],
+                              if (f.historial.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text('Historial (${f.historial.length} versiones)', style: const TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                                const SizedBox(height: 4),
+                                ...f.historial.map((h) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Row(children: [
+                                    const Icon(Icons.history, size: 13, color: Colors.black38),
+                                    const SizedBox(width: 6),
+                                    Expanded(child: Text(h.observacion.isEmpty ? (h.nombre ?? '—') : h.observacion,
+                                        style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54), overflow: TextOverflow.ellipsis)),
+                                    if (h.url != null && h.url!.isNotEmpty)
+                                      IconButton(
+                                        onPressed: () => _abrirUrl(context, h.url),
+                                        icon: const Icon(Icons.open_in_new, size: 12, color: kComprasPrimary),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                      ),
+                                  ]),
+                                )),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Widget reutilizable: barra de búsqueda + contador + botón exportar
+// ──────────────────────────────────────────────────────────────────────────
+class _ConsultasToolbar extends StatelessWidget {
+  final TextEditingController searchCtrl;
+  final String hint;
+  final VoidCallback onSearchChanged;
+  final int total;
+  final bool exportando;
+  final VoidCallback onExportar;
+
+  const _ConsultasToolbar({
+    required this.searchCtrl,
+    required this.hint,
+    required this.onSearchChanged,
+    required this.total,
+    required this.exportando,
+    required this.onExportar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: searchCtrl,
+              decoration: InputDecoration(
+                hintText: hint,
+                prefixIcon: const Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+                hintStyle: const TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+              onChanged: (_) => onSearchChanged(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text('$total', style: const TextStyle(fontFamily: _kFont, fontSize: 13, color: Colors.black45, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 8),
+          exportando
+              ? const SizedBox(width: 36, height: 36, child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2)))
+              : IconButton(
+                  onPressed: total == 0 ? null : onExportar,
+                  icon: const Icon(Icons.download, color: Color(0xFF283593)),
+                  tooltip: 'Exportar a Excel',
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xFF283593).withOpacity(0.08),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
         ],
       ),
     );
@@ -6171,10 +6709,13 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
     try {
       // Construir productos actualizados con el nuevo doc
       final nuevosProductos = List<RecepcionProducto>.from(_r.productos);
-      final docPendiente = doc.copyWith(
-        estadoCalidad: 'pendiente_revision_calidad',
-        observacionActualizacion: p.observaciones,
-      );
+      // Solo la ficha técnica entra a revisión de calidad
+      final docFinal = docKey == 'fichaTecnica'
+          ? doc.copyWith(
+              estadoCalidad: 'pendiente_revision_calidad',
+              observacionActualizacion: p.observaciones,
+            )
+          : doc;
       nuevosProductos[productoIdx] = RecepcionProducto(
         productoId: p.productoId,
         nombre: p.nombre,
@@ -6182,7 +6723,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
         marcaId: p.marcaId,
         marca: p.marca,
         origen: p.origen,
-        documentos: {...p.documentos, docKey: docPendiente},
+        documentos: {...p.documentos, docKey: docFinal},
         observaciones: p.observaciones,
       );
       final nuevaRecepcion = RecepcionDoc(
@@ -6472,13 +7013,15 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                                       contentType: ct,
                                     );
                                     final p = _r.productos[productoIdx];
-                                    final docPendiente =
-                                        uploadedDoc.copyWith(
-                                      estadoCalidad:
-                                          'pendiente_revision_calidad',
-                                      observacionActualizacion:
-                                          p.observaciones,
-                                    );
+                                    // Solo la ficha técnica entra a revisión de calidad
+                                    final docFinal = key == 'fichaTecnica'
+                                        ? uploadedDoc.copyWith(
+                                            estadoCalidad:
+                                                'pendiente_revision_calidad',
+                                            observacionActualizacion:
+                                                p.observaciones,
+                                          )
+                                        : uploadedDoc;
                                     final nuevosProductos =
                                         List<RecepcionProducto>.from(
                                             _r.productos);
@@ -6492,7 +7035,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                                       origen: p.origen,
                                       documentos: {
                                         ...p.documentos,
-                                        key: docPendiente
+                                        key: docFinal
                                       },
                                       observaciones: p.observaciones,
                                     );
@@ -7115,27 +7658,18 @@ class _CalidadScreenState extends State<_CalidadScreen> {
   }
 
   bool _recepcionTieneIncompletos(RecepcionDoc r) {
-    final engine = _reqEngine;
+    // Igual que proveedores: solo aparece si hay al menos un doc
+    // subido que todavía no está aprobado. Docs sin cargar no se muestran.
     for (final rp in r.productos) {
-      if (engine != null && !engine.isEmpty) {
-        final requeridos = engine.docsRecepcion(
-          categoriaProducto: rp.categoria,
-          origenProducto: rp.origen,
-          etapa: 'CADA_PEDIDO',
-        );
-        if (engine.getFaltantes(rp.documentos, requeridos).isNotEmpty) return true;
-      }
       if (rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado)) return true;
     }
     return false;
   }
 
   bool _proveedorTieneIncompletos(ProveedorDoc p) {
-    final engine = _reqEngine;
-    if (engine != null && !engine.isEmpty) {
-      final requeridos = engine.docsProveedor(p.categorias);
-      if (engine.getFaltantes(p.documentos, requeridos).isNotEmpty) return true;
-    }
+    // Solo mostrar en Revisión de Calidad si el proveedor tiene al menos
+    // un documento cargado que aún no está aprobado (pendiente o rechazado).
+    // Proveedores sin ningún documento subido NO aparecen aquí.
     return p.documentos.values.any((d) => d.tieneDoc && !d.aprobado);
   }
 
@@ -7688,24 +8222,18 @@ class _RecepcionCalidadCard extends StatelessWidget {
                       !keysRequeridos.contains(e.key))
                   .toList();
 
-              // ¿Hay algo que mostrar?
-              final faltantesSet = (engine != null && !engine.isEmpty)
-                  ? engine
-                      .getFaltantes(rp.documentos, requeridos)
-                      .map((r) => r.keyApp)
-                      .toSet()
-                  : <String>{};
-              final tieneAlgo = faltantesSet.isNotEmpty ||
-                  rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado) ||
-                  (requeridos.isEmpty &&
-                      rp.documentos.values.any((d) => d.tieneDoc));
+              // ¿Hay algo que mostrar? Solo docs subidos y no aprobados
+              final faltantesSet = <String>{};
+              final tieneAlgo =
+                  rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado);
               if (!tieneAlgo) return <Widget>[];
 
-              // Contar docs aprobados vs requeridos
-              final totalReq = requeridos.length;
-              final aprobadosCount = requeridos
-                  .where((r) => rp.documentos[r.keyApp]?.aprobado == true)
-                  .length;
+              // Contar docs subidos: aprobados vs total subidos
+              final docsSubidos =
+                  rp.documentos.values.where((d) => d.tieneDoc).length;
+              final totalReq = docsSubidos;
+              final aprobadosCount =
+                  rp.documentos.values.where((d) => d.aprobado).length;
 
               return [
                 Container(
@@ -7770,8 +8298,11 @@ class _RecepcionCalidadCard extends StatelessWidget {
                                 color: Colors.black54)),
                       ],
                       const SizedBox(height: 8),
-                      // Docs requeridos (del ReqEngine)
-                      ...requeridos.map((req) {
+                      // Docs requeridos (del ReqEngine) — solo los subidos
+                      ...requeridos
+                          .where((req) =>
+                              rp.documentos[req.keyApp]?.tieneDoc == true)
+                          .map((req) {
                         final docKey = req.keyApp;
                         final doc = rp.documentos[docKey];
                         final label =

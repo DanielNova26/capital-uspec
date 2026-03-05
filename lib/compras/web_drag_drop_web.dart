@@ -4,7 +4,6 @@
 import 'dart:async';
 import 'dart:html' as html;
 import 'dart:typed_data';
-import 'dart:js_util' as js_util;
 import 'dart:ui' show Offset;
 
 class DroppedFile {
@@ -80,9 +79,10 @@ class WebDragDrop {
 
   void _onOver(html.Event e) {
     e.preventDefault();
-    // Registrar posición del cursor para el enrutamiento por widget
-    _lastX = (js_util.getProperty<dynamic>(e, 'clientX') as num).toDouble();
-    _lastY = (js_util.getProperty<dynamic>(e, 'clientY') as num).toDouble();
+    // Registrar posición del cursor usando acceso dinámico
+    final dyn = e as dynamic;
+    _lastX = ((dyn.clientX as num?) ?? 0).toDouble();
+    _lastY = ((dyn.clientY as num?) ?? 0).toDouble();
   }
 
   void _onDrop(html.Event e) {
@@ -90,21 +90,21 @@ class WebDragDrop {
     _enterCount = 0;
     _dragCtrl.add(false);
 
-    // Acceder a dataTransfer sin cast estático (evita error con dart:html DragEvent)
-    final dt = js_util.getProperty<dynamic>(e, 'dataTransfer');
+    // Acceder a dataTransfer sin dart:js_util
+    final dyn = e as dynamic;
+    final dt = dyn.dataTransfer as dynamic?;
     if (dt == null) return;
-    final fileList = js_util.getProperty<dynamic>(dt, 'files');
+    final fileList = dt.files as dynamic?;
     if (fileList == null) return;
-    final length = js_util.getProperty<int>(fileList, 'length');
+    final length = (fileList.length as int?) ?? 0;
     if (length == 0) return;
 
     // Leer TODOS los archivos arrastrados (cada uno con su propio FileReader)
     for (var i = 0; i < length; i++) {
-      final file = js_util.callMethod<html.File>(fileList, 'item', [i]);
+      final file = fileList.item(i) as html.File;
       final reader = html.FileReader();
       reader.readAsArrayBuffer(file);
       reader.onLoad.first.then((_) {
-        // result de readAsArrayBuffer es un ByteBuffer de dart:typed_data
         final result = reader.result;
         Uint8List bytes;
         if (result is ByteBuffer) {
@@ -112,9 +112,8 @@ class WebDragDrop {
         } else if (result is Uint8List) {
           bytes = result;
         } else {
-          // Fallback via JS interop
           try {
-            bytes = Uint8List.view(js_util.dartify(result) as ByteBuffer);
+            bytes = Uint8List.view((result as dynamic) as ByteBuffer);
           } catch (_) {
             return;
           }
