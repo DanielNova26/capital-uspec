@@ -2896,21 +2896,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       );
     }
     final svc = ComprasService();
-    final roles = [kRolCalidad, kRolCompras, kRolBodega];
+    final roles = [kRolCalidad, kRolCompras, kRolBodega, kRolConsultas];
     final rolesLabels = {
       kRolCalidad: 'Calidad',
       kRolCompras: 'Compras',
       kRolBodega: 'Bodega',
+      kRolConsultas: 'Consultas',
     };
     final rolesIcons = {
       kRolCalidad: Icons.verified_user,
       kRolCompras: Icons.shopping_cart,
       kRolBodega: Icons.warehouse,
+      kRolConsultas: Icons.search,
     };
     final rolesColors = {
       kRolCalidad: Colors.green.shade700,
       kRolCompras: kAdminPrimary,
       kRolBodega: Colors.blue.shade700,
+      kRolConsultas: const Color(0xFF283593),
     };
 
     return StreamBuilder<List<ComprasRolDoc>>(
@@ -2945,7 +2948,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     const Text(
                       'Asigna a cada usuario su rol en el módulo de Compras. '
                       'Calidad: aprueba documentos. Compras: gestiona proveedores/productos. '
-                      'Bodega: solo recepción de mercancía.',
+                      'Bodega: recepción de mercancía + consultas. '
+                      'Consultas: solo lectura de la pestaña de consultas.',
                       style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
                     ),
                   ],

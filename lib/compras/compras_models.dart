@@ -111,10 +111,12 @@ const Map<String, String> kDocRecepcionLabels = {
 /// Roles de usuario en el módulo Compras/Bodega.
 /// calidad: permisos completos + aprobación de documentos
 /// compras: gestión de proveedores/productos/recepciones (requiere aprobación calidad)
-/// bodega: solo recepción de mercancía
+/// bodega: recepción de mercancía + consultas
+/// consultas: solo consultas (solo lectura)
 const String kRolCalidad = 'calidad';
 const String kRolCompras = 'compras';
 const String kRolBodega = 'bodega';
+const String kRolConsultas = 'consultas';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)
@@ -601,6 +603,8 @@ class RecepcionDoc {
   final String nit;
   final String razonSocial;
   final String ordenCompra;
+  /// Bodega o ubicación de destino de la mercancía
+  final String bodega;
   final List<RecepcionProducto> productos;
   final List<String> productoIds; // para consultas con array-contains
   final String creadoPor;         // userId de quien creó la recepción
@@ -614,6 +618,7 @@ class RecepcionDoc {
     required this.nit,
     required this.razonSocial,
     this.ordenCompra = '',
+    this.bodega = '',
     required this.productos,
     this.productoIds = const [],
     this.creadoPor = '',
@@ -628,6 +633,7 @@ class RecepcionDoc {
         nit: m['nit'] as String? ?? '',
         razonSocial: m['razonSocial'] as String? ?? '',
         ordenCompra: m['ordenCompra'] as String? ?? '',
+        bodega: m['bodega'] as String? ?? '',
         productos: ((m['productos'] as List?) ?? [])
             .cast<Map<String, dynamic>>()
             .map(RecepcionProducto.fromMap)
@@ -644,6 +650,7 @@ class RecepcionDoc {
         'nit': nit,
         'razonSocial': razonSocial,
         'ordenCompra': ordenCompra,
+        'bodega': bodega,
         'productos': productos.map((p) => p.toMap()).toList(),
         'productoIds': productoIds,
         'creadoPor': creadoPor,

@@ -208,10 +208,14 @@ class ComprasDashboardScreen extends StatelessWidget {
     this.rolCompras,
   });
 
-  bool get _esBodega => rolCompras == kRolBodega;
-  bool get _esCalidad => rolCompras == kRolCalidad;
-  bool get _esCompras => rolCompras == kRolCompras;
-  bool get _soloRecepcion => _esBodega;
+  bool get _esBodega    => rolCompras == kRolBodega;
+  bool get _esCalidad   => rolCompras == kRolCalidad;
+  bool get _esCompras   => rolCompras == kRolCompras;
+  bool get _esConsultas => rolCompras == kRolConsultas;
+  /// Solo ve recepción (sin consultas ni gestión)
+  bool get _soloRecepcion => false; // Bodega ahora también tiene consultas
+  /// Oculta la sección de gestión (proveedores/productos/marcas/recepción)
+  bool get _sinGestion => _esConsultas;
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +224,7 @@ class ComprasDashboardScreen extends StatelessWidget {
     String subtituloRol = 'Gestión de proveedores, productos y recepciones';
     Color colorRol = kComprasPrimary;
     if (_esBodega) {
-      subtituloRol = 'Recepción de mercancía';
+      subtituloRol = 'Bodega — recepción de mercancía y consultas';
       colorRol = const Color(0xFF0277BD);
     } else if (_esCalidad) {
       subtituloRol = 'Calidad — revisión y aprobación de documentos';
@@ -228,6 +232,9 @@ class ComprasDashboardScreen extends StatelessWidget {
     } else if (_esCompras) {
       subtituloRol = 'Compras — gestión de proveedores y productos';
       colorRol = kComprasPrimary;
+    } else if (_esConsultas) {
+      subtituloRol = 'Consultas — solo lectura';
+      colorRol = const Color(0xFF283593);
     }
 
     final isDesktop = kIsWeb && MediaQuery.of(context).size.width > 800;
@@ -263,7 +270,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                       fontSize: 16,
                       color: colorRol)),
               const SizedBox(height: 24),
-              if (!_soloRecepcion) ...[
+              if (!_sinGestion && !_esBodega) ...[
                 _MenuTile(
                   icon: Icons.business,
                   titulo: 'Proveedores',
@@ -292,25 +299,27 @@ class ComprasDashboardScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
               ],
-              _MenuTile(
-                icon: Icons.local_shipping,
-                titulo: 'Recepción de Mercancía',
-                subtitulo: 'Registrar llegada de proveedores con documentos',
-                color: kComprasPrimary,
-                onTap: () => Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => _RecepcionesScreen(empresaId: empresaId, svc: svc, userId: userId))),
-              ),
-              if (!_soloRecepcion) ...[
-                const SizedBox(height: 14),
+              // Recepción: visible para todos menos perfil Consultas
+              if (!_esConsultas) ...[
                 _MenuTile(
-                  icon: Icons.manage_search,
-                  titulo: 'Consultas',
-                  subtitulo: 'Consultar por proveedor o producto',
-                  color: const Color(0xFF283593),
+                  icon: Icons.local_shipping,
+                  titulo: 'Recepción de Mercancía',
+                  subtitulo: 'Registrar llegada de proveedores con documentos',
+                  color: kComprasPrimary,
                   onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc))),
+                      builder: (_) => _RecepcionesScreen(empresaId: empresaId, svc: svc, userId: userId))),
                 ),
+                const SizedBox(height: 14),
               ],
+              // Consultas: visible para todos los perfiles
+              _MenuTile(
+                icon: Icons.manage_search,
+                titulo: 'Consultas',
+                subtitulo: 'Consultar por proveedor, producto o recepción',
+                color: const Color(0xFF283593),
+                onTap: () => Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc))),
+              ),
               if (_esCalidad) ...[
                 const SizedBox(height: 14),
                 _MenuTile(
@@ -465,7 +474,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                     spacing: 20,
                     runSpacing: 20,
                     children: [
-                      if (!_soloRecepcion) ...[
+                      if (!_sinGestion && !_esBodega) ...[
                         card(
                           icon: Icons.business,
                           titulo: 'Proveedores',
@@ -494,28 +503,28 @@ class ComprasDashboardScreen extends StatelessWidget {
                                   empresaId: empresaId, svc: svc, userId: userId))),
                         ),
                       ],
-                      card(
-                        icon: Icons.local_shipping,
-                        titulo: 'Recepción de Mercancía',
-                        subtitulo:
-                            'Registrar llegada de proveedores con documentos',
-                        color: kComprasPrimary,
-                        onTap: () => Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => _RecepcionesScreen(
-                                empresaId: empresaId,
-                                svc: svc,
-                                userId: userId))),
-                      ),
-                      if (!_soloRecepcion)
+                      if (!_esConsultas)
                         card(
-                          icon: Icons.manage_search,
-                          titulo: 'Consultas',
-                          subtitulo: 'Consultar por proveedor o producto',
-                          color: const Color(0xFF283593),
+                          icon: Icons.local_shipping,
+                          titulo: 'Recepción de Mercancía',
+                          subtitulo:
+                              'Registrar llegada de proveedores con documentos',
+                          color: kComprasPrimary,
                           onTap: () => Navigator.push(context, MaterialPageRoute(
-                              builder: (_) => _ConsultasScreen(
-                                  empresaId: empresaId, svc: svc))),
+                              builder: (_) => _RecepcionesScreen(
+                                  empresaId: empresaId,
+                                  svc: svc,
+                                  userId: userId))),
                         ),
+                      card(
+                        icon: Icons.manage_search,
+                        titulo: 'Consultas',
+                        subtitulo: 'Consultar por proveedor o producto',
+                        color: const Color(0xFF283593),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(
+                            builder: (_) => _ConsultasScreen(
+                                empresaId: empresaId, svc: svc))),
+                      ),
                       if (_esCalidad)
                         card(
                           icon: Icons.verified_user,
@@ -909,6 +918,34 @@ class _ScannerSheetState extends State<_ScannerSheet> {
     }
   }
 
+  /// Maneja el drop de archivos desde el DropTarget nativo del navegador.
+  Future<void> _handleScannerWebDrop(DropDoneDetails details) async {
+    if (!mounted || details.files.isEmpty) return;
+    if (mounted) setState(() => _isDragging = false);
+    for (final xFile in details.files) {
+      final name = xFile.name;
+      final ext = name.toLowerCase().split('.').last;
+      if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Archivo ignorado (${xFile.name}): solo PDF/JPG/PNG',
+                  style: const TextStyle(fontFamily: _kFont))));
+        }
+        continue;
+      }
+      final bytes = await xFile.readAsBytes();
+      if (bytes.length > 10 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Archivo ignorado: supera el límite de 10 MB',
+                  style: TextStyle(fontFamily: _kFont))));
+        }
+        continue;
+      }
+      if (mounted) setState(() => _imagenes.add(bytes));
+    }
+  }
+
   // Zona drag-and-drop visible en web cuando no hay imágenes
   Widget _buildWebDropZoneArea(ScrollController scrollCtrl) {
     // Zona de arrastre + botón separado para abrir selector de archivo.
@@ -921,6 +958,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
           // Zona de arrastre
           Expanded(
             child: DropTarget(
+              onDragEntered: (_) { if (mounted) setState(() => _isDragging = true); },
+              onDragExited: (_) { if (mounted) setState(() => _isDragging = false); },
+              onDragDone: _handleScannerWebDrop,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 width: double.infinity,
@@ -1885,6 +1925,9 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
           key: _dropKey,
           height: 72,
           child: DropTarget(
+            onDragEntered: (_) { if (mounted) setState(() => _isDragging = true); },
+            onDragExited: (_) { if (mounted) setState(() => _isDragging = false); },
+            onDragDone: _handleWebDrop,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
               width: double.infinity,
@@ -4061,7 +4104,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
     });
   }
 
-  // Recibe archivo arrastrado vía dart:html
+  // Recibe archivo arrastrado vía dart:html (stream global)
   void _onWebFileDrop(DroppedFile file) {
     if (!mounted) return;
     final name = file.name;
@@ -4086,6 +4129,33 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       _fileName = name;
       _fileBytes = file.bytes;
     });
+  }
+
+  /// Maneja el drop desde el DropTarget nativo de desktop_drop.
+  Future<void> _handleFichaWebDrop(DropDoneDetails details) async {
+    if (!mounted || details.files.isEmpty) return;
+    if (mounted) setState(() => _isDragging = false);
+    final xFile = details.files.first;
+    final name = xFile.name;
+    final ext = name.toLowerCase().split('.').last;
+    if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Solo se permiten PDF, JPG o PNG',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    final bytes = await xFile.readAsBytes();
+    if (bytes.length > 10 * 1024 * 1024) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('El archivo supera el límite de 10 MB',
+                style: TextStyle(fontFamily: _kFont))));
+      }
+      return;
+    }
+    if (mounted) setState(() { _fileName = name; _fileBytes = bytes; });
   }
 
   Widget _buildFileZone() {
@@ -4124,6 +4194,9 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           SizedBox(
             height: 110,
             child: DropTarget(
+              onDragEntered: (_) { if (mounted) setState(() => _isDragging = true); },
+              onDragExited: (_) { if (mounted) setState(() => _isDragging = false); },
+              onDragDone: _handleFichaWebDrop,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 width: double.infinity,
@@ -4777,8 +4850,9 @@ class _NuevaRecepcionScreen extends StatefulWidget {
 
 class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   ProveedorDoc? _proveedor;
-  final _provCtrl = TextEditingController();
-  final _ordenCtrl = TextEditingController();
+  final _provCtrl   = TextEditingController();
+  final _ordenCtrl  = TextEditingController();
+  final _bodegaCtrl = TextEditingController();
   List<_RecepcionEntry> _entries = [];
   List<ProveedorDoc> _proveedores = [];
   List<ProductoDoc> _productos = [];
@@ -4807,7 +4881,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     super.initState();
     if (!isNew) {
       final r = widget.existing!;
-      _ordenCtrl.text = r.ordenCompra;
+      _ordenCtrl.text  = r.ordenCompra;
+      _bodegaCtrl.text = r.bodega;
       _entries = r.productos.map((rp) {
         final e = _RecepcionEntry();
         e.pendingMarcaId = rp.marcaId;
@@ -4907,6 +4982,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   void dispose() {
     _provCtrl.dispose();
     _ordenCtrl.dispose();
+    _bodegaCtrl.dispose();
     for (final e in _entries) {
       e.dispose();
     }
@@ -4928,6 +5004,21 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     if (sinProducto) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Seleccione el producto en cada fila')));
+      return;
+    }
+
+    // Validar que los productos con marcas configuradas tengan una marca seleccionada
+    final sinMarcaRequerida = _entries.any((e) =>
+        e.producto != null &&
+        e.producto!.marcas.isNotEmpty &&
+        e.marcaSeleccionada == null);
+    if (sinMarcaRequerida) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(
+            'Todos los productos con marcas configuradas deben tener una marca seleccionada'),
+        backgroundColor: kComprasRed,
+        duration: Duration(seconds: 4),
+      ));
       return;
     }
 
@@ -4954,6 +5045,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         nit: _proveedor!.nit,
         razonSocial: _proveedor!.razonSocial,
         ordenCompra: _ordenCtrl.text.trim(),
+        bodega: _bodegaCtrl.text.trim(),
         productos: productos,
         productoIds: productos.map((p) => p.productoId).toList(),
         creadoPor: widget.existing?.creadoPor ?? widget.userId,
@@ -4986,13 +5078,23 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   }
 
   Future<void> _seleccionarProducto(int idx) async {
+    // Filtrar productos según las categorías del proveedor seleccionado
+    final productosFiltrados = (_proveedor == null || _proveedor!.categorias.isEmpty)
+        ? _productos
+        : _productos
+            .where((p) => _proveedor!.categorias.contains(p.categoria))
+            .toList();
+
     final seleccionado = await showModalBottomSheet<ProductoDoc>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _ProductoSelectorSheet(productos: _productos),
+      builder: (_) => _ProductoSelectorSheet(
+        productos: productosFiltrados,
+        categoriasFiltradas: _proveedor?.categorias ?? [],
+      ),
     );
     if (seleccionado != null) {
       setState(() {
@@ -5164,6 +5266,16 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                         .copyWith(hintText: 'OC-2024-001'),
                     style:
                         const TextStyle(fontFamily: _kFont, fontSize: 14),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _bodegaCtrl,
+                    decoration: _inputDecoration('Bodega / Ubicación de destino')
+                        .copyWith(
+                          hintText: 'Ej: Bodega Principal, Bodega 2...',
+                          prefixIcon: const Icon(Icons.warehouse, size: 18),
+                        ),
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 14),
                   ),
                   const SizedBox(height: 24),
                   // ── Productos ────────────────────────────
@@ -5687,8 +5799,13 @@ class _ProductoEntryCard extends StatelessWidget {
 // Selector de producto para recepción
 class _ProductoSelectorSheet extends StatefulWidget {
   final List<ProductoDoc> productos;
+  /// Categorías del proveedor para mostrar una nota de filtro (vacío = sin filtro)
+  final List<String> categoriasFiltradas;
 
-  const _ProductoSelectorSheet({required this.productos});
+  const _ProductoSelectorSheet({
+    required this.productos,
+    this.categoriasFiltradas = const [],
+  });
 
   @override
   State<_ProductoSelectorSheet> createState() => _ProductoSelectorSheetState();
@@ -5743,6 +5860,32 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
             onChanged: (v) => setState(() => _q = v.toLowerCase()),
           ),
         ),
+        // Nota de filtro por categoría del proveedor
+        if (widget.categoriasFiltradas.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: kComprasPrimary.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: kComprasPrimary.withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.filter_list, size: 14, color: kComprasPrimary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Filtrado por categorías del proveedor: ${widget.categoriasFiltradas.join(', ')}',
+                    style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 11,
+                        color: kComprasPrimary),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Expanded(
           child: ListView.builder(
             itemCount: filtered.length,
@@ -5896,15 +6039,11 @@ class _ConsultaProveedoresTab extends StatefulWidget {
 
 class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
   final _searchCtrl = TextEditingController();
-  List<ProveedorDoc> _todos = [];
-  bool _loading = true;
+  List<ProveedorDoc>? _todos; // null = no cargado aún
+  bool _loading = false;
   bool _exportando = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _cargar();
-  }
+  DateTime? _desde;
+  DateTime? _hasta;
 
   @override
   void dispose() {
@@ -5912,24 +6051,32 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  Future<void> _buscar() async {
+    if (_desde == null || _hasta == null) return;
+    setState(() { _loading = true; _todos = null; });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_PROVEEDORES')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
+      final hastaFin = DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59);
       final lista = snap.docs
           .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
+          .where((p) {
+            final t = p.createdAt.toDate();
+            return !t.isBefore(_desde!) && !t.isAfter(hastaFin);
+          })
           .toList()
         ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
       setState(() { _todos = lista; _loading = false; });
     } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _todos = []; _loading = false; });
     }
   }
 
   Future<void> _exportar() async {
+    if (_todos == null) return;
     setState(() => _exportando = true);
     try {
       final docKeys = kDocProveedorLabels.keys.toList();
@@ -5938,7 +6085,7 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
         'Departamento', 'Ciudad', 'Es Local', 'Categorías',
         ...docKeys.map((k) => kDocProveedorLabels[k]!),
       ];
-      final filas = _todos.map((p) => [
+      final filas = _todos!.map((p) => [
         p.nit, p.razonSocial, p.direccion, p.telefono, p.email,
         p.departamento, p.ciudad, p.esLocal ? 'Sí' : 'No',
         p.categorias.join(', '),
@@ -5959,28 +6106,40 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
     final q = _searchCtrl.text.toLowerCase();
-    final lista = q.isEmpty
-        ? _todos
-        : _todos.where((p) =>
-            p.razonSocial.toLowerCase().contains(q) ||
-            p.nit.contains(q) ||
-            p.ciudad.toLowerCase().contains(q)).toList();
+    final lista = (_todos ?? []).where((p) =>
+        q.isEmpty ||
+        p.razonSocial.toLowerCase().contains(q) ||
+        p.nit.contains(q) ||
+        p.ciudad.toLowerCase().contains(q)).toList();
 
     return Column(
       children: [
-        _ConsultasToolbar(
-          searchCtrl: _searchCtrl,
-          hint: 'Buscar por nombre, NIT o ciudad...',
-          onSearchChanged: () => setState(() {}),
-          total: lista.length,
-          exportando: _exportando,
-          onExportar: _exportar,
+        _ConsultasFechaBar(
+          desde: _desde, hasta: _hasta,
+          onDesdeCambiado: (d) => setState(() => _desde = d),
+          onHastaCambiado: (h) => setState(() => _hasta = h),
+          onBuscar: _buscar,
+          cargando: _loading,
         ),
+        if (_todos != null) ...[
+          _ConsultasToolbar(
+            searchCtrl: _searchCtrl,
+            hint: 'Buscar por nombre, NIT o ciudad...',
+            onSearchChanged: () => setState(() {}),
+            total: lista.length,
+            exportando: _exportando,
+            onExportar: _exportar,
+          ),
+        ],
         Expanded(
-          child: lista.isEmpty
-              ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _todos == null
+                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
+                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
+                  : lista.isEmpty
+                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
                   itemCount: lista.length,
@@ -6073,36 +6232,40 @@ class _ConsultaProductosTab extends StatefulWidget {
 
 class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
   final _searchCtrl = TextEditingController();
-  List<ProductoDoc> _todos = [];
-  bool _loading = true;
+  List<ProductoDoc>? _todos;
+  bool _loading = false;
   bool _exportando = false;
-
-  @override
-  void initState() { super.initState(); _cargar(); }
+  DateTime? _desde;
+  DateTime? _hasta;
 
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
-  Future<void> _cargar() async {
+  Future<void> _buscar() async {
+    if (_desde == null || _hasta == null) return;
+    setState(() { _loading = true; _todos = null; });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_PRODUCTOS')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final lista = snap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data())).toList()
-        ..sort((a, b) => a.nombre.compareTo(b.nombre));
+      final hastaFin = DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59);
+      final lista = snap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data()))
+          .where((p) { final t = p.createdAt.toDate(); return !t.isBefore(_desde!) && !t.isAfter(hastaFin); })
+          .toList()..sort((a, b) => a.nombre.compareTo(b.nombre));
       setState(() { _todos = lista; _loading = false; });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _todos = []; _loading = false; });
     }
   }
 
   Future<void> _exportar() async {
+    if (_todos == null) return;
     setState(() => _exportando = true);
     try {
       final columnas = ['Código', 'Nombre', 'Unidad de Medida', 'Categoría', 'Perecedero', 'Origen', 'Marcas'];
-      final filas = _todos.map((p) => [
+      final filas = _todos!.map((p) => [
         p.codigo, p.nombre, p.unidadMedida, p.categoria,
         p.esPerecedero ? 'Sí' : 'No', p.origen,
         p.marcas.map((m) => m.descripcion).join(', '),
@@ -6118,26 +6281,37 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
     final q = _searchCtrl.text.toLowerCase();
-    final lista = q.isEmpty ? _todos
-        : _todos.where((p) =>
-            p.nombre.toLowerCase().contains(q) ||
-            p.codigo.toLowerCase().contains(q) ||
-            p.categoria.toLowerCase().contains(q)).toList();
+    final lista = (_todos ?? []).where((p) =>
+        q.isEmpty ||
+        p.nombre.toLowerCase().contains(q) ||
+        p.codigo.toLowerCase().contains(q) ||
+        p.categoria.toLowerCase().contains(q)).toList();
 
     return Column(
       children: [
-        _ConsultasToolbar(
-          searchCtrl: _searchCtrl,
-          hint: 'Buscar por nombre, código o categoría...',
-          onSearchChanged: () => setState(() {}),
-          total: lista.length,
-          exportando: _exportando,
-          onExportar: _exportar,
+        _ConsultasFechaBar(
+          desde: _desde, hasta: _hasta,
+          onDesdeCambiado: (d) => setState(() => _desde = d),
+          onHastaCambiado: (h) => setState(() => _hasta = h),
+          onBuscar: _buscar, cargando: _loading,
         ),
+        if (_todos != null)
+          _ConsultasToolbar(
+            searchCtrl: _searchCtrl,
+            hint: 'Buscar por nombre, código o categoría...',
+            onSearchChanged: () => setState(() {}),
+            total: lista.length,
+            exportando: _exportando,
+            onExportar: _exportar,
+          ),
         Expanded(
-          child: lista.isEmpty
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _todos == null
+                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
+                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
+                  : lista.isEmpty
               ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
@@ -6188,19 +6362,42 @@ class _ConsultaMarcasTab extends StatefulWidget {
 
 class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
   final _searchCtrl = TextEditingController();
+  List<MarcaDoc>? _todos;
+  bool _loading = false;
   bool _exportando = false;
+  DateTime? _desde;
+  DateTime? _hasta;
 
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
-  Future<void> _exportar(List<MarcaDoc> marcas) async {
+  Future<void> _buscar() async {
+    if (_desde == null || _hasta == null) return;
+    setState(() { _loading = true; _todos = null; });
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_COMPRAS_MARCAS')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      if (!mounted) return;
+      final hastaFin = DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59);
+      final lista = snap.docs.map((d) => MarcaDoc.fromMap(d.id, d.data()))
+          .where((m) { final t = m.createdAt.toDate(); return !t.isBefore(_desde!) && !t.isAfter(hastaFin); })
+          .toList()..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+      setState(() { _todos = lista; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _todos = []; _loading = false; });
+    }
+  }
+
+  Future<void> _exportar() async {
+    if (_todos == null) return;
     setState(() => _exportando = true);
     try {
       final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
       final columnas = ['Código', 'Descripción', 'Fecha Creación'];
-      final filas = marcas.map((m) => [
-        m.codigo, m.descripcion,
-        fmt.format(m.createdAt.toDate()),
+      final filas = _todos!.map((m) => [
+        m.codigo, m.descripcion, fmt.format(m.createdAt.toDate()),
       ]).toList();
       await _exportarExcel(nombreArchivo: 'consulta_marcas', columnas: columnas, filas: filas);
     } catch (e) {
@@ -6213,50 +6410,55 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<MarcaDoc>>(
-      stream: widget.svc.streamMarcas(widget.empresaId),
-      builder: (_, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        final todos = snap.data ?? [];
-        final q = _searchCtrl.text.toLowerCase();
-        final lista = q.isEmpty ? todos
-            : todos.where((m) => m.descripcion.toLowerCase().contains(q) || m.codigo.toLowerCase().contains(q)).toList();
+    final q = _searchCtrl.text.toLowerCase();
+    final lista = (_todos ?? []).where((m) =>
+        q.isEmpty || m.descripcion.toLowerCase().contains(q) || m.codigo.toLowerCase().contains(q)).toList();
 
-        return Column(
-          children: [
-            _ConsultasToolbar(
-              searchCtrl: _searchCtrl,
-              hint: 'Buscar marca...',
-              onSearchChanged: () => setState(() {}),
-              total: lista.length,
-              exportando: _exportando,
-              onExportar: () => _exportar(todos),
-            ),
-            Expanded(
-              child: lista.isEmpty
-                  ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(10),
-                      itemCount: lista.length,
-                      itemBuilder: (_, i) {
-                        final m = lista[i];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 6),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          child: ListTile(
-                            leading: const CircleAvatar(backgroundColor: Color(0xFF283593), child: Icon(Icons.local_offer, color: Colors.white, size: 18)),
-                            title: Text(m.descripcion, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                            subtitle: Text(m.codigo, style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black45)),
-                            trailing: Text(DateFormat('dd/MM/yyyy', 'es').format(m.createdAt.toDate()),
-                                style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black38)),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-      },
+    return Column(
+      children: [
+        _ConsultasFechaBar(
+          desde: _desde, hasta: _hasta,
+          onDesdeCambiado: (d) => setState(() => _desde = d),
+          onHastaCambiado: (h) => setState(() => _hasta = h),
+          onBuscar: _buscar, cargando: _loading,
+        ),
+        if (_todos != null)
+          _ConsultasToolbar(
+            searchCtrl: _searchCtrl,
+            hint: 'Buscar marca...',
+            onSearchChanged: () => setState(() {}),
+            total: lista.length,
+            exportando: _exportando,
+            onExportar: _exportar,
+          ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _todos == null
+                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
+                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
+                  : lista.isEmpty
+                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(10),
+                          itemCount: lista.length,
+                          itemBuilder: (_, i) {
+                            final m = lista[i];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              child: ListTile(
+                                leading: const CircleAvatar(backgroundColor: Color(0xFF283593), child: Icon(Icons.local_offer, color: Colors.white, size: 18)),
+                                title: Text(m.descripcion, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                                subtitle: Text(m.codigo, style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black45)),
+                                trailing: Text(DateFormat('dd/MM/yyyy', 'es').format(m.createdAt.toDate()),
+                                    style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black38)),
+                              ),
+                            );
+                          },
+                        ),
+        ),
+      ],
     );
   }
 }
@@ -6274,37 +6476,56 @@ class _ConsultaRecepcionesTab extends StatefulWidget {
 
 class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
   final _searchCtrl = TextEditingController();
+  final _ordenCtrl  = TextEditingController(); // búsqueda por OC
+  List<RecepcionDoc>? _todos;
+  bool _loading = false;
   bool _exportando = false;
+  DateTime? _desde;
+  DateTime? _hasta;
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() { _searchCtrl.dispose(); _ordenCtrl.dispose(); super.dispose(); }
 
-  Future<void> _exportar(List<RecepcionDoc> recepciones) async {
+  Future<void> _buscar() async {
+    if (_desde == null || _hasta == null) return;
+    setState(() { _loading = true; _todos = null; });
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_COMPRAS_RECEPCIONES')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      if (!mounted) return;
+      final desdeTs = Timestamp.fromDate(_desde!);
+      final hastaTs = Timestamp.fromDate(DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59));
+      final lista = snap.docs.map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+          .where((r) => r.fecha.compareTo(desdeTs) >= 0 && r.fecha.compareTo(hastaTs) <= 0)
+          .toList()..sort((a, b) => b.fecha.compareTo(a.fecha));
+      setState(() { _todos = lista; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _todos = []; _loading = false; });
+    }
+  }
+
+  Future<void> _exportar() async {
+    if (_todos == null) return;
     setState(() => _exportando = true);
     try {
       final fmt = DateFormat('dd/MM/yyyy', 'es');
-      // Columnas base + todos los doc keys de recepciones más comunes
       final docKeys = ['certCalidad', 'fichaTecnica', 'evidenciaEtiqueta',
           'fechaVencimientoEtiqueta', 'guiaTransporte', 'docTransporte',
           'guiaSacrificio', 'permisoZoo', 'vistoInvima', 'declImport'];
       final columnas = [
-        'Fecha', 'Orden de Compra', 'Proveedor', 'NIT',
+        'Fecha', 'Orden de Compra', 'Bodega', 'Proveedor', 'NIT',
         'Producto', 'Categoría', 'Marca', 'Origen', 'Observaciones',
         ...docKeys.map((k) => kDocRecepcionLabels[k] ?? k),
       ];
       final filas = <List<String>>[];
-      for (final r in recepciones) {
+      for (final r in _todos!) {
         for (final rp in r.productos) {
           filas.add([
-            fmt.format(r.fecha.toDate()),
-            r.ordenCompra,
-            r.razonSocial,
-            r.nit,
-            rp.nombre,
-            rp.categoria,
-            rp.marca,
-            rp.origen,
-            rp.observaciones,
+            fmt.format(r.fecha.toDate()), r.ordenCompra, r.bodega,
+            r.razonSocial, r.nit, rp.nombre, rp.categoria,
+            rp.marca, rp.origen, rp.observaciones,
             ...docKeys.map((k) => rp.documentos[k]?.url ?? 'Sin cargar'),
           ]);
         }
@@ -6320,109 +6541,136 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<RecepcionDoc>>(
-      stream: widget.svc.streamRecepciones(widget.empresaId),
-      builder: (_, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        final todos = (snap.data ?? [])
-          ..sort((a, b) => b.fecha.compareTo(a.fecha));
-        final q = _searchCtrl.text.toLowerCase();
-        final lista = q.isEmpty ? todos
-            : todos.where((r) =>
-                r.razonSocial.toLowerCase().contains(q) ||
-                r.nit.contains(q) ||
-                r.ordenCompra.toLowerCase().contains(q) ||
-                r.productos.any((p) => p.nombre.toLowerCase().contains(q))).toList();
+    final q   = _searchCtrl.text.toLowerCase();
+    final oc  = _ordenCtrl.text.toLowerCase();
+    final lista = (_todos ?? []).where((r) {
+      final qMatch = q.isEmpty ||
+          r.razonSocial.toLowerCase().contains(q) ||
+          r.nit.contains(q) ||
+          r.productos.any((p) => p.nombre.toLowerCase().contains(q));
+      final ocMatch = oc.isEmpty || r.ordenCompra.toLowerCase().contains(oc);
+      return qMatch && ocMatch;
+    }).toList();
 
-        return Column(
-          children: [
-            _ConsultasToolbar(
-              searchCtrl: _searchCtrl,
-              hint: 'Buscar por proveedor, OC o producto...',
-              onSearchChanged: () => setState(() {}),
-              total: lista.length,
-              exportando: _exportando,
-              onExportar: () => _exportar(todos),
+    return Column(
+      children: [
+        _ConsultasFechaBar(
+          desde: _desde, hasta: _hasta,
+          onDesdeCambiado: (d) => setState(() => _desde = d),
+          onHastaCambiado: (h) => setState(() => _hasta = h),
+          onBuscar: _buscar, cargando: _loading,
+        ),
+        if (_todos != null) ...[
+          // Barra búsqueda general
+          _ConsultasToolbar(
+            searchCtrl: _searchCtrl,
+            hint: 'Buscar por proveedor o producto...',
+            onSearchChanged: () => setState(() {}),
+            total: lista.length,
+            exportando: _exportando,
+            onExportar: _exportar,
+          ),
+          // Búsqueda por Orden de Compra
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: TextField(
+              controller: _ordenCtrl,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Buscar por Orden de Compra...',
+                prefixIcon: const Icon(Icons.receipt_long, size: 16),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                filled: true, fillColor: Colors.grey.shade50,
+                hintStyle: const TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
             ),
-            Expanded(
-              child: lista.isEmpty
-                  ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(10),
-                      itemCount: lista.length,
-                      itemBuilder: (_, i) {
-                        final r = lista[i];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          child: ExpansionTile(
-                            tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                            title: Text(r.razonSocial, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                            subtitle: Text(
-                              '${DateFormat('dd/MM/yyyy', 'es').format(r.fecha.toDate())}  •  OC: ${r.ordenCompra.isEmpty ? '—' : r.ordenCompra}  •  ${r.productos.length} producto(s)',
-                              style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54),
-                            ),
-                            trailing: const Icon(Icons.expand_more, size: 18, color: Colors.black38),
-                            children: r.productos.map((rp) {
-                              final docsSubidos = rp.documentos.values.where((d) => d.tieneDoc).length;
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF0F4FF),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: kComprasPrimary.withOpacity(0.15)),
+          ),
+        ],
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _todos == null
+                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
+                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
+                  : lista.isEmpty
+                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(10),
+                          itemCount: lista.length,
+                          itemBuilder: (_, i) {
+                            final r = lista[i];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              child: ExpansionTile(
+                                tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                                childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                                title: Text(r.razonSocial, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                                subtitle: Text(
+                                  '${DateFormat('dd/MM/yyyy', 'es').format(r.fecha.toDate())}  •  OC: ${r.ordenCompra.isEmpty ? '—' : r.ordenCompra}${r.bodega.isNotEmpty ? '  •  ${r.bodega}' : ''}  •  ${r.productos.length} producto(s)',
+                                  style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54),
                                 ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(children: [
-                                      Expanded(child: Text(rp.nombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 13))),
-                                      if (rp.marca.isNotEmpty) _Chip(rp.marca, kComprasPrimary),
-                                      const SizedBox(width: 4),
-                                      _Chip(rp.origen, rp.origen == 'IMPORTADO' ? Colors.purple.shade700 : Colors.green.shade700),
-                                    ]),
-                                    const SizedBox(height: 4),
-                                    Text('$docsSubidos doc(s) cargado(s)', style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
-                                    if (rp.observaciones.isNotEmpty) ...[
-                                      const SizedBox(height: 4),
-                                      Text('Obs: ${rp.observaciones}', style: const TextStyle(fontFamily: _kFont, fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black54)),
-                                    ],
-                                    const SizedBox(height: 8),
-                                    ...rp.documentos.entries.where((e) => e.value.tieneDoc).map((e) {
-                                      final doc = e.value;
-                                      final label = kDocRecepcionLabels[e.key] ?? e.key;
-                                      return Padding(
-                                        padding: const EdgeInsets.only(bottom: 4),
-                                        child: Row(children: [
-                                          Icon(doc.aprobado ? Icons.check_circle : (doc.rechazado ? Icons.cancel : Icons.hourglass_empty),
-                                              size: 13,
-                                              color: doc.aprobado ? kComprasGreen : (doc.rechazado ? kComprasRed : Colors.orange)),
-                                          const SizedBox(width: 6),
-                                          Expanded(child: Text(label, style: const TextStyle(fontFamily: _kFont, fontSize: 12))),
-                                          IconButton(
-                                            onPressed: () => _abrirUrl(context, doc.url),
-                                            icon: const Icon(Icons.open_in_new, size: 13, color: kComprasPrimary),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-                                            tooltip: 'Ver documento',
-                                          ),
+                                trailing: const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                                children: r.productos.map((rp) {
+                                  final docsSubidos = rp.documentos.values.where((d) => d.tieneDoc).length;
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF0F4FF),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: kComprasPrimary.withOpacity(0.15)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(children: [
+                                          Expanded(child: Text(rp.nombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 13))),
+                                          if (rp.marca.isNotEmpty) _Chip(rp.marca, kComprasPrimary),
+                                          const SizedBox(width: 4),
+                                          _Chip(rp.origen, rp.origen == 'IMPORTADO' ? Colors.purple.shade700 : Colors.green.shade700),
                                         ]),
-                                      );
-                                    }),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        );
-      },
+                                        const SizedBox(height: 4),
+                                        Text('$docsSubidos doc(s) cargado(s)', style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+                                        if (rp.observaciones.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text('Obs: ${rp.observaciones}', style: const TextStyle(fontFamily: _kFont, fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black54)),
+                                        ],
+                                        const SizedBox(height: 8),
+                                        ...rp.documentos.entries.where((e) => e.value.tieneDoc).map((e) {
+                                          final doc = e.value;
+                                          final label = kDocRecepcionLabels[e.key] ?? e.key;
+                                          return Padding(
+                                            padding: const EdgeInsets.only(bottom: 4),
+                                            child: Row(children: [
+                                              Icon(doc.aprobado ? Icons.check_circle : (doc.rechazado ? Icons.cancel : Icons.hourglass_empty),
+                                                  size: 13,
+                                                  color: doc.aprobado ? kComprasGreen : (doc.rechazado ? kComprasRed : Colors.orange)),
+                                              const SizedBox(width: 6),
+                                              Expanded(child: Text(label, style: const TextStyle(fontFamily: _kFont, fontSize: 12))),
+                                              IconButton(
+                                                onPressed: () => _abrirUrl(context, doc.url),
+                                                icon: const Icon(Icons.open_in_new, size: 13, color: kComprasPrimary),
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                                                tooltip: 'Ver documento',
+                                              ),
+                                            ]),
+                                          );
+                                        }),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            );
+                          },
+                        ),
+        ),
+      ],
     );
   }
 }
@@ -6440,12 +6688,29 @@ class _ConsultaFichasTab extends StatefulWidget {
 
 class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
   final _searchCtrl = TextEditingController();
+  List<FichaTecnicaDoc>? _todos;
+  bool _loading = false;
   bool _exportando = false;
+  DateTime? _desde;
+  DateTime? _hasta;
 
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
-  Future<void> _exportar(List<FichaTecnicaDoc> fichas) async {
+  Future<void> _buscar() async {
+    if (_desde == null || _hasta == null) return;
+    setState(() { _loading = true; _todos = null; });
+    try {
+      final lista = await widget.svc.getFichasTecnicas(widget.empresaId);
+      if (!mounted) return;
+      setState(() { _todos = lista; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _todos = []; _loading = false; });
+    }
+  }
+
+  Future<void> _exportar() async {
+    if (_todos == null) return;
     setState(() => _exportando = true);
     try {
       final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
@@ -6455,7 +6720,13 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         'Link Documento Actual', 'Fecha Subida',
         'Versiones en Historial',
       ];
-      final filas = fichas.map((f) {
+      final q = _searchCtrl.text.toLowerCase();
+      final lista = q.isEmpty ? _todos!
+          : _todos!.where((f) =>
+              f.productoNombre.toLowerCase().contains(q) ||
+              f.marcaNombre.toLowerCase().contains(q) ||
+              f.proveedorNombre.toLowerCase().contains(q)).toList();
+      final filas = lista.map((f) {
         final doc = f.documentoActual;
         String estado = '—';
         if (doc != null) {
@@ -6487,112 +6758,248 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<FichaTecnicaDoc>>(
-      stream: widget.svc.streamFichasTecnicas(widget.empresaId),
-      builder: (_, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-        final todos = snap.data ?? [];
-        final q = _searchCtrl.text.toLowerCase();
-        final lista = q.isEmpty ? todos
-            : todos.where((f) =>
-                f.productoNombre.toLowerCase().contains(q) ||
-                f.marcaNombre.toLowerCase().contains(q) ||
-                f.proveedorNombre.toLowerCase().contains(q)).toList();
+    final q = _searchCtrl.text.toLowerCase();
+    final lista = (_todos ?? []).where((f) =>
+        q.isEmpty ||
+        f.productoNombre.toLowerCase().contains(q) ||
+        f.marcaNombre.toLowerCase().contains(q) ||
+        f.proveedorNombre.toLowerCase().contains(q)).toList();
 
-        return Column(
-          children: [
-            _ConsultasToolbar(
-              searchCtrl: _searchCtrl,
-              hint: 'Buscar por producto, marca o proveedor...',
-              onSearchChanged: () => setState(() {}),
-              total: lista.length,
-              exportando: _exportando,
-              onExportar: () => _exportar(todos),
-            ),
-            Expanded(
-              child: lista.isEmpty
-                  ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(10),
-                      itemCount: lista.length,
-                      itemBuilder: (_, i) {
-                        final f = lista[i];
-                        final doc = f.documentoActual;
-                        Color badgeColor = Colors.grey;
-                        String badgeLabel = 'Sin cargar';
-                        if (doc != null && doc.tieneDoc) {
-                          if (doc.aprobado) { badgeColor = kComprasGreen; badgeLabel = 'Aprobado'; }
-                          else if (doc.rechazado) { badgeColor = kComprasRed; badgeLabel = 'Rechazado'; }
-                          else if (doc.pendienteRevisionCalidad) { badgeColor = Colors.orange; badgeLabel = 'Pendiente'; }
-                          else { badgeColor = Colors.blueGrey; badgeLabel = 'Cargado'; }
-                        }
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          child: ExpansionTile(
-                            tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                            title: Text(f.productoNombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                            subtitle: Text('${f.marcaNombre}  •  ${f.proveedorNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
-                            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: badgeColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: badgeColor),
-                                ),
-                                child: Text(badgeLabel, style: TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w600, color: badgeColor)),
-                              ),
-                              const Icon(Icons.expand_more, size: 18, color: Colors.black38),
-                            ]),
-                            children: [
-                              if (doc != null && doc.tieneDoc) ...[
-                                _InfoRow(Icons.link, 'Documento actual', ''),
-                                Row(children: [
-                                  const SizedBox(width: 22),
-                                  Expanded(child: Text(doc.nombre ?? '—', style: const TextStyle(fontFamily: _kFont, fontSize: 12), overflow: TextOverflow.ellipsis)),
-                                  IconButton(
-                                    onPressed: () => _abrirUrl(context, doc.url),
-                                    icon: const Icon(Icons.open_in_new, size: 14, color: kComprasPrimary),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                    tooltip: 'Ver documento',
+    return Column(
+      children: [
+        _ConsultasFechaBar(
+          desde: _desde, hasta: _hasta,
+          onDesdeCambiado: (d) => setState(() => _desde = d),
+          onHastaCambiado: (h) => setState(() => _hasta = h),
+          onBuscar: _buscar, cargando: _loading,
+        ),
+        if (_todos != null)
+          _ConsultasToolbar(
+            searchCtrl: _searchCtrl,
+            hint: 'Buscar por producto, marca o proveedor...',
+            onSearchChanged: () => setState(() {}),
+            total: lista.length,
+            exportando: _exportando,
+            onExportar: _exportar,
+          ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _todos == null
+                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
+                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
+                  : lista.isEmpty
+                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(10),
+                          itemCount: lista.length,
+                          itemBuilder: (_, i) {
+                            final f = lista[i];
+                            final doc = f.documentoActual;
+                            final fmtDt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+                            Color badgeColor = Colors.grey;
+                            String badgeLabel = 'Sin cargar';
+                            if (doc != null && doc.tieneDoc) {
+                              if (doc.aprobado) { badgeColor = kComprasGreen; badgeLabel = 'Aprobado'; }
+                              else if (doc.rechazado) { badgeColor = kComprasRed; badgeLabel = 'Rechazado'; }
+                              else if (doc.pendienteRevisionCalidad) { badgeColor = Colors.orange; badgeLabel = 'Pendiente'; }
+                              else { badgeColor = Colors.blueGrey; badgeLabel = 'Cargado'; }
+                            }
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              child: ExpansionTile(
+                                tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                                childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                                title: Text(f.productoNombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
+                                subtitle: Text('${f.marcaNombre}  •  ${f.proveedorNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+                                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: badgeColor.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: badgeColor),
+                                    ),
+                                    child: Text(badgeLabel, style: TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w600, color: badgeColor)),
                                   ),
+                                  const Icon(Icons.expand_more, size: 18, color: Colors.black38),
                                 ]),
-                                if (doc.observacionActualizacion?.isNotEmpty == true)
-                                  _InfoRow(Icons.note_alt_outlined, 'Observación', doc.observacionActualizacion!),
-                              ],
-                              if (f.historial.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text('Historial (${f.historial.length} versiones)', style: const TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-                                const SizedBox(height: 4),
-                                ...f.historial.map((h) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Row(children: [
-                                    const Icon(Icons.history, size: 13, color: Colors.black38),
-                                    const SizedBox(width: 6),
-                                    Expanded(child: Text(h.observacion.isEmpty ? (h.nombre ?? '—') : h.observacion,
-                                        style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54), overflow: TextOverflow.ellipsis)),
-                                    if (h.url != null && h.url!.isNotEmpty)
+                                children: [
+                                  if (doc != null && doc.tieneDoc) ...[
+                                    _InfoRow(Icons.link, 'Documento actual', ''),
+                                    Row(children: [
+                                      const SizedBox(width: 22),
+                                      Expanded(child: Text(doc.nombre ?? '—', style: const TextStyle(fontFamily: _kFont, fontSize: 12), overflow: TextOverflow.ellipsis)),
                                       IconButton(
-                                        onPressed: () => _abrirUrl(context, h.url),
-                                        icon: const Icon(Icons.open_in_new, size: 12, color: kComprasPrimary),
+                                        onPressed: () => _abrirUrl(context, doc.url),
+                                        icon: const Icon(Icons.open_in_new, size: 14, color: kComprasPrimary),
                                         padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                        tooltip: 'Ver documento',
                                       ),
-                                  ]),
-                                )),
-                              ],
-                            ],
-                          ),
-                        );
-                      },
+                                    ]),
+                                    if (doc.fechaSubida != null)
+                                      _InfoRow(Icons.calendar_today, 'Fecha cargado',
+                                          fmtDt.format(doc.fechaSubida!.toDate())),
+                                    if (doc.observacionActualizacion?.isNotEmpty == true)
+                                      _InfoRow(Icons.note_alt_outlined, 'Observación', doc.observacionActualizacion!),
+                                  ],
+                                  if (f.historial.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text('Historial (${f.historial.length} versiones)', style: const TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                                    const SizedBox(height: 4),
+                                    ...f.historial.map((h) => Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: Row(children: [
+                                        const Icon(Icons.history, size: 13, color: Colors.black38),
+                                        const SizedBox(width: 6),
+                                        Expanded(child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(h.observacion.isEmpty ? (h.nombre ?? '—') : h.observacion,
+                                                style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54), overflow: TextOverflow.ellipsis),
+                                            Text(fmtDt.format(h.fecha.toDate()),
+                                                style: const TextStyle(fontFamily: _kFont, fontSize: 10, color: Colors.black38)),
+                                          ],
+                                        )),
+                                        if (h.url != null && h.url!.isNotEmpty)
+                                          IconButton(
+                                            onPressed: () => _abrirUrl(context, h.url),
+                                            icon: const Icon(Icons.open_in_new, size: 12, color: kComprasPrimary),
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                          ),
+                                      ]),
+                                    )),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+        ),
+      ],
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Widget reutilizable: selector de fechas + botón Buscar
+// ──────────────────────────────────────────────────────────────────────────
+class _ConsultasFechaBar extends StatelessWidget {
+  final DateTime? desde;
+  final DateTime? hasta;
+  final void Function(DateTime) onDesdeCambiado;
+  final void Function(DateTime) onHastaCambiado;
+  final VoidCallback onBuscar;
+  final bool cargando;
+
+  const _ConsultasFechaBar({
+    required this.desde,
+    required this.hasta,
+    required this.onDesdeCambiado,
+    required this.onHastaCambiado,
+    required this.onBuscar,
+    required this.cargando,
+  });
+
+  Future<void> _pickDate(BuildContext context, DateTime? initial,
+      void Function(DateTime) onPicked) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial ?? now,
+      firstDate: DateTime(2020),
+      lastDate: now,
+      locale: const Locale('es'),
+    );
+    if (picked != null) onPicked(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('dd/MM/yyyy', 'es');
+    final listo = desde != null && hasta != null;
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Row(
+        children: [
+          // Desde
+          Expanded(
+            child: InkWell(
+              onTap: () => _pickDate(context, desde, onDesdeCambiado),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.grey.shade50,
+                ),
+                child: Row(children: [
+                  const Icon(Icons.calendar_today, size: 14, color: Colors.black45),
+                  const SizedBox(width: 6),
+                  Text(
+                    desde != null ? fmt.format(desde!) : 'Desde',
+                    style: TextStyle(
+                      fontFamily: _kFont, fontSize: 12,
+                      color: desde != null ? Colors.black87 : Colors.black38,
                     ),
+                  ),
+                ]),
+              ),
             ),
-          ],
-        );
-      },
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 6),
+            child: Text('—', style: TextStyle(color: Colors.black38)),
+          ),
+          // Hasta
+          Expanded(
+            child: InkWell(
+              onTap: () => _pickDate(context, hasta, onHastaCambiado),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.grey.shade50,
+                ),
+                child: Row(children: [
+                  const Icon(Icons.calendar_today, size: 14, color: Colors.black45),
+                  const SizedBox(width: 6),
+                  Text(
+                    hasta != null ? fmt.format(hasta!) : 'Hasta',
+                    style: TextStyle(
+                      fontFamily: _kFont, fontSize: 12,
+                      color: hasta != null ? Colors.black87 : Colors.black38,
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Buscar
+          cargando
+              ? const SizedBox(
+                  width: 36, height: 36,
+                  child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2)))
+              : FilledButton.icon(
+                  onPressed: listo ? onBuscar : null,
+                  icon: const Icon(Icons.search, size: 16),
+                  label: const Text('Buscar', style: TextStyle(fontFamily: _kFont, fontSize: 12)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kComprasPrimary,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    minimumSize: const Size(0, 36),
+                  ),
+                ),
+        ],
+      ),
     );
   }
 }
@@ -6931,12 +7338,16 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  ...r.productos.asMap().entries.map((entry) {
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: r.productos.asMap().entries.map((entry) {
                     final productoIdx = entry.key;
                     final rp = entry.value;
                     final docsKeys = docsParaCategoria(rp.categoria);
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
+                    return ConstrainedBox(
+                      constraints: const BoxConstraints(minWidth: 200, maxWidth: 320),
+                      child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                           color: const Color(0xFFF0F4FF),
@@ -7148,8 +7559,10 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                           }),
                         ],
                       ),
+                    ),
                     );
-                  }),
+                  }).toList(),
+                  ),
                 ],
               ),
             ),
