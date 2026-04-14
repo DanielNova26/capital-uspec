@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
+import '../widgets/internal_module_layout.dart';
 
 const String _areasCollection  = 'TBL_AREAS';
 const String _cargosCollection = 'TBL_CARGOS';
@@ -11,7 +12,9 @@ const Color  _kPrimaryColor    = Color(0xffc28942);
 const String _kFontFamily      = 'Arial';
 
 class CargosManagementScreen extends StatefulWidget {
-  const CargosManagementScreen({Key? key}) : super(key: key);
+  final String userId;
+  final String empresaId;
+  const CargosManagementScreen({Key? key, required this.userId, required this.empresaId}) : super(key: key);
 
   @override
   State<CargosManagementScreen> createState() => _CargosManagementScreenState();
@@ -217,117 +220,168 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Gestión de Cargos', style: TextStyle(fontFamily: _kFontFamily)),
-        backgroundColor: _kPrimaryColor,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.update),
-            tooltip: 'Actualizar todos',
-            onPressed: () async {
-              final snack = ScaffoldMessenger.of(context);
-              snack.showSnackBar(
-                const SnackBar(content: Text('Actualizando todos los cargos...')),
-              );
-              await _updateAllCargos();
-              snack.showSnackBar(
-                const SnackBar(content: Text('Cargos actualizados correctamente')),
-              );
-              setState(() {});
-            },
+    return InternalModuleLayout(
+      userId: widget.userId,
+      empresaId: widget.empresaId,
+      title: 'Gestión de Cargos',
+      subtitle: 'Definición de responsabilidades y perfiles de puesto',
+      accentColor: _kPrimaryColor,
+      headerActions: [
+        IconButton(
+          icon: const Icon(Icons.sync_rounded, color: Color(0xFF64748B)),
+          tooltip: 'Sincronizar Estructura',
+          onPressed: () async {
+            final snack = ScaffoldMessenger.of(context);
+            snack.showSnackBar(
+              const SnackBar(content: Text('Sincronizando cargos con la estructura...')),
+            );
+            await _updateAllCargos();
+            snack.showSnackBar(
+              const SnackBar(content: Text('Cargos actualizados correctamente')),
+            );
+            setState(() {});
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline_rounded, size: 28, color: _kPrimaryColor),
+          onPressed: () => _openCargoForm(),
+          tooltip: 'Nuevo Cargo',
+        ),
+      ],
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Buscar por descripción o área',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
           ),
-          IconButton(icon: const Icon(Icons.add), onPressed: () => _openCargoForm()),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance.collection(_cargosCollection).snapshots(),
+              builder: (ctx, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final term = _searchCtrl.text.trim().toLowerCase();
+                final docs = snap.data!.docs.where((d) {
+                  final m = d.data();
+                  final desc = (m['descripcion'] as String? ?? '').toLowerCase();
+                  final area = (m['area'] as String? ?? '').toLowerCase();
+                  return desc.contains(term) || area.contains(term);
+                }).toList();
+
+                if (docs.isEmpty) {
+                  return const Center(child: Text('No se encontraron cargos.'));
+                }
+
+                return ListView.separated(
+                  padding: const EdgeInsets.all(24),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (c, i) {
+                    final d = docs[i];
+                    final m = d.data();
+                    final code = d.id;
+                    final desc = m['descripcion'] as String? ?? '';
+                    final area = m['area'] as String? ?? '';
+
+                    return ModuleCard(
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _kPrimaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.badge_outlined, color: _kPrimaryColor, size: 20),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  desc,
+                                  style: const TextStyle(
+                                    fontFamily: _kFontFamily,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                Text(
+                                  'Área: $area',
+                                  style: const TextStyle(
+                                    fontFamily: _kFontFamily,
+                                    fontSize: 13,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                ),
+                                if (m['parent_desc'] != null)
+                                  Text(
+                                    'Reporta a: ${m['parent_desc']}',
+                                    style: const TextStyle(
+                                      fontFamily: _kFontFamily,
+                                      fontSize: 11,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.group_outlined, color: Color(0xFF64748B)),
+                            onPressed: () => _showUsersDialog(code),
+                            tooltip: 'Ver ocupantes',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined, color: Color(0xFF64748B)),
+                            onPressed: () => _openCargoForm(doc: d),
+                            tooltip: 'Editar',
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            onPressed: () async {
+                              final ok = await showDialog<bool>(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  title: const Text('Confirmar borrado'),
+                                  content: Text('¿Borrar cargo "$desc"?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context, false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                      onPressed: () => Navigator.pop(context, true),
+                                      child: const Text('Borrar'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (ok == true) await _deleteCargo(code);
+                            },
+                            tooltip: 'Eliminar',
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
         ],
       ),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: TextField(
-            controller: _searchCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Buscar por descripción o área',
-              prefixIcon: Icon(Icons.search),
-            ),
-            onChanged: (_) => setState(() {}),
-          ),
-        ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance.collection(_cargosCollection).snapshots(),
-            builder: (ctx, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final term = _searchCtrl.text.trim().toLowerCase();
-              final docs = snap.data!.docs.where((d) {
-                final m    = d.data();
-                final desc = (m['descripcion'] as String? ?? '').toLowerCase();
-                final area = (m['area'] as String? ?? '').toLowerCase();
-                return desc.contains(term) || area.contains(term);
-              }).toList();
-
-              if (docs.isEmpty) {
-                return const Center(child: Text('No se encontraron cargos'));
-              }
-
-              return ListView.separated(
-                itemCount: docs.length,
-                separatorBuilder: (_, __) => const Divider(),
-                itemBuilder: (c, i) {
-                  final d    = docs[i];
-                  final m    = d.data();
-                  final code = d.id;
-                  final desc = m['descripcion'] as String? ?? '';
-                  final area = m['area'] as String? ?? '';
-
-                  return ListTile(
-                    title: Text(desc, style: const TextStyle(fontFamily: _kFontFamily)),
-                    subtitle: Text('Área: $area', style: const TextStyle(fontSize: 12)),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.person, color: Colors.grey),
-                          onPressed: () => _showUsersDialog(code),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: _kPrimaryColor),
-                          onPressed: () => _openCargoForm(doc: d),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            final ok = await showDialog<bool>(
-                              context: context,
-                              builder: (_) => AlertDialog(
-                                title: const Text('Confirmar borrado'),
-                                content: Text('¿Borrar cargo "$desc"?'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context, false),
-                                    child: const Text('Cancelar'),
-                                  ),
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                    onPressed: () => Navigator.pop(context, true),
-                                    child: const Text('Borrar'),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (ok == true) await _deleteCargo(code);
-                          },
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-      ]),
     );
   }
 

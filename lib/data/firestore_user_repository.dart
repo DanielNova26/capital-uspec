@@ -1,5 +1,20 @@
 // lib/data/firestore_user_repository.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+
+class EmpresaAppModule {
+  final String empresaId;
+  final String appId;
+  final bool enabled;
+  final Map<String, dynamic> data;
+
+  const EmpresaAppModule({
+    required this.empresaId,
+    required this.appId,
+    required this.enabled,
+    required this.data,
+  });
+}
 
 class FirestoreUserRepository {
   FirestoreUserRepository._();
@@ -11,6 +26,8 @@ class FirestoreUserRepository {
       _db.collection('TBL_CEDULAS');
   CollectionReference<Map<String, dynamic>> get _usuariosCol =>
       _db.collection('TBL_USUARIOS');
+  CollectionReference<Map<String, dynamic>> get _appsCol =>
+      _db.collection('TBL_APPS');
 
   String sanitizeCedula(String raw) =>
       raw.replaceAll(RegExp(r'[^0-9]'), '');
@@ -86,5 +103,120 @@ class FirestoreUserRepository {
     });
 
     return username;
+  }
+
+  // ── Métodos de resolución transitoria de identidad (Tarea 2) ──────────────
+
+  /// Busca el primer documento de TBL_USUARIOS cuyo campo 'uid' coincida.
+  /// Retorna null si no existe. Usado por [UserResolver].
+  Future<DocumentSnapshot<Map<String, dynamic>>?> resolveByUid(
+      String uid) async {
+    if (uid.isEmpty) return null;
+    final q =
+        await _usuariosCol.where('uid', isEqualTo: uid).limit(1).get();
+    return q.docs.isEmpty ? null : q.docs.first;
+  }
+
+  /// Busca el primer documento de TBL_USUARIOS donde [field] == [value].
+  /// Uso principal: resolución por 'cedula'. Retorna null si no existe.
+  Future<DocumentSnapshot<Map<String, dynamic>>?> resolveByField(
+      String field, String value) async {
+    if (value.isEmpty) return null;
+    final q = await _usuariosCol
+        .where(field, isEqualTo: value)
+        .limit(1)
+        .get();
+    return q.docs.isEmpty ? null : q.docs.first;
+  }
+
+  /// Obtiene el documento de TBL_USUARIOS por su docId (username legacy).
+  /// Retorna null si el documento no existe.
+  Future<DocumentSnapshot<Map<String, dynamic>>?> resolveByDocId(
+      String docId) async {
+    if (docId.isEmpty) return null;
+    final snap = await _usuariosCol.doc(docId).get();
+    return snap.exists ? snap : null;
+  }
+
+  /// Escribe el campo 'uid' en el documento de TBL_USUARIOS indicado por [docId].
+  ///
+  /// - Si el documento no existe, loggea y retorna sin lanzar excepción.
+  /// - Si el 'uid' ya está correcto, no hace ninguna escritura innecesaria.
+  /// - En caso de error Firestore, loggea y retorna sin propagar.
+  ///
+  /// Debe llamarse después de un login exitoso cuando Firebase Auth UID
+  /// esté disponible. Es un no-op seguro si [uid] está vacío.
+  Future<void> writeUid(String docId, String uid) async {
+    if (docId.isEmpty || uid.isEmpty) return;
+    try {
+      final snap = await _usuariosCol.doc(docId).get();
+      if (!snap.exists) {
+        debugPrint(
+            '[FirestoreUserRepository] writeUid: docId=$docId no existe');
+        return;
+      }
+      final current = ((snap.data()?['uid'] as String?) ?? '').trim();
+      if (current == uid) return; // ya está correcto
+      await _usuariosCol.doc(docId).update({
+        'uid': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('[FirestoreUserRepository] uid escrito en docId=$docId');
+    } catch (e) {
+      debugPrint('[FirestoreUserRepository] writeUid error (docId=$docId): $e');
+    }
+  }
+
+  /// Lee la configuracion de un modulo para una empresa.
+  ///
+  /// Estrategia:
+  /// 1. docId compuesto `${empresaId}_${appId}`
+  /// 2. query por campos `empresaId` + `appId`
+  ///
+  /// Si el campo `enabled` no existe, se interpreta como `true` por
+  /// compatibilidad con datos legacy de pruebas.
+  Future<EmpresaAppModule?> getEmpresaAppModule({
+    required String empresaId,
+    required String appId,
+  }) async {
+    final normalizedEmpresaId = empresaId.trim();
+    final normalizedAppId = appId.trim().toLowerCase();
+    if (normalizedEmpresaId.isEmpty || normalizedAppId.isEmpty) return null;
+
+    try {
+      final byDocId =
+          await _appsCol.doc('${normalizedEmpresaId}_$normalizedAppId').get();
+      if (byDocId.exists) {
+        final data = byDocId.data() ?? const <String, dynamic>{};
+        return EmpresaAppModule(
+          empresaId:
+              (data['empresaId'] ?? normalizedEmpresaId).toString().trim(),
+          appId: (data['appId'] ?? normalizedAppId).toString().trim(),
+          enabled: (data['enabled'] as bool?) ?? true,
+          data: data,
+        );
+      }
+
+      final query = await _appsCol
+          .where('empresaId', isEqualTo: normalizedEmpresaId)
+          .where('appId', isEqualTo: normalizedAppId)
+          .limit(1)
+          .get();
+      if (query.docs.isEmpty) return null;
+
+      final data = query.docs.first.data();
+      return EmpresaAppModule(
+        empresaId: (data['empresaId'] ?? normalizedEmpresaId).toString().trim(),
+        appId: (data['appId'] ?? normalizedAppId).toString().trim(),
+        enabled: (data['enabled'] as bool?) ?? true,
+        data: data,
+      );
+    } catch (e) {
+      debugPrint(
+        '[FirestoreUserRepository] getEmpresaAppModule '
+        'error (empresaId=$empresaId appId=$appId): $e',
+      );
+      return null;
+    }
   }
 }

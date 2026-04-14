@@ -6,33 +6,72 @@ import 'package:todo/services/diagnosticos_service.dart';
 import 'package:todo/services/compras_req_excel_parser.dart';
 import 'package:todo/services/compras_proveedores_excel_parser.dart';
 import 'package:todo/services/compras_productos_excel_parser.dart';
+import 'package:todo/state/empresa_scope.dart';
+import '../core/guarded_module_page.dart';
+import '../home/widgets/home_shared_widgets.dart';
+import '../widgets/internal_module_layout.dart';
 import '../compras/compras_req_seed.dart';
 import '../compras/compras_service.dart';
 import '../compras/compras_models.dart';
 
 import 'admin_repository.dart';
 import 'migrations/admin_migration_service.dart';
+import '../utils/user_company.dart';
 
 const String kArial = 'Arial';
 
 // ======= Paleta Admin (moderna) =======
-const Color kAdminBg = Color(0xFFF6F8FF);
-const Color kAdminPrimary = Color(0xFF1E3A8A); // Indigo
-const Color kAdminAccent = Color(0xFF06B6D4);  // Cyan
+const Color kAdminBg = Color(0xFFF8FAFC); // Slate 50
+const Color kAdminPrimary = Color(0xFF0F172A); // Slate 900
+const Color kAdminAccent = Color(0xFF3B82F6);  // Blue 500
 const Color kAdminCard = Colors.white;
+const Color kAdminBorder = Color(0xFFE2E8F0); // Slate 200
+const Color kAdminMuted = Color(0xFF64748B); // Slate 500
+const Color kAdminSuccess = Color(0xFF10B981); // Emerald 500
+const Color kAdminError = Color(0xFFEF4444); // Red 500
+
+const List<String> kDocumentalRoles = <String>[
+  'redactor',
+  'revisor',
+  'aprobador',
+  'firmante',
+  'admin_doc',
+];
+
+const Map<String, String> kDocumentalRoleLabels = <String, String>{
+  'redactor': 'Redactor',
+  'revisor': 'Revisor',
+  'aprobador': 'Aprobador',
+  'firmante': 'Firmante',
+  'admin_doc': 'Administrador documental',
+};
+
+const List<InternalModuleTabItem> _kAdminModuleTabs = [
+  InternalModuleTabItem(label: 'Usuarios', icon: Icons.people_alt),
+  InternalModuleTabItem(label: 'Apps', icon: Icons.apps),
+  InternalModuleTabItem(label: 'Catálogos', icon: Icons.account_tree),
+  InternalModuleTabItem(label: 'Migraciones', icon: Icons.construction),
+  InternalModuleTabItem(label: 'Logs', icon: Icons.history),
+  InternalModuleTabItem(label: 'Limpieza', icon: Icons.cleaning_services),
+  InternalModuleTabItem(label: 'Diagnósticos', icon: Icons.medical_information),
+  InternalModuleTabItem(label: 'Req. Compras', icon: Icons.rule_folder),
+  InternalModuleTabItem(label: 'Roles Compras', icon: Icons.verified_user),
+];
 
 class AdminDashboardScreen extends StatefulWidget {
   final String userId; // admin id
-  const AdminDashboardScreen({super.key, required this.userId});
+  final String empresaId;
+  const AdminDashboardScreen({super.key, required this.userId, required this.empresaId});
 
   @override
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   final _repo = AdminRepository(db: FirebaseFirestore.instance);
   final _mig = AdminMigrationService(db: FirebaseFirestore.instance);
 
+  late TabController _tabController;
   bool _loading = true;
 
   // Empresa
@@ -82,11 +121,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Uint8List? _productosBytes;
   Map<String, int>? _productosImportResult;
   bool _importandoProductos = false;
+  String? _lastScopedEmpresaId;
+
+  // Limpieza: usuario seleccionado para limpiar notificaciones individualmente
+  String? _notifCleanUserId;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 9, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _loadAll();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scopedEmpresaId = EmpresaScope.of(context).selectedEmpresaId?.trim();
+    if (scopedEmpresaId != null &&
+        scopedEmpresaId.isNotEmpty &&
+        scopedEmpresaId != _lastScopedEmpresaId) {
+      _lastScopedEmpresaId = scopedEmpresaId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _loadAll(forceEmpresaId: scopedEmpresaId);
+      });
+    }
   }
 
   Future<void> _loadAll({String? forceEmpresaId}) async {
@@ -133,13 +201,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _areas = areas;
       _cargos = cargos;
 
+      // extractUserApps lee tanto apps globales como las del scope de empresa.
       _userApps = {
         for (final u in users)
-          u.id: {
-            ...((u.data()['apps'] as List<dynamic>? ?? const [])
-                .map((e) => e.toString().trim())
-                .where((e) => e.isNotEmpty))
-          }
+          u.id: extractUserApps(u.data(), empresaId: selected).toSet()
       };
 
       // Si cambias de empresa, limpiamos selección de migración
@@ -237,23 +302,61 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       itemBuilder: (_, i) {
                         final aDoc = _apps[i];
                         final a = aDoc.data();
-                        final appId = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
+                        final appIdRaw = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
+                        final appId = normalizeAppId(appIdRaw) ?? appIdRaw;
                         final nombre = _safe(a['nombre']).isNotEmpty ? _safe(a['nombre']) : appId;
                         final checked = local.contains(appId);
+                        final isGD = appId == 'gestiondocumentaldashboard';
 
-                        return CheckboxListTile(
-                          value: checked,
-                          activeColor: kAdminPrimary,
-                          title: Text(nombre, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700)),
-                          subtitle: Text(appId, style: const TextStyle(fontFamily: kArial, color: Colors.black54)),
-                          onChanged: (v) {
-                            if (v == true) {
-                              local.add(appId);
-                            } else {
-                              local.remove(appId);
-                            }
-                            (ctx as Element).markNeedsBuild();
-                          },
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CheckboxListTile(
+                              value: checked,
+                              activeColor: kAdminPrimary,
+                              title: Text(nombre,
+                                  style: const TextStyle(
+                                      fontFamily: kArial, fontWeight: FontWeight.w700)),
+                              subtitle: Text(appId,
+                                  style: const TextStyle(
+                                      fontFamily: kArial, color: Colors.black54)),
+                              onChanged: (v) {
+                                if (v == true) {
+                                  local.add(appId);
+                                } else {
+                                  local.remove(appId);
+                                }
+                                (ctx as Element).markNeedsBuild();
+                              },
+                            ),
+                            if (isGD && checked)
+                              Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.indigo.withOpacity(0.05),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.indigo.withOpacity(0.2)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.info_outline, size: 18, color: Colors.indigo),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'GESTIÓN DOCUMENTAL: Recuerda que además de habilitar el acceso al módulo, debes asignar un "Rol Documental" en el botón de Organización (Icono Edificio) para que el usuario pueda subir o firmar.',
+                                        style: TextStyle(
+                                          fontFamily: kArial,
+                                          fontSize: 10,
+                                          color: Colors.indigo,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
                         );
                       },
                     ),
@@ -266,7 +369,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     icon: const Icon(Icons.save),
                     style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
                     onPressed: () async {
-                      await _repo.updateUserApps(userDoc.id, local);
+                      await _repo.updateUserApps(userDoc.id, local, empresaId: _empresaId);
                       _snack('Apps actualizadas');
                       if (!mounted) return;
                       Navigator.pop(ctx);
@@ -289,11 +392,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     if (empresaId.isEmpty) return;
 
     final d = userDoc.data();
+    final scoped = getUserCompanyDetail(d, empresaId);
     final nombre = _userName(d, userDoc.id);
 
-    String? centroId = _safe(d['centroId']).isEmpty ? null : _safe(d['centroId']);
-    String? areaId = _safe(d['areaId']).isEmpty ? null : _safe(d['areaId']);
-    String cargoNombre = _safe(d['cargo']);
+    String? centroId = _safe(scoped?['centroId']).isEmpty
+        ? (_safe(d['centroId']).isEmpty ? null : _safe(d['centroId']))
+        : _safe(scoped?['centroId']);
+    String? areaId = _safe(scoped?['areaId']).isEmpty
+        ? (_safe(d['areaId']).isEmpty ? null : _safe(d['areaId']))
+        : _safe(scoped?['areaId']);
+    String cargoNombre =
+        _safe(scoped?['cargo']).isNotEmpty ? _safe(scoped?['cargo']) : _safe(d['cargo']);
+    String rolDocumental = _safe(scoped?['rolDocumental']).isNotEmpty
+        ? _safe(scoped?['rolDocumental']).toLowerCase()
+        : (_safe(d['rolDocumental']).isEmpty ? '' : _safe(d['rolDocumental']).toLowerCase());
 
     CentroCostoItem? centroSel = _centros.where((c) => c.centroId == centroId).cast<CentroCostoItem?>().firstWhere((x) => x != null, orElse: () => null);
     AreaItem? areaSel = _areas.where((a) => a.areaId == areaId).cast<AreaItem?>().firstWhere((x) => x != null, orElse: () => null);
@@ -304,80 +416,113 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         final centrosEnabled = _centros.where((c) => c.enabled).toList();
         final areasEnabled = _areas.where((a) => a.enabled).toList();
 
-        return AlertDialog(
-          title: Text('Organización', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, color: kAdminPrimary)),
-          content: SizedBox(
-            width: 560,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(nombre, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
-                ),
-                const SizedBox(height: 12),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Organización', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, color: kAdminPrimary)),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(nombre, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+                    ),
+                    const SizedBox(height: 12),
 
-                DropdownButtonFormField<CentroCostoItem>(
-                  value: centroSel,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Centro de costos', border: OutlineInputBorder()),
-                  items: centrosEnabled
-                      .map((c) => DropdownMenuItem(
-                    value: c,
-                    child: Text('${c.codigo} - ${c.nombre}', style: const TextStyle(fontFamily: kArial)),
-                  ))
-                      .toList(),
-                  onChanged: (v) => centroSel = v,
-                ),
-                const SizedBox(height: 12),
+                    DropdownButtonFormField<CentroCostoItem>(
+                      value: centroSel,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'Centro de costos', border: OutlineInputBorder()),
+                      items: centrosEnabled
+                          .map((c) => DropdownMenuItem(
+                        value: c,
+                        child: Text('${c.codigo} - ${c.nombre}', style: const TextStyle(fontFamily: kArial)),
+                      ))
+                          .toList(),
+                      onChanged: (v) => setDialogState(() => centroSel = v),
+                    ),
+                    const SizedBox(height: 12),
 
-                DropdownButtonFormField<AreaItem>(
-                  value: areaSel,
-                  isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Área / Departamento', border: OutlineInputBorder()),
-                  items: areasEnabled
-                      .map((a) => DropdownMenuItem(
-                    value: a,
-                    child: Text(a.nombre, style: const TextStyle(fontFamily: kArial)),
-                  ))
-                      .toList(),
-                  onChanged: (v) => areaSel = v,
-                ),
-                const SizedBox(height: 12),
+                    DropdownButtonFormField<AreaItem>(
+                      value: areaSel,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'Área / Departamento', border: OutlineInputBorder()),
+                      items: areasEnabled
+                          .map((a) => DropdownMenuItem(
+                        value: a,
+                        child: Text(a.nombre, style: const TextStyle(fontFamily: kArial)),
+                      ))
+                          .toList(),
+                      onChanged: (v) => setDialogState(() => areaSel = v),
+                    ),
+                    const SizedBox(height: 12),
 
-                TextFormField(
-                  initialValue: cargoNombre,
-                  decoration: const InputDecoration(labelText: 'Cargo (texto)', border: OutlineInputBorder()),
-                  style: const TextStyle(fontFamily: kArial),
-                  onChanged: (v) => cargoNombre = v.trim(),
+                    TextFormField(
+                      initialValue: cargoNombre,
+                      decoration: const InputDecoration(labelText: 'Cargo (texto)', border: OutlineInputBorder()),
+                      style: const TextStyle(fontFamily: kArial),
+                      onChanged: (v) => cargoNombre = v.trim(),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: rolDocumental,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Rol en Gestión Documental',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.description_outlined, color: kAdminAccent),
+                        helperText: 'Habilita acciones específicas (redactar, revisar, firmar).',
+                        helperStyle: TextStyle(fontFamily: kArial, fontSize: 10, color: kAdminAccent, fontWeight: FontWeight.w700),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: '',
+                          child: Text('Sin rol documental (Solo lectura)', style: TextStyle(fontFamily: kArial)),
+                        ),
+                        ...kDocumentalRoles.map(
+                          (rol) => DropdownMenuItem<String>(
+                            value: rol,
+                            child: Text(
+                              kDocumentalRoleLabels[rol] ?? rol,
+                              style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setDialogState(() => rolDocumental = v ?? ''),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.save),
+                  style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                  onPressed: () async {
+                    await _repo.updateUserOrg(
+                      userId: userDoc.id,
+                      empresaId: empresaId,
+                      centroId: centroSel?.centroId,
+                      centroCodigo: centroSel?.codigo,
+                      centroNombre: centroSel?.nombre,
+                      areaId: areaSel?.areaId,
+                      areaNombre: areaSel?.nombre,
+                      cargo: cargoNombre.isEmpty ? null : cargoNombre,
+                      rolDocumental: rolDocumental,
+                    );
+                    if (!mounted) return;
+                    Navigator.pop(context);
+                    _snack('Usuario actualizado');
+                    await _loadAll(forceEmpresaId: _empresaId);
+                  },
+                  label: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
                 ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.save),
-              style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
-              onPressed: () async {
-                await _repo.updateUserOrg(
-                  userId: userDoc.id,
-                  empresaId: empresaId,
-                  centroId: centroSel?.centroId,
-                  centroCodigo: centroSel?.codigo,
-                  centroNombre: centroSel?.nombre,
-                  areaId: areaSel?.areaId,
-                  areaNombre: areaSel?.nombre,
-                  cargo: cargoNombre.isEmpty ? null : cargoNombre,
-                );
-                if (!mounted) return;
-                Navigator.pop(context);
-                _snack('Usuario actualizado');
-                await _loadAll(forceEmpresaId: _empresaId);
-              },
-              label: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -751,6 +896,56 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     await _loadAll(forceEmpresaId: empresaId);
   }
 
+
+  // ---------------- MIGRACIONES: APP IDs SOLO USUARIOS SELECCIONADOS ----------------
+  Future<void> _runNormalizeAppIdsSelectedUsers({required bool dryRun}) async {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) return;
+
+    if (_selectedMigrationUsers.isEmpty) {
+      _snack('Selecciona usuarios para migrar');
+      return;
+    }
+
+    if (!dryRun) {
+      final ok = await _confirm(
+        title: 'Ejecutar normalización de App IDs',
+        message:
+            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
+            'Se reemplazarán IDs cortos (compras, admin…) por IDs completos '
+            '(comprasdashboard, admindashboard…) en el campo "apps".\n¿Continuar?',
+        confirmText: 'Ejecutar',
+      );
+      if (!ok) return;
+    }
+
+    setState(() => _loading = true);
+
+    final result = await _mig.normalizeAppIdsForUsers(
+      empresaId: empresaId,
+      userIds: _selectedMigrationUsers,
+      dryRun: dryRun,
+    );
+
+    await _mig.logMigration(
+      adminUserId: widget.userId,
+      empresaId: empresaId,
+      action: 'normalizeAppIdsForUsers',
+      scanned: result.scanned,
+      updated: result.updated,
+      dryRun: dryRun,
+      extra: {
+        'selectedUsersCount': _selectedMigrationUsers.length,
+        'sample': result.sampleUpdatedIds,
+      },
+    );
+
+    _snack(dryRun
+        ? 'SIMULACIÓN App IDs: escaneados ${result.scanned}, a cambiar ${result.updated}'
+        : 'App IDs ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}');
+
+    await _loadAll(forceEmpresaId: empresaId);
+  }
 
   // ---------------- MIGRACIONES: ELIMINAR TODAS LAS TAREAS (EMPRESA ACTIVA) ----------------
   Future<bool> _confirmDeleteAllTasks(String empresaId) async {
@@ -1748,6 +1943,197 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  // ---------------- LIMPIEZA: NOTIFICACIONES ----------------
+
+  /// Cuenta notificaciones de un usuario.
+  /// Si [empresaId] se provee, filtra client-side (legacies sin empresaId siempre cuentan).
+  Future<int> _countUserNotifs({
+    required String userId,
+    String? empresaId,
+    required bool soloNoLeidas,
+  }) async {
+    Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(userId)
+        .collection('notifications');
+    if (soloNoLeidas) q = q.where('read', isEqualTo: false);
+    final snap = await q.get();
+    if (empresaId != null && empresaId.isNotEmpty) {
+      return snap.docs.where((d) {
+        final eid = (d.data()['empresaId'] as String?)?.trim() ?? '';
+        return eid.isEmpty || eid == empresaId;
+      }).length;
+    }
+    return snap.docs.length;
+  }
+
+  /// Elimina notificaciones de un usuario. Retorna la cantidad borrada.
+  /// Procesa en batches de 400 para respetar el límite de Firestore.
+  Future<int> _deleteUserNotifs({
+    required String userId,
+    String? empresaId,
+    required bool soloNoLeidas,
+  }) async {
+    Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(userId)
+        .collection('notifications');
+    if (soloNoLeidas) q = q.where('read', isEqualTo: false);
+    final snap = await q.get();
+
+    final toDelete = (empresaId != null && empresaId.isNotEmpty)
+        ? snap.docs.where((d) {
+            final eid = (d.data()['empresaId'] as String?)?.trim() ?? '';
+            return eid.isEmpty || eid == empresaId;
+          }).toList()
+        : snap.docs.toList();
+
+    if (toDelete.isEmpty) return 0;
+
+    int deleted = 0;
+    for (var i = 0; i < toDelete.length; i += 400) {
+      final end = (i + 400 < toDelete.length) ? i + 400 : toDelete.length;
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in toDelete.sublist(i, end)) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      deleted += end - i;
+    }
+    return deleted;
+  }
+
+  /// Limpia notificaciones de todos los usuarios de la empresa activa.
+  /// Muestra preview de cuántas hay antes de confirmar.
+  Future<void> _cleanNotificacionesEmpresa({required bool soloNoLeidas}) async {
+    final empresaId = _empresaId;
+    if (empresaId == null || empresaId.isEmpty) {
+      _snack('Selecciona una empresa primero.');
+      return;
+    }
+    if (_users.isEmpty) {
+      _snack('No hay usuarios cargados para esta empresa.');
+      return;
+    }
+
+    setState(() => _loading = true);
+    int totalCount = 0;
+    try {
+      for (final u in _users) {
+        totalCount += await _countUserNotifs(
+          userId: u.id,
+          empresaId: empresaId,
+          soloNoLeidas: soloNoLeidas,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _snack('Error al contar: $e');
+      }
+      return;
+    }
+    if (mounted) setState(() => _loading = false);
+    if (!mounted) return;
+
+    if (totalCount == 0) {
+      _snack('No hay ${soloNoLeidas ? "notificaciones no leídas" : "notificaciones"} en $empresaId.');
+      return;
+    }
+
+    final tipo = soloNoLeidas ? 'no leídas' : '(leídas y no leídas)';
+    final ok = await _confirm(
+      title: '⚠ Limpiar notificaciones — empresa',
+      message:
+          'Se eliminarán $totalCount notificaciones $tipo de la empresa "$empresaId"\n'
+          '(${_users.length} usuario${_users.length == 1 ? "" : "s"} revisados).\n\n'
+          'Notificaciones sin empresaId (legacy) también se incluyen.\n\n'
+          'Esta acción es irreversible. ¿Continuar?',
+      confirmText: 'BORRAR $totalCount',
+    );
+    if (!ok || !mounted) return;
+
+    setState(() => _loading = true);
+    try {
+      int deleted = 0;
+      for (final u in _users) {
+        deleted += await _deleteUserNotifs(
+          userId: u.id,
+          empresaId: empresaId,
+          soloNoLeidas: soloNoLeidas,
+        );
+      }
+      if (mounted) _snack('✅ $deleted notificaciones eliminadas de "$empresaId".');
+    } catch (e) {
+      if (mounted) _snack('Error al borrar: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Limpia notificaciones de un usuario específico.
+  Future<void> _cleanNotificacionesUsuario({
+    required String userId,
+    required bool soloNoLeidas,
+  }) async {
+    if (userId.isEmpty) {
+      _snack('Selecciona un usuario.');
+      return;
+    }
+    final empresaId = _empresaId;
+
+    setState(() => _loading = true);
+    int totalCount = 0;
+    try {
+      totalCount = await _countUserNotifs(
+        userId: userId,
+        empresaId: empresaId,
+        soloNoLeidas: soloNoLeidas,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        _snack('Error al contar: $e');
+      }
+      return;
+    }
+    if (mounted) setState(() => _loading = false);
+    if (!mounted) return;
+
+    if (totalCount == 0) {
+      _snack('No hay ${soloNoLeidas ? "notificaciones no leídas" : "notificaciones"} para $userId.');
+      return;
+    }
+
+    final tipo = soloNoLeidas ? 'no leídas' : '(leídas y no leídas)';
+    final empresaLabel = (empresaId != null && empresaId.isNotEmpty)
+        ? ' — empresa "$empresaId"'
+        : ' — todas las empresas';
+    final ok = await _confirm(
+      title: '⚠ Limpiar notificaciones — usuario',
+      message:
+          'Se eliminarán $totalCount notificaciones $tipo\n'
+          'del usuario: $userId$empresaLabel.\n\n'
+          'Esta acción es irreversible. ¿Continuar?',
+      confirmText: 'BORRAR $totalCount',
+    );
+    if (!ok || !mounted) return;
+
+    setState(() => _loading = true);
+    try {
+      final deleted = await _deleteUserNotifs(
+        userId: userId,
+        empresaId: empresaId,
+        soloNoLeidas: soloNoLeidas,
+      );
+      if (mounted) _snack('✅ $deleted notificaciones eliminadas de "$userId".');
+    } catch (e) {
+      if (mounted) _snack('Error al borrar: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Widget _tabCleanup() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1908,69 +2294,410 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
         ),
+        const SizedBox(height: 24),
+        // ---- Notificaciones ----
+        Card(
+          color: Colors.teal.shade50,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.teal.shade200),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.notifications_off_outlined, color: Colors.teal.shade900, size: 28),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Limpiar Notificaciones',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.teal.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Elimina entradas de TBL_NOTIFICACIONES para pruebas limpias. '
+                  'No afecta tareas, usuarios ni otras tablas. '
+                  'Muestra cuántas hay antes de confirmar.',
+                  style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+                ),
+
+                // --- Por empresa activa ---
+                const Divider(height: 28),
+                Text(
+                  'Por empresa activa${_empresaId != null ? " (${_empresaId!})" : ""}',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.teal.shade800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_users.length} usuario${_users.length == 1 ? "" : "s"} cargados.',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: Colors.teal.shade700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.teal.shade800,
+                          side: BorderSide(color: Colors.teal.shade400),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        onPressed: (_empresaId == null || _users.isEmpty)
+                            ? null
+                            : () => _cleanNotificacionesEmpresa(soloNoLeidas: true),
+                        icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                        label: const Text(
+                          'Solo no leídas',
+                          style: TextStyle(fontFamily: kArial, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        onPressed: (_empresaId == null || _users.isEmpty)
+                            ? null
+                            : () => _cleanNotificacionesEmpresa(soloNoLeidas: false),
+                        icon: const Icon(Icons.delete_sweep, size: 18),
+                        label: const Text(
+                          'Todas',
+                          style: TextStyle(fontFamily: kArial, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                // --- Por usuario ---
+                const Divider(height: 28),
+                Text(
+                  'Por usuario específico',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.teal.shade800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (_users.isEmpty)
+                  const Text(
+                    'Selecciona una empresa primero para cargar usuarios.',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.grey),
+                  )
+                else
+                  DropdownButtonFormField<String>(
+                    value: _notifCleanUserId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Usuario (cédula)',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      labelStyle: TextStyle(fontFamily: kArial),
+                    ),
+                    items: _users.map((u) {
+                      final data = u.data();
+                      final nombre = _userName(data, u.id);
+                      return DropdownMenuItem<String>(
+                        value: u.id,
+                        child: Text(
+                          '$nombre  (${u.id})',
+                          style: const TextStyle(fontFamily: kArial, fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (v) => setState(() => _notifCleanUserId = v),
+                  ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.teal.shade800,
+                          side: BorderSide(color: Colors.teal.shade400),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        onPressed: _notifCleanUserId == null
+                            ? null
+                            : () => _cleanNotificacionesUsuario(
+                                  userId: _notifCleanUserId!,
+                                  soloNoLeidas: true,
+                                ),
+                        icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                        label: const Text(
+                          'Solo no leídas',
+                          style: TextStyle(fontFamily: kArial, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.teal.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        onPressed: _notifCleanUserId == null
+                            ? null
+                            : () => _cleanNotificacionesUsuario(
+                                  userId: _notifCleanUserId!,
+                                  soloNoLeidas: false,
+                                ),
+                        icon: const Icon(Icons.delete_sweep, size: 18),
+                        label: const Text(
+                          'Todas',
+                          style: TextStyle(fontFamily: kArial, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
 
-  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
-    return Theme(
-      data: Theme.of(context).copyWith(
-        scaffoldBackgroundColor: kAdminBg,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: kAdminPrimary,
-          foregroundColor: Colors.white,
-          centerTitle: false,
-        ),
+    final width = MediaQuery.of(context).size.width;
+    final isWeb = width >= 900;
+
+    return GuardedModulePage(
+      userIdentity: widget.userId,
+      appId: 'admindashboard',
+      pageTitle: 'Admin Dashboard',
+      fallbackEmpresaId: widget.empresaId,
+      child: InternalModuleLayout(
+        userId: widget.userId,
+        empresaId: widget.empresaId,
+        title: 'Panel de Administración',
+        subtitle: 'Configuración global de usuarios, empresas y catálogos',
+        accentColor: kAdminAccent,
+        headerActions: [
+          CompanyNameWidget(
+            empresaId: widget.empresaId,
+            style: TextStyle(
+              color: isWeb ? kAdminAccent : Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: isWeb ? 14 : 12,
+            ),
+          ),
+        ],
+        child: _buildModuleBody(isWeb: isWeb),
       ),
-      child: DefaultTabController(
-        length: 9,
-        child: Scaffold(
-          appBar: AppBar(
-            title: const Text('Admin Dashboard', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
-            bottom: const TabBar(
-              isScrollable: true,
-              indicatorColor: kAdminAccent,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              labelStyle: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
-              tabs: [
-                Tab(icon: Icon(Icons.people_alt), text: 'Usuarios'),
-                Tab(icon: Icon(Icons.apps), text: 'Apps'),
-                Tab(icon: Icon(Icons.account_tree), text: 'Catálogos'),
-                Tab(icon: Icon(Icons.construction), text: 'Migraciones'),
-                Tab(icon: Icon(Icons.history), text: 'Logs'),
-                Tab(icon: Icon(Icons.cleaning_services), text: 'Limpieza'),
-                Tab(icon: Icon(Icons.medical_information), text: 'Diagnósticos'),
-                Tab(icon: Icon(Icons.rule_folder), text: 'Req. Compras'),
-                Tab(icon: Icon(Icons.verified_user), text: 'Roles Compras'),
+    );
+  }
+
+  Widget _buildModuleBody({required bool isWeb}) {
+    return Column(
+      children: [
+        InternalModuleTabs(
+          items: _kAdminModuleTabs,
+          selectedIndex: _tabController.index,
+          onSelected: (index) {
+            _tabController.animateTo(index);
+          },
+          accentColor: kAdminAccent,
+          compact: !isWeb,
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : TabBarView(
+                  controller: _tabController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: _allTabs(),
+                ),
+        ),
+      ],
+    );
+  }
+
+  List<Tab> _allTabItems() {
+    return const [
+      Tab(icon: Icon(Icons.people_alt, size: 20), text: 'Usuarios'),
+      Tab(icon: Icon(Icons.apps, size: 20), text: 'Apps'),
+      Tab(icon: Icon(Icons.account_tree, size: 20), text: 'Catálogos'),
+      Tab(icon: Icon(Icons.construction, size: 20), text: 'Migraciones'),
+      Tab(icon: Icon(Icons.history, size: 20), text: 'Logs'),
+      Tab(icon: Icon(Icons.cleaning_services, size: 20), text: 'Limpieza'),
+      Tab(icon: Icon(Icons.medical_information, size: 20), text: 'Diagnósticos'),
+      Tab(icon: Icon(Icons.rule_folder, size: 20), text: 'Req. Compras'),
+      Tab(icon: Icon(Icons.verified_user, size: 20), text: 'Roles Compras'),
+    ];
+  }
+
+  List<Widget> _allTabs() {
+    return [
+      _tabUsuarios(),
+      _tabApps(),
+      _tabCatalogos(),
+      _tabMigraciones(),
+      _tabLogs(),
+      _tabCleanup(),
+      _tabDiagnosticos(),
+      _tabReqCompras(),
+      _tabRolesCompras(),
+    ];
+  }
+
+  Widget _buildSidebar() {
+    final items = [
+      {'icon': Icons.people_alt, 'label': 'Usuarios'},
+      {'icon': Icons.apps, 'label': 'Apps'},
+      {'icon': Icons.account_tree, 'label': 'Catálogos'},
+      {'icon': Icons.construction, 'label': 'Migraciones'},
+      {'icon': Icons.history, 'label': 'Logs de Sistema'},
+      {'icon': Icons.cleaning_services, 'label': 'Limpieza'},
+      {'icon': Icons.medical_information, 'label': 'Diagnósticos'},
+      {'icon': Icons.rule_folder, 'label': 'Req. Compras'},
+      {'icon': Icons.verified_user, 'label': 'Roles Compras'},
+    ];
+
+    return Container(
+      width: 260,
+      color: kAdminPrimary,
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            alignment: Alignment.centerLeft,
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('TODO',
+                    style: TextStyle(
+                        color: kAdminAccent,
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 24)),
+                Text('ADMIN CONSOLE',
+                    style: TextStyle(
+                        color: Colors.white54,
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        letterSpacing: 1.2)),
               ],
             ),
           ),
-          body: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-            children: [
-              _buildEmpresaHeader(),
-              const Divider(height: 0),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _tabUsuarios(),
-                    _tabApps(),
-                    _tabCatalogos(),
-                    _tabMigraciones(),
-                    _tabLogs(),
-                    _tabCleanup(),
-                    _tabDiagnosticos(),
-                    _tabReqCompras(),
-                    _tabRolesCompras(),
-                  ],
-                ),
-              ),
-            ],
+          const Divider(color: Colors.white10, height: 1),
+          const SizedBox(height: 16),
+          Expanded(
+            child: ListView.builder(
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final isSelected = _tabController.index == index;
+                final item = items[index];
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  child: ListTile(
+                    onTap: () => setState(() => _tabController.index = index),
+                    selected: isSelected,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    selectedTileColor: Colors.white.withOpacity(0.1),
+                    leading: Icon(item['icon'] as IconData,
+                        color: isSelected ? kAdminAccent : Colors.white60, size: 20),
+                    title: Text(item['label'] as String,
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 14,
+                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
+                          color: isSelected ? Colors.white : Colors.white60,
+                        )),
+                  ),
+                );
+              },
+            ),
           ),
+          const Divider(color: Colors.white10, height: 1),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('v1.2.0-admin',
+                style: TextStyle(color: Colors.white24, fontFamily: kArial, fontSize: 10)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWebHeader() {
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: kAdminBorder)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            _allTabItems()[_tabController.index].text!,
+            style: const TextStyle(
+                fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20, color: kAdminPrimary),
+          ),
+          const Spacer(),
+          _buildEmpresaSelectorWeb(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmpresaSelectorWeb() {
+    return Container(
+      width: 350,
+      decoration: BoxDecoration(
+        color: kAdminBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kAdminBorder),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _empresaId,
+          isExpanded: true,
+          icon: const Icon(Icons.business, color: kAdminPrimary, size: 20),
+          items: _empresas
+              .map((e) => DropdownMenuItem(
+                    value: e.empresaId,
+                    child: Text('${e.nombre} (${e.empresaId})',
+                        style: const TextStyle(
+                            fontFamily: kArial, fontWeight: FontWeight.w700, fontSize: 13)),
+                  ))
+              .toList(),
+          onChanged: (v) async {
+            if (v == null || v.isEmpty) return;
+            await _loadAll(forceEmpresaId: v);
+          },
         ),
       ),
     );
@@ -1978,40 +2705,47 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   Widget _buildEmpresaHeader() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Card(
-        color: kAdminCard,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              const Icon(Icons.business, color: kAdminPrimary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  value: _empresaId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Empresa activa',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  items: _empresas
-                      .map((e) => DropdownMenuItem(
-                    value: e.empresaId,
-                    child: Text('${e.nombre} (${e.empresaId})',
-                        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700)),
-                  ))
-                      .toList(),
-                  onChanged: (v) async {
-                    if (v == null || v.isEmpty) return;
-                    await _loadAll(forceEmpresaId: v);
-                  },
-                ),
+      padding: const EdgeInsets.all(16),
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('EMPRESA ACTUAL',
+              style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10,
+                  color: kAdminMuted,
+                  letterSpacing: 1.2)),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: kAdminBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: kAdminBorder),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _empresaId,
+                isExpanded: true,
+                icon: const Icon(Icons.business, color: kAdminPrimary, size: 20),
+                items: _empresas
+                    .map((e) => DropdownMenuItem(
+                          value: e.empresaId,
+                          child: Text('${e.nombre} (${e.empresaId})',
+                              style: const TextStyle(
+                                  fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 13)),
+                        ))
+                    .toList(),
+                onChanged: (v) async {
+                  if (v == null || v.isEmpty) return;
+                  await _loadAll(forceEmpresaId: v);
+                },
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -2025,98 +2759,197 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final cargo = _safe(d['cargo']).toLowerCase();
       final s = _userSearch.toLowerCase();
       if (s.isEmpty) return true;
-      return name.contains(s) || ced.contains(s) || u.id.toLowerCase().contains(s) || cargo.contains(s);
+      return name.contains(s) ||
+          ced.contains(s) ||
+          u.id.toLowerCase().contains(s) ||
+          cargo.contains(s);
     }).toList();
 
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(24),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Card(
-            color: kAdminCard,
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: TextField(
-                decoration: const InputDecoration(
-                  labelText: 'Buscar usuario (nombre, cédula, cargo)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.search),
-                ),
-                style: const TextStyle(fontFamily: kArial),
-                onChanged: (v) => setState(() => _userSearch = v.trim()),
+          Row(
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Gestión de Usuarios',
+                      style:
+                          TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20)),
+                  Text('Administra accesos y organización de personal',
+                      style: TextStyle(fontFamily: kArial, fontSize: 13, color: kAdminMuted)),
+                ],
               ),
-            ),
+              const Spacer(),
+              Container(
+                width: 300,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: kAdminBorder),
+                ),
+                child: TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Buscar...',
+                    prefixIcon: Icon(Icons.search, size: 20),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  style: const TextStyle(fontFamily: kArial, fontSize: 14),
+                  onChanged: (v) => setState(() => _userSearch = v.trim()),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 24),
           Expanded(
             child: ListView.separated(
               itemCount: filtered.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (_, i) {
                 final uDoc = filtered[i];
                 final d = uDoc.data();
                 final nombre = _userName(d, uDoc.id);
                 final cedula = _safe(d['cedula']).isNotEmpty ? _safe(d['cedula']) : uDoc.id;
-                final cargo = _safe(d['cargo']);
-                final centro = _safe(d['centroCostos']);
-                final area = _safe(d['areaNombre']);
+                final scoped = getUserCompanyDetail(d, _empresaId);
+                final cargo = _safe(scoped?['cargo']).isNotEmpty ? _safe(scoped?['cargo']) : _safe(d['cargo']);
+                final centro = _safe(scoped?['centroCostos']).isNotEmpty
+                    ? _safe(scoped?['centroCostos'])
+                    : _safe(d['centroCostos']);
+                final area = _safe(scoped?['areaNombre']).isNotEmpty
+                    ? _safe(scoped?['areaNombre'])
+                    : _safe(d['areaNombre']);
+                final rolDocumental = _safe(scoped?['rolDocumental']).isNotEmpty
+                    ? _safe(scoped?['rolDocumental'])
+                    : _safe(d['rolDocumental']);
                 final apps = (_userApps[uDoc.id] ?? {}).toList()..sort();
 
                 return Card(
-                  color: kAdminCard,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: kAdminBorder),
+                  ),
+                  color: Colors.white,
                   child: Padding(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            const CircleAvatar(
-                              backgroundColor: kAdminPrimary,
-                              foregroundColor: Colors.white,
-                              child: Icon(Icons.person),
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: kAdminPrimary.withOpacity(0.05),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.person_outline, color: kAdminPrimary),
                             ),
-                            const SizedBox(width: 10),
+                            const SizedBox(width: 16),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(nombre, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                                  Text(nombre,
+                                      style: const TextStyle(
+                                          fontFamily: kArial,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 16)),
                                   const SizedBox(height: 2),
-                                  Text('Cédula/ID: $cedula', style: const TextStyle(fontFamily: kArial, fontSize: 12)),
-                                  if (cargo.isNotEmpty) Text('Cargo: $cargo', style: const TextStyle(fontFamily: kArial, fontSize: 12)),
-                                  if (centro.isNotEmpty || area.isNotEmpty)
-                                    Text('Centro: $centro  •  Área: $area',
-                                        style: const TextStyle(fontFamily: kArial, fontSize: 12)),
+                                  Text('Cédula: $cedula • ID: ${uDoc.id}',
+                                      style: const TextStyle(
+                                          fontFamily: kArial, fontSize: 12, color: kAdminMuted)),
                                 ],
                               ),
                             ),
                             PopupMenuButton<String>(
+                              icon: const Icon(Icons.more_vert, color: kAdminMuted),
                               onSelected: (v) async {
                                 if (v == 'apps') await _editUserApps(uDoc);
                                 if (v == 'org') await _editUserOrg(uDoc);
                               },
                               itemBuilder: (_) => const [
-                                PopupMenuItem(value: 'org', child: Text('Editar centro/área/cargo', style: TextStyle(fontFamily: kArial))),
-                                PopupMenuItem(value: 'apps', child: Text('Asignar apps', style: TextStyle(fontFamily: kArial))),
+                                PopupMenuItem(
+                                    value: 'org',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.business, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Organización', style: TextStyle(fontFamily: kArial)),
+                                      ],
+                                    )),
+                                PopupMenuItem(
+                                    value: 'apps',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.apps, size: 18),
+                                        SizedBox(width: 8),
+                                        Text('Asignar Apps', style: TextStyle(fontFamily: kArial)),
+                                      ],
+                                    )),
                               ],
                             ),
                           ],
                         ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            _infoItem(Icons.badge_outlined, cargo.isNotEmpty ? cargo : 'Sin cargo'),
+                            const SizedBox(width: 16),
+                            _infoItem(Icons.location_on_outlined,
+                                centro.isNotEmpty ? centro : 'Sin centro'),
+                            const SizedBox(width: 16),
+                            _infoItem(Icons.corporate_fare_outlined,
+                                area.isNotEmpty ? area : 'Sin área'),
+                          ],
+                        ),
                         const SizedBox(height: 10),
-                        if (apps.isEmpty)
-                          const Text('Apps: (sin asignar)', style: TextStyle(fontFamily: kArial, fontSize: 12))
-                        else
+                        Row(
+                          children: [
+                            _infoItem(
+                              Icons.description_outlined,
+                              rolDocumental.isNotEmpty
+                                  ? 'GD: ${kDocumentalRoleLabels[rolDocumental.toLowerCase()] ?? rolDocumental}'
+                                  : 'GD: Sin rol documental',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        if (apps.isNotEmpty)
                           Wrap(
                             spacing: 8,
-                            runSpacing: 6,
+                            runSpacing: 8,
                             children: apps
-                                .map((a) => Chip(
-                              backgroundColor: const Color(0xFFE6F0FF),
-                              label: Text(a, style: const TextStyle(fontFamily: kArial, fontSize: 12, fontWeight: FontWeight.w700)),
-                            ))
+                                .map((a) => Container(
+                                      padding:
+                                          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: kAdminAccent.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        a,
+                                        style: const TextStyle(
+                                          fontFamily: kArial,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: kAdminAccent,
+                                        ),
+                                      ),
+                                    ))
                                 .toList(),
-                          ),
+                          )
+                        else
+                          const Text('Sin aplicaciones asignadas',
+                              style: TextStyle(
+                                  fontFamily: kArial,
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                  color: kAdminMuted)),
                       ],
                     ),
                   ),
@@ -2129,49 +2962,199 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  Widget _infoItem(IconData icon, String text) {
+    return Expanded(
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: kAdminMuted),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontFamily: kArial, fontSize: 12, color: kAdminMuted),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ---------------- TAB: APPS ----------------
   Widget _tabApps() {
+    final width = MediaQuery.of(context).size.width;
+    final isWeb = width >= 900;
+
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(24),
       children: [
-        _sectionHeader(title: 'Apps (TBL_APPS)', onAdd: () => _dialogApp()),
-        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Gestión de Aplicaciones',
+                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20)),
+                Text('Habilita o deshabilita módulos para la empresa activa',
+                    style: TextStyle(fontFamily: kArial, fontSize: 13, color: kAdminMuted)),
+              ],
+            ),
+            const Spacer(),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kAdminPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () => _dialogApp(),
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text('Nueva App',
+                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
         if (_appsAdmin.isEmpty)
-          const Text(
-            'No hay apps registradas.',
-            style: TextStyle(fontFamily: kArial, fontSize: 12),
+          Container(
+            height: 200,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: kAdminBorder),
+            ),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.apps_outage, size: 48, color: kAdminMuted),
+                SizedBox(height: 12),
+                Text('No hay apps registradas en esta empresa',
+                    style: TextStyle(fontFamily: kArial, color: kAdminMuted)),
+              ],
+            ),
           )
         else
-          ..._appsAdmin.map((aDoc) {
-            final a = aDoc.data();
-            final appId = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
-            final nombre = _safe(a['nombre']).isNotEmpty ? _safe(a['nombre']) : appId;
-            final descripcion = _safe(a['descripcion']);
-            final enabled = (a['enabled'] as bool?) ?? true;
-
-            return _catalogTile(
-              title: nombre,
-              subtitle: appId,
-              enabled: enabled,
-              trailing2: descripcion.isNotEmpty
-                  ? Text(
-                descripcion,
-                style: const TextStyle(
-                  fontFamily: kArial,
-                  fontSize: 11,
-                  color: Colors.black54,
+          isWeb
+              ? GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 450,
+                    mainAxisExtent: 140,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  itemCount: _appsAdmin.length,
+                  itemBuilder: (context, index) => _appGridItem(_appsAdmin[index]),
+                )
+              : Column(
+                  children: _appsAdmin.map((a) => _appListItem(a)).toList(),
                 ),
-              )
-                  : null,
-              onEdit: () => _dialogApp(existing: aDoc),
-              onToggle: (v) async {
-                await _repo.setAppEnabled(aDoc.id, v);
-                _snack('App actualizada');
-                await _loadAll(forceEmpresaId: _empresaId);
-              },
-            );
-          }),
       ],
+    );
+  }
+
+  Widget _appGridItem(QueryDocumentSnapshot<Map<String, dynamic>> aDoc) {
+    final a = aDoc.data();
+    final appId = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
+    final nombre = _safe(a['nombre']).isNotEmpty ? _safe(a['nombre']) : appId;
+    final descripcion = _safe(a['descripcion']);
+    final enabled = (a['enabled'] as bool?) ?? true;
+
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2)),
+      ),
+      color: enabled ? Colors.white : kAdminError.withOpacity(0.02),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: (enabled ? kAdminAccent : kAdminMuted).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.apps, color: enabled ? kAdminAccent : kAdminMuted, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(nombre,
+                          style: const TextStyle(
+                              fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 15)),
+                      Text(appId,
+                          style:
+                              const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted)),
+                    ],
+                  ),
+                ),
+                _statusBadge(enabled),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    descripcion.isNotEmpty ? descripcion : 'Sin descripción',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontFamily: kArial, fontSize: 12, color: kAdminMuted),
+                  ),
+                ),
+                Switch(
+                  value: enabled,
+                  activeColor: kAdminSuccess,
+                  onChanged: (v) async {
+                    await _repo.setAppEnabled(aDoc.id, v);
+                    _snack('App ${v ? "habilitada" : "deshabilitada"}');
+                    await _loadAll(forceEmpresaId: _empresaId);
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined, size: 20),
+                  onPressed: () => _dialogApp(existing: aDoc),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _appListItem(QueryDocumentSnapshot<Map<String, dynamic>> aDoc) {
+    final a = aDoc.data();
+    final appId = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
+    final nombre = _safe(a['nombre']).isNotEmpty ? _safe(a['nombre']) : appId;
+    final descripcion = _safe(a['descripcion']);
+    final enabled = (a['enabled'] as bool?) ?? true;
+
+    return _catalogTile(
+      title: nombre,
+      subtitle: appId,
+      enabled: enabled,
+      trailing2: descripcion.isNotEmpty
+          ? Text(descripcion,
+              style: const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted))
+          : null,
+      onEdit: () => _dialogApp(existing: aDoc),
+      onToggle: (v) async {
+        await _repo.setAppEnabled(aDoc.id, v);
+        _snack('App ${v ? "habilitada" : "deshabilitada"}');
+        await _loadAll(forceEmpresaId: _empresaId);
+      },
     );
   }
 
@@ -2182,58 +3165,59 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final cargos = _cargos.toList();
 
     return ListView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(24),
       children: [
-        _sectionHeader(title: 'Centros de costos (TBL_CENTROS_COSTOS)', onAdd: () => _dialogCentro()),
-        const SizedBox(height: 8),
+        _sectionHeader(
+            title: 'Centros de Costos',
+            subtitle: 'TBL_CENTROS_COSTOS',
+            onAdd: () => _dialogCentro()),
+        const SizedBox(height: 16),
         ...centros.map((c) => _catalogTile(
-          title: '${c.codigo} - ${c.nombre}',
-          subtitle: c.centroId,
-          enabled: c.enabled,
-          onEdit: () => _dialogCentro(existing: c),
-          onToggle: (v) async {
-            await _repo.setCentroEnabled(c.centroId, v);
-            _snack('Centro actualizado');
-            await _loadAll(forceEmpresaId: _empresaId);
-          },
-        )),
-        const SizedBox(height: 18),
-
-        _sectionHeader(title: 'Áreas (TBL_AREAS)', onAdd: () => _dialogArea()),
-        const SizedBox(height: 8),
+              title: '${c.codigo} - ${c.nombre}',
+              subtitle: c.centroId,
+              enabled: c.enabled,
+              onEdit: () => _dialogCentro(existing: c),
+              onToggle: (v) async {
+                await _repo.setCentroEnabled(c.centroId, v);
+                _snack('Centro ${v ? "habilitado" : "deshabilitado"}');
+                await _loadAll(forceEmpresaId: _empresaId);
+              },
+            )),
+        const SizedBox(height: 32),
+        _sectionHeader(title: 'Áreas', subtitle: 'TBL_AREAS', onAdd: () => _dialogArea()),
+        const SizedBox(height: 16),
         ...areas.map((a) => _catalogTile(
-          title: a.nombre,
-          subtitle: a.areaId,
-          enabled: a.enabled,
-          onEdit: () => _dialogArea(existing: a),
-          onToggle: (v) async {
-            await _repo.setAreaEnabled(a.areaId, v);
-            _snack('Área actualizada');
-            await _loadAll(forceEmpresaId: _empresaId);
-          },
-        )),
-        const SizedBox(height: 18),
-
-        _sectionHeader(title: 'Cargos (TBL_CARGOS)', onAdd: () => _dialogCargo()),
-        const SizedBox(height: 8),
+              title: a.nombre,
+              subtitle: a.areaId,
+              enabled: a.enabled,
+              onEdit: () => _dialogArea(existing: a),
+              onToggle: (v) async {
+                await _repo.setAreaEnabled(a.areaId, v);
+                _snack('Área ${v ? "habilitada" : "deshabilitada"}');
+                await _loadAll(forceEmpresaId: _empresaId);
+              },
+            )),
+        const SizedBox(height: 32),
+        _sectionHeader(title: 'Cargos', subtitle: 'TBL_CARGOS', onAdd: () => _dialogCargo()),
+        const SizedBox(height: 16),
         ...cargos.map((c) => _catalogTile(
-          title: c.nombre,
-          subtitle: c.cargoId,
-          enabled: c.enabled,
-          trailing2: Text(
-            [
-              if (c.centroId != null) 'Centro:${c.centroId}',
-              if (c.areaId != null) 'Área:${c.areaId}',
-            ].join('  •  '),
-            style: const TextStyle(fontFamily: kArial, fontSize: 11, color: Colors.black54),
-          ),
-          onEdit: () => _dialogCargo(existing: c),
-          onToggle: (v) async {
-            await _repo.setCargoEnabled(c.cargoId, v);
-            _snack('Cargo actualizado');
-            await _loadAll(forceEmpresaId: _empresaId);
-          },
-        )),
+              title: c.nombre,
+              subtitle: c.cargoId,
+              enabled: c.enabled,
+              trailing2: Text(
+                [
+                  if (c.centroId != null) 'Centro:${c.centroId}',
+                  if (c.areaId != null) 'Área:${c.areaId}',
+                ].join('  •  '),
+                style: const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted),
+              ),
+              onEdit: () => _dialogCargo(existing: c),
+              onToggle: (v) async {
+                await _repo.setCargoEnabled(c.cargoId, v);
+                _snack('Cargo ${v ? "habilitado" : "deshabilitado"}');
+                await _loadAll(forceEmpresaId: _empresaId);
+              },
+            )),
       ],
     );
   }
@@ -2364,15 +3348,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  Widget _sectionHeader({required String title, required VoidCallback onAdd}) {
+  Widget _sectionHeader({required String title, required String subtitle, required VoidCallback onAdd}) {
     return Row(
       children: [
-        Expanded(child: Text(title, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 14))),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 18)),
+            Text(subtitle, style: const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted)),
+          ],
+        ),
+        const Spacer(),
         ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: kAdminPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
           onPressed: onAdd,
-          icon: const Icon(Icons.add),
-          label: const Text('Agregar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Agregar',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 13)),
         ),
       ],
     );
@@ -2387,22 +3383,89 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     Widget? trailing2,
   }) {
     return Card(
-      color: kAdminCard,
-      child: ListTile(
-        title: Text(title, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2)),
+      ),
+      color: enabled ? Colors.white : kAdminError.withOpacity(0.02),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
           children: [
-            Text(subtitle, style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54)),
-            if (trailing2 != null) trailing2,
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: (enabled ? kAdminAccent : kAdminMuted).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                enabled ? Icons.check_circle_outline : Icons.block_flipped,
+                color: enabled ? kAdminAccent : kAdminMuted,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(title,
+                          style: const TextStyle(
+                              fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 16)),
+                      const SizedBox(width: 8),
+                      _statusBadge(enabled),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(subtitle,
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12, color: kAdminMuted)),
+                  if (trailing2 != null) ...[
+                    const SizedBox(height: 6),
+                    trailing2,
+                  ],
+                ],
+              ),
+            ),
+            Switch(
+              value: enabled,
+              activeColor: kAdminSuccess,
+              inactiveThumbColor: kAdminMuted,
+              onChanged: onToggle,
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, color: kAdminPrimary),
+              onPressed: onEdit,
+              style: IconButton.styleFrom(
+                backgroundColor: kAdminBg,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
           ],
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Switch(value: enabled, activeColor: kAdminAccent, onChanged: onToggle),
-            IconButton(icon: const Icon(Icons.edit, color: kAdminPrimary), onPressed: onEdit),
-          ],
+      ),
+    );
+  }
+
+  Widget _statusBadge(bool enabled) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.2)),
+      ),
+      child: Text(
+        enabled ? 'ACTIVO' : 'INACTIVO',
+        style: TextStyle(
+          fontFamily: kArial,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
+          color: enabled ? kAdminSuccess : kAdminError,
         ),
       ),
     );
@@ -2541,6 +3604,48 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
                         onPressed: () => _runNormalizeTokensSelectedUsers(dryRun: false),
+                        icon: const Icon(Icons.play_arrow),
+                        label: const Text('Ejecutar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        Card(
+          color: kAdminCard,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('App IDs (formato canónico) → SOLO usuarios seleccionados',
+                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                const Text(
+                  'Convierte IDs cortos (compras, admin…) a IDs completos (comprasdashboard, admindashboard…).',
+                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _runNormalizeAppIdsSelectedUsers(dryRun: true),
+                        icon: const Icon(Icons.visibility),
+                        label: const Text('Simular', style: TextStyle(fontFamily: kArial)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                        onPressed: () => _runNormalizeAppIdsSelectedUsers(dryRun: false),
                         icon: const Icon(Icons.play_arrow),
                         label: const Text('Ejecutar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
                       ),
@@ -3084,27 +4189,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                               )),
                         ],
                         onChanged: (nuevoRol) async {
-                          if (nuevoRol == null) {
-                            // Quitar rol si existe
-                            if (rolActual != null) {
-                              await svc.eliminarComprasRol(rolActual.id);
-                              _snack('Rol eliminado de $nombre');
+                          try {
+                            if (nuevoRol == null) {
+                              // Quitar rol si existe
+                              if (rolActual != null) {
+                                await svc.eliminarComprasRol(rolActual.id);
+                                _snack('Rol eliminado de $nombre');
+                              }
+                              return;
                             }
-                            return;
+                            final doc = ComprasRolDoc(
+                              id: rolActual?.id ?? '',
+                              empresaId: empresaId,
+                              userId: userId,
+                              cedula: cedula,
+                              nombre: nombre,
+                              rol: nuevoRol,
+                              createdAt: Timestamp.now(),
+                            );
+                            await svc.guardarComprasRol(
+                                doc, isNew: rolActual == null);
+                            _snack(
+                                'Rol ${rolesLabels[nuevoRol]} asignado a $nombre');
+                          } catch (e) {
+                            _snack('Error al guardar rol: $e');
                           }
-                          final doc = ComprasRolDoc(
-                            id: rolActual?.id ?? '',
-                            empresaId: empresaId,
-                            userId: userId,
-                            cedula: cedula,
-                            nombre: nombre,
-                            rol: nuevoRol,
-                            createdAt: Timestamp.now(),
-                          );
-                          await svc.guardarComprasRol(
-                              doc, isNew: rolActual == null);
-                          _snack(
-                              'Rol ${rolesLabels[nuevoRol]} asignado a $nombre');
                         },
                       ),
                     ],

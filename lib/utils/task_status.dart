@@ -55,22 +55,15 @@ String resolveTaskStatus(Map<String, dynamic> data) {
     return 'por_aprobar';
   }
 
+  if (raw == 'devuelta') return 'devuelta';
+  if (_hasPendingReassign(data) || raw == 'reasignado') return 'reasignado';
+
   final due = taskToDate(data['fecha_limite'] ?? data['dueDate']);
   final days = taskDaysLeft(due);
   if (raw == 'retrasada' ||
       raw == 'retrasado' ||
       (days != null && days < 0)) {
     return 'retrasada';
-  }
-
-  if (_hasPendingReassign(data) ||
-      raw == 'reasignado' ||
-      raw == 'devuelta' ||
-      raw == 'visto' ||
-      raw == 'activas' ||
-      raw == 'activo' ||
-      raw == 'pendiente') {
-    return 'en_progreso';
   }
 
   return 'en_progreso';
@@ -86,6 +79,10 @@ Color taskStatusColor(String status) {
       return Colors.green.shade800;
     case 'retrasada':
       return Colors.red.shade700;
+    case 'devuelta':
+      return Colors.deepOrange.shade600;
+    case 'reasignado':
+      return Colors.purple.shade500;
     default:
       return Colors.grey.shade600;
   }

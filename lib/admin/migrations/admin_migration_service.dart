@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:todo/utils/user_company.dart';
 
 class MigrationResult {
   final int scanned;
@@ -173,6 +174,69 @@ class AdminMigrationService {
         batch ??= _db.batch();
         batch.set(ref, {
           'fcmToken': canonical,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        writes++;
+
+        if (writes >= 450) {
+          await batch.commit();
+          batch = null;
+          writes = 0;
+        }
+      }
+    }
+
+    if (!dryRun && batch != null && writes > 0) {
+      await batch.commit();
+    }
+
+    return MigrationResult(scanned: scanned, updated: updated, sampleUpdatedIds: sample);
+  }
+
+  // =========================
+  // 3) APP IDs: SOLO USUARIOS SELECCIONADOS
+  // =========================
+  Future<MigrationResult> normalizeAppIdsForUsers({
+    required String empresaId,
+    required Set<String> userIds,
+    bool dryRun = true,
+  }) async {
+    int scanned = 0;
+    int updated = 0;
+    final sample = <String>[];
+
+    if (userIds.isEmpty) {
+      return const MigrationResult(scanned: 0, updated: 0, sampleUpdatedIds: []);
+    }
+
+    final ids = userIds.toList()..sort();
+
+    WriteBatch? batch;
+    int writes = 0;
+
+    for (final uid in ids) {
+      final ref = _db.collection('TBL_USUARIOS').doc(uid);
+      final snap = await ref.get();
+      if (!snap.exists) continue;
+
+      final d = snap.data() ?? {};
+      scanned++;
+
+      final rawApps = (d['apps'] as List<dynamic>? ?? [])
+          .map((e) => e?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+      final (:ids, :changed) = normalizeAppIdList(rawApps);
+      if (!changed) continue;
+
+      updated++;
+      if (sample.length < 10) sample.add('TBL_USUARIOS:$uid');
+
+      if (!dryRun) {
+        batch ??= _db.batch();
+        batch.set(ref, {
+          'apps': ids,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
         writes++;

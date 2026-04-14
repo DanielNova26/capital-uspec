@@ -26,7 +26,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../compras/compras_dashboard_screen.dart';
+import '../nutricion/nutricion_dashboard_screen.dart';
 import '../home/assigned_tasks_screen.dart';
+import '../home/created_tasks_screen.dart';
+import '../home/task_history_screen.dart';
+import '../core/task_route_guard.dart';
 
 typedef CedulaProvider = FutureOr<String?> Function();
 
@@ -98,10 +103,13 @@ class NotificationsService {
     final android = _fln.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (android != null && !kIsWeb && Platform.isAndroid) {
+      // ✅ Solicitar permiso explícito para Android 13+
+      await android.requestNotificationsPermission();
+
       final channel = AndroidNotificationChannel(
         'tasks_high',
-        'Tareas',
-        description: 'Asignaciones y avances',
+        'Tareas y Novedades',
+        description: 'Notificaciones críticas de tareas y avances.',
         importance: Importance.max,
         playSound: true,
         sound: useCustomSound
@@ -154,13 +162,19 @@ class NotificationsService {
   }
 
   /// Muestra notificación local cuando el app está en foreground.
+  /// El payload incluye "type::rawId" para preservar el tipo en el tap.
   static Future<void> _onMessageForeground(RemoteMessage m) async {
     final n = m.notification;
     final data = m.data;
 
     final title = n?.title ?? data['title'] ?? 'Nueva tarea';
     final body = n?.body ?? data['body'] ?? 'Tienes una notificación';
-    final payload = data['deepLink'] ?? data['taskId'];
+    final rawPayload = (data['deepLink'] ?? data['taskId'])?.toString();
+    final type = (data['type'] ?? '').toString().trim();
+    // Encode type into payload so tap handler can route correctly
+    final combinedPayload = (type.isNotEmpty && rawPayload != null && rawPayload.isNotEmpty)
+        ? '$type::$rawPayload'
+        : rawPayload;
 
     await _fln.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -173,25 +187,34 @@ class NotificationsService {
           importance: Importance.max,
           priority: Priority.high,
           playSound: true,
-          // Si creaste sonido custom en el canal, no necesitas especificarlo aquí.
-          // Si quieres forzar uno aquí, descomenta:
-          // sound: RawResourceAndroidNotificationSound('task_ping'),
         ),
         iOS: const DarwinNotificationDetails(presentSound: true),
       ),
-      payload: payload,
+      payload: combinedPayload,
     );
   }
 
   static Future<void> _onMessageOpenedApp(RemoteMessage m) async {
     final data = m.data;
     if (kDebugMode) print('[FCM TAP] data=$data');
-    final payload = data['deepLink']?.toString() ?? data['taskId']?.toString();
-    await _handleNotificationTapPayload(payload);
+    final rawPayload = data['deepLink']?.toString() ?? data['taskId']?.toString();
+    final type = (data['type'] ?? '').toString().trim();
+    final combinedPayload = (type.isNotEmpty && rawPayload != null && rawPayload.isNotEmpty)
+        ? '$type::$rawPayload'
+        : rawPayload;
+    await _handleNotificationTapPayload(combinedPayload);
   }
 
   static Future<void> _handleNotificationTapPayload(String? payload) async {
-    final taskId = _extractTaskId(payload);
+    // Parse "type::rawId" format — type may be empty for legacy payloads
+    String notifType = '';
+    String? rawPayload = payload;
+    if (payload != null && payload.contains('::')) {
+      final idx = payload.indexOf('::');
+      notifType = payload.substring(0, idx).trim();
+      rawPayload = payload.substring(idx + 2);
+    }
+    final taskId = _extractTaskId(rawPayload);
     if (taskId == null) {
       if (kDebugMode) {
         print('[FCM TAP] payload sin taskId: $payload');
@@ -212,6 +235,71 @@ class NotificationsService {
       if (kDebugMode) {
         print('[FCM TAP] no se pudo resolver cédula para taskId=$taskId');
       }
+      return;
+    }
+
+    final context = _navigatorKey?.currentContext;
+    if (context == null) return;
+
+    // Tipos de Nutrición: navegan a NutricionDashboardScreen.
+    if (notifType == 'cita_nutricion_agendada' || notifType == 'cita_nutricion_recordatorio') {
+      await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
+      return;
+    }
+
+    // Tipos especiales de Compras: navegan al proveedor o ficha técnica.
+    if ((notifType == 'doc_rechazado' || notifType == 'correccion_requerida') && taskId.startsWith('proveedor:')) {
+      final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
+      if (proveedorId.isNotEmpty) await abrirDetalleProveedor(context, userId: cedula, proveedorId: proveedorId);
+      return;
+    }
+    if (notifType == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
+      final fichaId = taskId.replaceFirst('ficha:', '').trim();
+      if (fichaId.isNotEmpty) await abrirDetalleFichaRechazada(context, userId: cedula, fichaId: fichaId);
+      return;
+    }
+
+    final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
+      context,
+      userIdentity: cedula,
+      taskId: taskId,
+      type: notifType,
+    );
+    if (!routeDecision.allowed) {
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(
+            routeDecision.message ??
+                'No se pudo abrir el destino de la notificación.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (routeDecision.target == TaskRouteTarget.taskHistory) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => TaskHistoryScreen(
+            currentUserId: cedula,
+            initialTabIndex: routeDecision.initialTabIndex,
+            highlightTaskId: taskId,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (routeDecision.target == TaskRouteTarget.createdTasks) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => CreatedTasksScreen(
+            userId: cedula,
+            highlightTaskId: taskId,
+          ),
+        ),
+      );
       return;
     }
 
@@ -312,30 +400,27 @@ class NotificationsService {
         print('[FCM] Token registrado para cédula: $cedula');
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('[FCM] Error registrando token: $e');
-        final cedula = await _resolveCedula();
-        if (cedula != null) {
-          try {
-            await FirebaseFirestore.instance
-                .collection('TBL_USUARIOS')
-                .doc(cedula)
-                .set({
-              'fcmTokens': FieldValue.arrayUnion([token]),
-              'fcmDevices.$token': {
-                'platform': platform,
-                'deviceName': deviceName,
-                'updatedAt': FieldValue.serverTimestamp(),
-              },
-            }, SetOptions(merge: true));
-            if (kDebugMode) {
-              print('[FCM] Token registrado vía fallback para: $cedula');
-            }
-          } catch (e) {
-            if (kDebugMode) {
-              print('[FCM] Fallback Firestore error: $e');
-            }
-          }
+      if (kDebugMode) print('[FCM] registerDeviceToken callable error: $e');
+      // Fallback directo a Firestore — funciona en debug Y producción.
+      // Si la Cloud Function falla por cualquier razón, el token queda guardado
+      // directamente en TBL_USUARIOS para que el servidor pueda enviarlo.
+      final cedula = await _resolveCedula();
+      if (cedula != null) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('TBL_USUARIOS')
+              .doc(cedula)
+              .set({
+            'fcmTokens': FieldValue.arrayUnion([token]),
+            'fcmDevices.$token': {
+              'platform': platform,
+              'deviceName': deviceName,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+          }, SetOptions(merge: true));
+          if (kDebugMode) print('[FCM] Token registrado vía fallback para: $cedula');
+        } catch (e2) {
+          if (kDebugMode) print('[FCM] Fallback Firestore error: $e2');
         }
       }
     }

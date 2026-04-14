@@ -80,21 +80,14 @@ class _TeamScreenState extends State<TeamScreen> {
     try {
       final doc = await _db.collection('TBL_USUARIOS').doc(widget.currentUserId).get();
       final data = doc.data();
-      final empresas = <String>{};
-      final list = data?['empresas'] as List<dynamic>? ?? const [];
-      for (final e in list) {
-        final id = (e ?? '').toString().trim();
-        if (id.isNotEmpty) empresas.add(id);
-      }
-      final detalle = data?['empresasDetalle'] as Map<String, dynamic>?;
-      if (detalle != null) {
-        empresas.addAll(detalle.keys.map((k) => k.trim()).where((k) => k.isNotEmpty));
-      }
-      final fallback = (data?['empresaId'] ?? data?['empresa'] ?? '').toString().trim();
-      if (empresas.isNotEmpty) {
-        _empresaId ??= empresas.first;
-      } else if (fallback.isNotEmpty) {
-        _empresaId ??= fallback;
+      if (data == null) return;
+      final resolvedEmpresaId = resolveValidEmpresaId(
+        data: data,
+        selectedEmpresaId: _empresaState?.selectedEmpresaId,
+        preferredEmpresaId: _empresaId,
+      );
+      if (resolvedEmpresaId != null) {
+        _empresaId = resolvedEmpresaId;
       }
     } catch (_) {}
   }
@@ -143,19 +136,27 @@ class _TeamScreenState extends State<TeamScreen> {
       // 2) Subordinados directos (según estructura organizacional)
       Query<Map<String, dynamic>> q =
       _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').where('jefeId', isEqualTo: widget.currentUserId);
+      if (scopeEmpresa != null && scopeEmpresa.isNotEmpty) {
+        q = q.where('empresaId', isEqualTo: scopeEmpresa);
+      }
       final snap = await q.get();
       final subordinateIds = snap.docs.map((d) => d.id).toSet();
 
       if (subordinateIds.isNotEmpty) {
         for (var i = 0; i < subordinateIds.length; i += 10) {
           final chunk = subordinateIds.skip(i).take(10).toList();
-          Query<Map<String, dynamic>> uq = _db.collection('TBL_USUARIOS').where(FieldPath.documentId, whereIn: chunk);
-          if (scopeEmpresa != null && scopeEmpresa.isNotEmpty) {
-            uq = uq.where('empresas', arrayContains: scopeEmpresa);
-          }
+          final Query<Map<String, dynamic>> uq =
+              _db.collection('TBL_USUARIOS').where(FieldPath.documentId, whereIn: chunk);
           final usersSnap = await uq.get();
           for (final d in usersSnap.docs) {
             final data = d.data();
+            if (!matchesEmpresaScope(
+              data,
+              scopeEmpresa,
+              allowLegacyWithoutEmpresa: true,
+            )) {
+              continue;
+            }
             final cargo = resolveScopedString(data, scopeEmpresa, 'cargo', 'cargo');
             final areaId = resolveScopedStringWithFallbacks(
               data,

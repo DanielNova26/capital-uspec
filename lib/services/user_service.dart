@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import '../data/firestore_user_repository.dart';
+
 class UserService {
   static const String _usuarios = 'TBL_USUARIOS';
   static const String _empleados = 'TBL_EMPLEADOS';
@@ -15,6 +17,19 @@ class UserService {
     FirebaseStorage? storage,
   })  : _db = db ?? FirebaseFirestore.instance,
         _storage = storage ?? FirebaseStorage.instance;
+
+  // ── Identidad transitoria (Tarea 2) ─────────────────────────────────────
+
+  /// Escribe el campo 'uid' en el documento de TBL_USUARIOS identificado por
+  /// [docId]. Delega en [FirestoreUserRepository.writeUid].
+  ///
+  /// Es un no-op seguro si [uid] está vacío o el documento no existe.
+  /// No lanza excepción — errores quedan en debugPrint.
+  Future<void> writeUidToUsuario({
+    required String docId,
+    required String uid,
+  }) =>
+      FirestoreUserRepository.instance.writeUid(docId, uid);
 
   // ---- BÚSQUEDA INICIAL POR CÉDULA EN TBL_USUARIOS ----
   Future<DocumentSnapshot<Map<String, dynamic>>?> findUsuarioByCedula(String cedula) async {

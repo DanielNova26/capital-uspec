@@ -21,6 +21,9 @@ import 'package:file_saver/file_saver.dart';
 import 'compras_models.dart';
 import 'compras_service.dart';
 import 'compras_req_engine.dart';
+import '../core/guarded_module_page.dart';
+import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
+import '../widgets/internal_module_layout.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // COLORES DEL MÓDULO
@@ -191,6 +194,47 @@ Future<void> abrirDetalleProveedor(
   );
 }
 
+/// Navega al formulario del proveedor asociado a una ficha técnica rechazada.
+/// Carga la ficha por ID, obtiene proveedorId, y abre [abrirDetalleProveedor].
+/// Usada desde notificaciones de tipo ficha_rechazada.
+Future<void> abrirDetalleFichaRechazada(
+  BuildContext context, {
+  required String userId,
+  required String fichaId,
+}) async {
+  Map<String, dynamic>? fichaData;
+  try {
+    final snap = await FirebaseFirestore.instance
+        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+        .doc(fichaId)
+        .get();
+    if (snap.exists) fichaData = snap.data();
+  } catch (_) {}
+
+  if (!context.mounted) return;
+
+  if (fichaData == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No se pudo encontrar la ficha técnica rechazada.'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+    return;
+  }
+
+  final proveedorId = (fichaData['proveedorId'] as String?) ?? '';
+  if (proveedorId.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Ficha sin proveedor asociado.')),
+    );
+    return;
+  }
+
+  // El usuario debe ir al proveedor para volver a cargar la ficha rechazada.
+  await abrirDetalleProveedor(context, userId: userId, proveedorId: proveedorId);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPRAS DASHBOARD SCREEN — pantalla principal (hub)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -237,111 +281,131 @@ class ComprasDashboardScreen extends StatelessWidget {
       colorRol = const Color(0xFF283593);
     }
 
-    final isDesktop = kIsWeb && MediaQuery.of(context).size.width > 800;
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 900;
 
-    if (isDesktop) {
-      return _buildWebLayout(context, svc, subtituloRol, colorRol);
-    }
-
-    return Scaffold(
-      backgroundColor: kComprasBg,
-      appBar: AppBar(
-        title: const Text('Compras & Bodega',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
-        backgroundColor: kComprasPrimary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Módulo de Compras',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 13,
-                      color: Colors.blueGrey.shade400)),
-              const SizedBox(height: 4),
-              Text(subtituloRol,
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 16,
-                      color: colorRol)),
-              const SizedBox(height: 24),
-              if (!_sinGestion && !_esBodega) ...[
-                _MenuTile(
-                  icon: Icons.business,
-                  titulo: 'Proveedores',
-                  subtitulo: 'Registrar y gestionar proveedores',
-                  color: const Color(0xFF1565C0),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _ProveedoresScreen(empresaId: empresaId, svc: svc, userId: userId))),
-                ),
-                const SizedBox(height: 14),
-                _MenuTile(
-                  icon: Icons.label_important,
-                  titulo: 'Marcas',
-                  subtitulo: 'Gestionar marcas vinculadas a productos',
-                  color: const Color(0xFF1976D2),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _MarcasScreen(empresaId: empresaId, svc: svc))),
-                ),
-                const SizedBox(height: 14),
-                _MenuTile(
-                  icon: Icons.inventory_2,
-                  titulo: 'Productos',
-                  subtitulo: 'Catálogo de productos del almacén',
-                  color: const Color(0xFF0277BD),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _ProductosScreen(empresaId: empresaId, svc: svc, userId: userId))),
-                ),
-                const SizedBox(height: 14),
-              ],
-              // Recepción: visible para todos menos perfil Consultas
-              if (!_esConsultas) ...[
-                _MenuTile(
-                  icon: Icons.local_shipping,
-                  titulo: 'Recepción de Mercancía',
-                  subtitulo: 'Registrar llegada de proveedores con documentos',
-                  color: kComprasPrimary,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _RecepcionesScreen(empresaId: empresaId, svc: svc, userId: userId))),
-                ),
-                const SizedBox(height: 14),
-              ],
-              // Consultas: visible para todos los perfiles
-              _MenuTile(
-                icon: Icons.manage_search,
-                titulo: 'Consultas',
-                subtitulo: 'Consultar por proveedor, producto o recepción',
-                color: const Color(0xFF283593),
-                onTap: () => Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc))),
-              ),
-              if (_esCalidad) ...[
-                const SizedBox(height: 14),
-                _MenuTile(
-                  icon: Icons.verified_user,
-                  titulo: 'Revisión de Calidad',
-                  subtitulo: 'Aprobar o rechazar documentos de recepción',
-                  color: const Color(0xFF15803D),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => _CalidadScreen(empresaId: empresaId, svc: svc, userId: userId))),
-                ),
-              ],
-            ],
+    return GuardedModulePage(
+      userIdentity: userId,
+      appId: 'comprasdashboard',
+      pageTitle: 'Compras & Bodega',
+      fallbackEmpresaId: empresaId,
+      child: InternalModuleLayout(
+        userId: userId,
+        empresaId: empresaId,
+        title: 'Compras & Bodega',
+        subtitle: subtituloRol,
+        badge: rolCompras?.toUpperCase(),
+        accentColor: colorRol,
+        headerActions: [
+          if (!_esConsultas)
+            _NotifBadge(
+              empresaId: empresaId,
+              userId: userId,
+              svc: svc,
+            ),
+          CompanyNameWidget(
+            empresaId: empresaId,
+            style: TextStyle(
+              color: isDesktop ? colorRol : Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: isDesktop ? 14 : 12,
+            ),
           ),
-        ),
+        ],
+        child: isDesktop
+            ? _buildWebLayout(context, svc, subtituloRol, colorRol)
+            : _buildMobileLayout(context, svc, subtituloRol, colorRol),
       ),
+    );
+  }
+
+  Widget _buildMobileLayout(BuildContext context, ComprasService svc, String subtituloRol, Color colorRol) {
+    return _buildDashboardShell(
+      context,
+      svc,
+      subtituloRol,
+      colorRol,
+      isDesktop: false,
     );
   }
 
   Widget _buildWebLayout(BuildContext context, ComprasService svc,
       String subtituloRol, Color colorRol) {
-    final scheme = Theme.of(context).colorScheme;
+    return _buildDashboardShell(
+      context,
+      svc,
+      subtituloRol,
+      colorRol,
+      isDesktop: true,
+    );
+  }
 
+  Widget _buildDashboardShell(
+    BuildContext context,
+    ComprasService svc,
+    String subtituloRol,
+    Color colorRol, {
+    required bool isDesktop,
+  }) {
+    final cards = _buildDashboardCards(context, svc, isDesktop);
+
+    return SingleChildScrollView(
+      child: InternalModuleViewport(
+        maxWidth: 1240,
+        padding: EdgeInsets.all(isDesktop ? 28 : 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ModuleCard(
+              padding: EdgeInsets.all(isDesktop ? 24 : 18),
+              child: isDesktop
+                  ? Row(
+                      children: [
+                        Expanded(
+                          child: _buildOverviewLead(colorRol, subtituloRol),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: _buildOverviewContext(colorRol),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildOverviewLead(colorRol, subtituloRol),
+                        const SizedBox(height: 16),
+                        _buildOverviewContext(colorRol),
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 24),
+            if (isDesktop)
+              Wrap(
+                spacing: 18,
+                runSpacing: 18,
+                children: cards,
+              )
+            else
+              Column(
+                children: [
+                  for (var i = 0; i < cards.length; i++) ...[
+                    cards[i],
+                    if (i < cards.length - 1) const SizedBox(height: 14),
+                  ],
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildDashboardCards(
+    BuildContext context,
+    ComprasService svc,
+    bool isDesktop,
+  ) {
     Widget card({
       required IconData icon,
       required String titulo,
@@ -350,202 +414,184 @@ class ComprasDashboardScreen extends StatelessWidget {
       required VoidCallback onTap,
     }) {
       return SizedBox(
-        width: 420,
-        child: Card(
-          elevation: 2,
-          shadowColor: color.withOpacity(0.18),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            hoverColor: color.withOpacity(0.05),
-            child: Padding(
-              padding: const EdgeInsets.all(22),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(13),
-                    ),
-                    child: Icon(icon, color: color, size: 27),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(titulo,
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: color)),
-                  const SizedBox(height: 5),
-                  Text(subtitulo,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          color: Colors.black54)),
-                ],
-              ),
-            ),
-          ),
+        width: isDesktop ? 384 : double.infinity,
+        child: _MenuTile(
+          icon: icon,
+          titulo: titulo,
+          subtitulo: subtitulo,
+          color: color,
+          onTap: onTap,
         ),
       );
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
-      body: Column(
-        children: [
-          // Header
-          Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF1565C0), Color(0xFF1E88E5)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            padding: const EdgeInsets.fromLTRB(40, 32, 40, 32),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(Icons.shopping_cart_outlined,
-                      color: Colors.white, size: 32),
-                ),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Compras & Bodega',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white)),
-                      const SizedBox(height: 4),
-                      Text(subtituloRol,
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 13,
-                              color: Colors.white.withOpacity(0.85))),
-                    ],
-                  ),
-                ),
-                if (rolCompras != null)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                          color: Colors.white.withOpacity(0.4), width: 1),
-                    ),
-                    child: Text(
-                      rolCompras!.toUpperCase(),
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 1),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          // Cards
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(32),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 900),
-                  child: Wrap(
-                    spacing: 20,
-                    runSpacing: 20,
-                    children: [
-                      if (!_sinGestion && !_esBodega) ...[
-                        card(
-                          icon: Icons.business,
-                          titulo: 'Proveedores',
-                          subtitulo: 'Registrar y gestionar proveedores',
-                          color: const Color(0xFF1565C0),
-                          onTap: () => Navigator.push(context, MaterialPageRoute(
-                              builder: (_) => _ProveedoresScreen(
-                                  empresaId: empresaId, svc: svc, userId: userId))),
-                        ),
-                        card(
-                          icon: Icons.label_important,
-                          titulo: 'Marcas',
-                          subtitulo: 'Gestionar marcas vinculadas a productos',
-                          color: const Color(0xFF1976D2),
-                          onTap: () => Navigator.push(context, MaterialPageRoute(
-                              builder: (_) =>
-                                  _MarcasScreen(empresaId: empresaId, svc: svc))),
-                        ),
-                        card(
-                          icon: Icons.inventory_2,
-                          titulo: 'Productos',
-                          subtitulo: 'Catálogo de productos del almacén',
-                          color: const Color(0xFF0277BD),
-                          onTap: () => Navigator.push(context, MaterialPageRoute(
-                              builder: (_) => _ProductosScreen(
-                                  empresaId: empresaId, svc: svc, userId: userId))),
-                        ),
-                      ],
-                      if (!_esConsultas)
-                        card(
-                          icon: Icons.local_shipping,
-                          titulo: 'Recepción de Mercancía',
-                          subtitulo:
-                              'Registrar llegada de proveedores con documentos',
-                          color: kComprasPrimary,
-                          onTap: () => Navigator.push(context, MaterialPageRoute(
-                              builder: (_) => _RecepcionesScreen(
-                                  empresaId: empresaId,
-                                  svc: svc,
-                                  userId: userId))),
-                        ),
-                      card(
-                        icon: Icons.manage_search,
-                        titulo: 'Consultas',
-                        subtitulo: 'Consultar por proveedor o producto',
-                        color: const Color(0xFF283593),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => _ConsultasScreen(
-                                empresaId: empresaId, svc: svc))),
-                      ),
-                      if (_esCalidad)
-                        card(
-                          icon: Icons.verified_user,
-                          titulo: 'Revisión de Calidad',
-                          subtitulo:
-                              'Aprobar o rechazar documentos de recepción',
-                          color: const Color(0xFF15803D),
-                          onTap: () => Navigator.push(context, MaterialPageRoute(
-                              builder: (_) => _CalidadScreen(
-                                  empresaId: empresaId,
-                                  svc: svc,
-                                  userId: userId))),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+    return [
+      if (!_sinGestion && !_esBodega) ...[
+        card(
+          icon: Icons.business,
+          titulo: 'Proveedores',
+          subtitulo: 'Registrar y gestionar proveedores',
+          color: const Color(0xFF1565C0),
+          onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => _ProveedoresScreen(
+                  empresaId: empresaId, svc: svc, userId: userId))),
+        ),
+        card(
+          icon: Icons.label_important,
+          titulo: 'Marcas',
+          subtitulo: 'Gestionar marcas vinculadas a productos',
+          color: const Color(0xFF1976D2),
+          onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => _MarcasScreen(empresaId: empresaId, svc: svc))),
+        ),
+        card(
+          icon: Icons.inventory_2,
+          titulo: 'Productos',
+          subtitulo: 'Catálogo de productos del almacén',
+          color: const Color(0xFF0277BD),
+          onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => _ProductosScreen(
+                  empresaId: empresaId, svc: svc, userId: userId))),
+        ),
+      ],
+      if (!_esConsultas)
+        card(
+          icon: Icons.local_shipping,
+          titulo: 'Recepción de Mercancía',
+          subtitulo: 'Registrar llegada de proveedores con documentos',
+          color: kComprasPrimary,
+          onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => _RecepcionesScreen(
+                  empresaId: empresaId, svc: svc, userId: userId))),
+        ),
+      card(
+        icon: Icons.manage_search,
+        titulo: 'Consultas',
+        subtitulo: 'Consultar por proveedor, producto o recepción',
+        color: const Color(0xFF283593),
+        onTap: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc))),
       ),
+      if (_esCalidad)
+        card(
+          icon: Icons.verified_user,
+          titulo: 'Revisión de Calidad',
+          subtitulo: 'Aprobar o rechazar documentos de recepción',
+          color: const Color(0xFF15803D),
+          onTap: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => _CalidadScreen(
+                  empresaId: empresaId, svc: svc, userId: userId))),
+        ),
+    ];
+  }
+
+  Widget _buildOverviewLead(Color colorRol, String subtituloRol) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: colorRol.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(
+            _esBodega ? Icons.warehouse_outlined : Icons.shopping_cart_outlined,
+            color: colorRol,
+            size: 28,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Accesos del módulo',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: colorRol,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Operación de Compras & Bodega',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtituloRol,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 13,
+                  color: Color(0xFF64748B),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverviewContext(Color colorRol) {
+    final pills = <String>[
+      if (!_esConsultas) 'Recepción activa',
+      if (!_sinGestion && !_esBodega) 'Gestión maestra',
+      if (_esCalidad) 'Control de calidad',
+      if (_esConsultas) 'Solo lectura',
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Contexto operativo',
+          style: TextStyle(
+            fontFamily: _kFont,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF475569),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: pills
+              .map(
+                (pill) => Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: colorRol.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: colorRol.withOpacity(0.18)),
+                  ),
+                  child: Text(
+                    pill,
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: colorRol,
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ],
     );
   }
 }
@@ -729,51 +775,43 @@ class _MenuTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      elevation: 2,
-      shadowColor: color.withOpacity(0.2),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: color, size: 28),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(titulo,
-                        style: TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: color)),
-                    const SizedBox(height: 3),
-                    Text(subtitulo,
-                        style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 13,
-                            color: Colors.black54)),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: color.withOpacity(0.5)),
-            ],
+    return ModuleCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color, size: 28),
           ),
-        ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(titulo,
+                    style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: color)),
+                const SizedBox(height: 3),
+                Text(subtitulo,
+                    style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 13,
+                        color: Colors.black54,
+                        height: 1.35)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: color.withOpacity(0.5)),
+        ],
       ),
     );
   }
@@ -5007,15 +5045,22 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       return;
     }
 
-    // Validar que los productos con marcas configuradas tengan una marca seleccionada
-    final sinMarcaRequerida = _entries.any((e) =>
-        e.producto != null &&
-        e.producto!.marcas.isNotEmpty &&
-        e.marcaSeleccionada == null);
-    if (sinMarcaRequerida) {
+    // Marca obligatoria para TODOS los productos
+    final sinMarca = _entries.any((e) => e.producto != null && e.marcaSeleccionada == null);
+    if (sinMarca) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text(
-            'Todos los productos con marcas configuradas deben tener una marca seleccionada'),
+        content: Text('Cada producto debe tener una marca seleccionada. Seleccione o cree una marca para continuar.'),
+        backgroundColor: kComprasRed,
+        duration: Duration(seconds: 4),
+      ));
+      return;
+    }
+    // Ficha técnica obligatoria por producto
+    final sinFicha = _entries.any((e) =>
+        e.producto != null && e.documentos['fichaTecnica']?.tieneDoc != true);
+    if (sinFicha) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Cada producto debe tener una ficha técnica cargada antes de guardar.'),
         backgroundColor: kComprasRed,
         duration: Duration(seconds: 4),
       ));
@@ -5099,8 +5144,54 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     if (seleccionado != null) {
       setState(() {
         _entries[idx].producto = seleccionado;
-        _entries[idx].marcaSeleccionada = null; // limpiar marca al cambiar producto
+        _entries[idx].marcaSeleccionada = null;
+        _entries[idx].expandido = true;
       });
+      // Abrir selector de marca inmediatamente
+      await _seleccionarMarcaParaEntry(idx);
+    }
+  }
+
+  Future<void> _seleccionarMarcaParaEntry(int idx) async {
+    if (idx >= _entries.length) return;
+    final entry = _entries[idx];
+    if (entry.producto == null) return;
+    final producto = entry.producto!;
+
+    final linkedIds = producto.marcas.map((r) => r.marcaId).toSet();
+    final disponibles = _marcas.where((m) => linkedIds.contains(m.id)).toList();
+
+    final result = await showDialog<_MarcaDialogResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _MarcaSelectorDialog(
+        producto: producto,
+        marcasDisponibles: disponibles,
+        empresaId: widget.empresaId,
+        svc: widget.svc,
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    if (result.nuevaMarca != null) {
+      final nuevaMarca = result.nuevaMarca!;
+      setState(() {
+        _marcas.add(nuevaMarca);
+        _marcas.sort((a, b) => a.descripcion.compareTo(b.descripcion));
+        // Actualizar el producto localmente para reflejar la nueva marca vinculada
+        final ref = MarcaRef(marcaId: nuevaMarca.id, codigo: nuevaMarca.codigo, descripcion: nuevaMarca.descripcion);
+        final prodIdx = _productos.indexWhere((p) => p.id == producto.id);
+        if (prodIdx >= 0) {
+          _productos[prodIdx] = _productos[prodIdx].copyWith(
+            marcas: [..._productos[prodIdx].marcas, ref],
+          );
+          _entries[idx].producto = _productos[prodIdx];
+        }
+        _entries[idx].marcaSeleccionada = nuevaMarca;
+      });
+    } else if (result.seleccionada != null) {
+      setState(() => _entries[idx].marcaSeleccionada = result.seleccionada);
     }
   }
 
@@ -5492,6 +5583,64 @@ class _ProductoEntryCard extends StatelessWidget {
                                   ),
                                 ],
                               ),
+                              // ─ Resumen de documentación cargada ─
+                              Builder(builder: (context) {
+                                final docs = entry.documentos;
+                                final docKeys = docsParaCategoria(producto.categoria);
+                                final cargados = docKeys.where((k) => docs[k]?.tieneDoc == true).length;
+                                final tieneFicha = docs['fichaTecnica']?.tieneDoc == true;
+                                final marcaNombre = entry.marcaSeleccionada?.descripcion;
+                                if (marcaNombre == null && cargados == 0) return const SizedBox.shrink();
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Wrap(
+                                    spacing: 4,
+                                    runSpacing: 2,
+                                    children: [
+                                      if (marcaNombre != null)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF283593).withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(5),
+                                            border: Border.all(color: const Color(0xFF283593).withOpacity(0.3)),
+                                          ),
+                                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                            const Icon(Icons.local_offer, size: 10, color: Color(0xFF283593)),
+                                            const SizedBox(width: 3),
+                                            Text(marcaNombre, style: const TextStyle(fontFamily: _kFont, fontSize: 10, color: Color(0xFF283593), fontWeight: FontWeight.w600)),
+                                          ]),
+                                        ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: cargados == docKeys.length ? kComprasGreen.withOpacity(0.08) : Colors.amber.shade50,
+                                          borderRadius: BorderRadius.circular(5),
+                                          border: Border.all(color: cargados == docKeys.length ? kComprasGreen.withOpacity(0.4) : Colors.amber.shade300),
+                                        ),
+                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                          Icon(Icons.description, size: 10, color: cargados == docKeys.length ? kComprasGreen : Colors.amber.shade700),
+                                          const SizedBox(width: 3),
+                                          Text('$cargados/${docKeys.length} docs', style: TextStyle(fontFamily: _kFont, fontSize: 10, fontWeight: FontWeight.w600, color: cargados == docKeys.length ? kComprasGreen : Colors.amber.shade700)),
+                                        ]),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: tieneFicha ? kComprasGreen.withOpacity(0.08) : kComprasRed.withOpacity(0.08),
+                                          borderRadius: BorderRadius.circular(5),
+                                          border: Border.all(color: tieneFicha ? kComprasGreen.withOpacity(0.4) : kComprasRed.withOpacity(0.4)),
+                                        ),
+                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                          Icon(tieneFicha ? Icons.check_circle : Icons.warning_amber, size: 10, color: tieneFicha ? kComprasGreen : kComprasRed),
+                                          const SizedBox(width: 3),
+                                          Text('Ficha', style: TextStyle(fontFamily: _kFont, fontSize: 10, fontWeight: FontWeight.w600, color: tieneFicha ? kComprasGreen : kComprasRed)),
+                                        ]),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
                             ],
                           ),
                   ),
@@ -5922,6 +6071,259 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// MARCA SELECTOR DIALOG
+// ══════════════════════════════════════════════════════════════════════════════
+
+class _MarcaDialogResult {
+  final MarcaDoc? seleccionada;
+  final MarcaDoc? nuevaMarca;
+  const _MarcaDialogResult.marcaExistente(this.seleccionada) : nuevaMarca = null;
+  const _MarcaDialogResult.marcaCreada(this.nuevaMarca) : seleccionada = null;
+}
+
+class _MarcaSelectorDialog extends StatefulWidget {
+  final ProductoDoc producto;
+  final List<MarcaDoc> marcasDisponibles;
+  final String empresaId;
+  final ComprasService svc;
+
+  const _MarcaSelectorDialog({
+    required this.producto,
+    required this.marcasDisponibles,
+    required this.empresaId,
+    required this.svc,
+  });
+
+  @override
+  State<_MarcaSelectorDialog> createState() => _MarcaSelectorDialogState();
+}
+
+class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
+  bool _creandoNueva = false;
+  final _nombreCtrl = TextEditingController();
+  bool _guardando = false;
+  bool _generandoCodigo = false;
+  String _codigoGenerado = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.marcasDisponibles.isEmpty) {
+      // Si no hay marcas disponibles, mostrar directamente el form de creación
+      _creandoNueva = true;
+      _generarCodigo();
+    }
+  }
+
+  @override
+  void dispose() {
+    _nombreCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _generarCodigo() async {
+    setState(() => _generandoCodigo = true);
+    try {
+      final codigo = await widget.svc.generarCodigoMarca(widget.empresaId);
+      if (mounted) setState(() { _codigoGenerado = codigo; _generandoCodigo = false; });
+    } catch (_) {
+      if (mounted) setState(() { _codigoGenerado = 'MRC-???'; _generandoCodigo = false; });
+    }
+  }
+
+  Future<void> _crearYSeleccionar() async {
+    final nombre = _nombreCtrl.text.trim();
+    if (nombre.isEmpty) return;
+    setState(() => _guardando = true);
+    try {
+      final codigo = _codigoGenerado.isNotEmpty ? _codigoGenerado : 'MRC-NEW';
+      final nuevaMarca = MarcaDoc(
+        id: '',
+        empresaId: widget.empresaId,
+        codigo: codigo.toUpperCase(),
+        descripcion: _normalizarNombre(nombre),
+        createdAt: Timestamp.now(),
+      );
+      final id = await widget.svc.guardarMarca(nuevaMarca, isNew: true);
+      // Vincular la marca al producto
+      final ref = MarcaRef(marcaId: id, codigo: nuevaMarca.codigo, descripcion: nuevaMarca.descripcion);
+      await widget.svc.guardarProducto(
+        widget.producto.copyWith(marcas: [...widget.producto.marcas, ref]),
+        isNew: false,
+      );
+      final creada = MarcaDoc(
+        id: id,
+        empresaId: nuevaMarca.empresaId,
+        codigo: nuevaMarca.codigo,
+        descripcion: nuevaMarca.descripcion,
+        createdAt: nuevaMarca.createdAt,
+      );
+      if (mounted) Navigator.pop(context, _MarcaDialogResult.marcaCreada(creada));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al crear marca: $e'), backgroundColor: kComprasRed));
+        setState(() => _guardando = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(color: kComprasPrimary.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.local_offer, size: 18, color: kComprasPrimary),
+            ),
+            const SizedBox(width: 10),
+            const Text('Seleccionar Marca', style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold, fontSize: 16)),
+          ]),
+          const SizedBox(height: 4),
+          Text(widget.producto.nombre,
+              style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54),
+              overflow: TextOverflow.ellipsis),
+        ],
+      ),
+      content: SizedBox(
+        width: 360,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.marcasDisponibles.isNotEmpty && !_creandoNueva) ...[
+                const Text('Marcas disponibles', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                const SizedBox(height: 8),
+                ...widget.marcasDisponibles.map((m) => InkWell(
+                  onTap: () => Navigator.pop(context, _MarcaDialogResult.marcaExistente(m)),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: kComprasPrimary.withOpacity(0.3)),
+                      borderRadius: BorderRadius.circular(10),
+                      color: kComprasPrimary.withOpacity(0.04),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.local_offer_outlined, size: 16, color: kComprasPrimary),
+                        const SizedBox(width: 10),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(m.descripcion, style: const TextStyle(fontFamily: _kFont, fontSize: 13, fontWeight: FontWeight.w600)),
+                            Text(m.codigo, style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+                          ],
+                        )),
+                        const Icon(Icons.check_circle_outline, size: 18, color: kComprasPrimary),
+                      ],
+                    ),
+                  ),
+                )),
+                const Divider(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() => _creandoNueva = true);
+                    _generarCodigo();
+                  },
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Crear nueva marca', style: TextStyle(fontFamily: _kFont, fontSize: 13)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: kComprasPrimary,
+                    side: const BorderSide(color: kComprasPrimary),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ] else ...[
+                // Formulario nueva marca
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: kComprasPrimary.withOpacity(0.04),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: kComprasPrimary.withOpacity(0.15)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        const Icon(Icons.add_circle_outline, size: 15, color: kComprasPrimary),
+                        const SizedBox(width: 6),
+                        const Text('Nueva marca para este producto', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: kComprasPrimary)),
+                      ]),
+                      if (_generandoCodigo) ...[
+                        const SizedBox(height: 8),
+                        const Row(children: [
+                          SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                          SizedBox(width: 8),
+                          Text('Generando código...', style: TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+                        ]),
+                      ] else if (_codigoGenerado.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text('Código: $_codigoGenerado', style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _nombreCtrl,
+                  autofocus: true,
+                  decoration: _inputDecoration('Nombre / Descripción de la marca').copyWith(
+                    hintText: 'Ej: Nike, Zenú, Colanta...',
+                    prefixIcon: const Icon(Icons.label_outline, size: 18),
+                  ),
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                  textCapitalization: TextCapitalization.words,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    if (widget.marcasDisponibles.isNotEmpty)
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _guardando ? null : () => setState(() => _creandoNueva = false),
+                          child: const Text('Volver', style: TextStyle(fontFamily: _kFont)),
+                        ),
+                      ),
+                    if (widget.marcasDisponibles.isNotEmpty) const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: (_guardando || _generandoCodigo) ? null : _crearYSeleccionar,
+                        style: FilledButton.styleFrom(backgroundColor: kComprasPrimary),
+                        child: _guardando
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Text('Crear y Seleccionar', style: TextStyle(fontFamily: _kFont, fontSize: 12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar', style: TextStyle(fontFamily: _kFont, color: Colors.black54)),
+        ),
+      ],
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // CONSULTAS SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -6039,11 +6441,15 @@ class _ConsultaProveedoresTab extends StatefulWidget {
 
 class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
   final _searchCtrl = TextEditingController();
-  List<ProveedorDoc>? _todos; // null = no cargado aún
+  List<ProveedorDoc>? _todos;
   bool _loading = false;
   bool _exportando = false;
-  DateTime? _desde;
-  DateTime? _hasta;
+
+  @override
+  void initState() {
+    super.initState();
+    _buscar();
+  }
 
   @override
   void dispose() {
@@ -6052,7 +6458,6 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
   }
 
   Future<void> _buscar() async {
-    if (_desde == null || _hasta == null) return;
     setState(() { _loading = true; _todos = null; });
     try {
       final snap = await FirebaseFirestore.instance
@@ -6060,13 +6465,8 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final hastaFin = DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59);
       final lista = snap.docs
           .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
-          .where((p) {
-            final t = p.createdAt.toDate();
-            return !t.isBefore(_desde!) && !t.isAfter(hastaFin);
-          })
           .toList()
         ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
       setState(() { _todos = lista; _loading = false; });
@@ -6115,14 +6515,7 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
 
     return Column(
       children: [
-        _ConsultasFechaBar(
-          desde: _desde, hasta: _hasta,
-          onDesdeCambiado: (d) => setState(() => _desde = d),
-          onHastaCambiado: (h) => setState(() => _hasta = h),
-          onBuscar: _buscar,
-          cargando: _loading,
-        ),
-        if (_todos != null) ...[
+        if (_todos != null)
           _ConsultasToolbar(
             searchCtrl: _searchCtrl,
             hint: 'Buscar por nombre, NIT o ciudad...',
@@ -6131,14 +6524,10 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
             exportando: _exportando,
             onExportar: _exportar,
           ),
-        ],
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
-              : _todos == null
-                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
-                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
-                  : lista.isEmpty
+              : lista.isEmpty
                       ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
@@ -6235,14 +6624,17 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
   List<ProductoDoc>? _todos;
   bool _loading = false;
   bool _exportando = false;
-  DateTime? _desde;
-  DateTime? _hasta;
+
+  @override
+  void initState() {
+    super.initState();
+    _buscar();
+  }
 
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
   Future<void> _buscar() async {
-    if (_desde == null || _hasta == null) return;
     setState(() { _loading = true; _todos = null; });
     try {
       final snap = await FirebaseFirestore.instance
@@ -6250,9 +6642,7 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final hastaFin = DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59);
       final lista = snap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data()))
-          .where((p) { final t = p.createdAt.toDate(); return !t.isBefore(_desde!) && !t.isAfter(hastaFin); })
           .toList()..sort((a, b) => a.nombre.compareTo(b.nombre));
       setState(() { _todos = lista; _loading = false; });
     } catch (_) {
@@ -6290,12 +6680,6 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
 
     return Column(
       children: [
-        _ConsultasFechaBar(
-          desde: _desde, hasta: _hasta,
-          onDesdeCambiado: (d) => setState(() => _desde = d),
-          onHastaCambiado: (h) => setState(() => _hasta = h),
-          onBuscar: _buscar, cargando: _loading,
-        ),
         if (_todos != null)
           _ConsultasToolbar(
             searchCtrl: _searchCtrl,
@@ -6308,10 +6692,7 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
-              : _todos == null
-                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
-                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
-                  : lista.isEmpty
+              : lista.isEmpty
               ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
@@ -6365,14 +6746,17 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
   List<MarcaDoc>? _todos;
   bool _loading = false;
   bool _exportando = false;
-  DateTime? _desde;
-  DateTime? _hasta;
+
+  @override
+  void initState() {
+    super.initState();
+    _buscar();
+  }
 
   @override
   void dispose() { _searchCtrl.dispose(); super.dispose(); }
 
   Future<void> _buscar() async {
-    if (_desde == null || _hasta == null) return;
     setState(() { _loading = true; _todos = null; });
     try {
       final snap = await FirebaseFirestore.instance
@@ -6380,9 +6764,7 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final hastaFin = DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59);
       final lista = snap.docs.map((d) => MarcaDoc.fromMap(d.id, d.data()))
-          .where((m) { final t = m.createdAt.toDate(); return !t.isBefore(_desde!) && !t.isAfter(hastaFin); })
           .toList()..sort((a, b) => a.descripcion.compareTo(b.descripcion));
       setState(() { _todos = lista; _loading = false; });
     } catch (_) {
@@ -6416,12 +6798,6 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
 
     return Column(
       children: [
-        _ConsultasFechaBar(
-          desde: _desde, hasta: _hasta,
-          onDesdeCambiado: (d) => setState(() => _desde = d),
-          onHastaCambiado: (h) => setState(() => _hasta = h),
-          onBuscar: _buscar, cargando: _loading,
-        ),
         if (_todos != null)
           _ConsultasToolbar(
             searchCtrl: _searchCtrl,
@@ -6434,10 +6810,7 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
-              : _todos == null
-                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
-                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
-                  : lista.isEmpty
+              : lista.isEmpty
                       ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
                       : ListView.builder(
                           padding: const EdgeInsets.all(10),
@@ -6759,11 +7132,27 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
   @override
   Widget build(BuildContext context) {
     final q = _searchCtrl.text.toLowerCase();
+    // Ordenar por fecha de última actualización de la ficha (más reciente primero)
     final lista = (_todos ?? []).where((f) =>
         q.isEmpty ||
         f.productoNombre.toLowerCase().contains(q) ||
         f.marcaNombre.toLowerCase().contains(q) ||
-        f.proveedorNombre.toLowerCase().contains(q)).toList();
+        f.proveedorNombre.toLowerCase().contains(q)).toList()
+      ..sort((a, b) {
+        final fa = a.documentoActual?.fechaSubida;
+        final fb = b.documentoActual?.fechaSubida;
+        if (fa == null && fb == null) return 0;
+        if (fa == null) return 1;
+        if (fb == null) return -1;
+        return fb.compareTo(fa);
+      });
+
+    // Últimas actualizadas (fichas con doc cargado ordenadas por fecha, top 5)
+    final ultimasActualizadas = (_todos ?? [])
+        .where((f) => f.documentoActual?.fechaSubida != null && f.documentoActual?.tieneDoc == true)
+        .toList()
+      ..sort((a, b) => b.documentoActual!.fechaSubida!.compareTo(a.documentoActual!.fechaSubida!));
+    final topActualizadas = ultimasActualizadas.take(5).toList();
 
     return Column(
       children: [
@@ -6773,7 +7162,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
           onHastaCambiado: (h) => setState(() => _hasta = h),
           onBuscar: _buscar, cargando: _loading,
         ),
-        if (_todos != null)
+        if (_todos != null) ...[
           _ConsultasToolbar(
             searchCtrl: _searchCtrl,
             hint: 'Buscar por producto, marca o proveedor...',
@@ -6782,6 +7171,41 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
             exportando: _exportando,
             onExportar: _exportar,
           ),
+          if (topActualizadas.isNotEmpty && q.isEmpty)
+            Container(
+              margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1565C0).withOpacity(0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.2)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    const Icon(Icons.update, size: 14, color: Color(0xFF1565C0)),
+                    const SizedBox(width: 6),
+                    const Text('Últimas fichas actualizadas', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1565C0))),
+                  ]),
+                  const SizedBox(height: 6),
+                  ...topActualizadas.map((f) {
+                    final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+                    final fecha = fmt.format(f.documentoActual!.fechaSubida!.toDate());
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Row(children: [
+                        const Icon(Icons.circle, size: 6, color: Color(0xFF1565C0)),
+                        const SizedBox(width: 6),
+                        Expanded(child: Text('${f.productoNombre} — ${f.marcaNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
+                        Text(fecha, style: const TextStyle(fontFamily: _kFont, fontSize: 10, color: Colors.black45)),
+                      ]),
+                    );
+                  }),
+                ],
+              ),
+            ),
+        ],
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -6797,6 +7221,9 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                             final f = lista[i];
                             final doc = f.documentoActual;
                             final fmtDt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+                            // Marcar como reciente si fue actualizada en los últimos 7 días
+                            final esReciente = doc?.fechaSubida != null &&
+                                DateTime.now().difference(doc!.fechaSubida!.toDate()).inDays <= 7;
                             Color badgeColor = Colors.grey;
                             String badgeLabel = 'Sin cargar';
                             if (doc != null && doc.tieneDoc) {
@@ -6814,6 +7241,17 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                                 title: Text(f.productoNombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
                                 subtitle: Text('${f.marcaNombre}  •  ${f.proveedorNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
                                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                                  if (esReciente)
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.shade50,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: Colors.green.shade400),
+                                      ),
+                                      child: const Text('Reciente', style: TextStyle(fontFamily: _kFont, fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
+                                    ),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                     decoration: BoxDecoration(

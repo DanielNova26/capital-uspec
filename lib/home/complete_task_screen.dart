@@ -13,7 +13,6 @@ import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -24,6 +23,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mime/mime.dart'; // opcional, para adivinar mime
+import '../services/task_service.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
@@ -119,6 +119,17 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     );
   }
 
+  String _slugFileSegment(String value, {String fallback = 'tarea'}) {
+    final lowered = value.trim().toLowerCase();
+    final cleaned = lowered
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    return cleaned.isEmpty ? fallback : cleaned;
+  }
+
+  String _processLabel() => widget.requestFinish ? 'Finalización' : 'Evidencia';
+
   // ---------- Adjuntos ----------
 
   Future<void> _pickFiles() async {
@@ -153,7 +164,8 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     );
     if (wm == null) return;
 
-    final name = 'evid_${DateTime.now().millisecondsSinceEpoch}.png';
+    final taskSlug = _slugFileSegment(_taskTitle ?? '', fallback: 'tarea');
+    final name = '${taskSlug}_evidencia_${DateTime.now().millisecondsSinceEpoch}.png';
     String? filePath;
     if (!kIsWeb) {
       final dir = Directory.systemTemp;
@@ -292,37 +304,38 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
     try {
       final tareaRef = FirebaseFirestore.instance.collection('TBL_TAREAS').doc(widget.taskId);
-      final tareaSnap = await tareaRef.get();
-      final tarea = tareaSnap.data() ?? {};
-      final creadorId = (tarea['creador_id'] ?? '').toString().trim();
-      final asignadoNombre = (tarea['asignado_nombre'] ?? '').toString();
 
       // 1) Subir adjuntos
       final now = DateTime.now();
       final y = DateFormat('yyyy').format(now), m = DateFormat('MM').format(now), d = DateFormat('dd').format(now);
+      final taskSlug = _slugFileSegment(_taskTitle ?? '', fallback: 'tarea');
 
       final List<Map<String, dynamic>> nuevosAdjuntos = [];
       final List<String> nuevasEvidenciasUrls = [];
 
       for (final f in _picked) {
-        final name = f.name;
+        final originalName = f.name;
         final bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
         if (bytes == null) continue;
 
-        final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
-        final mime = lookupMimeType(name) ?? (ext == 'png' ? 'image/png' : 'application/octet-stream');
+        final ext = originalName.contains('.') ? originalName.split('.').last.toLowerCase() : '';
+        final mime = lookupMimeType(originalName) ?? (ext == 'png' ? 'image/png' : 'application/octet-stream');
+        final evidenceName = '${taskSlug}_${DateTime.now().millisecondsSinceEpoch}_${originalName.replaceAll('/', '_').replaceAll('\\', '_')}';
 
-        final path = 'tareas/$y/$m/$d/adj_${DateTime.now().millisecondsSinceEpoch}_$name';
+        final path = 'tareas/$y/$m/$d/$evidenceName';
         final ref = FirebaseStorage.instance.ref(path);
         await ref.putData(bytes, SettableMetadata(contentType: mime));
         final url = await ref.getDownloadURL();
 
         nuevosAdjuntos.add({
-          'name': name,
+          'name': originalName,
+          'storedName': evidenceName,
           'path': path,
           'url': url,
           'mime': mime,
           'size': bytes.length,
+          'process': _processLabel(),
+          'desc': _processLabel(),
           'uploadedAt': Timestamp.now(),
           'by': widget.currentUserId,
         });
@@ -375,19 +388,64 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         });
       });
 
-      // 3) Notificar al creador (callable)
-      if (creadorId.isNotEmpty) {
-        final fun = FirebaseFunctions.instance.httpsCallable('notifyTaskCompleted');
-        await fun.call(<String, dynamic>{
-          'taskId': widget.taskId,
-          'creatorId': creadorId,
-          'title': widget.requestFinish ? 'Solicitud de finalización' : 'Tarea finalizada',
-          'body': widget.requestFinish
-              ? '${_taskTitle ?? 'Tarea'} fue enviada para aprobación por $asignadoNombre'
-              : '${_taskTitle ?? 'Tarea'} fue finalizada por $asignadoNombre',
+      if (widget.requestFinish || nuevosAdjuntos.isNotEmpty) {
+        final currentTask = _task ?? const <String, dynamic>{};
+        final byName =
+            (widget.requestFinishByName ?? currentTask['asignado_nombre'] ?? widget.currentUserId)
+                .toString();
+        await tareaRef.collection('finalizacion').add({
+          'type': widget.requestFinish ? 'solicitud_finalizacion' : 'finalizacion',
+          'message': widget.requestFinish
+              ? 'Solicitud de finalización enviada por $byName'
+              : 'Tarea finalizada por $byName',
+          'attachments': nuevosAdjuntos,
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdBy': widget.currentUserId,
+          'createdByName': byName,
         });
       }
 
+      // Notificación Flutter (backup para requestFinish, independiente del deploy de Functions)
+      if (widget.requestFinish) {
+        try {
+          final currentTask = _task ?? const <String, dynamic>{};
+          final creadorId =
+              (currentTask['creador_id'] ?? currentTask['creatorId'] ?? '').toString().trim();
+          final jefeId =
+              (currentTask['jefe_uid'] ?? currentTask['bossId'] ?? '').toString().trim();
+          final empresaId =
+              (currentTask['empresaId'] ?? currentTask['empresa_id'] ?? '').toString().trim();
+          final titulo =
+              (currentTask['titulo'] ?? currentTask['title'] ?? 'Tarea').toString();
+          final byName =
+              (widget.requestFinishByName ?? currentTask['asignado_nombre'] ?? widget.currentUserId)
+                  .toString();
+
+          final recipients = <String>[];
+          if (creadorId.isNotEmpty && creadorId != widget.currentUserId) {
+            recipients.add(creadorId);
+          }
+          if (jefeId.isNotEmpty &&
+              jefeId != widget.currentUserId &&
+              !recipients.contains(jefeId)) {
+            recipients.add(jefeId);
+          }
+          if (recipients.isNotEmpty) {
+            await TaskService().pushNotificationToMany(
+              toUserIds: recipients,
+              title: 'Solicitud de finalización',
+              description: '$titulo · Solicitud enviada por $byName',
+              taskId: widget.taskId,
+              type: 'solicitud_finalizacion',
+              fromId: widget.currentUserId,
+              fromName: byName,
+              empresaId: empresaId.isNotEmpty ? empresaId : null,
+            );
+          }
+        } catch (_) {}
+      }
+
+      // La notificación al creador/jefe también la genera el trigger onTaskUpdated en Cloud Functions.
       if (mounted) {
         final msg = widget.requestFinish
             ? 'Solicitud de finalización enviada.'

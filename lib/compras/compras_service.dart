@@ -397,28 +397,25 @@ class ComprasService {
 
   Future<ComprasRolDoc?> getRolUsuario(
       String empresaId, String userId) async {
+    // Query single-field only (no composite index needed) + client filter
     final snap = await _db
         .collection('TBL_COMPRAS_ROLES')
         .where('empresaId', isEqualTo: empresaId)
-        .where('userId', isEqualTo: userId)
         .get();
-    if (snap.docs.isEmpty) return null;
-    return ComprasRolDoc.fromMap(snap.docs.first.id, snap.docs.first.data());
+    final match =
+        snap.docs.where((d) => d.data()['userId'] == userId);
+    if (match.isEmpty) return null;
+    return ComprasRolDoc.fromMap(match.first.id, match.first.data());
   }
 
   Future<void> guardarComprasRol(ComprasRolDoc r, {required bool isNew}) async {
     if (isNew) {
-      // Verificar si ya existe un rol para este usuario
-      final existing = await _db
+      // ID determinístico {empresaId}_{userId} — evita query compuesto y duplicados
+      final docId = '${r.empresaId}_${r.userId}';
+      await _db
           .collection('TBL_COMPRAS_ROLES')
-          .where('empresaId', isEqualTo: r.empresaId)
-          .where('userId', isEqualTo: r.userId)
-          .get();
-      if (existing.docs.isNotEmpty) {
-        await existing.docs.first.reference.set(r.toMap(), SetOptions(merge: true));
-        return;
-      }
-      await _db.collection('TBL_COMPRAS_ROLES').add(r.toMap());
+          .doc(docId)
+          .set(r.toMap(), SetOptions(merge: true));
     } else {
       await _db.collection('TBL_COMPRAS_ROLES').doc(r.id).set(
           r.toMap(), SetOptions(merge: true));
@@ -767,6 +764,7 @@ class ComprasService {
         'fromName': 'Revisión de Calidad',
         'createdAt': Timestamp.now(),
         'read': false,
+        if (prov.empresaId.isNotEmpty) 'empresaId': prov.empresaId,
       });
     }
   }
@@ -816,6 +814,27 @@ class ComprasService {
         createdAt: Timestamp.now(),
       );
       await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
+
+      // Escritura directa en TBL_NOTIFICACIONES para la bandeja in-app
+      try {
+        final notifRef = _db
+            .collection('TBL_NOTIFICACIONES')
+            .doc(creadoPor)
+            .collection('notifications')
+            .doc();
+        await notifRef.set({
+          'id': notifRef.id,
+          'title': 'Ficha técnica rechazada',
+          'description': 'El documento "$label" fue rechazado. Motivo: $motivo. Por favor corrígelo y vuelve a cargarlo.',
+          'type': 'ficha_rechazada',
+          'taskId': 'ficha:$fichaId',
+          'fromId': revisadoPor,
+          'fromName': 'Revisión de Calidad',
+          'createdAt': Timestamp.now(),
+          'read': false,
+          if (empresaId.isNotEmpty) 'empresaId': empresaId,
+        });
+      } catch (_) {}
     }
   }
 }

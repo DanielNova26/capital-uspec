@@ -30,7 +30,16 @@
       "Bash(firebase projects:list)",
       "Bash(firebase login --no-localhost)",
       "Bash(firebase deploy --only hosting:to-do-gestion --project integra360-94704)",
-      "Bash(flutter pub get)"
+      "Bash(flutter pub get)",
+      "WebFetch(domain:127.0.0.1)",
+      "Bash(flutter analyze:*)",
+      "Bash(dieta)",
+      "Bash(diet\" 2>/dev/null || dir \"C:UsersSERVICIO TECNICODownloads\"\")",
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)",
+      "Bash(find C:/Desarrollo/capital-uspec/lib/core -name *.dart)",
+      "Bash(find C:/Desarrollo/capital-uspec/lib/utils -name task*)",
+      "Bash(npm run:*)"
     ]
   }
 }

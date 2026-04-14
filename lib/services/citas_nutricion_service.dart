@@ -55,14 +55,18 @@ class CitasNutricionService {
     // Crear notificación de agendamiento para el nutricionista
     await _crearNotificacionAgendamiento(
       userId: userId,
+      empresaId: empresaId,
+      pacienteId: pacienteId,
       pacienteNombre: pacienteNombre,
       fechaReevaluacion: fechaReevaluacion,
       citaId: doc.id,
     );
 
-    // Crear notificación programada (recordatorio) para la fecha de reevaluación
+    // Crear notificación de recordatorio para la fecha de reevaluación
     await _crearNotificacionRecordatorio(
       userId: userId,
+      empresaId: empresaId,
+      pacienteId: pacienteId,
       pacienteNombre: pacienteNombre,
       fechaReevaluacion: fechaReevaluacion,
       citaId: doc.id,
@@ -74,6 +78,8 @@ class CitasNutricionService {
   /// Crea la notificación instantánea de agendamiento.
   Future<void> _crearNotificacionAgendamiento({
     required String userId,
+    required String empresaId,
+    required String pacienteId,
     required String pacienteNombre,
     required DateTime fechaReevaluacion,
     required String citaId,
@@ -85,20 +91,30 @@ class CitasNutricionService {
         .doc();
 
     await notifRef.set({
+      'id': notifRef.id,
       'title': 'Reevaluaci\u00f3n agendada',
       'description':
           'Se agend\u00f3 reevaluaci\u00f3n nutricional para $pacienteNombre '
           'el ${_formatDate(fechaReevaluacion)}.',
       'type': 'cita_nutricion_agendada',
       'taskId': citaId,
+      'fromId': userId,
+      'fromName': 'Nutrici\u00f3n',
+      'pacienteId': pacienteId,
+      'pacienteNombre': pacienteNombre,
       'read': false,
       'createdAt': FieldValue.serverTimestamp(),
+      if (empresaId.isNotEmpty) 'empresaId': empresaId,
     });
   }
 
   /// Crea la notificación de recordatorio para cuando llegue la fecha.
+  /// [createdAt] usa FieldValue.serverTimestamp() para ordenar correctamente
+  /// en la lista; [scheduledFor] guarda la fecha real del control.
   Future<void> _crearNotificacionRecordatorio({
     required String userId,
+    required String empresaId,
+    required String pacienteId,
     required String pacienteNombre,
     required DateTime fechaReevaluacion,
     required String citaId,
@@ -110,15 +126,23 @@ class CitasNutricionService {
         .doc('reminder_$citaId');
 
     await notifRef.set({
+      'id': notifRef.id,
       'title': 'Recordatorio: Reevaluaci\u00f3n nutricional',
       'description':
           'Hoy es la reevaluaci\u00f3n nutricional de $pacienteNombre. '
           'Fecha programada: ${_formatDate(fechaReevaluacion)}.',
       'type': 'cita_nutricion_recordatorio',
       'taskId': citaId,
+      'fromId': userId,
+      'fromName': 'Nutrici\u00f3n',
+      'pacienteId': pacienteId,
+      'pacienteNombre': pacienteNombre,
       'read': false,
+      // scheduledFor guarda la fecha real del control (para info/display).
+      // createdAt usa serverTimestamp para que la ordenación sea correcta.
       'scheduledFor': Timestamp.fromDate(fechaReevaluacion),
-      'createdAt': Timestamp.fromDate(fechaReevaluacion),
+      'createdAt': FieldValue.serverTimestamp(),
+      if (empresaId.isNotEmpty) 'empresaId': empresaId,
     });
   }
 

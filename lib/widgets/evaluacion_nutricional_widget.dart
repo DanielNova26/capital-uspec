@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../nutricion/widgets/nutrition_shared_widgets.dart';
+import '../theme/app_typography.dart';
 
-/// Widget de evaluación nutricional OPTIMIZADO PARA MÓVILES
-/// con validaciones estrictas y visualización dinámica del estado.
+/// Widget de evaluación nutricional CLINICO PROFESIONAL
 class EvaluacionNutricionalWidget extends StatefulWidget {
   final String? pacienteId;
   final String? pacienteNombre;
@@ -98,25 +99,6 @@ class _EvaluacionNutricionalWidgetState
     };
 
     widget.onGuardarMedicion(medicion);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
-              Text('Medición guardada correctamente'),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      );
-    }
   }
 
   void _mostrarError(String mensaje) {
@@ -129,11 +111,8 @@ class _EvaluacionNutricionalWidgetState
             Expanded(child: Text(mensaje)),
           ],
         ),
-        backgroundColor: Theme.of(context).colorScheme.error,
+        backgroundColor: NutritionPalette.danger,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
       ),
     );
   }
@@ -142,113 +121,31 @@ class _EvaluacionNutricionalWidgetState
   Widget build(BuildContext context) {
     final pacienteSeleccionado = widget.pacienteId != null;
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).colorScheme.outlineVariant,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Información del paciente (compacta)
-              _buildInfoPaciente(pacienteSeleccionado),
-
-              const SizedBox(height: 12),
-
-              // Avatar + Mediciones en HORIZONTAL (móvil)
-              if (pacienteSeleccionado) ...[
-                _buildSeccionMediciones(),
-                const SizedBox(height: 12),
-              ],
-
-              // Botones de acción (compactos)
-              if (pacienteSeleccionado) _buildBotonesAccion(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoPaciente(bool seleccionado) {
-    if (!seleccionado) {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.orange.withOpacity(0.3)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.warning_amber, color: Colors.orange, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Sin paciente',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange[900],
-                    ),
-                  ),
-                  Text(
-                    'Selecciona uno de la lista',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.orange[800],
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF9EC3E6).withOpacity(0.15),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF9EC3E6).withOpacity(0.4)),
-      ),
-      child: Row(
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildAvatarPaciente(),
-          const SizedBox(width: 10),
-          Expanded(
+          // Sección de Historia y Antecedentes (Importante)
+          if (pacienteSeleccionado) ...[
+            _buildActionHeader(),
+            const SizedBox(height: 20),
+          ],
+
+          // Sección de Mediciones
+          NutritionCard(
+            title: 'Mediciones Antropométricas',
+            subtitle: 'Registro de indicadores de peso y talla',
+            padding: EdgeInsets.zero,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.pacienteNombre ?? 'Sin nombre',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    Icon(Icons.badge, size: 12, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Text(
-                      widget.pacienteDocumento ?? 'N/A',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                if (pacienteSeleccionado) ...[
+                  _buildSeccionImc(),
+                  const Divider(height: 1),
+                ],
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: _buildCamposMedicion(),
                 ),
               ],
             ),
@@ -258,278 +155,220 @@ class _EvaluacionNutricionalWidgetState
     );
   }
 
-  Widget _buildAvatarPaciente() {
-    final fotoUrl = widget.pacienteFotoUrl;
-    if (fotoUrl != null && fotoUrl.isNotEmpty) {
-      return CircleAvatar(
-        radius: 20,
-        backgroundColor: const Color(0xFF9EC3E6).withOpacity(0.25),
-        backgroundImage: NetworkImage(fotoUrl),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF9EC3E6),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Icon(Icons.person, color: Colors.white, size: 20),
-    );
-  }
-
-  Widget _buildSeccionMediciones() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildActionHeader() {
+    return Row(
       children: [
-        // Avatar + IMC COMPACTO en horizontal
-        if (_estado != null) ...[
-          Row(
-            children: [
-              // Avatar pequeño
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      _estado!.color.withOpacity(0.3),
-                      _estado!.color.withOpacity(0.1),
+        Expanded(
+          child: NutritionCard(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const Icon(Icons.history_edu, color: NutritionPalette.accent, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Remisión / Historia Clínica',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, fontFamily: kArial),
+                      ),
+                      Text(
+                        'Actualizar antecedentes médicos',
+                        style: TextStyle(color: NutritionPalette.textMuted, fontSize: 12, fontFamily: kArial),
+                      ),
                     ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(40),
-                  border: Border.all(color: _estado!.color, width: 3),
-                ),
-                child: Center(
-                  child: Text(
-                    _estado!.emoji,
-                    style: const TextStyle(fontSize: 40),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Info IMC compacta
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _imc!.toStringAsFixed(1),
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: _estado!.color,
-                        height: 1,
-                      ),
-                    ),
-                    Text(
-                      'kg/m²',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 4,
-                        horizontal: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _estado!.color,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _estado!.categoria,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                  ],
+                TextButton.icon(
+                  onPressed: widget.onRegistrarHistoria,
+                  icon: const Icon(Icons.add_circle_outline, size: 18),
+                  label: const Text('REGISTRAR'),
+                  style: TextButton.styleFrom(foregroundColor: NutritionPalette.accent),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-        ],
-
-        // Campos de entrada COMPACTOS
-        Text(
-          'Mediciones antropométricas',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        // Peso y Talla en ROW para ahorrar espacio
-        Row(
-          children: [
-            Expanded(
-              child: TextFormField(
-                controller: _pesoCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Peso (kg)',
-                  prefixIcon: const Icon(Icons.monitor_weight, size: 20),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  isDense: true,
-                ),
-                keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-                ],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Requerido';
-                  }
-                  final peso = double.tryParse(value);
-                  if (peso == null) return 'Número inválido';
-                  if (peso < 20 || peso > 300) return '20-300 kg';
-                  return null;
-                },
-                onChanged: (_) => _calcularIMC(),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextFormField(
-                controller: _tallaCtrl,
-                decoration: InputDecoration(
-                  labelText: 'Talla (cm)',
-                  prefixIcon: const Icon(Icons.height, size: 20),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  isDense: true,
-                ),
-                keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-                ],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Requerido';
-                  }
-                  final talla = double.tryParse(value);
-                  if (talla == null) return 'Número inválido';
-                  if (talla < 50 || talla > 250) return '50-250 cm';
-                  return null;
-                },
-                onChanged: (_) => _calcularIMC(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-
-        // Perímetro cintura (opcional, más pequeño)
-        TextFormField(
-          controller: _pcCtrl,
-          decoration: InputDecoration(
-            labelText: 'Perímetro cintura (cm) - Opcional',
-            prefixIcon: const Icon(Icons.straighten, size: 20),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-            isDense: true,
-          ),
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-          ],
-          validator: (value) {
-            if (value == null || value.isEmpty) return null;
-            final pc = double.tryParse(value);
-            if (pc == null) return 'Número inválido';
-            if (pc < 40 || pc > 200) return '40-200 cm';
-            return null;
-          },
-        ),
-        const SizedBox(height: 8),
-
-        // Notas (más compacto)
-        TextFormField(
-          controller: _notasCtrl,
-          decoration: InputDecoration(
-            labelText: 'Notas (opcional)',
-            prefixIcon: const Icon(Icons.notes, size: 20),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
-            ),
-            isDense: true,
-          ),
-          maxLines: 2,
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(
-              RegExp(r'[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ0-9\s.,;:()\-]'),
-            ),
-          ],
         ),
       ],
     );
   }
 
-  Widget _buildBotonesAccion() {
-    return Column(
-      children: [
-        const Divider(height: 1),
-        const SizedBox(height: 10),
+  Widget _buildSeccionImc() {
+    if (_estado == null) return const SizedBox.shrink();
 
-        // Botón guardar (principal)
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _guardarMedicion,
-            icon: const Icon(Icons.save, size: 18),
-            label: const Text('Guardar medición'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: _estado!.color.withOpacity(0.05),
+      ),
+      child: Row(
+        children: [
+          // Círculo de IMC
+          Container(
+            width: 90,
+            height: 90,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: _estado!.color, width: 4),
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: _estado!.color.withOpacity(0.2),
+                  blurRadius: 10,
+                  spreadRadius: 2,
+                )
+              ],
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _imc!.toStringAsFixed(1),
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: _estado!.color,
+                      fontFamily: kArial,
+                    ),
+                  ),
+                  Text(
+                    'IMC',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: _estado!.color.withOpacity(0.7),
+                      fontFamily: kArial,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 6),
+          const SizedBox(width: 24),
+          // Clasificación
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClinicalTag(
+                  label: _estado!.categoria,
+                  color: _estado!.color,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _estado!.nombre,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: NutritionPalette.textMain,
+                    fontFamily: kArial,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _estado!.descripcion,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: NutritionPalette.textMuted,
+                    fontFamily: kArial,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            _estado!.emoji,
+            style: const TextStyle(fontSize: 40),
+          ),
+        ],
+      ),
+    );
+  }
 
-        // Botón secundario: Historia clínica
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: widget.onRegistrarHistoria,
-            icon: const Icon(Icons.medical_information, size: 18),
-            label: const Text('Registrar historia cl\u00ednica'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+  Widget _buildCamposMedicion() {
+    return Column(
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _pesoCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Peso (kg)',
+                  prefixIcon: Icon(Icons.monitor_weight_outlined),
+                  border: OutlineInputBorder(),
+                  helperText: 'Rango: 20 - 300 kg',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Requerido';
+                  final peso = double.tryParse(value);
+                  if (peso == null) return 'Inválido';
+                  if (peso < 20 || peso > 300) return 'Fuera de rango';
+                  return null;
+                },
+                onChanged: (_) => _calcularIMC(),
               ),
             ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextFormField(
+                controller: _tallaCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Talla (cm)',
+                  prefixIcon: Icon(Icons.height),
+                  border: OutlineInputBorder(),
+                  helperText: 'Rango: 50 - 250 cm',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Requerido';
+                  final talla = double.tryParse(value);
+                  if (talla == null) return 'Inválido';
+                  if (talla < 50 || talla > 250) return 'Fuera de rango';
+                  return null;
+                },
+                onChanged: (_) => _calcularIMC(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        TextFormField(
+          controller: _pcCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Perímetro Cintura (cm) - Opcional',
+            prefixIcon: Icon(Icons.straighten_outlined),
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))],
+        ),
+        const SizedBox(height: 20),
+        TextFormField(
+          controller: _notasCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Observaciones de la evaluación',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          maxLines: 3,
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: FilledButton.icon(
+            onPressed: _guardarMedicion,
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('GUARDAR MEDICIÓN Y CONTINUAR', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+            style: FilledButton.styleFrom(backgroundColor: NutritionPalette.accent),
           ),
         ),
       ],
@@ -555,22 +394,14 @@ enum EstadoNutricional {
 extension EstadoNutricionalExtension on EstadoNutricional {
   String get nombre {
     switch (this) {
-      case EstadoNutricional.delgadezSevera:
-        return 'Delgadez Severa';
-      case EstadoNutricional.delgadezModerada:
-        return 'Delgadez Moderada';
-      case EstadoNutricional.delgadezLeve:
-        return 'Delgadez Leve';
-      case EstadoNutricional.normal:
-        return 'Peso Normal';
-      case EstadoNutricional.sobrepeso:
-        return 'Sobrepeso';
-      case EstadoNutricional.obesidadI:
-        return 'Obesidad Tipo I';
-      case EstadoNutricional.obesidadII:
-        return 'Obesidad Tipo II';
-      case EstadoNutricional.obesidadIII:
-        return 'Obesidad Tipo III';
+      case EstadoNutricional.delgadezSevera: return 'Delgadez Severa';
+      case EstadoNutricional.delgadezModerada: return 'Delgadez Moderada';
+      case EstadoNutricional.delgadezLeve: return 'Delgadez Leve';
+      case EstadoNutricional.normal: return 'Peso Normal';
+      case EstadoNutricional.sobrepeso: return 'Sobrepeso';
+      case EstadoNutricional.obesidadI: return 'Obesidad Tipo I';
+      case EstadoNutricional.obesidadII: return 'Obesidad Tipo II';
+      case EstadoNutricional.obesidadIII: return 'Obesidad Tipo III';
     }
   }
 
@@ -593,22 +424,14 @@ extension EstadoNutricionalExtension on EstadoNutricional {
 
   String get descripcion {
     switch (this) {
-      case EstadoNutricional.delgadezSevera:
-        return 'IMC menor a 16.0';
-      case EstadoNutricional.delgadezModerada:
-        return 'IMC entre 16.0 - 16.9';
-      case EstadoNutricional.delgadezLeve:
-        return 'IMC entre 17.0 - 18.4';
-      case EstadoNutricional.normal:
-        return 'IMC entre 18.5 - 24.9';
-      case EstadoNutricional.sobrepeso:
-        return 'IMC entre 25.0 - 29.9';
-      case EstadoNutricional.obesidadI:
-        return 'IMC entre 30.0 - 34.9';
-      case EstadoNutricional.obesidadII:
-        return 'IMC entre 35.0 - 39.9';
-      case EstadoNutricional.obesidadIII:
-        return 'IMC mayor o igual a 40.0';
+      case EstadoNutricional.delgadezSevera: return 'IMC menor a 16.0';
+      case EstadoNutricional.delgadezModerada: return 'IMC entre 16.0 - 16.9';
+      case EstadoNutricional.delgadezLeve: return 'IMC entre 17.0 - 18.4';
+      case EstadoNutricional.normal: return 'IMC entre 18.5 - 24.9';
+      case EstadoNutricional.sobrepeso: return 'IMC entre 25.0 - 29.9';
+      case EstadoNutricional.obesidadI: return 'IMC entre 30.0 - 34.9';
+      case EstadoNutricional.obesidadII: return 'IMC entre 35.0 - 39.9';
+      case EstadoNutricional.obesidadIII: return 'IMC mayor o igual a 40.0';
     }
   }
 
@@ -616,36 +439,25 @@ extension EstadoNutricionalExtension on EstadoNutricional {
     switch (this) {
       case EstadoNutricional.delgadezSevera:
       case EstadoNutricional.delgadezModerada:
-      case EstadoNutricional.delgadezLeve:
-        return '😟';
-      case EstadoNutricional.normal:
-        return '😊';
-      case EstadoNutricional.sobrepeso:
-        return '😐';
-      case EstadoNutricional.obesidadI:
-        return '😰';
+      case EstadoNutricional.delgadezLeve: return '😟';
+      case EstadoNutricional.normal: return '😊';
+      case EstadoNutricional.sobrepeso: return '😐';
+      case EstadoNutricional.obesidadI: return '😰';
       case EstadoNutricional.obesidadII:
-      case EstadoNutricional.obesidadIII:
-        return '😨';
+      case EstadoNutricional.obesidadIII: return '😨';
     }
   }
 
   Color get color {
     switch (this) {
       case EstadoNutricional.delgadezSevera:
-      case EstadoNutricional.delgadezModerada:
-        return Colors.red;
-      case EstadoNutricional.delgadezLeve:
-        return Colors.orange;
-      case EstadoNutricional.normal:
-        return Colors.green;
-      case EstadoNutricional.sobrepeso:
-        return Colors.orange;
-      case EstadoNutricional.obesidadI:
-        return Colors.deepOrange;
+      case EstadoNutricional.delgadezModerada: return NutritionPalette.danger;
+      case EstadoNutricional.delgadezLeve: return NutritionPalette.warning;
+      case EstadoNutricional.normal: return NutritionPalette.success;
+      case EstadoNutricional.sobrepeso: return NutritionPalette.warning;
+      case EstadoNutricional.obesidadI: return Colors.deepOrange;
       case EstadoNutricional.obesidadII:
-      case EstadoNutricional.obesidadIII:
-        return Colors.red;
+      case EstadoNutricional.obesidadIII: return NutritionPalette.danger;
     }
   }
-}
+  }

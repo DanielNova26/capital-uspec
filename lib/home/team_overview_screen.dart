@@ -270,13 +270,15 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
           .doc(widget.currentUserId)
           .get();
       final data = u.data() ?? {};
-      final empresas = _empresasDe(data);
-      _empresaIds = (_selectedEmpresaId?.isNotEmpty ?? false)
-          ? <String>{_selectedEmpresaId!}
-          : empresas;
-      _empresaId = (_selectedEmpresaId?.isNotEmpty ?? false)
-          ? _selectedEmpresaId
-          : (empresas.isNotEmpty ? empresas.first : null);
+      final resolvedEmpresaId = resolveValidEmpresaId(
+        data: data,
+        selectedEmpresaId: _selectedEmpresaId,
+        preferredEmpresaId: _empresaId,
+      );
+      _empresaIds = resolvedEmpresaId == null
+          ? <String>{}
+          : <String>{resolvedEmpresaId};
+      _empresaId = resolvedEmpresaId;
     } catch (_) {}
   }
 
@@ -358,6 +360,9 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   Future<void> _loadAreas() async {
     try {
+      _areas
+        ..clear()
+        ..['todas'] = 'Todas las áreas';
       var q = FirebaseFirestore.instance.collection('TBL_AREAS').limit(1000);
       if ((_empresaId ?? '').isNotEmpty) {
         q = q.where('empresaId', isEqualTo: _empresaId);
@@ -374,6 +379,9 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   Future<void> _loadCargos() async {
     try {
+      _cargos
+        ..clear()
+        ..['todos'] = 'Todos los cargos';
       var q = FirebaseFirestore.instance.collection('TBL_CARGOS').limit(1000);
       if ((_empresaId ?? '').isNotEmpty) {
         q = q.where('empresaId', isEqualTo: _empresaId);
@@ -390,6 +398,9 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   Future<void> _loadCentros() async {
     try {
+      _centros
+        ..clear()
+        ..['todos'] = 'Todos los centros';
       var q = FirebaseFirestore.instance
           .collection('TBL_CENTROS_COSTO')
           .limit(1000);

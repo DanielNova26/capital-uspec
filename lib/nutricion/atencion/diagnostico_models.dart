@@ -14,6 +14,36 @@ class DiagnosticoMedico {
   final List<String> dietasSugeridas;
   final bool activo;
 
+  // Campos ICD-11 enriquecidos (opcionales — backward compatible).
+  // Solo presentes cuando el diagnóstico proviene de la API oficial de la OMS
+  // o de un caché que ya los tenía guardados.
+  // source: "who_icd11" | "local_catalog" | "firestore_cache"
+  final String? icdUri;
+  final String? source;
+  final String? language;
+  final String? icdRelease;
+
+  // ---------------------------------------------------------------------------
+  // Getters de origen — para trazabilidad en la UI
+  // ---------------------------------------------------------------------------
+
+  /// Etiqueta de origen legible para mostrar en la lupa y en resultados.
+  ///
+  /// - "CIE-11 OMS": resultado en vivo de la API oficial de la OMS (esta búsqueda).
+  /// - "Biblioteca + CIE-11": en catálogo local y enriquecido con datos OMS.
+  /// - "Biblioteca": catálogo interno (Excel/Firestore) sin datos OMS.
+  String get origenLabel {
+    if (source == 'who_icd11') return 'CIE-11 OMS';
+    if (source == 'firestore_enriched') return 'Biblioteca + CIE-11';
+    return 'Biblioteca';
+  }
+
+  /// true si el diagnóstico proviene de la API OMS en la búsqueda actual (no caché).
+  bool get esOms => source == 'who_icd11';
+
+  /// true si está en el catálogo local y tiene datos OMS enriquecidos (icdUri presente).
+  bool get estaEnriquecido => source == 'firestore_enriched' && icdUri != null;
+
   const DiagnosticoMedico({
     required this.codigoCie11,
     required this.nombre,
@@ -28,6 +58,10 @@ class DiagnosticoMedico {
     this.dietasContraindicadas = const [],
     this.dietasSugeridas = const [],
     this.activo = true,
+    this.icdUri,
+    this.source,
+    this.language,
+    this.icdRelease,
   });
 
   Map<String, dynamic> toMap() {
@@ -45,6 +79,12 @@ class DiagnosticoMedico {
       'dietasContraindicadas': dietasContraindicadas,
       'dietasSugeridas': dietasSugeridas,
       'activo': activo,
+      // Campos ICD-11: solo se serializan cuando tienen valor.
+      // Los documentos viejos sin estos campos no son afectados en lectura.
+      if (icdUri != null) 'icdUri': icdUri,
+      if (source != null) 'source': source,
+      if (language != null) 'language': language,
+      if (icdRelease != null) 'icdRelease': icdRelease,
     };
   }
 
@@ -63,6 +103,11 @@ class DiagnosticoMedico {
       dietasContraindicadas: _toStringList(map['dietasContraindicadas']),
       dietasSugeridas: _toStringList(map['dietasSugeridas']),
       activo: map['activo'] == true || map['activo']?.toString().toLowerCase() == 'true',
+      // Campos ICD-11: null si el documento no los tiene (compatibilidad hacia atrás).
+      icdUri: map['icdUri']?.toString(),
+      source: map['source']?.toString(),
+      language: map['language']?.toString(),
+      icdRelease: map['icdRelease']?.toString(),
     );
   }
 
@@ -243,6 +288,11 @@ class EvaluacionDiagnostica {
     if (value == null) return null;
     if (value is DateTime) return value;
     if (value is String) return DateTime.tryParse(value);
+    // Maneja Firestore Timestamp via duck-typing (evita importar cloud_firestore en el modelo)
+    try {
+      final date = (value as dynamic).toDate();
+      if (date is DateTime) return date;
+    } catch (_) {}
     return null;
   }
 }

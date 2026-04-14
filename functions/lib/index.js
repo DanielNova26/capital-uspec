@@ -23,9 +23,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.icd11Search = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
+// ICD-11 token broker + proxy (Fase B)
+var icd11_1 = require("./icd11");
+Object.defineProperty(exports, "icd11Search", { enumerable: true, get: function () { return icd11_1.icd11Search; } });
 const admin = __importStar(require("firebase-admin"));
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 admin.initializeApp();
@@ -118,42 +121,38 @@ function resolveTaskStatus(d) {
         .trim()
         .toLowerCase();
     const approved = isTrue(d?.approved);
+    const finishRequest = (d?.solicitud_finalizacion_estado ?? "")
+        .toString()
+        .trim()
+        .toLowerCase();
     if (approved || raw === "finalizado" || raw === "finalizada")
-        return "finalizada";
-    if (raw === "completada" || raw === "pendiente_aprobacion")
-        return "completada";
+        return "finalizado";
+    if (raw === "por_aprobar" || raw === "pendiente_aprobacion" || finishRequest === "pendiente") {
+        return "por_aprobar";
+    }
     if (raw === "devuelta")
         return "devuelta";
     if (hasPendingReassign(d) || raw === "reasignado")
         return "reasignado";
     const due = taskToDate(d?.fecha_limite ?? d?.dueDate);
     const days = taskDaysLeft(due);
-    if (raw === "retrasado" || (days !== null && days < 0))
-        return "retrasado";
-    if (raw === "en_progreso")
-        return "en_progreso";
-    const visto = isTrue(d?.visto);
-    if (visto || raw === "visto")
-        return "visto";
-    return "activas";
+    if (raw === "retrasado" || raw === "retrasada" || (days !== null && days < 0))
+        return "retrasada";
+    return "en_progreso";
 }
 function statusLabel(status) {
     switch (status) {
-        case "activas":
-            return "activa";
-        case "visto":
-            return "vista";
         case "en_progreso":
             return "en progreso";
+        case "por_aprobar":
+            return "pendiente de aprobación";
         case "reasignado":
             return "reasignada";
-        case "completada":
-            return "completada";
-        case "finalizada":
+        case "finalizado":
             return "finalizada";
         case "devuelta":
             return "devuelta";
-        case "retrasado":
+        case "retrasada":
             return "retrasada";
         default:
             return status;
@@ -172,8 +171,23 @@ async function saveInAppNotification(userId, payload) {
     await parentRef.set({ updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
     // subcollection (esto coincide con tu Flutter)
     const subRef = parentRef.collection("notifications");
+    let finalPayload = { ...payload };
+    const taskId = (payload.taskId ?? "").toString().trim();
+    const rawEmpresaId = (payload.empresaId ?? "").toString().trim();
+    if (!rawEmpresaId && taskId) {
+        try {
+            const taskSnap = await db.collection("TBL_TAREAS").doc(taskId).get();
+            const taskEmpresaId = (taskSnap.get("empresaId") ?? "").toString().trim();
+            if (taskEmpresaId) {
+                finalPayload = { ...finalPayload, empresaId: taskEmpresaId };
+            }
+        }
+        catch (error) {
+            console.error("[saveInAppNotification] empresaId enrich error:", error);
+        }
+    }
     await subRef.add({
-        ...payload,
+        ...finalPayload,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         read: false,
     });
@@ -303,7 +317,10 @@ exports.onTaskUpdated = functions
     const statusAfter = resolveTaskStatus(after || null);
     const statusChanged = statusBefore !== statusAfter;
     console.log("[onTaskUpdated] taskId:", taskId, "prev:", prevAssigned, "new:", newAssigned);
-    if (newAssigned && newAssigned !== prevAssigned) {
+    // Conjunto de usuarios ya notificados en este update para evitar duplicados.
+    const notifiedIds = new Set();
+    const assigneeChanged = !!(newAssigned && newAssigned !== prevAssigned);
+    if (assigneeChanged) {
         // Notif al nuevo asignado
         try {
             await saveInAppNotification(newAssigned, {
@@ -312,11 +329,12 @@ exports.onTaskUpdated = functions
                 taskId,
                 type: prevAssigned ? "task_reassigned" : "task_assigned",
             });
+            notifiedIds.add(newAssigned);
         }
         catch (e) {
             console.error("[onTaskUpdated] saveInAppNotification error:", e);
         }
-        // Aviso silencioso al jefe
+        // Aviso al jefe del nuevo asignado
         const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
         if (bossId2 && bossId2 !== newAssigned) {
             try {
@@ -326,24 +344,52 @@ exports.onTaskUpdated = functions
                     taskId,
                     type: "task_reassigned_report",
                 });
+                notifiedIds.add(bossId2);
             }
             catch (e) {
                 console.error("[onTaskUpdated] boss save notif error:", e);
             }
         }
+        // Aviso al creador cuando es una reasignación (no primera asignación)
+        if (prevAssigned) {
+            const creatorId2 = getCreatorId(after || null);
+            if (creatorId2 && !notifiedIds.has(creatorId2)) {
+                try {
+                    await saveInAppNotification(creatorId2, {
+                        title: "Tarea reasignada",
+                        description: `${title} · Nuevo responsable: ${after?.asignado_nombre || newAssigned}`,
+                        taskId,
+                        type: "task_reassigned_info",
+                    });
+                    notifiedIds.add(creatorId2);
+                }
+                catch (e) {
+                    console.error("[onTaskUpdated] creator reassign notif error:", e);
+                }
+            }
+        }
     }
     if (statusChanged) {
         const label = statusLabel(statusAfter);
-        const notifTitle = `Estado de tarea: ${label}`;
-        const notifBody = `${title} · ${label}`;
-        const recipients = new Set();
+        const isPorAprobar = statusAfter === "por_aprobar";
+        const notifTitle = isPorAprobar
+            ? "Solicitud de finalización"
+            : `Estado de tarea: ${label}`;
+        const notifBody = `${title} · ${isPorAprobar ? "pendiente de aprobación" : label}`;
+        const notifType = isPorAprobar ? "solicitud_finalizacion" : `task_status_${statusAfter}`;
         const creatorId = getCreatorId(after || null);
         const bossId = getBossId(after || null);
-        if (newAssigned)
+        // Solo notificar a quienes NO recibieron ya la notificación de cambio de asignado
+        // Para solicitud_finalizacion: no notificar al propio solicitante (asignado)
+        const solicitanteUid = isPorAprobar
+            ? (after?.solicitud_finalizacion_by_uid ?? "").toString().trim()
+            : "";
+        const recipients = new Set();
+        if (!isPorAprobar && newAssigned && !notifiedIds.has(newAssigned))
             recipients.add(newAssigned);
-        if (creatorId)
+        if (creatorId && !notifiedIds.has(creatorId) && creatorId !== solicitanteUid)
             recipients.add(creatorId);
-        if (bossId)
+        if (bossId && !notifiedIds.has(bossId) && bossId !== solicitanteUid)
             recipients.add(bossId);
         if (recipients.size === 0)
             return;
@@ -353,7 +399,7 @@ exports.onTaskUpdated = functions
                     title: notifTitle,
                     description: notifBody,
                     taskId,
-                    type: `task_status_${statusAfter}`,
+                    type: notifType,
                 });
             }
             catch (e) {
@@ -456,10 +502,11 @@ exports.notifyTaskCompleted = functions
     const taskId = (data?.taskId || "").toString().trim();
     const title = (data?.title || "Tarea completada").toString();
     const body = (data?.body || "").toString();
+    const type = (data?.type || "task_completed").toString();
     if (!creatorId || !taskId) {
         throw new functions.https.HttpsError("invalid-argument", "creatorId y taskId requeridos");
     }
-    await saveInAppNotification(creatorId, { title, description: body, taskId, type: "task_completed" });
+    await saveInAppNotification(creatorId, { title, description: body, taskId, type });
     return { ok: true };
 });
 exports.notifyTaskNews = functions
@@ -470,11 +517,12 @@ exports.notifyTaskNews = functions
     const boss = (data?.bossId || "").toString().trim();
     const title = (data?.title || "Novedad en tarea").toString();
     const body = (data?.body || "").toString();
+    const type = (data?.type || "task_news").toString();
     if (!taskId)
         throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
     const recipients = [creator, boss].filter((x) => !!x && x.length > 0);
     await Promise.all(recipients.map(async (uid) => {
-        await saveInAppNotification(uid, { title, description: body, taskId, type: "task_news" });
+        await saveInAppNotification(uid, { title, description: body, taskId, type });
     }));
     return { ok: true, count: recipients.length };
 });

@@ -1,25 +1,16 @@
 // lib/nutricion/ingredientes/nutricion_ingredientes_screen.dart
-//
-// Tabla de ingredientes del sistema de nutrición.
-// Datos base extraídos de "TABLA PARA CALCULAR LA DIETA DE PICOTA.xlsx"
-// Categorías: Cereal, Proteína, Fruta, Tubérculo, Lácteo, Verdura, Otro
 
 import 'package:flutter/material.dart';
 import 'package:todo/services/nutricion_service.dart';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Ingredientes base del Excel (Dieta de Picota - INPEC)
-// ─────────────────────────────────────────────────────────────────────────────
+import 'package:todo/theme/app_typography.dart';
+import '../widgets/nutrition_shared_widgets.dart';
 
 const List<Map<String, dynamic>> kIngredientesBase = [
-  // ── CEREALES ──────────────────────────────────────────────────────────────
   {'nombre': 'Pan', 'categoria': 'Cereal', 'gramosStd': '1 und', 'unidad': 'und', 'tiempos': ['Desayuno', 'Refrigerio']},
   {'nombre': 'Arroz cocido', 'categoria': 'Cereal', 'gramosStd': '170', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Arroz cocido (HPP/HPC)', 'categoria': 'Cereal', 'gramosStd': '85', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Galleta', 'categoria': 'Cereal', 'gramosStd': '3', 'unidad': 'und', 'tiempos': ['Refrigerio']},
   {'nombre': 'Avena', 'categoria': 'Cereal', 'gramosStd': '40', 'unidad': 'g', 'tiempos': ['Desayuno']},
-
-  // ── PROTEÍNAS ─────────────────────────────────────────────────────────────
   {'nombre': 'Huevo', 'categoria': 'Proteína', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Desayuno', 'Almuerzo', 'Cena']},
   {'nombre': 'Pechuga sin hueso cocida', 'categoria': 'Proteína', 'gramosStd': '78', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Pechuga sin hueso cocida (HPP/HPC)', 'categoria': 'Proteína', 'gramosStd': '39', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
@@ -31,40 +22,28 @@ const List<Map<String, dynamic>> kIngredientesBase = [
   {'nombre': 'Carne de res cocida (HPP/HPC)', 'categoria': 'Proteína', 'gramosStd': '39', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Cerdo', 'categoria': 'Proteína', 'gramosStd': '70', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Chuleta de cerdo', 'categoria': 'Proteína', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Almuerzo', 'Cena']},
-
-  // ── LÁCTEOS ───────────────────────────────────────────────────────────────
   {'nombre': 'Queso', 'categoria': 'Lácteo', 'gramosStd': '35', 'unidad': 'g', 'tiempos': ['Desayuno', 'Almuerzo', 'Cena']},
   {'nombre': 'Queso (HPP/HPC)', 'categoria': 'Lácteo', 'gramosStd': '17.5', 'unidad': 'g', 'tiempos': ['Desayuno', 'Almuerzo', 'Cena']},
   {'nombre': 'Leche entera', 'categoria': 'Lácteo', 'gramosStd': '200', 'unidad': 'ml', 'tiempos': ['Desayuno']},
   {'nombre': 'Yogur', 'categoria': 'Lácteo', 'gramosStd': '100', 'unidad': 'g', 'tiempos': ['Refrigerio']},
-
-  // ── FRUTAS ────────────────────────────────────────────────────────────────
   {'nombre': 'Fruta de mano (entera)', 'categoria': 'Fruta', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Desayuno', 'Refrigerio']},
   {'nombre': 'Fruta porcionada', 'categoria': 'Fruta', 'gramosStd': '80', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Refrigerio']},
   {'nombre': 'Banano', 'categoria': 'Fruta', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Desayuno', 'Refrigerio']},
   {'nombre': 'Manzana', 'categoria': 'Fruta', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Refrigerio']},
   {'nombre': 'Naranja', 'categoria': 'Fruta', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Desayuno']},
-
-  // ── TUBÉRCULOS ────────────────────────────────────────────────────────────
   {'nombre': 'Tubérculo (papa/yuca/plátano)', 'categoria': 'Tubérculo', 'gramosStd': '80', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Tubérculo HPP/HPC', 'categoria': 'Tubérculo', 'gramosStd': '80', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Papa cocida', 'categoria': 'Tubérculo', 'gramosStd': '120', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Plátano maduro', 'categoria': 'Tubérculo', 'gramosStd': '1', 'unidad': 'und', 'tiempos': ['Almuerzo']},
   {'nombre': 'Yuca cocida', 'categoria': 'Tubérculo', 'gramosStd': '100', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
-
-  // ── VERDURAS ──────────────────────────────────────────────────────────────
   {'nombre': 'Ensalada mixta', 'categoria': 'Verdura', 'gramosStd': '100', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Verduras al vapor', 'categoria': 'Verdura', 'gramosStd': '100', 'unidad': 'g', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Sopa de verduras', 'categoria': 'Verdura', 'gramosStd': '250', 'unidad': 'ml', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Zanahoria', 'categoria': 'Verdura', 'gramosStd': '50', 'unidad': 'g', 'tiempos': ['Refrigerio']},
-
-  // ── BEBIDAS ───────────────────────────────────────────────────────────────
   {'nombre': 'Agua', 'categoria': 'Bebida', 'gramosStd': '250', 'unidad': 'ml', 'tiempos': ['Desayuno', 'Almuerzo', 'Cena', 'Refrigerio']},
   {'nombre': 'Jugo natural', 'categoria': 'Bebida', 'gramosStd': '200', 'unidad': 'ml', 'tiempos': ['Desayuno']},
   {'nombre': 'Café con leche', 'categoria': 'Bebida', 'gramosStd': '150', 'unidad': 'ml', 'tiempos': ['Desayuno']},
   {'nombre': 'Aromática / infusión', 'categoria': 'Bebida', 'gramosStd': '200', 'unidad': 'ml', 'tiempos': ['Desayuno', 'Refrigerio']},
-
-  // ── OTROS ─────────────────────────────────────────────────────────────────
   {'nombre': 'Aceite vegetal', 'categoria': 'Otro', 'gramosStd': '5', 'unidad': 'ml', 'tiempos': ['Almuerzo', 'Cena']},
   {'nombre': 'Fríjoles / Lentejas cocidos', 'categoria': 'Otro', 'gramosStd': '60', 'unidad': 'g', 'tiempos': ['Almuerzo']},
   {'nombre': 'Aguacate', 'categoria': 'Otro', 'gramosStd': '60', 'unidad': 'g', 'tiempos': ['Almuerzo']},
@@ -72,26 +51,18 @@ const List<Map<String, dynamic>> kIngredientesBase = [
 ];
 
 const List<String> kCategorias = [
-  'Todos',
-  'Cereal',
-  'Proteína',
-  'Lácteo',
-  'Fruta',
-  'Tubérculo',
-  'Verdura',
-  'Bebida',
-  'Otro',
+  'Todos', 'Cereal', 'Proteína', 'Lácteo', 'Fruta', 'Tubérculo', 'Verdura', 'Bebida', 'Otro',
 ];
 
 const Map<String, Color> kColorCategoria = {
-  'Cereal':    Color(0xFFF59E0B),
-  'Proteína':  Color(0xFFEF4444),
-  'Lácteo':    Color(0xFF60A5FA),
-  'Fruta':     Color(0xFF10B981),
-  'Tubérculo': Color(0xFF8B5CF6),
-  'Verdura':   Color(0xFF34D399),
-  'Bebida':    Color(0xFF06B6D4),
-  'Otro':      Color(0xFF94A3B8),
+  'Cereal':    Color(0xFF92400E),
+  'Proteína':  Color(0xFF991B1B),
+  'Lácteo':    Color(0xFF1E40AF),
+  'Fruta':     Color(0xFF065F46),
+  'Tubérculo': Color(0xFF5B21B6),
+  'Verdura':   Color(0xFF166534),
+  'Bebida':    Color(0xFF155E75),
+  'Otro':      Color(0xFF334155),
 };
 
 const Map<String, IconData> kIconoCategoria = {
@@ -105,15 +76,10 @@ const Map<String, IconData> kIconoCategoria = {
   'Otro':      Icons.category_outlined,
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Screen principal
-// ─────────────────────────────────────────────────────────────────────────────
-
 class NutricionIngredientesScreen extends StatefulWidget {
   final String empresaId;
   final String userId;
   final bool showAppBar;
-  /// Si es true, al tap en un ingrediente se pop con el ingrediente seleccionado
   final bool modoSeleccion;
 
   const NutricionIngredientesScreen({
@@ -163,628 +129,315 @@ class _NutricionIngredientesScreenState
 
   @override
   Widget build(BuildContext context) {
-    final body = Column(
+    final bool isWide = MediaQuery.of(context).size.width >= 900;
+
+    final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildBusquedaYFiltros(),
-        Expanded(child: _buildLista()),
+        if (!widget.showAppBar) _buildWebContext(),
+        _buildBusquedaYFiltros(isWide),
+        Expanded(child: _buildLista(isWide)),
       ],
     );
 
     if (!widget.showAppBar) {
-      return Stack(
-        children: [
-          body,
-          if (!widget.modoSeleccion)
-            Positioned(
-              right: 16,
-              bottom: 16,
-              child: FloatingActionButton.extended(
-                onPressed: () => _abrirFormulario(),
-                icon: const Icon(Icons.add),
-                label: const Text('Nuevo ingrediente'),
-              ),
-            ),
-        ],
+      return Scaffold(
+        backgroundColor: NutritionPalette.background,
+        body: content,
+        floatingActionButton: !widget.modoSeleccion ? FloatingActionButton.extended(
+          onPressed: () => _abrirFormulario(),
+          icon: const Icon(Icons.add),
+          label: const Text('NUEVO INGREDIENTE', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+          backgroundColor: NutritionPalette.accent,
+          foregroundColor: Colors.white,
+        ) : null,
       );
     }
 
     return Scaffold(
+      backgroundColor: NutritionPalette.background,
       appBar: AppBar(
-        title: const Text('Ingredientes'),
+        title: const Text('Ingredientes Clínicos', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold)),
+        elevation: 0,
+        backgroundColor: NutritionPalette.primary,
+        foregroundColor: Colors.white,
         actions: [
           if (!widget.modoSeleccion)
-            IconButton(
-              icon: const Icon(Icons.add),
-              tooltip: 'Nuevo ingrediente',
-              onPressed: () => _abrirFormulario(),
-            ),
+            IconButton(icon: const Icon(Icons.add), onPressed: () => _abrirFormulario()),
         ],
       ),
-      body: body,
+      body: content,
     );
   }
 
-  // ── Búsqueda y filtros ─────────────────────────────────────────────────────
+  Widget _buildWebContext() {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(32, 24, 32, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'GESTIÓN TÉCNICA',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: NutritionPalette.accent, fontFamily: kArial),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Catálogo Maestro de Ingredientes',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: NutritionPalette.textMain, fontFamily: kArial),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Configura gramajes estándar, unidades de medida y categorías para la planificación de menús.',
+            style: TextStyle(fontSize: 14, color: NutritionPalette.textMuted, fontFamily: kArial),
+          ),
+        ],
+      ),
+    );
+  }
 
-  Widget _buildBusquedaYFiltros() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+  Widget _buildBusquedaYFiltros(bool isWide) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(isWide ? 32 : 16, 16, isWide ? 32 : 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
             controller: _searchCtrl,
             decoration: InputDecoration(
-              hintText: 'Buscar ingrediente…',
+              hintText: 'Buscar por nombre del alimento…',
               prefixIcon: const Icon(Icons.search, size: 20),
-              suffixIcon: _busqueda.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _searchCtrl.clear();
-                        setState(() => _busqueda = '');
-                      },
-                    )
-                  : null,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              filled: true,
+              fillColor: NutritionPalette.surface,
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.border)),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.accent, width: 2)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
-            onChanged: (v) =>
-                setState(() => _busqueda = v.toLowerCase().trim()),
+            onChanged: (v) => setState(() => _busqueda = v.toLowerCase().trim()),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
           SizedBox(
             height: 36,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: kCategorias.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
               itemBuilder: (_, i) {
                 final cat = kCategorias[i];
                 final active = _categoriaFiltro == cat;
-                final color = cat == 'Todos'
-                    ? Theme.of(context).colorScheme.primary
-                    : (kColorCategoria[cat] ?? Colors.grey);
+                final color = cat == 'Todos' ? NutritionPalette.accent : (kColorCategoria[cat] ?? Colors.grey);
+                
                 return FilterChip(
                   selected: active,
-                  label: Text(cat, style: const TextStyle(fontSize: 12)),
-                  avatar: cat != 'Todos'
-                      ? Icon(kIconoCategoria[cat], size: 14,
-                          color: active ? Colors.white : color)
-                      : null,
-                  onSelected: (_) =>
-                      setState(() => _categoriaFiltro = cat),
+                  label: Text(cat.toUpperCase()),
+                  labelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5, color: active ? Colors.white : color),
+                  backgroundColor: NutritionPalette.surface,
                   selectedColor: color,
                   checkmarkColor: Colors.white,
-                  labelStyle:
-                      TextStyle(color: active ? Colors.white : null),
-                  side: BorderSide(color: active ? color : Colors.transparent),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                  side: BorderSide(color: active ? color : NutritionPalette.border),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  onSelected: (_) => setState(() => _categoriaFiltro = cat),
                 );
               },
             ),
           ),
-          const SizedBox(height: 10),
         ],
       ),
     );
   }
 
-  // ── Lista ──────────────────────────────────────────────────────────────────
-
-  Widget _buildLista() {
+  Widget _buildLista(bool isWide) {
     return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _svc.streamIngredientes(
-        empresaId: widget.empresaId,
-        categoria:
-            _categoriaFiltro == 'Todos' ? null : _categoriaFiltro,
-      ),
+      stream: _svc.streamIngredientes(empresaId: widget.empresaId, categoria: _categoriaFiltro == 'Todos' ? null : _categoriaFiltro),
       builder: (context, snap) {
-        if (!snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        var items = snap.data!;
-
-        // Filtro búsqueda
-        if (_busqueda.isNotEmpty) {
-          items = items
-              .where((i) => (i['nombre']?.toString().toLowerCase() ?? '')
-                  .contains(_busqueda))
-              .toList();
-        }
-
-        if (items.isEmpty) {
+        if (snap.hasError) {
           return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.search_off,
-                    size: 48,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurfaceVariant
-                        .withOpacity(0.4)),
-                const SizedBox(height: 12),
-                const Text('Sin ingredientes'),
-                if (!widget.modoSeleccion) ...[
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.warning_amber_outlined, size: 48, color: Colors.redAccent),
                   const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: () => _abrirFormulario(),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Agregar'),
+                  const Text(
+                    'No se pudieron cargar los ingredientes.',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: NutritionPalette.textMain),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Revisa la conexión o intenta nuevamente.',
+                    style: TextStyle(color: NutritionPalette.textMuted),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () => setState(() {}),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('REINTENTAR'),
                   ),
                 ],
-              ],
+              ),
             ),
           );
         }
+        if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        var items = snap.data ?? [];
+        if (_busqueda.isNotEmpty) items = items.where((i) => (i['nombre']?.toString().toLowerCase() ?? '').contains(_busqueda)).toList();
 
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+        if (items.isEmpty) return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.inventory_2_outlined, size: 48, color: NutritionPalette.textMuted), SizedBox(height: 16), Text('Sin resultados en esta categoría', style: TextStyle(color: NutritionPalette.textMuted, fontWeight: FontWeight.w500))]));
+
+        return GridView.builder(
+          padding: EdgeInsets.fromLTRB(isWide ? 32 : 16, 0, isWide ? 32 : 16, 100),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: isWide ? 3 : 1,
+            mainAxisExtent: 80,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 12,
+          ),
           itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 6),
-          itemBuilder: (_, i) => _IngredienteCard(
+          itemBuilder: (_, i) => _IngredienteItem(
             data: items[i],
             modoSeleccion: widget.modoSeleccion,
-            onTap: widget.modoSeleccion
-                ? () => Navigator.of(context).pop(items[i])
-                : () => _abrirFormulario(existing: items[i]),
-            onDelete: widget.modoSeleccion
-                ? null
-                : () => _confirmarEliminar(items[i]),
+            onTap: widget.modoSeleccion ? () => Navigator.of(context).pop(items[i]) : () => _abrirFormulario(existing: items[i]),
+            onDelete: widget.modoSeleccion ? null : () => _confirmarEliminar(items[i]),
           ),
         );
       },
     );
   }
 
-  // ── CRUD ──────────────────────────────────────────────────────────────────
-
   Future<void> _abrirFormulario({Map<String, dynamic>? existing}) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _IngredienteDialog(
-        svc: _svc,
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        existing: existing,
-      ),
-    );
+    await showDialog<void>(context: context, builder: (_) => _IngredienteDialog(svc: _svc, empresaId: widget.empresaId, userId: widget.userId, existing: existing));
   }
 
   Future<void> _confirmarEliminar(Map<String, dynamic> ing) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar ingrediente'),
-        content: Text(
-            '¿Eliminar "${ing['nombre']}"? Esta acción no se puede deshacer.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    await _svc.eliminarIngrediente(ing['id']?.toString() ?? '');
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Ingrediente eliminado'),
-        behavior: SnackBarBehavior.floating,
-      ));
-    }
+    final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Eliminar Ingrediente'),
+      content: Text('¿Deseas eliminar "${ing['nombre']}"?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCELAR')),
+        FilledButton(onPressed: () => Navigator.pop(ctx, true), style: FilledButton.styleFrom(backgroundColor: Colors.red[800]), child: const Text('ELIMINAR')),
+      ],
+    ));
+    if (ok == true && mounted) await _svc.eliminarIngrediente(ing['id']?.toString() ?? '');
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Card de ingrediente
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _IngredienteCard extends StatelessWidget {
+class _IngredienteItem extends StatelessWidget {
   final Map<String, dynamic> data;
   final bool modoSeleccion;
   final VoidCallback onTap;
   final VoidCallback? onDelete;
 
-  const _IngredienteCard({
-    required this.data,
-    required this.modoSeleccion,
-    required this.onTap,
-    this.onDelete,
-  });
+  const _IngredienteItem({required this.data, required this.modoSeleccion, required this.onTap, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
-    final nombre = data['nombre']?.toString() ?? '';
-    final categoria = data['categoria']?.toString() ?? 'Otro';
-    final gramos = data['gramosStd']?.toString() ?? '';
-    final unidad = data['unidad']?.toString() ?? 'g';
-    final color = kColorCategoria[categoria] ?? Colors.grey;
-    final icon = kIconoCategoria[categoria] ?? Icons.category_outlined;
-    final tiempos = (data['tiempos'] as List<dynamic>? ?? [])
-        .map((t) => t.toString())
-        .toList();
+    final cat = data['categoria']?.toString() ?? 'Otro';
+    final color = kColorCategoria[cat] ?? Colors.grey;
+    final icon = kIconoCategoria[cat] ?? Icons.category_outlined;
 
-    return Card(
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              // Icono categoría
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 20, color: color),
-              ),
-              const SizedBox(width: 12),
-
-              // Nombre + categoría + tiempos
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(nombre,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 14)),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: color.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(categoria,
-                              style: TextStyle(
-                                  fontSize: 11,
-                                  color: color,
-                                  fontWeight: FontWeight.w600)),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          tiempos.join(' · '),
-                          style: TextStyle(
-                              fontSize: 11,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // Gramaje
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: NutritionPalette.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: NutritionPalette.border.withOpacity(0.8)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+              child: Icon(icon, size: 20, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(gramos,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 15)),
-                  Text(unidad,
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurfaceVariant)),
+                  Text(data['nombre']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: NutritionPalette.textMain), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(cat.toUpperCase(), style: TextStyle(fontSize: 9, color: color, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
                 ],
               ),
-
-              if (onDelete != null) ...[
-                const SizedBox(width: 4),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  tooltip: 'Eliminar',
-                  onPressed: onDelete,
-                ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(data['gramosStd']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: NutritionPalette.accent)),
+                Text(data['unidad']?.toString().toUpperCase() ?? 'G', style: const TextStyle(fontSize: 9, color: NutritionPalette.textMuted, fontWeight: FontWeight.bold)),
               ],
-              if (modoSeleccion)
-                const Icon(Icons.chevron_right, size: 18),
+            ),
+            if (onDelete != null) ...[
+              const SizedBox(width: 12),
+              IconButton(icon: Icon(Icons.close, size: 18, color: NutritionPalette.textMuted), onPressed: onDelete, constraints: const BoxConstraints()),
             ],
-          ),
+          ],
         ),
       ),
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Formulario de ingrediente
-// ─────────────────────────────────────────────────────────────────────────────
 
 class _IngredienteDialog extends StatefulWidget {
   final NutricionService svc;
   final String empresaId;
   final String userId;
   final Map<String, dynamic>? existing;
-
-  const _IngredienteDialog({
-    required this.svc,
-    required this.empresaId,
-    required this.userId,
-    this.existing,
-  });
-
-  @override
-  State<_IngredienteDialog> createState() => _IngredienteDialogState();
+  const _IngredienteDialog({required this.svc, required this.empresaId, required this.userId, this.existing});
+  @override State<_IngredienteDialog> createState() => _IngredienteDialogState();
 }
 
 class _IngredienteDialogState extends State<_IngredienteDialog> {
-  late final TextEditingController _nombreCtrl;
-  late final TextEditingController _gramosCtrl;
-  late final TextEditingController _unidadCtrl;
-  late String _categoria;
-  late List<String> _tiempos;
-  bool _saving = false;
-  String? _error;
+  late final TextEditingController _n, _g, _u;
+  late String _c;
+  bool _s = false;
 
   @override
   void initState() {
     super.initState();
     final ex = widget.existing;
-    _nombreCtrl =
-        TextEditingController(text: ex?['nombre']?.toString() ?? '');
-    _gramosCtrl =
-        TextEditingController(text: ex?['gramosStd']?.toString() ?? '');
-    _unidadCtrl =
-        TextEditingController(text: ex?['unidad']?.toString() ?? 'g');
-    _categoria =
-        ex?['categoria']?.toString() ?? 'Cereal';
-    _tiempos = (ex?['tiempos'] as List<dynamic>? ?? [])
-        .map((t) => t.toString())
-        .toList();
-    if (_tiempos.isEmpty) _tiempos = ['Almuerzo'];
+    _n = TextEditingController(text: ex?['nombre']?.toString() ?? '');
+    _g = TextEditingController(text: ex?['gramosStd']?.toString() ?? '');
+    _u = TextEditingController(text: ex?['unidad']?.toString() ?? 'g');
+    _c = ex?['categoria']?.toString() ?? 'Cereal';
   }
 
-  @override
-  void dispose() {
-    _nombreCtrl.dispose();
-    _gramosCtrl.dispose();
-    _unidadCtrl.dispose();
-    super.dispose();
-  }
+  @override void dispose() { _n.dispose(); _g.dispose(); _u.dispose(); super.dispose(); }
 
-  Future<void> _guardar() async {
-    if (_nombreCtrl.text.trim().isEmpty) {
-      setState(() => _error = 'El nombre es obligatorio.');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
+  Future<void> _save() async {
+    if (_n.text.isEmpty) return;
+    setState(() => _s = true);
     try {
-      await widget.svc.guardarIngrediente(
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        id: widget.existing?['id']?.toString(),
-        data: {
-          'nombre': _nombreCtrl.text.trim(),
-          'gramosStd': _gramosCtrl.text.trim(),
-          'unidad': _unidadCtrl.text.trim().isEmpty
-              ? 'g'
-              : _unidadCtrl.text.trim(),
-          'categoria': _categoria,
-          'tiempos': _tiempos,
-        },
-      );
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Error: $e');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
+      await widget.svc.guardarIngrediente(empresaId: widget.empresaId, userId: widget.userId, id: widget.existing?['id']?.toString(), data: {'nombre': _n.text.trim(), 'gramosStd': _g.text.trim(), 'unidad': _u.text.trim(), 'categoria': _c, 'tiempos': ['Almuerzo']});
+      if (mounted) Navigator.pop(context);
+    } catch (_) { if (mounted) setState(() => _s = false); }
   }
 
   @override
   Widget build(BuildContext context) {
-    final esEdicion = widget.existing != null;
-    return Dialog(
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Encabezado
-              Row(
-                children: [
-                  Icon(
-                      esEdicion
-                          ? Icons.edit_outlined
-                          : Icons.add_circle_outline,
-                      color: Theme.of(context).colorScheme.primary,
-                      size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                        esEdicion
-                            ? 'Editar ingrediente'
-                            : 'Nuevo ingrediente',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // Nombre
-              TextField(
-                controller: _nombreCtrl,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  labelText: 'Nombre del ingrediente',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                  prefixIcon:
-                      const Icon(Icons.lunch_dining_outlined, size: 20),
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Categoría
-              DropdownButtonFormField<String>(
-                value: _categoria,
-                decoration: InputDecoration(
-                  labelText: 'Categoría',
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                  prefixIcon: Icon(
-                      kIconoCategoria[_categoria] ??
-                          Icons.category_outlined,
-                      size: 20),
-                ),
-                items: kCategorias
-                    .where((c) => c != 'Todos')
-                    .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(c)))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) setState(() => _categoria = v);
-                },
-              ),
-              const SizedBox(height: 10),
-
-              // Gramos + Unidad
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: _gramosCtrl,
-                      keyboardType: TextInputType.text,
-                      decoration: InputDecoration(
-                        labelText: 'Cantidad estándar',
-                        hintText: '80 ó 1',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _unidadCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Unidad',
-                        hintText: 'g / ml / und',
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Tiempos de comida
-              Text('Tiempos de comida',
-                  style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 8,
-                children: ['Desayuno', 'Almuerzo', 'Cena', 'Refrigerio']
-                    .map((t) {
-                  final sel = _tiempos.contains(t);
-                  return FilterChip(
-                    label: Text(t, style: const TextStyle(fontSize: 12)),
-                    selected: sel,
-                    onSelected: (v) {
-                      setState(() {
-                        if (v) {
-                          _tiempos.add(t);
-                        } else {
-                          _tiempos.remove(t);
-                        }
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!,
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                        fontSize: 12)),
-              ],
-
-              const SizedBox(height: 16),
-
-              // Acciones
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed:
-                        _saving ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Cancelar'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _guardar,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.save_outlined, size: 18),
-                    label: Text(_saving ? 'Guardando…' : 'Guardar'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      title: Text(widget.existing == null ? 'Nuevo Ingrediente' : 'Editar Ingrediente', style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: kArial)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(controller: _n, decoration: const InputDecoration(labelText: 'Nombre')),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(value: _c, items: kCategorias.where((x)=>x!='Todos').map((x)=>DropdownMenuItem(value:x, child: Text(x))).toList(), onChanged: (v)=>setState(()=>_c=v!), decoration: const InputDecoration(labelText: 'Categoría')),
+          const SizedBox(height: 12),
+          Row(children: [Expanded(child: TextField(controller: _g, decoration: const InputDecoration(labelText: 'Cant. Std'))), const SizedBox(width: 12), Expanded(child: TextField(controller: _u, decoration: const InputDecoration(labelText: 'Unidad')))]),
+        ],
       ),
+      actions: [
+        TextButton(onPressed: ()=>Navigator.pop(context), child: const Text('CANCELAR')),
+        FilledButton(onPressed: _s ? null : _save, style: FilledButton.styleFrom(backgroundColor: NutritionPalette.accent), child: Text(_s ? 'GUARDANDO…' : 'GUARDAR')),
+      ],
     );
   }
 }

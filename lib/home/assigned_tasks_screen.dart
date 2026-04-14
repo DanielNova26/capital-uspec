@@ -1,35 +1,26 @@
-// lib/home/assigned_tasks_screen.dart
-//
-// Pantalla: "Mis tareas asignadas"
-// - Lista tareas asignadas al usuario (TBL_TAREAS.where('asignado_uid'==userId))
-// - Acciones: Completar / Reportar avance / Reportar novedad
-// - Adjuntos: abre URL o Storage path
-// - Opción B: Reasignación (directa si creador/jefe; si no, solicitud pendiente)
-// - Solicitud de finalización: queda pendiente para aprobación del creador/jefe
-//
-// Requiere:
-//   cloud_firestore, firebase_storage, intl, url_launcher
-//
-// Ajusta imports si tu estructura difiere.
-
-import 'dart:collection';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
-import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
+import 'package:todo/widgets/task_filters_panel.dart';
+import 'package:todo/widgets/task_responsive_layout.dart' hide kArial;
+import 'package:todo/widgets/task_modern_card.dart';
+import 'package:todo/widgets/task_summary_header.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../core/task_route_guard.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
 import 'notify_novedades_screen.dart' hide kArial;
 
 const Color kMarronOscuro = Color(0xFF145DA0);
+const String kTaskArial = 'Arial';
 
 class AssignedTasksScreen extends StatefulWidget {
   final String userId;
@@ -48,10 +39,10 @@ class AssignedTasksScreen extends StatefulWidget {
 class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   // filtros
   final _searchCtrl = TextEditingController();
-  String _statusFilter = 'todas'; // todas | en_progreso | por_aprobar | finalizado | retrasada
+  String _statusFilter = 'todas';
   String _areaFilter = 'todas';
-  bool _groupByArea = true;
-  final Map<String, bool> _areaExpanded = {};
+  bool _groupByArea = false;
+  bool _didAutoOpen = false;
 
   // bootstrap
   Set<String> _empresaIds = {};
@@ -62,7 +53,10 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
 
-  bool _didAutoOpen = false;
+  bool _routeValidationScheduled = false;
+  bool _routeValidationDone = false;
+  bool _routeAllowed = true;
+  String? _routeDeniedMessage;
 
   @override
   void initState() {
@@ -79,6 +73,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       _empresaState = scope..addListener(_onEmpresaChanged);
     }
     _syncEmpresa(scope.selectedEmpresaId);
+    _scheduleRouteValidation();
   }
 
   void _onEmpresaChanged() => _syncEmpresa(_empresaState?.selectedEmpresaId);
@@ -92,6 +87,52 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     });
   }
 
+  void _scheduleRouteValidation() {
+    final taskId = widget.highlightTaskId?.trim() ?? '';
+    if (taskId.isEmpty) {
+      if (_routeValidationDone) return;
+      setState(() => _routeValidationDone = true);
+      return;
+    }
+    if (_routeValidationScheduled) return;
+    _routeValidationScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _validateHighlightedTaskRoute(taskId);
+    });
+  }
+
+  Future<void> _validateHighlightedTaskRoute(String taskId) async {
+    final validation = await TaskRouteGuard().validateTaskAccess(
+      context,
+      userIdentity: widget.userId,
+      taskId: taskId,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _routeValidationDone = true;
+      _routeAllowed = validation.allowed;
+      _routeDeniedMessage = validation.message;
+    });
+
+    if (validation.allowed) return;
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          validation.message ?? 'No tienes permiso para abrir esta tarea.',
+        ),
+      ),
+    );
+
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -99,9 +140,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     super.dispose();
   }
 
-  // -------------------------
-  // Helpers lectura segura
-  // -------------------------
   String _str(Map<String, dynamic> m, List<String> keys, {String def = ''}) {
     for (final k in keys) {
       final v = m[k];
@@ -118,27 +156,8 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       if (v == null) continue;
       if (v is Timestamp) return v;
       if (v is int) return Timestamp.fromMillisecondsSinceEpoch(v);
-      if (v is String) {
-        final n = int.tryParse(v);
-        if (n != null) return Timestamp.fromMillisecondsSinceEpoch(n);
-        final d = DateTime.tryParse(v);
-        if (d != null) return Timestamp.fromDate(d);
-      }
     }
     return null;
-  }
-
-  String _fmtTs(Timestamp? ts, {String pat = 'dd/MM/yyyy HH:mm'}) {
-    if (ts == null) return '—';
-    return DateFormat(pat).format(ts.toDate());
-  }
-
-  int? _daysLeft(Timestamp? due) {
-    if (due == null) return null;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final end = DateTime(due.toDate().year, due.toDate().month, due.toDate().day, 23, 59, 59);
-    return end.difference(today).inDays;
   }
 
   String _areaKeyFor(Map<String, dynamic> data) {
@@ -171,39 +190,33 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     return nombre.isNotEmpty ? nombre : widget.userId;
   }
 
-  // -------------------------
-  // Estado y colores
-  // -------------------------
-  Color _statusColor(String s) => taskStatusColor(s);
-
-  Widget _statusChip(String status) {
-    final txt = _statusLabel(status);
-    return Chip(
-      label: Text(txt, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
-      backgroundColor: _statusColor(status),
-    );
-  }
-
-  String _statusLabel(String status) {
-    switch (status) {
-      case 'en_progreso':
-        return 'En progreso';
-      case 'por_aprobar':
-        return 'Por aprobar';
-      case 'finalizado':
-        return 'Finalizado';
-      case 'retrasada':
-        return 'Retrasada';
-      default:
-        return status.isEmpty ? 'sin_estado' : status;
-    }
-  }
-
   String _resolvedStatus(Map<String, dynamic> data) => resolveTaskStatus(data);
 
-  // -------------------------
-  // Adjuntos: URL o Storage path
-  // -------------------------
+  // --- Stats logic ---
+  Map<String, int> _calcStats(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    int total = 0;
+    int inProgress = 0;
+    int overdue = 0;
+    int pendingApproval = 0;
+
+    for (final d in docs) {
+      final m = d.data();
+      final status = resolveTaskStatus(m);
+      if (status == 'finalizado') continue;
+      total++;
+      if (status == 'en_progreso') inProgress++;
+      if (status == 'retrasada') overdue++;
+      if (status == 'por_aprobar') pendingApproval++;
+    }
+
+    return {
+      'total': total,
+      'inProgress': inProgress,
+      'overdue': overdue,
+      'pendingApproval': pendingApproval,
+    };
+  }
+
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
     final out = <Map<String, String>>[];
     final seen = <String>{};
@@ -218,7 +231,6 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       out.add(att);
     }
 
-    // adjuntos: lista de maps {name,url,path}
     final adj = (data['adjuntos'] as List?) ?? (data['attachments'] as List?);
     if (adj != null) {
       for (final e in adj) {
@@ -227,1133 +239,662 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           final name = (m['name'] ?? m['filename'] ?? 'archivo').toString();
           final url = (m['url'] ?? '').toString();
           final path = (m['path'] ?? '').toString();
-          addAttachment({'name': name, 'url': url, 'path': path});
+          final desc = (m['desc'] ?? m['description'] ?? m['process'] ?? '').toString();
+          addAttachment({'name': name, 'url': url, 'path': path, 'desc': desc});
         }
       }
     }
-
-    // evidencias: lista de urls string
-    final evid = (data['evidencias'] as List?)?.cast<dynamic>() ?? const [];
-    for (final e in evid) {
-      final url = e?.toString() ?? '';
-      if (url.isEmpty) continue;
-      final name = Uri.tryParse(url)?.pathSegments.last ?? 'evidencia';
-      addAttachment({'name': name, 'url': url});
-    }
-
-    // evidencias_paths: lista de paths
-    final evidPaths = (data['evidencias_paths'] as List?)?.cast<dynamic>() ?? const [];
-    for (final p in evidPaths) {
-      final path = p?.toString() ?? '';
-      if (path.isEmpty) continue;
-      final name = path.split('/').last;
-      addAttachment({'name': name, 'path': path});
-    }
-
     return out;
   }
 
   Future<bool> _openAttachment(Map<String, String> m) async {
     String? url = m['url'];
-
     if ((url == null || url.isEmpty) && (m['path']?.isNotEmpty ?? false)) {
-      try {
-        url = await FirebaseStorage.instance.ref(m['path']!).getDownloadURL();
-      } catch (_) {
-        url = null;
-      }
+      try { url = await FirebaseStorage.instance.ref(m['path']!).getDownloadURL(); } catch (_) { url = null; }
     }
     if (url == null || !url.startsWith('http')) return false;
-
-    // primero externo
-    final okExt = await launchUrlString(url, mode: LaunchMode.externalApplication);
-    if (okExt) return true;
-
-    // luego in-app
-    final okIn = await launchUrlString(url, mode: LaunchMode.inAppWebView);
-    if (okIn) return true;
-
-    // fallback: google viewer
-    final docs = 'https://docs.google.com/gview?embedded=1&url=${Uri.encodeComponent(url)}';
-    return await launchUrlString(docs, mode: LaunchMode.inAppWebView);
+    return await launchUrlString(url, mode: LaunchMode.externalApplication);
   }
 
   bool _finishPending(Map<String, dynamic> data) {
-    final st = _str(data, ['solicitud_finalizacion_estado']).toLowerCase();
-    return st == 'pendiente';
+    return (data['solicitud_finalizacion_estado'] ?? '').toString().toLowerCase() == 'pendiente';
   }
 
   bool _requiresAttachment(Map<String, dynamic> data) {
     final raw = data['requiere_adjunto'] ?? data['requiereAdjunto'];
     if (raw == null) return true;
     if (raw is bool) return raw;
-    final normalized = raw.toString().toLowerCase().trim();
-    return normalized == 'true' || normalized == 'si';
+    return raw.toString().toLowerCase().trim() == 'true' || raw.toString().toLowerCase().trim() == 'si';
   }
 
-  Future<void> _quickCompleteTask(String taskId) async {
-    final now = Timestamp.now();
-    final byName = _currentUserName();
-
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
-      'estado': 'por_aprobar',
-      'status': 'por_aprobar',
-      'solicitud_finalizacion_estado': 'pendiente',
-      'solicitud_finalizacion_at': now,
-      'solicitud_finalizacion_by_uid': widget.userId,
-      'solicitud_finalizacion_by_nombre': byName,
-      'actualizada_en': now,
-      'fecha_actualizacion': now,
-      'updatedAt': now,
-      'lastEventType': 'solicitud_finalizacion',
-      'lastEventAt': now,
-      'lastEventText': 'Solicitud de finalización enviada por $byName',
-    });
+  String _fmtTs(Timestamp? ts) {
+    if (ts == null) return '—';
+    return DateFormat('dd/MM/yyyy').format(ts.toDate());
   }
 
-  Future<void> _confirmQuickComplete(String taskId) async {
-    await showDialog<void>(
+  String _priorityLabel(Map<String, dynamic> data) {
+    return _str(data, ['prioridad', 'priority'], def: 'Normal');
+  }
+
+  Future<void> _requestReassign(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    final empresaId = _selectedEmpresaId?.trim().isNotEmpty == true
+        ? _selectedEmpresaId!.trim()
+        : (_empresaIds.length == 1 ? _empresaIds.first : '');
+    if (empresaId.isEmpty) return;
+
+    final areasSnap = await FirebaseFirestore.instance
+        .collection('TBL_AREAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final cargosSnap = await FirebaseFirestore.instance
+        .collection('TBL_CARGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final usersSnap = await FirebaseFirestore.instance
+        .collection('TBL_USUARIOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+
+    final areas = areasSnap.docs
+        .map((d) => {'id': d.id, 'nombre': (d.data()['nombre'] ?? d.id).toString()})
+        .toList()
+      ..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
+    final cargos = cargosSnap.docs
+        .map((d) => {
+              'id': d.id,
+              'nombre': (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id).toString(),
+              'areaId': (d.data()['areaId'] ?? '').toString(),
+            })
+        .toList();
+    final usuarios = usersSnap.docs.map((d) {
+      final m = d.data();
+      final nombre = [
+        (m['nombres'] ?? m['primerNombre'] ?? '').toString(),
+        (m['apellidos'] ?? m['primerApellido'] ?? '').toString(),
+      ].where((e) => e.trim().isNotEmpty).join(' ').trim();
+      return {
+        'id': d.id,
+        'nombre': nombre.isEmpty ? d.id : nombre,
+        'areaId': (m['areaId'] ?? '').toString(),
+        'cargoId': (m['cargoId'] ?? '').toString(),
+        'cargo': (m['cargo'] ?? '').toString(),
+      };
+    }).toList();
+
+    String? selectedAreaId;
+    String? selectedCargoId;
+    String search = '';
+    Map<String, String>? pickedUser;
+
+    final bool? ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Completar tarea', style: TextStyle(fontFamily: kArial)),
-        content: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Icon(Icons.check_circle, color: Colors.green),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Esta tarea no requiere adjuntos.\n\nSe enviará a aprobación.\n\n¿Deseas continuar?',
-                style: TextStyle(fontFamily: kArial),
+      builder: (_) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final filteredCargos = cargos.where((c) {
+            if (selectedAreaId == null || selectedAreaId!.isEmpty) return false;
+            return c['areaId'] == selectedAreaId;
+          }).toList()
+            ..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
+
+          final filteredUsers = usuarios.where((u) {
+            if (u['id'] == widget.userId) return false;
+            if (selectedAreaId != null &&
+                selectedAreaId!.isNotEmpty &&
+                u['areaId'] != selectedAreaId) {
+              return false;
+            }
+            if (selectedCargoId != null &&
+                selectedCargoId!.isNotEmpty &&
+                u['cargoId'] != selectedCargoId) {
+              return false;
+            }
+            if (search.trim().isNotEmpty &&
+                !u['nombre']!.toLowerCase().contains(search.trim().toLowerCase())) {
+              return false;
+            }
+            return true;
+          }).toList()
+            ..sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
+
+          return AlertDialog(
+            title: const Text('Solicitar reasignación'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: selectedAreaId,
+                      decoration: const InputDecoration(
+                        labelText: 'Área',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: areas
+                          .map((a) => DropdownMenuItem<String>(
+                                value: a['id'],
+                                child: Text(a['nombre']!),
+                              ))
+                          .toList(),
+                      onChanged: (value) => setDialogState(() {
+                        selectedAreaId = value;
+                        selectedCargoId = null;
+                        pickedUser = null;
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedCargoId,
+                      decoration: const InputDecoration(
+                        labelText: 'Cargo',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: filteredCargos
+                          .map((c) => DropdownMenuItem<String>(
+                                value: c['id'],
+                                child: Text(c['nombre']!),
+                              ))
+                          .toList(),
+                      onChanged: (value) => setDialogState(() {
+                        selectedCargoId = value;
+                        pickedUser = null;
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'Buscar por nombre',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => setDialogState(() {
+                        search = value;
+                        pickedUser = null;
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: filteredUsers.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('No hay usuarios para los filtros seleccionados.'),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: filteredUsers.length,
+                              itemBuilder: (_, i) {
+                                final user = filteredUsers[i];
+                                final selected = pickedUser?['id'] == user['id'];
+                                return RadioListTile<String>(
+                                  value: user['id']!,
+                                  groupValue: pickedUser?['id'],
+                                  onChanged: (_) => setDialogState(() {
+                                    final areaName = areas
+                                        .firstWhere(
+                                          (a) => a['id'] == user['areaId'],
+                                          orElse: () => {'id': '', 'nombre': ''},
+                                        )['nombre']!;
+                                    pickedUser = {
+                                      'id': user['id']!,
+                                      'nombre': user['nombre']!,
+                                      'areaId': user['areaId'] ?? '',
+                                      'areaNombre': areaName,
+                                      'cargoId': user['cargoId'] ?? '',
+                                      'cargoNombre': user['cargo'] ?? '',
+                                    };
+                                  }),
+                                  title: Text(user['nombre']!),
+                                  subtitle: Text(
+                                    [
+                                      if ((user['cargo'] ?? '').toString().trim().isNotEmpty)
+                                        user['cargo']!,
+                                      user['id']!,
+                                    ].join(' • '),
+                                  ),
+                                  selected: selected,
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              try {
-                await _quickCompleteTask(taskId);
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Solicitud enviada para aprobación.')),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-              }
-            },
-            child: const Text('Confirmar'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: pickedUser == null
+                    ? null
+                    : () => Navigator.pop(context, true),
+                child: const Text('Enviar'),
+              ),
+            ],
+          );
+        },
       ),
     );
-  }
 
-  // -------------------------
-  // Opción B: Reasignación
-  //  - Directa si user es creador/jefe
-  //  - Si no, solicitud pendiente en el doc
-  // -------------------------
-  bool _canDirectReassign(Map<String, dynamic> data) {
-    final creatorId = _str(data, ['creador_id', 'creatorId', 'creador_uid']);
-    final bossId = _str(data, ['jefe_uid', 'bossId', 'delegatedTo']);
-    return widget.userId == creatorId || widget.userId == bossId;
-  }
+    if (ok != true || pickedUser == null) {
+      return;
+    }
 
-  Future<void> _directReassign({
-    required String taskId,
-    required String newUid,
-    required String newName,
-    String? newAreaId,
-  }) async {
     final now = Timestamp.now();
-    final byName = _currentUserName();
-
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
-      'asignado_uid': newUid,
-      'asignado_nombre': newName,
-      if (newAreaId != null && newAreaId.trim().isNotEmpty) 'areaId': newAreaId.trim(),
-
-      // limpiar solicitud pendiente si existía
-      'solicitud_reasignacion_estado': FieldValue.delete(),
-      'solicitud_reasignacion_at': FieldValue.delete(),
-      'solicitud_reasignacion_by_uid': FieldValue.delete(),
-      'solicitud_reasignacion_by_nombre': FieldValue.delete(),
-      'solicitud_reasignacion_to_uid': FieldValue.delete(),
-      'solicitud_reasignacion_to_nombre': FieldValue.delete(),
-      'solicitud_reasignacion_areaId': FieldValue.delete(),
-      'reasignado': false,
-
-      'lastEventType': 'reasignada',
-      'lastEventAt': now,
-      'lastEventText': 'Reasignada por $byName a $newName',
-      'fecha_actualizacion': now,
-      'updatedAt': now,
-    });
-  }
-
-  Future<void> _requestReassign({
-    required String taskId,
-    required String newUid,
-    required String newName,
-    String? newAreaId,
-  }) async {
-    final now = Timestamp.now();
-    final byName = _currentUserName();
-
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update({
+    await doc.reference.update({
       'solicitud_reasignacion_estado': 'pendiente',
       'solicitud_reasignacion_at': now,
       'solicitud_reasignacion_by_uid': widget.userId,
-      'solicitud_reasignacion_by_nombre': byName,
-      'solicitud_reasignacion_to_uid': newUid,
-      'solicitud_reasignacion_to_nombre': newName,
-      if (newAreaId != null && newAreaId.trim().isNotEmpty) 'solicitud_reasignacion_areaId': newAreaId.trim(),
-      'reasignado': true,
-
+      'solicitud_reasignacion_by_nombre': _currentUserName(),
+      'solicitud_reasignacion_to_uid': pickedUser!['id'],
+      'solicitud_reasignacion_to_nombre': pickedUser!['nombre'],
+      'solicitud_reasignacion_areaId': pickedUser!['areaId'],
+      'solicitud_reasignacion_areaNombre': pickedUser!['areaNombre'],
+      'solicitud_reasignacion_cargoId': pickedUser!['cargoId'],
+      'solicitud_reasignacion_cargoNombre': pickedUser!['cargoNombre'],
+      'updatedAt': now,
       'lastEventType': 'solicitud_reasignacion',
       'lastEventAt': now,
-      'lastEventText': 'Solicitud de reasignación enviada por $byName a $newName',
-      'fecha_actualizacion': now,
-      'updatedAt': now,
+      'lastEventText': 'Solicitud de reasignación enviada',
     });
-  }
-
-  Future<void> _markTaskSeen(String taskId) async {
-    try {
-      await FirebaseFirestore.instance
-          .collection('TBL_TAREAS')
-          .doc(taskId)
-          .set({'visto': true}, SetOptions(merge: true));
-    } catch (_) {}
-  }
-
-  // Selector Departamento/Persona (usando TBL_DEPARTAMENTOS si existe, si no, fallback TBL_USUARIOS)
-  Future<void> _promptReassignPicker(
-      String taskId, {
-        required Map<String, dynamic> taskData,
-      }) async {
-    final canDirect = _canDirectReassign(taskData);
-
-    String? selectedDept;
-    String? selectedUserUid;
-    String? selectedUserName;
-    String? selectedAreaId;
-
-    final currentAreaId = _str(taskData, ['areaId']);
-    final departamentos = <Map<String, String>>[]; // {id, nombre}
-    final personas = <Map<String, String>>[]; // {uid, nombre, dept}
-
-    Future<void> loadDepartamentos() async {
-      departamentos.clear();
-
-      // 1) Intentar colección de DEPARTAMENTOS
-      try {
-        final depSnap = await FirebaseFirestore.instance
-            .collection('TBL_DEPARTAMENTOS')
-            .orderBy('nombre')
-            .get();
-        if (depSnap.docs.isNotEmpty) {
-          for (final d in depSnap.docs) {
-            final m = d.data();
-            final nombre = (m['nombre'] ?? d.id).toString();
-            departamentos.add({'id': d.id, 'nombre': nombre});
-          }
-          return;
-        }
-      } catch (_) {}
-
-      // 2) Fallback: derivar departamentos desde TBL_USUARIOS
-      try {
-        final usersSnap = await FirebaseFirestore.instance.collection('TBL_USUARIOS').limit(500).get();
-        final set = SplayTreeSet<String>();
-        for (final u in usersSnap.docs) {
-          final dep = (u.data()['departamento'] ?? u.data()['dependencia'] ?? '').toString().trim();
-          if (dep.isNotEmpty) set.add(dep);
-        }
-        departamentos.addAll(set.map((e) => {'id': e, 'nombre': e}));
-      } catch (_) {}
-    }
-
-    Future<void> loadPersonas(String deptIdOrName) async {
-      personas.clear();
-      try {
-        // Primero por 'departamento'
-        final q1 = await FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .where('departamento', isEqualTo: deptIdOrName)
-            .limit(500)
-            .get();
-        if (q1.docs.isNotEmpty) {
-          for (final d in q1.docs) {
-            final m = d.data();
-            final nombre = ((m['nombres'] ?? '') + ' ' + (m['apellidos'] ?? '')).trim();
-            final alt = ((m['primerNombre'] ?? '') + ' ' + (m['primerApellido'] ?? '')).trim();
-            final showName = nombre.isNotEmpty ? nombre : alt;
-            final uid = (m['uid'] ?? d.id).toString();
-            personas.add({'uid': uid, 'nombre': showName.isNotEmpty ? showName : uid, 'dept': deptIdOrName});
-          }
-          return;
-        }
-
-        // Fallback por 'dependencia'
-        final q2 = await FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .where('dependencia', isEqualTo: deptIdOrName)
-            .limit(500)
-            .get();
-        for (final d in q2.docs) {
-          final m = d.data();
-          final nombre = ((m['nombres'] ?? '') + ' ' + (m['apellidos'] ?? '')).trim();
-          final alt = ((m['primerNombre'] ?? '') + ' ' + (m['primerApellido'] ?? '')).trim();
-          final showName = nombre.isNotEmpty ? nombre : alt;
-          final uid = (m['uid'] ?? d.id).toString();
-          personas.add({'uid': uid, 'nombre': showName.isNotEmpty ? showName : uid, 'dept': deptIdOrName});
-        }
-      } catch (_) {}
-    }
-
-    await loadDepartamentos();
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSB) => AlertDialog(
-          title: Text(canDirect ? 'Reasignar tarea' : 'Solicitar reasignación', style: const TextStyle(fontFamily: kArial)),
-          content: SizedBox(
-            width: 420,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_areas.length > 1) ...[
-                  DropdownButtonFormField<String>(
-                    value: selectedAreaId ?? (currentAreaId.isNotEmpty ? currentAreaId : null),
-                    items: _areas.entries
-                        .where((e) => e.key != 'todas')
-                        .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, overflow: TextOverflow.ellipsis)))
-                        .toList(),
-                    decoration: const InputDecoration(
-                      labelText: 'Área (opcional)',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (v) => setSB(() => selectedAreaId = v),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                DropdownButtonFormField<String>(
-                  value: selectedDept,
-                  items: departamentos
-                      .map((d) => DropdownMenuItem(
-                    value: d['id'],
-                    child: Text(d['nombre'] ?? d['id']!, overflow: TextOverflow.ellipsis),
-                  ))
-                      .toList(),
-                  decoration: const InputDecoration(
-                    labelText: 'Departamento',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (v) async {
-                    setSB(() {
-                      selectedDept = v;
-                      selectedUserUid = null;
-                      selectedUserName = null;
-                      personas.clear();
-                    });
-                    if (v != null) {
-                      await loadPersonas(v);
-                      setSB(() {});
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  value: selectedUserUid,
-                  items: personas
-                      .map((p) => DropdownMenuItem(
-                    value: p['uid'],
-                    child: Text(p['nombre'] ?? p['uid']!, overflow: TextOverflow.ellipsis),
-                  ))
-                      .toList(),
-                  decoration: const InputDecoration(
-                    labelText: 'Persona',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (v) {
-                    setSB(() {
-                      selectedUserUid = v;
-                      selectedUserName = personas.firstWhere((e) => e['uid'] == v)['nombre'] ?? '';
-                    });
-                  },
-                ),
-                const SizedBox(height: 10),
-                if (!canDirect)
-                  const Text(
-                    'Esta acción enviará una solicitud al creador/jefe para su aprobación.',
-                    style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-            ElevatedButton(
-              onPressed: (selectedUserUid == null)
-                  ? null
-                  : () async {
-                Navigator.pop(ctx);
-                try {
-                  final uid = selectedUserUid!;
-                  final name = (selectedUserName ?? '').trim().isEmpty ? uid : selectedUserName!.trim();
-                  final areaToSet = (selectedAreaId ?? currentAreaId).trim().isEmpty ? null : (selectedAreaId ?? currentAreaId).trim();
-
-                  if (canDirect) {
-                    await _directReassign(taskId: taskId, newUid: uid, newName: name, newAreaId: areaToSet);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tarea reasignada')));
-                  } else {
-                    await _requestReassign(taskId: taskId, newUid: uid, newName: name, newAreaId: areaToSet);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Solicitud enviada (pendiente)')));
-                  }
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                }
-              },
-              child: Text(canDirect ? 'Reasignar' : 'Solicitar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // -------------------------
-  // Bootstrap: empresas + áreas
-  // -------------------------
-  Set<String> _extractEmpresas(Map<String, dynamic> data) {
-    final out = <String>{};
-    final primary = (data['empresaId'] as String? ?? '').trim();
-    if (primary.isNotEmpty) out.add(primary);
-
-    final list = data['empresas'] as List<dynamic>? ?? const [];
-    for (final e in list) {
-      final id = (e ?? '').toString().trim();
-      if (id.isNotEmpty) out.add(id);
-    }
-
-    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
-    if (detalle != null) {
-      out.addAll(detalle.keys.where((k) => k.trim().isNotEmpty).map((k) => k.trim()));
-    }
-    return out;
   }
 
   Future<void> _loadBootstrap() async {
     try {
       final userDoc = await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(widget.userId).get();
       final data = userDoc.data() ?? {};
-      final empresas = _extractEmpresas(data);
-      final filteredEmpresas = (_selectedEmpresaId?.isNotEmpty ?? false) ? <String>{_selectedEmpresaId!} : empresas;
-
+      final resolvedEmpresaId = resolveValidEmpresaId(
+        data: data,
+        selectedEmpresaId: _selectedEmpresaId,
+        preferredEmpresaId: _selectedEmpresaId,
+      );
+      final filteredEmpresas = resolvedEmpresaId == null ? <String>{} : <String>{resolvedEmpresaId};
       final areas = <String, String>{'todas': 'Todas las áreas'};
-      if (filteredEmpresas.isNotEmpty) {
-        final list = filteredEmpresas.toList();
-        for (var i = 0; i < list.length; i += 10) {
-          final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
-          final snap = await FirebaseFirestore.instance
-              .collection('TBL_AREAS')
-              .where('empresaId', whereIn: chunk)
-              .get();
-          areas.addEntries(snap.docs.map((d) {
-            final m = d.data();
-            final id = (m['areaId'] ?? d.id).toString();
-            final nombre = (m['nombre'] ?? id).toString();
-            return MapEntry(id, nombre);
-          }));
-        }
+      if (resolvedEmpresaId != null) {
+        final snap = await FirebaseFirestore.instance.collection('TBL_AREAS').where('empresaId', isEqualTo: resolvedEmpresaId).get();
+        for (var d in snap.docs) { areas[d.id] = d.data()['nombre'] ?? d.id; }
       }
-
       if (!mounted) return;
-      setState(() {
-        _empresaIds = filteredEmpresas;
-        _areas = areas;
-        _userData = data;
-        if (!_areas.keys.contains(_areaFilter)) _areaFilter = 'todas';
-      });
+      setState(() { _empresaIds = filteredEmpresas; _areas = areas; _userData = data; });
     } catch (_) {}
   }
 
-  // -------------------------
-  // Stream tareas asignadas
-  // -------------------------
   Stream<QuerySnapshot<Map<String, dynamic>>> _streamAssignedToMe() {
-    Query<Map<String, dynamic>> query = FirebaseFirestore.instance
-        .collection('TBL_TAREAS')
-        .where('asignado_uid', isEqualTo: widget.userId);
-    if (_selectedEmpresaId != null && _selectedEmpresaId!.isNotEmpty) {
-      query = query.where('empresaId', isEqualTo: _selectedEmpresaId);
-    }
+    final scopedEmpresaId = _selectedEmpresaId?.isNotEmpty == true ? _selectedEmpresaId : (_empresaIds.length == 1 ? _empresaIds.first : null);
+    Query<Map<String, dynamic>> query = FirebaseFirestore.instance.collection('TBL_TAREAS').where('asignado_uid', isEqualTo: widget.userId);
+    if (scopedEmpresaId != null) query = query.where('empresaId', isEqualTo: scopedEmpresaId);
     return query.snapshots();
   }
 
-  // -------------------------
-  // Filtrado local
-  // -------------------------
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
     final q = _searchCtrl.text.trim().toLowerCase();
-
     final filtered = docs.where((d) {
       final data = d.data();
       final title = _str(data, ['titulo', 'title']).toLowerCase();
-      final desc = _str(data, ['descripcion', 'description']).toLowerCase();
-      final empresaTarea = _str(data, ['empresaId', 'empresa_id', 'empresa']);
-      final empresasTarea = (data['empresas'] as List<dynamic>? ?? const [])
-          .map((e) => (e ?? '').toString().trim())
-          .where((e) => e.isNotEmpty)
-          .toSet();
       final areaId = _str(data, ['areaId']);
       final status = _resolvedStatus(data);
-
-      final matchEmpresa = _empresaIds.isEmpty ||
-          empresaTarea.isEmpty ||
-          _empresaIds.contains(empresaTarea) ||
-          empresasTarea.any(_empresaIds.contains);
-      final matchSearch = q.isEmpty || title.contains(q) || desc.contains(q) || d.id.toLowerCase().contains(q);
-
-      final bool matchStatus;
-      switch (_statusFilter) {
-        case 'todas':
-          matchStatus = true;
-          break;
-        default:
-          matchStatus = status == _statusFilter;
-      }
-
-      final matchArea = _areaFilter == 'todas' || areaId == _areaFilter;
-      return matchEmpresa && matchSearch && matchStatus && matchArea;
+      if (status == 'finalizado') return false;
+      if (q.isNotEmpty && !title.contains(q)) return false;
+      if (_statusFilter != 'todas' && status != _statusFilter) return false;
+      if (_areaFilter != 'todas' && areaId != _areaFilter) return false;
+      return true;
     }).toList();
-
-    int tsOf(Map<String, dynamic> m) {
-      final ts = _ts(m, ['updatedAt', 'fecha_actualizacion']) ?? _ts(m, ['createdAt', 'fecha_creacion']);
-      return ts?.toDate().millisecondsSinceEpoch ?? 0;
-    }
-
-    filtered.sort((a, b) => tsOf(b.data()).compareTo(tsOf(a.data())));
+    filtered.sort((a, b) => (_ts(b.data(), ['updatedAt', 'createdAt'])?.seconds ?? 0).compareTo(_ts(a.data(), ['updatedAt', 'createdAt'])?.seconds ?? 0));
     return filtered;
   }
 
-  // -------------------------
-  // Badge pendientes (opcional)
-  // -------------------------
-  int _pendingBadge(Map<String, dynamic> data) {
-    int n = 0;
-    if (_finishPending(data)) n += 1;
-
-    // si tú manejas contadores, aquí aparecen
-    final a = data['avances_pendientes'];
-    final b = data['novedades_pendientes'];
-    if (a is int) n += a;
-    if (b is int) n += b;
-
-    return n;
-  }
-
-  // -------------------------
-  // Bottom Sheet Acciones
-  // -------------------------
   void _showActionsSheet(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     final taskId = doc.id;
-    _markTaskSeen(taskId);
-
-    final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
-    final status = _resolvedStatus(data);
-    final isDone = status == 'finalizado';
     final finishPending = _finishPending(data);
     final requiresAttachment = _requiresAttachment(data);
-    final lockEdits = finishPending;
-
-    final assignedToName = _str(data, ['asignado_nombre', 'assignedToName']);
-    final assignedByName = _str(data, ['creador_nombre', 'creatorName']);
-    final assignedById = _str(data, ['creador_id', 'creatorId', 'creador_uid']);
-    final assignedBy = assignedByName.isNotEmpty ? assignedByName : assignedById;
     final attachments = _extractAttachments(data);
-
-    final finishBy = _str(data, ['solicitud_finalizacion_by_nombre']);
-    final finishAt = _ts(data, ['solicitud_finalizacion_at']);
-    final canDirect = _canDirectReassign(data);
+    final descripcion = _str(data, ['descripcion', 'description'], def: 'Sin descripción');
+    final fechaLimite = _fmtTs(_ts(data, ['fecha_limite', 'dueDate']));
+    final prioridad = _priorityLabel(data);
+    final asigna = _str(
+      data,
+      ['creador_nombre', 'creatorName', 'creador_id', 'creatorId'],
+      def: '—',
+    );
+    final hasPendingReassign =
+        _str(data, ['solicitud_reasignacion_estado']).toLowerCase() == 'pendiente';
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(
-              title: Text(title, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold)),
-              subtitle: Text('ID: $taskId', style: const TextStyle(fontFamily: kArial)),
-              trailing: _statusChip(status),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('ACCIONES DE TAREA', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.blueGrey, letterSpacing: 1.2)),
+                  const SizedBox(height: 8),
+                  Text(_str(data, ['titulo', 'title']), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, fontFamily: kTaskArial)),
+                  const SizedBox(height: 12),
+                  Text(descripcion, style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.35)),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _MetaChip(icon: Icons.event_outlined, label: 'Fecha: $fechaLimite'),
+                      _MetaChip(icon: Icons.flag_outlined, label: 'Prioridad: $prioridad'),
+                      _MetaChip(icon: Icons.person_outline, label: 'Asigna: $asigna'),
+                    ],
+                  ),
+                ],
+              ),
             ),
-
-            if (assignedToName.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-                child: Row(
-                  children: [
-                    const Icon(Icons.person, size: 18, color: Colors.black54),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text('Asignado: $assignedToName', style: const TextStyle(fontFamily: kArial, fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: Row(
-                  children: [
-                    const Icon(Icons.manage_accounts, size: 18, color: Colors.black54),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Asignado por: ${assignedBy.isEmpty ? "—" : assignedBy}',
-                        style: const TextStyle(fontFamily: kArial, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            if (finishPending) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.teal),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Finalización pendiente de aprobación.\nSolicitó: ${finishBy.isEmpty ? "—" : finishBy}\nFecha: ${_fmtTs(finishAt)}',
-                        style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black87),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-            ],
-
-            // Acciones de trabajo (si NO está finalizado)
-            if (!isDone) ...[
-              // Completar tarea: si hay finalización pendiente, se bloquea (para que no dupliques flujo)
-              ListTile(
-                leading: Icon(finishPending ? Icons.hourglass_top : Icons.check_circle),
-                title: Text(
-                  finishPending ? 'Completar tarea (bloqueado)' : 'Completar tarea',
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-                subtitle: Text(
-                  finishPending
-                      ? 'Ya existe una solicitud de finalización pendiente.'
-                      : requiresAttachment
-                      ? 'Debes adjuntar evidencias para completar.'
-                      : 'Se enviará a aprobación sin adjuntos.',
-                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
-                ),
-                enabled: !lockEdits,
-                onTap: finishPending
-                    ? null
-                    : () async {
-                  Navigator.pop(context);
-                  if (requiresAttachment) {
-                    await Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => CompleteTaskScreen(
-                        taskId: taskId,
-                        currentUserId: widget.userId,
-                        requestFinish: true,
-                        requestFinishByName: _currentUserName(),
-                      ),
-                    ));
-                    return;
-                  }
-                  await _confirmQuickComplete(taskId);
-                },
-              ),
-
-              ListTile(
-                leading: const Icon(Icons.trending_up),
-                title: const Text('Reportar avance', style: TextStyle(fontFamily: kArial)),
-                enabled: !lockEdits,
-                onTap: lockEdits
-                    ? null
-                    : () async {
-                  Navigator.pop(context);
-                  await Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => NotifyAvancesScreen(
-                      taskId: taskId,
-                      currentUserId: widget.userId,
-                    ),
-                  ));
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.campaign),
-                title: const Text('Reportar novedad', style: TextStyle(fontFamily: kArial)),
-                enabled: !lockEdits,
-                onTap: lockEdits
-                    ? null
-                    : () async {
-                  Navigator.pop(context);
-                  await Navigator.of(context).push(MaterialPageRoute(
+            const Divider(height: 1),
+            _ActionTile(
+              icon: finishPending ? Icons.hourglass_top : Icons.check_circle_rounded, 
+              color: finishPending ? Colors.orange : Colors.green,
+              title: finishPending ? 'Finalización pendiente' : 'Completar tarea', 
+              subtitle: finishPending ? 'Esperando aprobación del creador' : (requiresAttachment ? 'Requiere evidencias' : 'Envío rápido'),
+              onTap: finishPending ? null : () async {
+                Navigator.pop(context);
+                if (requiresAttachment) {
+                  await Navigator.of(context).push(MaterialPageRoute(builder: (_) => CompleteTaskScreen(taskId: taskId, currentUserId: widget.userId, requestFinish: true, requestFinishByName: _currentUserName())));
+                } else {
+                  // Quick complete logic...
+                }
+              },
+            ),
+            _ActionTile(
+              icon: Icons.markunread_mailbox_rounded,
+              color: Colors.indigo,
+              title: 'Reportar novedad',
+              subtitle: 'Comunica una novedad o inconveniente.',
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
                     builder: (_) => NotifyNovedadesScreen(
                       taskId: taskId,
                       currentUserId: widget.userId,
                     ),
-                  ));
-                },
-              ),
-              const Divider(height: 1),
-            ],
-
-            // Adjuntos
+                  ),
+                );
+              },
+            ),
+            _ActionTile(
+              icon: Icons.trending_up_rounded, 
+              color: Colors.blue,
+              title: 'Reportar avance', 
+              subtitle: 'Notifica progreso realizado hoy.',
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.of(context).push(MaterialPageRoute(builder: (_) => NotifyAvancesScreen(taskId: taskId, currentUserId: widget.userId)));
+              },
+            ),
+            _ActionTile(
+              icon: hasPendingReassign ? Icons.hourglass_top_rounded : Icons.swap_horiz_rounded,
+              color: hasPendingReassign ? Colors.orange : Colors.purple,
+              title: hasPendingReassign ? 'Reasignación en espera' : 'Solicitar reasignación',
+              subtitle: hasPendingReassign
+                  ? 'Ya existe una solicitud de reasignación pendiente.'
+                  : 'Propón mover la tarea a otro responsable.',
+              onTap: hasPendingReassign
+                  ? null
+                  : () async {
+                      Navigator.pop(context);
+                      await _requestReassign(doc);
+                    },
+            ),
             if (attachments.isNotEmpty) ...[
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text('Adjuntos', style: TextStyle(fontFamily: kArial, color: Colors.black54)),
-              ),
-              ...attachments.map((m) => ListTile(
-                leading: const Icon(Icons.attach_file),
-                title: Text(m['name'] ?? 'archivo', style: const TextStyle(fontFamily: kArial)),
-                trailing: const Icon(Icons.open_in_new),
-                onTap: () async {
-                  final ok = await _openAttachment(m);
-                  if (!ok && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('No se pudo abrir el archivo')),
-                    );
-                  }
-                },
+              const Divider(),
+              ...attachments.map((a) => ListTile(
+                leading: const Icon(Icons.attach_file_rounded),
+                title: Text(a['name']!, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Toca para abrir archivo', style: TextStyle(fontSize: 11)),
+                onTap: () => _openAttachment(a),
               )),
-              const Divider(height: 1),
-            ] else ...[
-              const ListTile(
-                leading: Icon(Icons.attach_file),
-                title: Text('Adjuntos', style: TextStyle(fontFamily: kArial)),
-                subtitle: Text('No hay adjuntos para esta tarea.', style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54)),
-              ),
-              const Divider(height: 1),
             ],
-
-            // Opción B: Reasignar / Solicitar reasignación (si la tarea no está finalizado)
-            if (!isDone)
-              ListTile(
-                leading: const Icon(Icons.switch_account),
-                title: Text(canDirect ? 'Reasignar tarea' : 'Solicitar reasignación', style: const TextStyle(fontFamily: kArial)),
-                subtitle: Text(
-                  canDirect
-                      ? 'Tienes permisos para reasignar directamente.'
-                      : 'Se enviará solicitud al creador/jefe para aprobación.',
-                  style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
-                ),
-                enabled: !lockEdits,
-                onTap: lockEdits
-                    ? null
-                    : () async {
-                  Navigator.pop(context);
-                  await _promptReassignPicker(taskId, taskData: data);
-                },
-              ),
-
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
           ],
         ),
       ),
     );
   }
 
-  // -------------------------
-  // UI
-  // -------------------------
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mis tareas asignadas', style: TextStyle(fontFamily: kArial)),
-        backgroundColor: kMarronOscuro,
-      ),
-      body: FutureBuilder<void>(
-        future: _bootstrapFuture,
-        builder: (_, bootSnap) {
-          final loading = bootSnap.connectionState == ConnectionState.waiting && _userData.isEmpty;
-          if (loading) return const SkeletonList(items: 5);
+    if (!_routeValidationDone) return const Scaffold(body: SkeletonList(items: 5));
+    if (!_routeAllowed) return Scaffold(body: Center(child: Text(_routeDeniedMessage ?? 'Sin acceso')));
 
-          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _streamAssignedToMe(),
-            builder: (_, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const SkeletonList(items: 5);
+    return FutureBuilder<void>(
+      future: _bootstrapFuture,
+      builder: (_, bootSnap) {
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _streamAssignedToMe(),
+          builder: (_, snap) {
+            if (snap.connectionState == ConnectionState.waiting) return const Scaffold(body: SkeletonList(items: 5));
+            final allDocs = snap.data?.docs ?? [];
+            
+            if (!_didAutoOpen && widget.highlightTaskId != null) {
+              final hit = allDocs.where((d) => d.id == widget.highlightTaskId).toList();
+              if (hit.isNotEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!_didAutoOpen) {
+                    setState(() => _didAutoOpen = true);
+                    _showActionsSheet(hit.first);
+                  }
+                });
               }
-              if (snap.hasError) {
-                return Center(child: Text('Error: ${snap.error}', style: const TextStyle(fontFamily: kArial)));
-              }
+            }
 
-              final docs = snap.data?.docs ?? [];
+            final filtered = _applyFilters(allDocs);
+            final stats = _calcStats(allDocs);
 
-              // auto-open highlight
-              if (!_didAutoOpen && widget.highlightTaskId != null && docs.isNotEmpty) {
-                final hit = docs.where((d) => d.id == widget.highlightTaskId).toList();
-                if (hit.isNotEmpty) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) => _showActionsSheet(hit.first));
-                  _didAutoOpen = true;
-                }
-              }
-
-              final filtered = _applyFilters(docs);
-
-              return RefreshIndicator(
-                onRefresh: () async {
-                  _bootstrapFuture = _loadBootstrap();
-                  await _bootstrapFuture;
-                },
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
-                  children: [
-                    _buildHeaderCard(),
-                    const SizedBox(height: 12),
-                    _buildFiltersCard(docs),
-                    const SizedBox(height: 12),
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 260),
-                      switchInCurve: Curves.easeOut,
-                      switchOutCurve: Curves.easeIn,
-                      child: Builder(
-                        key: ValueKey<String>(
-                          '${_groupByArea}_${filtered.map((d) => d.id).join(',')}',
-                        ),
-                        builder: (_) {
-                          if (filtered.isEmpty) {
-                            return EmptyStateWidget(
-                              icon: Icons.assignment_late_outlined,
-                              title: 'No hay tareas para mostrar',
-                              message: 'Ajusta filtros o vuelve más tarde para revisar nuevas tareas.',
-                              actionLabel: 'Limpiar filtros',
-                              onAction: () => setState(() {
-                                _statusFilter = 'todas';
-                                _areaFilter = 'todas';
-                                _searchCtrl.clear();
-                              }),
-                            );
-                          }
-
-                          return Column(
-                            children: _groupByArea
-                                ? _buildGroupedTaskSections(filtered)
-                                : filtered
-                                .map((d) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _buildTaskCard(d),
-                            ))
-                                .toList(),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildHeaderCard() {
-    final nombre = [
-      (_userData['nombres'] ?? _userData['primerNombre'] ?? '').toString(),
-      (_userData['apellidos'] ?? _userData['primerApellido'] ?? '').toString(),
-    ].where((e) => e.trim().isNotEmpty).join(' ').trim();
-
-    final cargo = (_userData['cargo'] ?? '').toString();
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: kMarronOscuro.withOpacity(0.12),
-              child: const Icon(Icons.assignment_ind, color: kMarronOscuro, size: 30),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            return TaskResponsiveLayout(
+              title: 'Mis tareas asignadas',
+              header: Column(
                 children: [
-                  Text(
-                    nombre.isEmpty ? widget.userId : nombre,
-                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 17),
+                  if (widget.highlightTaskId != null && !_didAutoOpen) _buildHighlightHeader(),
+                  TaskSummaryHeader(
+                    total: stats['total']!,
+                    inProgress: stats['inProgress']!,
+                    overdue: stats['overdue']!,
+                    pendingApproval: stats['pendingApproval']!,
+                    activeFilter: '__none__',
                   ),
-                  Text(
-                    cargo.isEmpty ? 'Responsable' : cargo,
-                    style: const TextStyle(fontFamily: kArial, color: Colors.black54),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text('Resumen de mis tareas asignadas.', style: TextStyle(fontFamily: kArial, fontSize: 12)),
                 ],
               ),
-            ),
-          ],
-        ),
+              filters: _buildFilters(),
+              content: filtered.isEmpty
+                  ? EmptyStateWidget(icon: Icons.assignment_turned_in_outlined, title: 'Todo al día', message: 'No tienes tareas pendientes que coincidan con los filtros.', actionLabel: 'Limpiar', onAction: () => setState(() { _statusFilter = 'todas'; _areaFilter = 'todas'; _searchCtrl.clear(); }))
+                  : _groupByArea ? _buildGroupedList(filtered) : _buildSimpleList(filtered),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildHighlightHeader() {
+    return Container(
+      width: double.infinity,
+      color: Colors.amber.shade50,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active_outlined, color: Colors.amber, size: 18),
+          const SizedBox(width: 10),
+          const Expanded(child: Text('Accediendo a tarea desde notificación', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+          IconButton(onPressed: () => setState(() => _didAutoOpen = true), icon: const Icon(Icons.close, size: 16)),
+        ],
       ),
     );
   }
 
-  Widget _buildFiltersCard(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
-    // áreas presentes en tareas
-    final areaIds = <String>{
-      for (final d in docs)
-        if (_str(d.data(), ['areaId']).isNotEmpty) _str(d.data(), ['areaId'])
-    };
+  bool get _hasActiveFilters =>
+      _searchCtrl.text.isNotEmpty ||
+      _statusFilter != 'todas' ||
+      _areaFilter != 'todas';
 
-    final areaItems = [
-      const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
-      ...areaIds
-          .map((id) => DropdownMenuItem(
-        value: id,
-        child: Text(_areas[id] ?? id, overflow: TextOverflow.ellipsis),
-      ))
-          .toList()
-        ..sort((a, b) => (a.child as Text).data!.toLowerCase().compareTo((b.child as Text).data!.toLowerCase())),
-    ];
-
-    const statusItems = [
-      DropdownMenuItem(value: 'todas', child: Text('Todas')),
-      DropdownMenuItem(value: 'en_progreso', child: Text('En progreso')),
-      DropdownMenuItem(value: 'por_aprobar', child: Text('Por aprobar')),
-      DropdownMenuItem(value: 'finalizado', child: Text('Finalizado')),
-      DropdownMenuItem(value: 'retrasada', child: Text('Retrasada')),
-    ];
-
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                hintText: 'Buscar por título, descripción o ID',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                isDense: true,
+  Widget _buildFilters() {
+    final scheme = Theme.of(context).colorScheme;
+    return TaskFiltersPanel(
+      searchController: _searchCtrl,
+      onSearchChanged: (_) => setState(() {}),
+      searchHint: 'Buscar tarea...',
+      quickFilters: const [
+        TaskQuickFilter(label: 'Todos', value: 'todas'),
+        TaskQuickFilter(label: 'En progreso', value: 'en_progreso'),
+        TaskQuickFilter(label: 'Por aprobar', value: 'por_aprobar'),
+        TaskQuickFilter(label: 'Vencidas', value: 'retrasada'),
+      ],
+      selectedQuickFilter: _statusFilter,
+      onQuickFilterChanged: (value) => setState(() => _statusFilter = value),
+      dropdowns: [
+        TaskFilterDropdownData(
+          label: 'Área',
+          value: _areaFilter,
+          items: _areas.entries
+              .map((e) => DropdownMenuItem(
+                    value: e.key,
+                    child: Text(e.value, overflow: TextOverflow.ellipsis),
+                  ))
+              .toList(),
+          onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
+        ),
+      ],
+      trailingFilters: [
+        InkWell(
+          onTap: () => setState(() => _groupByArea = !_groupByArea),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: _groupByArea ? scheme.primary : Colors.grey.shade400,
               ),
-              onChanged: (_) => setState(() {}),
+              borderRadius: BorderRadius.circular(12),
+              color: _groupByArea ? scheme.primary.withOpacity(0.06) : null,
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                SizedBox(
-                  width: 260,
-                  child: DropdownButtonFormField<String>(
-                    value: _statusFilter,
-                    items: statusItems,
-                    decoration: const InputDecoration(labelText: 'Estado', border: OutlineInputBorder(), isDense: true),
-                    onChanged: (v) => setState(() => _statusFilter = v ?? 'todas'),
+                Icon(
+                  Icons.workspaces_rounded,
+                  size: 20,
+                  color: _groupByArea ? scheme.primary : Colors.grey,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Agrupar por área',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _groupByArea ? scheme.primary : Colors.black87,
                   ),
                 ),
-                SizedBox(
-                  width: 260,
-                  child: DropdownButtonFormField<String>(
-                    value: _areaFilter,
-                    items: areaItems,
-                    decoration: const InputDecoration(labelText: 'Área', border: OutlineInputBorder(), isDense: true),
-                    onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
-                  ),
+                const SizedBox(width: 8),
+                Switch.adaptive(
+                  value: _groupByArea,
+                  onChanged: (v) => setState(() => _groupByArea = v),
+                  activeColor: scheme.primary,
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              value: _groupByArea,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Agrupar por área', style: TextStyle(fontFamily: kArial)),
-              subtitle: const Text(
-                'Reduce el desplazamiento mostrando secciones colapsables.',
-                style: TextStyle(fontFamily: kArial, fontSize: 12),
-              ),
-              onChanged: (v) => setState(() => _groupByArea = v),
-            ),
-          ],
+          ),
         ),
-      ),
+      ],
+      onClearFilters: () => setState(() {
+        _searchCtrl.clear();
+        _statusFilter = 'todas';
+        _areaFilter = 'todas';
+        _groupByArea = false;
+      }),
+      hasActiveFilters: _hasActiveFilters || _groupByArea,
     );
   }
 
-  List<Widget> _buildGroupedTaskSections(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      ) {
-    final grouped = _groupTasksByArea(docs);
-    final keys = grouped.keys.toList()
-      ..sort((a, b) => _areaLabelFor(a).toLowerCase().compareTo(_areaLabelFor(b).toLowerCase()));
-
-    return keys.map((areaKey) {
-      final tasks = grouped[areaKey] ?? [];
-      final label = _areaLabelFor(areaKey);
-      final expanded = _areaExpanded[areaKey] ?? (keys.first == areaKey);
-
-      return Card(
-        elevation: 1.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: ExpansionTile(
-          key: PageStorageKey('area-$areaKey'),
-          initiallyExpanded: expanded,
-          onExpansionChanged: (value) => setState(() => _areaExpanded[areaKey] = value),
-          title: Text(
-            label,
-            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            '${tasks.length} ${tasks.length == 1 ? "tarea" : "tareas"}',
-            style: const TextStyle(fontFamily: kArial, fontSize: 12),
-          ),
-          children: [
-            for (final task in tasks)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: _buildTaskCard(task),
-              ),
-          ],
-        ),
-      );
-    }).toList();
+  Widget _buildSimpleList(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      itemCount: docs.length,
+      itemBuilder: (_, i) => TaskModernCard(data: docs[i].data(), onTap: () => _showActionsSheet(docs[i]), badge: (_finishPending(docs[i].data()) ? 1 : 0)),
+    );
   }
 
-  Widget _buildTaskCard(QueryDocumentSnapshot<Map<String, dynamic>> d) {
-    final data = d.data();
-
-    final title = _str(data, ['titulo', 'title'], def: '(Sin título)');
-    final desc = _str(data, ['descripcion', 'description']);
-    final status = _resolvedStatus(data);
-
-    final dueTs = _ts(data, ['fecha_limite', 'dueDate']);
-    final badge = _pendingBadge(data);
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _showActionsSheet(d),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // header sin overflow
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600, fontSize: 16),
-                    ),
-                  ),
-                  _statusChip(status),
-                  if (badge > 0) ...[
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 26,
-                      height: 26,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(color: Colors.green.shade600, shape: BoxShape.circle),
-                      child: Text(
-                        '$badge',
-                        style: const TextStyle(color: Colors.white, fontFamily: kArial, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 6),
-
-              if (desc.isNotEmpty) ...[
-                Text(
-                  desc,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontFamily: kArial, color: Colors.black87),
-                ),
-                const SizedBox(height: 8),
-              ],
-
-              Wrap(
-                spacing: 10,
-                runSpacing: 8,
-                children: [
-                  _InfoPill(icon: Icons.schedule, label: 'Vence', value: _fmtTs(dueTs)),
-                  _InfoPill(icon: Icons.flag, label: 'Estado', value: _statusLabel(status)),
-                ],
-              ),
-
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => _showActionsSheet(d),
-                  icon: const Icon(Icons.more_horiz),
-                  label: const Text('Acciones', style: TextStyle(fontFamily: kArial)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _buildGroupedList(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    final grouped = _groupTasksByArea(docs);
+    final keys = grouped.keys.toList()..sort((a, b) => _areaLabelFor(a).compareTo(_areaLabelFor(b)));
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      itemCount: keys.length,
+      itemBuilder: (_, i) {
+        final key = keys[i];
+        final tasks = grouped[key]!;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4), child: Text(_areaLabelFor(key).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: Colors.blueGrey, letterSpacing: 1.5))),
+            ...tasks.map((t) => TaskModernCard(data: t.data(), onTap: () => _showActionsSheet(t), badge: (_finishPending(t.data()) ? 1 : 0))),
+            const SizedBox(height: 12),
+          ],
+        );
+      },
     );
   }
 }
 
-// -------------------------
-// Componentes UI pequeños
-// -------------------------
-class _InfoPill extends StatelessWidget {
+class _ActionTile extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final String value;
-  const _InfoPill({required this.icon, required this.label, required this.value});
+  final Color color;
+  final String title, subtitle;
+  final VoidCallback? onTap;
+
+  const _ActionTile({required this.icon, required this.color, required this.title, required this.subtitle, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final isEmpty = value.trim().isEmpty || value == '—';
+    return ListTile(
+      onTap: onTap,
+      enabled: onTap != null,
+      leading: Container(width: 44, height: 44, decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color)),
+      title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: onTap == null ? Colors.grey : null)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+      trailing: const Icon(Icons.chevron_right_rounded, color: Colors.black12),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _MetaChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.grey.shade300),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: isEmpty ? Colors.grey : Colors.black87),
+          Icon(icon, size: 16, color: Colors.grey.shade700),
           const SizedBox(width: 6),
           Text(
-            '$label: ${isEmpty ? "—" : value}',
-            style: const TextStyle(fontFamily: kArial, fontSize: 12),
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ],
       ),

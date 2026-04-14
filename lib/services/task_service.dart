@@ -50,6 +50,15 @@ class TaskService {
     return def;
   }
 
+  String _slug(String value, {String fallback = 'archivo'}) {
+    final lowered = value.trim().toLowerCase();
+    final cleaned = lowered
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    return cleaned.isEmpty ? fallback : cleaned;
+  }
+
   Timestamp? _t(Map<String, dynamic> m, List<String> keys) {
     for (final k in keys) {
       final v = m[k];
@@ -66,6 +75,7 @@ class TaskService {
     required String taskId,
     required TaskAttachment att,
     required String folder, // adjuntos | avances | novedades | evidencias
+    String? filePrefix,
   }) async {
     // Validación de tamaño
     if (att.bytes.length > kMaxAttachmentBytes) {
@@ -76,8 +86,10 @@ class TaskService {
     }
 
     final safeName = att.filename.replaceAll('/', '_').replaceAll('\\', '_');
-    final path =
-        'tareas/$taskId/$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName';
+    final prefix = (filePrefix ?? '').trim();
+    final path = prefix.isEmpty
+        ? 'tareas/$taskId/$folder/${DateTime.now().millisecondsSinceEpoch}_$safeName'
+        : 'tareas/$taskId/$folder/${prefix}_${DateTime.now().millisecondsSinceEpoch}_$safeName';
 
     final ref = _storage.ref(path);
     final meta = SettableMetadata(
@@ -101,10 +113,16 @@ class TaskService {
     required String taskId,
     required List<TaskAttachment> attachments,
     required String folder,
+    String? filePrefix,
   }) async {
     final out = <Map<String, dynamic>>[];
     for (final a in attachments) {
-      out.add(await _uploadAttachment(taskId: taskId, att: a, folder: folder));
+      out.add(await _uploadAttachment(
+        taskId: taskId,
+        att: a,
+        folder: folder,
+        filePrefix: filePrefix,
+      ));
     }
     return out;
   }
@@ -125,11 +143,12 @@ class TaskService {
     String type = 'generic',
     String? fromId,
     String? fromName,
+    String? empresaId,
   }) async {
     if (toUserId.trim().isEmpty) return;
 
     final ref = _userNotifsCol(toUserId).doc();
-    await ref.set({
+    final payload = <String, dynamic>{
       'id': ref.id,
       'title': title,
       'description': description,
@@ -139,7 +158,10 @@ class TaskService {
       'fromName': fromName ?? '',
       'createdAt': Timestamp.now(),
       'read': false,
-    });
+    };
+    final eid = empresaId?.trim() ?? '';
+    if (eid.isNotEmpty) payload['empresaId'] = eid;
+    await ref.set(payload);
   }
 
   Future<void> pushNotificationToMany({
@@ -150,6 +172,7 @@ class TaskService {
     String type = 'generic',
     String? fromId,
     String? fromName,
+    String? empresaId,
   }) async {
     final unique = <String>{};
     for (final u in toUserIds) {
@@ -166,6 +189,7 @@ class TaskService {
         type: type,
         fromId: fromId,
         fromName: fromName,
+        empresaId: empresaId,
       );
     }
   }
@@ -237,14 +261,18 @@ class TaskService {
 
     final uploaded = (attachments == null || attachments.isEmpty)
         ? <Map<String, dynamic>>[]
-        : await _uploadMany(taskId: id, attachments: attachments, folder: 'adjuntos');
+        : await _uploadMany(
+            taskId: id,
+            attachments: attachments,
+            folder: 'adjuntos',
+            filePrefix: _slug(titulo, fallback: 'tarea'),
+          );
 
     final data = <String, dynamic>{
       'titulo': titulo,
       'descripcion': descripcion,
       'estado': estado,
       'prioridad': prioridad,
-      'visto': false,
       'reasignado': false,
 
       'asignado_uid': asignadoUid,
@@ -273,17 +301,7 @@ class TaskService {
 
     await ref.set(data);
 
-    // Notificar asignación (al asignado)
-    await pushNotification(
-      toUserId: asignadoUid,
-      title: 'Nueva tarea asignada',
-      description: titulo,
-      taskId: id,
-      type: 'task_assigned',
-      fromId: creadorUid,
-      fromName: creadorNombre,
-    );
-
+    // La notificación al asignado la genera el trigger onTaskCreated en Cloud Functions.
     return id;
   }
 
@@ -309,25 +327,30 @@ class TaskService {
         ? <Map<String, dynamic>>[]
         : await _uploadMany(taskId: taskId, attachments: attachments, folder: 'avances');
 
+    // Extraemos los datos de la tarea ANTES de la transacción para poder
+    // notificar DESPUÉS de que la transacción commitee (sin riesgo de retry duplicado).
+    final taskSnap = await taskRef.get();
+    final t = taskSnap.data() ?? <String, dynamic>{};
+    final creadorId = _s(t, ['creador_id', 'creatorId']);
+    final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
+    final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+    final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
+
     await _db.runTransaction((trx) async {
       final snap = await trx.get(taskRef);
-      final t = snap.data() ?? <String, dynamic>{};
+      final tInner = snap.data() ?? <String, dynamic>{};
 
-      final creadorId = _s(t, ['creador_id', 'creatorId']);
-      final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
-      final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
-      final currentEstado = (t['estado'] ?? t['status'] ?? '')
+      final currentEstado = (tInner['estado'] ?? tInner['status'] ?? '')
           .toString()
           .trim()
           .toLowerCase();
       final nextEstado = (currentEstado.isEmpty ||
           currentEstado == 'pendiente' ||
           currentEstado == 'devuelta' ||
-          currentEstado == 'visto' ||
           currentEstado == 'activas' ||
           currentEstado == 'reasignado')
           ? 'en_progreso'
-          : (t['estado'] ?? t['status'] ?? '');
+          : (tInner['estado'] ?? tInner['status'] ?? '');
 
       trx.set(doc, {
         'id': doc.id,
@@ -345,18 +368,23 @@ class TaskService {
         'updatedAt': FieldValue.serverTimestamp(),
         'fecha_actualizacion': FieldValue.serverTimestamp(),
         'actualizada_en': FieldValue.serverTimestamp(),
+        'lastEventType': 'task_avance',
+        'lastEventAt': Timestamp.now(),
+        'lastEventText': message.trim(),
       };
       if (nextEstado is String && nextEstado.isNotEmpty) {
         updateData['estado'] = nextEstado;
         updateData['status'] = nextEstado;
       }
       trx.update(taskRef, updateData);
+    });
 
-      final recipients = <String>[];
-      if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
-      if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
-
-      Future.microtask(() async {
+    // Notificar DESPUÉS de que la transacción commitee
+    final recipients = <String>[];
+    if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
+    if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
+    if (recipients.isNotEmpty) {
+      try {
         await pushNotificationToMany(
           toUserIds: recipients,
           title: 'Avance en tarea',
@@ -367,9 +395,10 @@ class TaskService {
           type: 'task_avance',
           fromId: byUserId,
           fromName: byUserName,
+          empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
         );
-      });
-    });
+      } catch (_) {}
+    }
   }
 
   Future<void> addNovedad({
@@ -389,24 +418,29 @@ class TaskService {
         ? <Map<String, dynamic>>[]
         : await _uploadMany(taskId: taskId, attachments: attachments, folder: 'novedades');
 
+    // Extraemos los datos de la tarea ANTES de la transacción para notificar
+    // DESPUÉS de que la transacción commitee.
+    final taskSnap = await taskRef.get();
+    final t = taskSnap.data() ?? <String, dynamic>{};
+    final creadorId = _s(t, ['creador_id', 'creatorId']);
+    final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
+    final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+    final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
+
     await _db.runTransaction((trx) async {
       final snap = await trx.get(taskRef);
-      final t = snap.data() ?? <String, dynamic>{};
+      final tInner = snap.data() ?? <String, dynamic>{};
 
-      final creadorId = _s(t, ['creador_id', 'creatorId']);
-      final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
-      final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
-      final currentEstado = (t['estado'] ?? t['status'] ?? '')
+      final currentEstado = (tInner['estado'] ?? tInner['status'] ?? '')
           .toString()
           .trim()
           .toLowerCase();
       final nextEstado = (currentEstado.isEmpty ||
           currentEstado == 'devuelta' ||
-          currentEstado == 'visto' ||
           currentEstado == 'activas' ||
           currentEstado == 'reasignado')
           ? 'en_progreso'
-          : (t['estado'] ?? t['status'] ?? '');
+          : (tInner['estado'] ?? tInner['status'] ?? '');
 
       trx.set(doc, {
         'id': doc.id,
@@ -423,18 +457,23 @@ class TaskService {
         'updatedAt': FieldValue.serverTimestamp(),
         'fecha_actualizacion': FieldValue.serverTimestamp(),
         'actualizada_en': FieldValue.serverTimestamp(),
+        'lastEventType': 'task_novedad',
+        'lastEventAt': Timestamp.now(),
+        'lastEventText': message.trim(),
       };
       if (nextEstado is String && nextEstado.isNotEmpty) {
         updateData['estado'] = nextEstado;
         updateData['status'] = nextEstado;
       }
       trx.update(taskRef, updateData);
+    });
 
-      final recipients = <String>[];
-      if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
-      if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
-
-      Future.microtask(() async {
+    // Notificar DESPUÉS de que la transacción commitee
+    final recipients = <String>[];
+    if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
+    if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
+    if (recipients.isNotEmpty) {
+      try {
         await pushNotificationToMany(
           toUserIds: recipients,
           title: 'Novedad en tarea',
@@ -443,9 +482,10 @@ class TaskService {
           type: 'task_novedad',
           fromId: byUserId,
           fromName: byUserName,
+          empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
         );
-      });
-    });
+      } catch (_) {}
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -477,6 +517,7 @@ class TaskService {
     final t = snap.data() ?? <String, dynamic>{};
 
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
+    final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
 
     final prevAssignedUid = _s(t, ['asignado_uid', 'assignedTo']);
     final prevAssignedName = _s(t, ['asignado_nombre', 'assignedToName']);
@@ -543,6 +584,7 @@ class TaskService {
         type: 'task_reassigned',
         fromId: fromId,
         fromName: fromName,
+        empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
       );
     }
 
@@ -558,6 +600,7 @@ class TaskService {
         type: 'task_reassigned_info',
         fromId: fromId,
         fromName: fromName,
+        empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
       );
     }
 

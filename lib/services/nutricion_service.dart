@@ -31,98 +31,41 @@ class NutricionService {
         _storage = storage ?? FirebaseStorage.instance;
 
   // ---------------------------------------------------------------------------
-  // MENUS (con fallback si falta índice)
+  // MENUS
   // ---------------------------------------------------------------------------
+  // Filtra solo por empresaId (single-equality → auto-indexed, sin índice
+  // compuesto requerido). El establecimiento se aplica en cliente.
+  // El campo 'semana' se conserva en los documentos como metadato, pero NO
+  // se usa como filtro para evitar falsos vacíos cuando los menús fueron
+  // creados en semanas anteriores.
   Stream<List<Map<String, dynamic>>> streamMenus({
     required String empresaId,
     required String establecimiento,
     required DateTime semana,
   }) {
-    final controller = StreamController<List<Map<String, dynamic>>>.broadcast();
-    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sub;
-    bool started = false;
-
-    void emitError(Object e, StackTrace st) {
-      if (!controller.isClosed) controller.addError(e, st);
-    }
-
-    Future<void> start() async {
-      if (started) return;
-      started = true;
-
-      final semanaKey = _formatSemana(semana);
-
-      final qIndexed = _db
-          .collection(_collMenus)
-          .where('empresaId', isEqualTo: empresaId)
-          .where('establecimiento', isEqualTo: establecimiento)
-          .where('semana', isEqualTo: semanaKey)
-          .orderBy('creadoEn', descending: true);
-
-      final qNoIndex = _db
-          .collection(_collMenus)
-          .where('empresaId', isEqualTo: empresaId)
-          .where('establecimiento', isEqualTo: establecimiento)
-          .where('semana', isEqualTo: semanaKey);
-
-      try {
-        sub = qIndexed.snapshots().listen(
-              (snap) {
-            final list = snap.docs
-                .map((d) => {'id': d.id, ...d.data()})
-                .toList(growable: false);
-            if (!controller.isClosed) controller.add(list);
-          },
-          onError: (e, st) async {
-            if (_isIndexError(e)) {
-              await sub?.cancel();
-              sub = qNoIndex.snapshots().listen(
-                    (snap) {
-                  final list = snap.docs
-                      .map((d) => {'id': d.id, ...d.data()})
-                      .toList(growable: true);
-
-                  // Orden local: creadoEn desc + id desc como desempate
-                  list.sort((a, b) {
-                    final da = _toDateTime(a['creadoEn']);
-                    final db = _toDateTime(b['creadoEn']);
-                    if (da == null && db == null) {
-                      return (b['id']?.toString() ?? '')
-                          .compareTo(a['id']?.toString() ?? '');
-                    }
-                    if (da == null) return 1;
-                    if (db == null) return -1;
-                    final cmp = db.compareTo(da);
-                    if (cmp != 0) return cmp;
-                    return (b['id']?.toString() ?? '')
-                        .compareTo(a['id']?.toString() ?? '');
-                  });
-
-                  if (!controller.isClosed) controller.add(list);
-                },
-                onError: emitError,
-              );
-            } else {
-              emitError(e, st);
-            }
-          },
-        );
-      } catch (e, st) {
-        emitError(e, st);
-      }
-    }
-
-    controller
-      ..onListen = () {
-        if (sub == null) start();
-      }
-      ..onCancel = () async {
-        await sub?.cancel();
-        sub = null;
-        if (!controller.isClosed) await controller.close();
-      };
-
-    return controller.stream;
+    return _db
+        .collection(_collMenus)
+        .where('empresaId', isEqualTo: empresaId)
+        .snapshots()
+        .map((snap) {
+      final items = snap.docs
+          .map((d) => {'id': d.id, ...d.data()})
+          .where(
+              (m) => m['establecimiento']?.toString() == establecimiento)
+          .toList();
+      items.sort((a, b) {
+        final da = _toDateTime(a['creadoEn']);
+        final db = _toDateTime(b['creadoEn']);
+        if (da == null && db == null) {
+          return (a['nombre']?.toString() ?? '')
+              .compareTo(b['nombre']?.toString() ?? '');
+        }
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return db.compareTo(da);
+      });
+      return items;
+    });
   }
 
   Future<void> crearMenu({
@@ -294,6 +237,7 @@ class NutricionService {
       'actualizadoEn': FieldValue.serverTimestamp(),
       if (!isEdicion) 'creadoEn': FieldValue.serverTimestamp(),
       if (!isEdicion) 'creadoPor': userId,
+      if (!isEdicion) 'isDeleted': false,
     }, SetOptions(merge: true));
     return doc.id;
   }
@@ -327,7 +271,9 @@ class NutricionService {
       };
     }
 
-    final list = mergedByKey.values.toList(growable: true);
+    final list = mergedByKey.values
+        .where((p) => p['isDeleted'] != true)
+        .toList(growable: true);
     list.sort((a, b) {
       final nombreA = (a['nombreCompleto'] ?? a['nombre'] ?? '').toString();
       final nombreB = (b['nombreCompleto'] ?? b['nombre'] ?? '').toString();
@@ -336,15 +282,6 @@ class NutricionService {
     return list;
   }
 
-  bool _isIndexError(Object e) {
-    if (e is FirebaseException) {
-      if (e.code == 'failed-precondition') return true;
-      final msg = (e.message ?? '').toLowerCase();
-      if (msg.contains('requires an index')) return true;
-    }
-    final msg = e.toString().toLowerCase();
-    return msg.contains('requires an index') || msg.contains('failed-precondition');
-  }
 
   DateTime? _toDateTime(Object? v) {
     if (v == null) return null;
@@ -508,18 +445,28 @@ class NutricionService {
     return _db
         .collection(_collDietas)
         .where('empresaId', isEqualTo: empresaId)
-        .orderBy('nombre')
         .snapshots()
-        .map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) {
+      final items =
+          snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      items.sort((a, b) => (a['nombre']?.toString() ?? '')
+          .compareTo(b['nombre']?.toString() ?? ''));
+      return items;
+    });
   }
 
   Stream<List<Map<String, dynamic>>> streamPatologias(String empresaId) {
     return _db
         .collection(_collPatologias)
         .where('empresaId', isEqualTo: empresaId)
-        .orderBy('nombre')
         .snapshots()
-        .map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
+        .map((snap) {
+      final items =
+          snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      items.sort((a, b) => (a['nombre']?.toString() ?? '')
+          .compareTo(b['nombre']?.toString() ?? ''));
+      return items;
+    });
   }
 
   Future<void> guardarDieta({
@@ -701,8 +648,22 @@ class NutricionService {
       if ((data['nombre'] ?? '').toString().trim().isEmpty &&
           data['nombreCompleto'] != null)
         'nombre': data['nombreCompleto'],
+      'isDeleted': false,
     });
     return doc.id;
+  }
+
+  Future<void> eliminarPaciente({
+    required String pacienteId,
+    required String userId,
+    required String empresaId,
+  }) async {
+    final doc = _db.collection(_collPacientes).doc(pacienteId);
+    await doc.set({
+      'isDeleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': userId,
+    }, SetOptions(merge: true));
   }
 
   Future<void> registrarValoracion({
@@ -929,24 +890,33 @@ class NutricionService {
   // ───────────────────────────────────────────────────────────────────────────
 
   /// Stream de ingredientes filtrado por empresa.
+  /// Filtro de categoría y orden por nombre se aplican en cliente para
+  /// evitar requerimiento de índice compuesto en Firestore.
   Stream<List<Map<String, dynamic>>> streamIngredientes({
     required String empresaId,
     String? categoria,
   }) {
-    Query<Map<String, dynamic>> q = _db
+    return _db
         .collection(_collIngredientes)
-        .where('empresaId', isEqualTo: empresaId);
-    if (categoria != null && categoria.isNotEmpty) {
-      q = q.where('categoria', isEqualTo: categoria);
-    }
-    return q.orderBy('nombre').snapshots().map(
-          (snap) =>
-              snap.docs.map((d) => {'id': d.id, ...d.data()}).toList(),
-        );
+        .where('empresaId', isEqualTo: empresaId)
+        .snapshots()
+        .map((snap) {
+      var items =
+          snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      if (categoria != null && categoria.isNotEmpty) {
+        items = items
+            .where((i) => i['categoria']?.toString() == categoria)
+            .toList();
+      }
+      items.sort((a, b) => (a['nombre']?.toString() ?? '')
+          .compareTo(b['nombre']?.toString() ?? ''));
+      return items;
+    });
   }
 
   /// Crea o actualiza un ingrediente.
-  Future<void> guardarIngrediente({
+  /// Crea o actualiza un ingrediente. Retorna el docId del documento escrito.
+  Future<String> guardarIngrediente({
     required String empresaId,
     required String userId,
     required Map<String, dynamic> data,
@@ -961,13 +931,19 @@ class NutricionService {
       'actualizadoEn': FieldValue.serverTimestamp(),
       'actualizadoPor': userId,
     }, SetOptions(merge: true));
+    return ref.id;
   }
 
   /// Elimina un ingrediente.
   Future<void> eliminarIngrediente(String id) =>
       _db.collection(_collIngredientes).doc(id).delete();
 
+  /// Elimina un menú/plan alimentario de TBL_MENUS.
+  Future<void> eliminarMenu(String menuId) =>
+      _db.collection(_collMenus).doc(menuId).delete();
+
   /// Comprueba si ya existen menús para la empresa+establecimiento (guard del seed).
+  /// Usa single-equality filter para no requerir índice compuesto.
   Future<bool> hayMenusParaEmpresa({
     required String empresaId,
     required String establecimiento,
@@ -975,10 +951,10 @@ class NutricionService {
     final snap = await _db
         .collection(_collMenus)
         .where('empresaId', isEqualTo: empresaId)
-        .where('establecimiento', isEqualTo: establecimiento)
-        .limit(1)
+        .limit(50)
         .get();
-    return snap.docs.isNotEmpty;
+    return snap.docs.any(
+        (d) => d.data()['establecimiento']?.toString() == establecimiento);
   }
 
   /// Seed de ingredientes base (solo si no existen para la empresa).
@@ -1003,6 +979,36 @@ class NutricionService {
         'actualizadoEn': FieldValue.serverTimestamp(),
         'actualizadoPor': userId,
       });
+    }
+    await batch.commit();
+  }
+
+  /// Seed de dietas base (solo si no existen para la empresa).
+  /// Acepta `List<Map<String,String>>` (el formato de kDietasCatalogo en el dashboard).
+  Future<void> seedDietasSiNoExisten({
+    required String empresaId,
+    required String userId,
+    required List<Map<String, String>> dietas,
+  }) async {
+    final snap = await _db
+        .collection(_collDietas)
+        .where('empresaId', isEqualTo: empresaId)
+        .limit(1)
+        .get();
+    if (snap.docs.isNotEmpty) return;
+
+    final batch = _db.batch();
+    for (final d in dietas) {
+      final codigo = d['codigo'] ?? '';
+      if (codigo.isEmpty) continue;
+      final ref = _db.collection(_collDietas).doc('${empresaId}_$codigo');
+      batch.set(ref, {
+        ...d,
+        'empresaId': empresaId,
+        'activa': true,
+        'creadoEn': FieldValue.serverTimestamp(),
+        'creadoPor': userId,
+      }, SetOptions(merge: true));
     }
     await batch.commit();
   }

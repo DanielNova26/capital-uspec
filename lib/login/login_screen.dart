@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../services/user_service.dart';
+import '../utils/user_company.dart';
 
 // Están en el mismo folder "login"
 import 'first_time_screen.dart';
@@ -574,6 +578,25 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  /// Tarea 2 — Intenta escribir el Firebase Auth UID en TBL_USUARIOS.
+  ///
+  /// Es un no-op si [FirebaseAuth.instance.currentUser] es null,
+  /// lo cual es el caso mientras el login no use Firebase Auth sign-in.
+  /// Cuando Firebase Auth se integre en el flujo de login, este método
+  /// empezará a funcionar automáticamente sin más cambios.
+  void _tryWriteUid(String docId) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      debugPrint('[Login] Firebase Auth uid no disponible — uid no escrito en $docId');
+      return;
+    }
+    UserService()
+        .writeUidToUsuario(docId: docId, uid: uid)
+        .catchError((Object e) {
+      debugPrint('[Login] Error en writeUidToUsuario (docId=$docId): $e');
+    });
+  }
+
   Future<void> _submitLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -644,31 +667,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final needsChange = data['needsPasswordChange'] as bool? ?? false;
       final docId = docSnapshot.id;
 
-      // Empresas asociadas
-      final empresaIds = <String>[];
-
-      final empresaCampo = (data['empresaId'] as String?)?.trim();
-      if (empresaCampo != null && empresaCampo.isNotEmpty) {
-        empresaIds.add(empresaCampo);
-      }
-
-      final empresasLista = data['empresas'] as List<dynamic>?;
-      if (empresasLista != null) {
-        for (final e in empresasLista) {
-          final id = (e as String?)?.trim();
-          if (id != null && id.isNotEmpty) empresaIds.add(id);
-        }
-      }
-
-      final empresasDetalle = data['empresasDetalle'] as Map<String, dynamic>?;
-      if (empresasDetalle != null) {
-        for (final entry in empresasDetalle.entries) {
-          final id = entry.key.toString().trim();
-          if (id.isNotEmpty) empresaIds.add(id);
-        }
-      }
-
-      final uniqueEmpresas = empresaIds.toSet().toList();
+      final uniqueEmpresas = extractUserEmpresaIds(data);
       if (uniqueEmpresas.isEmpty) {
         setState(() {
           _errorMessage = 'No se encontró empresa asociada al usuario';
@@ -695,10 +694,31 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // ✅ EmpresaScope + persistencia (incluye sincronización top-level desde empresasDetalle)
+      // ✅ EmpresaScope + persistencia validada contra membresía real
       final empresaState = EmpresaScope.of(context, listen: false);
-      empresaState.setSelectedEmpresaId(selectedEmpresaId);
-      await _persistSelectedEmpresa(docId, selectedEmpresaId);
+      final resolvedEmpresaId = await empresaState.reconcileForUserData(
+        data,
+        preferredEmpresaId: selectedEmpresaId,
+      );
+      if (resolvedEmpresaId == null || resolvedEmpresaId.isEmpty) {
+        setState(() {
+          _errorMessage = 'No se encontró una empresa válida para el usuario';
+          _isLoading = false;
+        });
+        return;
+      }
+      await _persistSelectedEmpresa(docId, resolvedEmpresaId);
+
+      // ── Tarea 2: logging diagnóstico de identidad + backfill de uid ────────
+      final cedula = (data['cedula'] as String?)?.trim() ?? '';
+      debugPrint(
+        '[Login] login exitoso — docId=$docId cedula=$cedula '
+        'empresa=$resolvedEmpresaId role=${data['role']}',
+      );
+      // Fire-and-forget: escribe uid si Firebase Auth tiene sesión activa.
+      // Es no-op si currentUser es null (flujo actual sin Firebase Auth sign-in).
+      _tryWriteUid(docId);
+      // ── Fin Tarea 2 ────────────────────────────────────────────────────────
 
       if (needsChange) {
         setState(() => _isLoading = false);
@@ -707,7 +727,7 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(
             builder: (_) => ChangePasswordScreen(
               usuario: docId,
-              empresaId: selectedEmpresaId!,
+              empresaId: resolvedEmpresaId,
             ),
           ),
         );
@@ -718,7 +738,7 @@ class _LoginScreenState extends State<LoginScreen> {
           MaterialPageRoute(
             builder: (_) => HomeScreen(
               username: docId,
-              empresaId: selectedEmpresaId!,
+              empresaId: resolvedEmpresaId,
             ),
           ),
         );

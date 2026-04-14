@@ -1,13 +1,28 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:todo/theme/app_typography.dart';
+import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/home/widgets/home_shared_widgets.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
+import '../core/guarded_module_page.dart';
+import '../widgets/internal_module_layout.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
+const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
+  InternalModuleTabItem(
+    label: 'Dashboard',
+    icon: Icons.dashboard_outlined,
+  ),
+  InternalModuleTabItem(
+    label: 'Puntos',
+    icon: Icons.leaderboard_outlined,
+  ),
+];
 
 DateTime? _toDate(dynamic v) {
   if (v is Timestamp) return v.toDate();
@@ -108,9 +123,10 @@ class _PersonScore {
 }
 
 class GerenciaDashboardScreen extends StatefulWidget {
-  const GerenciaDashboardScreen({super.key, required this.userId});
+  const GerenciaDashboardScreen({super.key, required this.userId, required this.empresaId});
 
   final String userId;
+  final String empresaId;
 
   @override
   State<GerenciaDashboardScreen> createState() => _GerenciaDashboardScreenState();
@@ -123,12 +139,27 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   String _statusFilter = 'todas';
   String _areaFilter = 'todas';
   String? _empresaActiva;
+  int _selectedTab = 0;
   Map<String, String> _empresaNombres = {};
+  String? _lastScopedEmpresaId;
 
   @override
   void initState() {
     super.initState();
     _bootstrapFuture = _loadBootstrap();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scopedEmpresaId = EmpresaScope.of(context).selectedEmpresaId?.trim();
+    if (scopedEmpresaId != null &&
+        scopedEmpresaId.isNotEmpty &&
+        scopedEmpresaId != _lastScopedEmpresaId) {
+      _lastScopedEmpresaId = scopedEmpresaId;
+      _empresaActiva = scopedEmpresaId;
+      _bootstrapFuture = _loadBootstrap(preferredEmpresaId: scopedEmpresaId);
+    }
   }
 
   Future<Map<String, String>> _loadEmpresaNombres(Set<String> empresas) async {
@@ -148,15 +179,20 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     return nombres;
   }
 
-  Future<_Bootstrap> _loadBootstrap() async {
+  Future<_Bootstrap> _loadBootstrap({String? preferredEmpresaId}) async {
     final userDoc = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
     final userData = userDoc.data() ?? {};
     final empresas = _empresasDe(userData);
     final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
 
-    _empresaActiva = (_empresaActiva != null && empresas.contains(_empresaActiva))
-        ? _empresaActiva
-        : (empresaPrincipal.isNotEmpty ? empresaPrincipal : (empresas.isNotEmpty ? empresas.first : null));
+    final preferred = preferredEmpresaId?.trim();
+    _empresaActiva = (preferred != null && empresas.contains(preferred))
+        ? preferred
+        : (_empresaActiva != null && empresas.contains(_empresaActiva))
+            ? _empresaActiva
+            : (empresaPrincipal.isNotEmpty
+                ? empresaPrincipal
+                : (empresas.isNotEmpty ? empresas.first : null));
     _empresaNombres = await _loadEmpresaNombres(empresas);
 
     final areas = <String, String>{};
@@ -217,101 +253,202 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<_Bootstrap>(
-      future: _bootstrapFuture,
-      builder: (context, bootSnap) {
-        if (bootSnap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: SkeletonList(items: 5),
-          );
-        }
-        if (!bootSnap.hasData) {
-          return const Scaffold(
-            body: Center(child: Text('No se pudo cargar la información de gerencia.')),
-          );
-        }
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 900;
 
-        final bootstrap = bootSnap.data!;
-        final empresas = bootstrap.empresas.toList();
-        final empresasFiltro = <String>{};
-        if (empresas.isNotEmpty) {
-          if (_empresaActiva == null || _empresaActiva == kTodasEmpresasValue) {
-            empresasFiltro.addAll(empresas);
-          } else {
-            empresasFiltro.add(_empresaActiva!);
+    return GuardedModulePage(
+      userIdentity: widget.userId,
+      appId: 'gerenciadashboard',
+      pageTitle: 'Gerencia',
+      fallbackEmpresaId: widget.empresaId,
+      child: FutureBuilder<_Bootstrap>(
+        future: _bootstrapFuture,
+        builder: (context, bootSnap) {
+          if (bootSnap.connectionState == ConnectionState.waiting) {
+            return const SkeletonList(items: 5);
           }
-        }
+          if (!bootSnap.hasData) {
+            return const Center(child: Text('No se pudo cargar la información de gerencia.'));
+          }
 
-        Query<Map<String, dynamic>> baseQuery = _db.collection('TBL_TAREAS');
-        if (empresasFiltro.isNotEmpty) {
-          baseQuery = baseQuery.where('empresaId', whereIn: empresasFiltro.take(10).toList());
-        }
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: baseQuery.snapshots(),
-          builder: (context, tasksSnap) {
-            if (tasksSnap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                  body: SkeletonList(items: 5));
+          final bootstrap = bootSnap.data!;
+          final empresas = bootstrap.empresas.toList();
+          final empresasFiltro = <String>{};
+          if (empresas.isNotEmpty) {
+            if (_empresaActiva == null || _empresaActiva == kTodasEmpresasValue) {
+              empresasFiltro.addAll(empresas);
+            } else {
+              empresasFiltro.add(_empresaActiva!);
             }
+          }
 
-            final tasks = tasksSnap.data?.docs ?? [];
-            final filteredTasks = _applyFilters(tasks, bootstrap, empresasFiltro);
-            final personScores = _buildScores(filteredTasks, bootstrap);
-            final statusCount = _statusDistribution(filteredTasks);
-            final areaScores = _aggregateTasksByArea(filteredTasks, bootstrap);
-            final assigningAreaCounts = _aggregateAssignmentsByCreatorArea(filteredTasks, bootstrap);
+          Query<Map<String, dynamic>> baseQuery = _db.collection('TBL_TAREAS');
+          if (empresasFiltro.isNotEmpty) {
+            baseQuery = baseQuery.where('empresaId', whereIn: empresasFiltro.take(10).toList());
+          }
 
-            return DefaultTabController(
-              length: 2,
-              child: Scaffold(
-                appBar: AppBar(
-                  backgroundColor: _brand,
-                  title: const Text(
-                    'Gerencia',
-                    style: TextStyle(fontFamily: kArial),
-                  ),
-                  bottom: const TabBar(
-                      labelColor: Colors.white,
-                      unselectedLabelColor: Colors.white70,
-                      indicatorColor: Colors.white,
-                    tabs: [
-                    Tab(text: 'Dashboard'),
-                      Tab(text: 'Puntos'),
-                    ],
-                  ),
-                ),
-                body: tasks.isEmpty
-                    ? EmptyStateWidget(
-                  icon: Icons.analytics_outlined,
-                  title: 'Aún no hay tareas para analizar',
-                  message: 'Cuando se creen tareas aparecerán indicadores y rankings.',
-                  actionLabel: 'Reintentar',
-                  onAction: () => setState(() => _bootstrapFuture = _loadBootstrap()),
-                )
-                    : TabBarView(
-                  children: [
-                    _buildDashboardTab(
-                      bootstrap: bootstrap,
-                      tasks: tasks,
-                      filteredTasks: filteredTasks,
-                      personScores: personScores,
-                      statusCount: statusCount,
-                      areaScores: areaScores,
-                      assigningAreaCounts: assigningAreaCounts,
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: baseQuery.snapshots(),
+            builder: (context, tasksSnap) {
+              if (tasksSnap.connectionState == ConnectionState.waiting) {
+                return const SkeletonList(items: 5);
+              }
+
+              final tasks = tasksSnap.data?.docs ?? [];
+              final filteredTasks = _applyFilters(tasks, bootstrap, empresasFiltro);
+              final personScores = _buildScores(filteredTasks, bootstrap);
+              final statusCount = _statusDistribution(filteredTasks);
+              final areaScores = _aggregateTasksByArea(filteredTasks, bootstrap);
+              final assigningAreaCounts = _aggregateAssignmentsByCreatorArea(filteredTasks, bootstrap);
+
+              return InternalModuleLayout(
+                userId: widget.userId,
+                empresaId: widget.empresaId,
+                title: 'Control Gerencial',
+                subtitle: 'Indicadores de cumplimiento, tareas y productividad',
+                accentColor: _brand,
+                headerActions: [
+                  CompanyNameWidget(
+                    empresaId: widget.empresaId,
+                    style: TextStyle(
+                      color: isDesktop ? _brand : Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: isDesktop ? 14 : 12,
                     ),
-                    _buildPointsTab(
-                      bootstrap: bootstrap,
-                      tasks: tasks,
-                      personScores: personScores,
+                  ),
+                ],
+                child: Column(
+                  children: [
+                    InternalModuleTabs(
+                      items: _kGerenciaModuleTabs,
+                      selectedIndex: _selectedTab,
+                      onSelected: (i) => setState(() => _selectedTab = i),
+                      accentColor: _brand,
+                      compact: !isDesktop,
+                    ),
+                    Expanded(
+                      child: isDesktop
+                          ? _buildDesktopLayout(
+                              context: context,
+                              bootstrap: bootstrap,
+                              tasks: tasks,
+                              filteredTasks: filteredTasks,
+                              personScores: personScores,
+                              statusCount: statusCount,
+                              areaScores: areaScores,
+                              assigningAreaCounts: assigningAreaCounts,
+                            )
+                          : _buildMobileLayout(
+                              context: context,
+                              bootstrap: bootstrap,
+                              tasks: tasks,
+                              filteredTasks: filteredTasks,
+                              personScores: personScores,
+                              statusCount: statusCount,
+                              areaScores: areaScores,
+                              assigningAreaCounts: assigningAreaCounts,
+                            ),
                     ),
                   ],
                 ),
-              ),
-            );
-          },
-        );
-      },
+              );
+            },
+          );
+        },
+      ),
     );
+  }
+
+  Widget _buildDesktopLayout({
+    required BuildContext context,
+    required _Bootstrap bootstrap,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> filteredTasks,
+    required Map<String, _PersonScore> personScores,
+    required Map<String, int> statusCount,
+    required Map<String, double> areaScores,
+    required Map<String, int> assigningAreaCounts,
+  }) {
+    return tasks.isEmpty
+        ? EmptyStateWidget(
+            icon: Icons.analytics_outlined,
+            title: 'Aún no hay tareas para analizar',
+            message: 'Cuando se creen tareas aparecerán indicadores y rankings.',
+            actionLabel: 'Reintentar',
+            onAction: () => setState(() => _bootstrapFuture = _loadBootstrap()),
+          )
+        : SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1280),
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Filters row
+                      _buildWebFiltersRow(bootstrap, tasks),
+                      const SizedBox(height: 20),
+                      if (_selectedTab == 0) ...[
+                        _buildSummaryCards(
+                          filteredTasks,
+                          personScores,
+                          activeStatus: _statusFilter,
+                          onSelectStatus: (value) => setState(() {
+                            _statusFilter = value == _statusFilter ? 'todas' : value;
+                          }),
+                        ),
+                        const SizedBox(height: 24),
+                        _buildCharts(statusCount, areaScores, assigningAreaCounts),
+                      ] else ...[
+                        _buildRankingTable(personScores.values.toList()),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+  }
+
+  Widget _buildMobileLayout({
+    required BuildContext context,
+    required _Bootstrap bootstrap,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> filteredTasks,
+    required Map<String, _PersonScore> personScores,
+    required Map<String, int> statusCount,
+    required Map<String, double> areaScores,
+    required Map<String, int> assigningAreaCounts,
+  }) {
+    return tasks.isEmpty
+        ? EmptyStateWidget(
+            icon: Icons.analytics_outlined,
+            title: 'Aún no hay tareas para analizar',
+            message: 'Cuando se creen tareas aparecerán indicadores y rankings.',
+            actionLabel: 'Reintentar',
+            onAction: () => setState(() => _bootstrapFuture = _loadBootstrap()),
+          )
+        : IndexedStack(
+            index: _selectedTab,
+            children: [
+              _buildDashboardTab(
+                bootstrap: bootstrap,
+                tasks: tasks,
+                filteredTasks: filteredTasks,
+                personScores: personScores,
+                statusCount: statusCount,
+                areaScores: areaScores,
+                assigningAreaCounts: assigningAreaCounts,
+              ),
+              _buildPointsTab(
+                bootstrap: bootstrap,
+                tasks: tasks,
+                personScores: personScores,
+              ),
+            ],
+          );
   }
 
   Widget _buildDashboardTab({
@@ -609,7 +746,6 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         required String activeStatus,
         required void Function(String value) onSelectStatus,
       }) {
-    final total = tasks.length;
     final enProgreso =
         tasks.where((t) => _resolvedEstado(t.data()) == 'en_progreso').length;
     final porAprobar =
@@ -670,9 +806,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth > 720;
-        final crossAxisCount = isWide ? 4 : 2;
-        final aspect = isWide ? 2.2 : 1.45;
+        final w = constraints.maxWidth;
+        final crossAxisCount = w >= 900 ? 5 : (w > 600 ? 4 : 2);
+        final aspect = w >= 900 ? 1.9 : (w > 600 ? 2.2 : 1.45);
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -702,13 +838,21 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Salud de tareas',
-          style: TextStyle(
-            fontFamily: kArial,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
+        Row(
+          children: [
+            Icon(Icons.health_and_safety_outlined,
+                color: _brand, size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Salud de tareas',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: Color(0xFF111827),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
 
@@ -773,40 +917,171 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   Widget _buildRankingTable(List<_PersonScore> rows) {
     rows.sort((a, b) => b.puntos.compareTo(a.puntos));
 
+    Color posColor(int pos) {
+      if (pos == 1) return const Color(0xFFF59E0B); // oro
+      if (pos == 2) return const Color(0xFF9CA3AF); // plata
+      if (pos == 3) return const Color(0xFFCD7C2F); // bronce
+      return const Color(0xFF9CA3AF);
+    }
+
+    Widget positionBadge(int pos) {
+      final c = posColor(pos);
+      return Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: c.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: c.withOpacity(0.4)),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          '#$pos',
+          style: TextStyle(
+              fontFamily: kArial,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: c),
+        ),
+      );
+    }
+
+    Widget scoreChip(double pts) {
+      final c = pts >= 40
+          ? const Color(0xFF10B981)
+          : pts >= 20
+              ? const Color(0xFFF59E0B)
+              : const Color(0xFFEF4444);
+      return Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: c.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: c.withOpacity(0.3)),
+        ),
+        child: Text(
+          pts.toStringAsFixed(1),
+          style: TextStyle(
+              fontFamily: kArial,
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: c),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
-        const Text('Tabla de control por responsable',
-            style: TextStyle(
-                fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 16)),
-        const SizedBox(height: 8),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Persona', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('Área', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('Tareas', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('A tiempo', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('Retrasadas', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('Por aprobar', style: TextStyle(fontFamily: kArial))),
-              DataColumn(label: Text('Puntos', style: TextStyle(fontFamily: kArial))),
-            ],
-            rows: rows
-                .map(
-                  (r) => DataRow(cells: [
-                DataCell(Text(r.displayName, style: const TextStyle(fontFamily: kArial))),
-                DataCell(Text(r.area, style: const TextStyle(fontFamily: kArial))),
-                DataCell(Text('${r.total}', style: const TextStyle(fontFamily: kArial))),
-                DataCell(Text('${r.aTiempo}', style: const TextStyle(fontFamily: kArial))),
-                DataCell(Text('${r.retrasadas}', style: const TextStyle(fontFamily: kArial))),
-                    DataCell(Text('${r.porAprobar}', style: const TextStyle(fontFamily: kArial))),
-                DataCell(Text(r.puntos.toStringAsFixed(1),
-                    style: const TextStyle(fontFamily: kArial))),
-              ]),
-            )
-                .toList(),
+        Row(
+          children: [
+            Icon(Icons.leaderboard_outlined, color: _brand, size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Tabla de control por responsable',
+              style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Color(0xFF111827)),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: _brand.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${rows.length} persona${rows.length == 1 ? '' : 's'}',
+                style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: _brand,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Card(
+          elevation: 0,
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFFE5E7EB)),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: WidgetStateProperty.all(
+                    const Color(0xFFF9FAFB)),
+                dataRowMinHeight: 52,
+                dataRowMaxHeight: 56,
+                columnSpacing: 20,
+                headingTextStyle: const TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151),
+                    fontSize: 13),
+                columns: const [
+                  DataColumn(label: Text('#')),
+                  DataColumn(label: Text('Persona')),
+                  DataColumn(label: Text('Área')),
+                  DataColumn(label: Text('Tareas')),
+                  DataColumn(label: Text('A tiempo')),
+                  DataColumn(label: Text('Retrasadas')),
+                  DataColumn(label: Text('Por aprobar')),
+                  DataColumn(label: Text('Puntos')),
+                ],
+                rows: List.generate(rows.length, (i) {
+                  final r = rows[i];
+                  return DataRow(
+                    color: WidgetStateProperty.all(
+                      i.isEven
+                          ? Colors.white
+                          : const Color(0xFFFAFAFA),
+                    ),
+                    cells: [
+                      DataCell(positionBadge(i + 1)),
+                      DataCell(Text(r.displayName,
+                          style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w500))),
+                      DataCell(Text(r.area,
+                          style: const TextStyle(
+                              fontFamily: kArial,
+                              color: Color(0xFF6B7280)))),
+                      DataCell(Text('${r.total}',
+                          style: const TextStyle(
+                              fontFamily: kArial))),
+                      DataCell(Text('${r.aTiempo}',
+                          style: const TextStyle(
+                              fontFamily: kArial))),
+                      DataCell(Text(
+                        '${r.retrasadas}',
+                        style: TextStyle(
+                            fontFamily: kArial,
+                            color: r.retrasadas > 0
+                                ? const Color(0xFFEF4444)
+                                : const Color(0xFF6B7280),
+                            fontWeight: r.retrasadas > 0
+                                ? FontWeight.bold
+                                : FontWeight.normal),
+                      )),
+                      DataCell(Text('${r.porAprobar}',
+                          style: const TextStyle(
+                              fontFamily: kArial))),
+                      DataCell(scoreChip(r.puntos)),
+                    ],
+                  );
+                }),
+              ),
+            ),
           ),
         ),
       ],
@@ -889,6 +1164,114 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final nombre = _empresaNombres[id]?.trim();
     return (nombre == null || nombre.isEmpty) ? id : nombre;
   }
+
+  Widget _buildWebFiltersRow(
+    _Bootstrap bootstrap,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+  ) {
+    final areaIds = <String>{
+      for (final t in tasks)
+        if ((t.data()['areaId'] ?? '').toString().isNotEmpty)
+          (t.data()['areaId'] ?? '').toString(),
+    };
+
+    final areaItems = [
+      const DropdownMenuItem(
+          value: 'todas', child: Text('Todas las áreas')),
+      ...areaIds
+          .map((id) => DropdownMenuItem(
+                value: id,
+                child: Text(bootstrap.areas[id] ?? id,
+                    overflow: TextOverflow.ellipsis),
+              ))
+          .toList()
+        ..sort((a, b) => (a.child as Text)
+            .data!
+            .toLowerCase()
+            .compareTo((b.child as Text).data!.toLowerCase())),
+    ];
+
+    final empresas = bootstrap.empresas.toList()..sort();
+    final showTodas = empresas.length > 1;
+    final defaultEmpresa = _empresaActiva ??
+        (showTodas
+            ? kTodasEmpresasValue
+            : (empresas.isNotEmpty ? empresas.first : ''));
+
+    final empresaItems = <DropdownMenuItem<String>>[
+      if (showTodas)
+        const DropdownMenuItem(
+            value: kTodasEmpresasValue,
+            child: Text('Todas mis empresas')),
+      ...empresas.map((e) => DropdownMenuItem(
+            value: e,
+            child: Text(_empresaNombres[e] ?? e,
+                overflow: TextOverflow.ellipsis),
+          )),
+    ];
+
+    const inputDecoration = InputDecoration(
+      border: OutlineInputBorder(),
+      isDense: true,
+      contentPadding:
+          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    );
+
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            const Icon(Icons.filter_list_outlined,
+                size: 18, color: Color(0xFF6B7280)),
+            const SizedBox(width: 12),
+            const Text('Filtros:',
+                style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF374151))),
+            const SizedBox(width: 20),
+            if (empresas.isNotEmpty && empresaItems.isNotEmpty) ...[
+              SizedBox(
+                width: 230,
+                child: DropdownButtonFormField<String>(
+                  value: defaultEmpresa.isEmpty ? null : defaultEmpresa,
+                  items: empresaItems,
+                  decoration: inputDecoration.copyWith(
+                      labelText: 'Empresa'),
+                  onChanged: (v) {
+                    if (v == null || v.isEmpty) return;
+                    setState(() {
+                      _empresaActiva = v;
+                      _statusFilter = 'todas';
+                      _areaFilter = 'todas';
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+            ],
+            SizedBox(
+              width: 230,
+              child: DropdownButtonFormField<String>(
+                value: _areaFilter,
+                items: areaItems,
+                decoration:
+                    inputDecoration.copyWith(labelText: 'Área'),
+                onChanged: (v) =>
+                    setState(() => _areaFilter = v ?? 'todas'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -910,41 +1293,90 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveColor = isActive ? color.withOpacity(0.95) : color;
+    final scheme = Theme.of(context).colorScheme;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
-      child: Card(
-        color: effectiveColor,
-        elevation: isActive ? 2.5 : 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Icon(icon, color: Theme.of(context).colorScheme.primary, size: 18),
-                  if (isActive)
-                    Icon(Icons.filter_alt, color: Theme.of(context).colorScheme.primary, size: 16),
-                ],
-              ),
-              Text(title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                  const TextStyle(
-                      fontFamily: kArial, color: Colors.black54, fontSize: 12)),
-              Text(
-                value,
-                style: const TextStyle(
-                    fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 18),
-              ),
-            ],
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isActive ? scheme.primary : const Color(0xFFE5E7EB),
+            width: isActive ? 1.5 : 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: isActive
+                  ? scheme.primary.withOpacity(0.12)
+                  : const Color(0x0A000000),
+              blurRadius: isActive ? 12 : 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: scheme.primary, size: 16),
+                ),
+                if (isActive)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.filter_alt_rounded,
+                            color: scheme.primary, size: 11),
+                        const SizedBox(width: 2),
+                        Text('activo',
+                            style: TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 10,
+                                color: scheme.primary,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            Text(
+              value,
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.bold,
+                fontSize: 26,
+                color: isActive ? scheme.primary : const Color(0xFF111827),
+              ),
+            ),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: kArial,
+                color: Color(0xFF6B7280),
+                fontSize: 11,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1227,4 +1659,91 @@ class _Bootstrap {
   final Map<String, String> areas;
   final String empresaId;
   final Set<String> empresas;
+}
+
+// ── Web tab toggle (segmented control) ─────────────────────────────────────
+
+class _WebTabToggle extends StatelessWidget {
+  const _WebTabToggle({
+    required this.tabs,
+    required this.icons,
+    required this.selected,
+    required this.brand,
+    required this.onTap,
+    this.onDark = false,
+  });
+
+  final List<String> tabs;
+  final List<IconData> icons;
+  final int selected;
+  final Color brand;
+  final void Function(int) onTap;
+  final bool onDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: onDark
+            ? Colors.white.withOpacity(0.15)
+            : const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: onDark
+              ? Colors.white.withOpacity(0.3)
+              : const Color(0xFFE5E7EB),
+        ),
+      ),
+      padding: const EdgeInsets.all(3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(tabs.length, (i) {
+          final isActive = selected == i;
+          final inactiveColor =
+              onDark ? Colors.white70 : const Color(0xFF6B7280);
+          return GestureDetector(
+            onTap: () => onTap(i),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeInOut,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: isActive ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: isActive
+                    ? const [
+                        BoxShadow(
+                            color: Color(0x20000000),
+                            blurRadius: 4,
+                            offset: Offset(0, 1))
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icons[i],
+                      size: 16,
+                      color: isActive ? brand : inactiveColor),
+                  const SizedBox(width: 6),
+                  Text(
+                    tabs[i],
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 13,
+                      fontWeight: isActive
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                      color: isActive ? brand : inactiveColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
 }

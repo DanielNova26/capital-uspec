@@ -15,38 +15,34 @@ import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/local_notification_service.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 
-// Import relativo al Admin Dashboard
 import '../admin/admin_dashboard_screen.dart' hide kArial;
-// Import relativo al Talento Humano Dashboard
 import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
 import '../compras/compras_service.dart';
-// Drawer modularizado
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
+import 'created_tasks_screen.dart';
+import 'notifications_screen.dart';
 import 'task_history_screen.dart' hide kArial;
-// Pantallas para sidebar web
-import 'package:firebase_auth/firebase_auth.dart';
-import '../login/login_screen.dart';
-import 'profile_screen.dart' hide kArial;
-import 'team_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
-import 'team_overview_screen.dart' hide kArial;
+import 'team_screen.dart' hide kArial;
+import '../core/access_guard.dart';
+import '../core/task_route_guard.dart';
+
+import 'home_shell.dart';
+import 'widgets/home_shared_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
-  final String username; // cédula o username (docId en TBL_USUARIOS)
+  final String username;
   final String empresaId;
-  const HomeScreen({
-    Key? key,
-    required this.username,
-    required this.empresaId,
-  }) : super(key: key);
+  const HomeScreen({Key? key, required this.username, required this.empresaId}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -57,1744 +53,291 @@ class _HomeScreenState extends State<HomeScreen> {
   late DateTime _selectedDay;
   Map<String, List<Map<String, dynamic>>> _events = {};
 
-  // Registro automático de FCM
   bool _didRegisterToken = false;
   StreamSubscription<String>? _tokenSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _notifSub;
   final Set<String> _seenNotifIds = <String>{};
   bool _notifsPrimed = false;
   String? _listeningUserId;
+  // Empresa activa actualizada en build() para filtrar toasts en el listener.
+  String? _currentEmpresaId;
 
-  // ✅ Mapea type -> pestaña del Proceso
-  String? _processTabForNotifType(String raw) {
-    final t = raw.trim().toLowerCase();
-    if (t.startsWith('task_status_')) {
-      final status = t.replaceFirst('task_status_', '').trim();
-      if (status == 'finalizada' ||
-          status == 'finalizado' ||
-          status == 'completada' ||
-          status == 'por_aprobar') {
-        return 'Finalización';
-      }
-      if (status == 'en_progreso') return 'Avances';
-    }
+  // ── Citas de Nutrición para el calendario ────────────────────────────────
+  // Mapa de eventos de Nutrición separado del mapa de tareas, indexado por
+  // 'yyyy-MM-dd'. Se suscribe a TBL_CITAS_NUTRICION y se combina en
+  // _getEventsForDay() con _events (tareas).
+  Map<String, List<Map<String, dynamic>>> _citasEvents = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _citasSub;
+  // Clave que detecta cambio de cedula/empresa para re-suscribirse.
+  String? _lastCitasKey;
 
-    // Avances (incluye tus types reales)
-    const avances = {
-      'avance',
-      'progress',
-      'task_progress',
-      'task_avance',        // ✅ FIX
-      'gestion_avance',
-      'avance_creado',
-      'avance_actualizado',
-    };
+  bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
 
-    // Novedades (incluye tus types reales)
-    const novedades = {
-      'novedad',
-      'news',
-      'task_news',
-      'task_novedad',       // ✅ FIX
-      'respuesta_novedad',
-      'novedad_creada',
-      'novedad_actualizada',
-    };
-
-    // Finalización (incluye tus types reales)
-    const finalizacion = {
-      'finalizacion',
-      'completed',
-      'task_completed',     // ✅ ya venía en tu firestore
-      'finalizado',
-      'task_finalizado',
-      'task_finalizada',
-    };
-
-    if (avances.contains(t)) return 'Avances';
-    if (novedades.contains(t)) return 'Novedades';
-    if (finalizacion.contains(t)) return 'Finalización';
-
-    return null;
-  }
+  // --- Lógica FCM y Notificaciones ---
 
   Future<void> _openNotificationTask({
     required String type,
     required String taskId,
     required String cedula,
+    required Map<String, dynamic> userData,
   }) async {
-    // Documento rechazado (módulo Compras) → navegar directamente al proveedor
-    if ((type == 'doc_rechazado' || type == 'correccion_requerida') &&
-        taskId.startsWith('proveedor:')) {
+    // Tipos de Nutrición: navegan a NutricionDashboardScreen.
+    if (type == 'cita_nutricion_agendada' || type == 'cita_nutricion_recordatorio') {
+      if (taskId.isNotEmpty && mounted) await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
+      return;
+    }
+    if ((type == 'doc_rechazado' || type == 'correccion_requerida') && taskId.startsWith('proveedor:')) {
+      final empresaId = normalizeEmpresaId(EmpresaScope.of(context, listen: false).selectedEmpresaId);
+      if (empresaId == null) return;
+      final comprasAllowed = await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'comprasdashboard', deniedMessage: 'Sin acceso a Compras.');
+      if (!comprasAllowed) return;
       final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
-      if (proveedorId.isNotEmpty && mounted) {
-        await abrirDetalleProveedor(
-          context,
-          userId: cedula,
-          proveedorId: proveedorId,
-        );
-      }
+      if (proveedorId.isNotEmpty && mounted) await abrirDetalleProveedor(context, userId: cedula, proveedorId: proveedorId);
       return;
     }
-
-    if (taskId.trim().isNotEmpty) {
-      try {
-        await FirebaseFirestore.instance
-            .collection('TBL_TAREAS')
-            .doc(taskId)
-            .set({'visto': true}, SetOptions(merge: true));
-      } catch (_) {}
-    }
-    final tabKey = _processTabForNotifType(type);
-
-    // ✅ Si es avance/novedad/finalización => ir al historial y abrir proceso en la pestaña correcta
-    if (tabKey != null) {
-      int tabIndex = 0; // 0 = Asignadas a mí, 1 = Yo asigné
-
-      try {
-        final snap = await FirebaseFirestore.instance
-            .collection('TBL_TAREAS')
-            .doc(taskId)
-            .get();
-
-        final data = snap.data();
-        if (data != null) {
-          final creatorId =
-          (data['creador_id'] ?? data['creatorId'] ?? '').toString().trim();
-          final assignedId =
-          (data['asignado_uid'] ?? data['assignedTo'] ?? '').toString().trim();
-
-          if (creatorId.isNotEmpty && creatorId == cedula) {
-            tabIndex = 1; // Yo asigné
-          } else if (assignedId.isNotEmpty && assignedId == cedula) {
-            tabIndex = 0; // Asignadas a mí
-          } else {
-            tabIndex = 1; // fallback razonable
-          }
-        }
-      } catch (_) {}
-
-      if (!mounted) return;
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TaskHistoryScreen(
-            currentUserId: cedula,
-            initialTabIndex: tabIndex,
-            highlightTaskId: taskId,
-            openProcessTabKey: tabKey, // 👈 pestaña correcta
-          ),
-        ),
-      );
+    if (type == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
+      final empresaId = normalizeEmpresaId(EmpresaScope.of(context, listen: false).selectedEmpresaId);
+      if (empresaId == null) return;
+      final comprasAllowed = await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'comprasdashboard', deniedMessage: 'Sin acceso a Compras.');
+      if (!comprasAllowed) return;
+      final fichaId = taskId.replaceFirst('ficha:', '').trim();
+      if (fichaId.isNotEmpty && mounted) await abrirDetalleFichaRechazada(context, userId: cedula, fichaId: fichaId);
       return;
     }
-
-    // ✅ Si NO es avance/novedad => comportamiento original (mis tareas asignadas)
+    final routeDecision = await TaskRouteGuard().resolveNotificationRoute(context, userIdentity: cedula, taskId: taskId, type: type);
     if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AssignedTasksScreen(
-          userId: cedula,
-          highlightTaskId: taskId,
-        ),
-      ),
-    );
+    if (!routeDecision.allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(routeDecision.message ?? 'Error al abrir notificación.')));
+      return;
+    }
+    if (taskId.trim().isNotEmpty) {
+      try { await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).set({'visto': true}, SetOptions(merge: true)); } catch (_) {}
+    }
+    if (routeDecision.target == TaskRouteTarget.taskHistory) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => TaskHistoryScreen(currentUserId: cedula, initialTabIndex: routeDecision.initialTabIndex, highlightTaskId: taskId)));
+      return;
+    }
+    if (routeDecision.target == TaskRouteTarget.createdTasks) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => CreatedTasksScreen(userId: cedula, highlightTaskId: taskId)));
+      return;
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => AssignedTasksScreen(userId: cedula, highlightTaskId: taskId)));
   }
 
   Future<String?> _getFcmTokenWithRetries() async {
-    Future<String?> _safeGetToken() async {
-      try {
-        return await FirebaseMessaging.instance.getToken();
-      } catch (e) {
-        debugPrint('[FCM] getToken error: $e');
-        return null;
-      }
-    }
-
-    var token = await _safeGetToken();
-    if (token != null && token.isNotEmpty) return token;
-
-    if (!kIsWeb && Platform.isIOS) {
-      var apnsToken = await FirebaseMessaging.instance.getAPNSToken();
-      debugPrint('[FCM] APNS token (retry path): $apnsToken');
-
-      for (final delay in const [
-        Duration(milliseconds: 400),
-        Duration(seconds: 1),
-        Duration(seconds: 2),
-      ]) {
-        await Future.delayed(delay);
-        apnsToken = await FirebaseMessaging.instance.getAPNSToken();
-        if (apnsToken == null) continue;
-
-        token = await _safeGetToken();
-        if (token != null && token.isNotEmpty) return token;
-      }
-    }
-
-    return token;
+    try { return await FirebaseMessaging.instance.getToken(); } catch (_) { return null; }
   }
 
-  Future<void> _persistFcmToken({
-    required String token,
-    required String userId,
-  }) async {
+  Future<void> _persistFcmToken({required String token, required String userId}) async {
     final platform = kIsWeb ? 'web' : Platform.operatingSystem;
-    final deviceName = kIsWeb
-        ? 'Web'
-        : Platform.isAndroid
-            ? 'Android'
-            : Platform.isIOS
-                ? 'iOS'
-                : platform;
+    try { await FirebaseFunctions.instance.httpsCallable('registerDeviceToken').call({'cedula': userId, 'token': token, 'platform': platform}); } catch (_) {}
     try {
-      final fun = FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
-      await fun.call({
-        'cedula': userId,
-        'token': token,
-        'platform': platform,
-        'deviceName': deviceName,
-      });
-    } catch (e) {
-      debugPrint('[FCM] registerDeviceToken error: $e');
-    }
-
-    try {
-      await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(userId)
-          .set({
+      await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(userId).set({
         'fcmTokens': FieldValue.arrayUnion([token]),
-        'fcmDevices.$token': {
-          'platform': platform,
-          'deviceName': deviceName,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
+        'fcmDevices.$token': {'platform': platform, 'updatedAt': FieldValue.serverTimestamp()},
       }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('[FCM] write fallback error: $e');
-    }
-  }
-
-  DateTime? _toDate(dynamic v) {
-    if (v == null) return null;
-    if (v is Timestamp) return v.toDate();
-    if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
-    if (v is num) return DateTime.fromMillisecondsSinceEpoch(v.toInt());
-    if (v is String) {
-      final n = int.tryParse(v);
-      if (n != null) return DateTime.fromMillisecondsSinceEpoch(n);
-      final iso = DateTime.tryParse(v);
-      if (iso != null) return iso;
-    }
-    return null;
-  }
-
-  bool _isRead(Map<String, dynamic> data) {
-    final read = data['read'];
-    final leido = data['leido'];
-    final visto = data['visto'];
-    return (read is bool && read) ||
-        (leido is bool && leido) ||
-        (visto is bool && visto);
-  }
-
-  String _titleOf(Map<String, dynamic> m) =>
-      (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
-
-  DateTime? _dueOf(Map<String, dynamic> m) =>
-      _toDate(m['fecha_limite'] ?? m['dueDate']);
-
-  String _estadoOf(Map<String, dynamic> m) => resolveTaskStatus(m);
-
-  String _assignedUidOf(Map<String, dynamic> m) =>
-      (m['asignado_uid'] ?? m['assignedTo'] ?? '').toString();
-
-  String _assignedNameOf(Map<String, dynamic> m) =>
-      (m['asignado_nombre'] ?? m['assignedToName'] ?? '').toString();
-
-  String _creatorIdOf(Map<String, dynamic> m) =>
-      (m['creador_id'] ?? m['creatorId'] ?? m['creador_uid'] ?? '').toString();
-
-  String _creatorNameOf(Map<String, dynamic> m) =>
-      (m['creador_nombre'] ?? m['creatorName'] ?? '').toString();
-
-  String _creatorDisplayOf(Map<String, dynamic> m) {
-    final name = _creatorNameOf(m).trim();
-    if (name.isNotEmpty) return name;
-    final id = _creatorIdOf(m).trim();
-    return id;
-  }
-
-  String _notifFromOf(Map<String, dynamic> n) =>
-      (n['fromName'] ?? n['fromId'] ?? '').toString().trim();
-
-  String _notifFromLabel(String type) {
-    final t = type.trim().toLowerCase();
-    if (t == 'task_assigned' ||
-        t == 'task_reassigned' ||
-        t == 'task_reassigned_info' ||
-        t == 'task_reassigned_out') {
-      return 'Asignado por';
-    }
-    if (t == 'avance' ||
-        t == 'progress' ||
-        t == 'task_progress' ||
-        t == 'task_avance') {
-      return 'Reportado por';
-    }
-    if (t == 'novedad' ||
-        t == 'news' ||
-        t == 'task_news' ||
-        t == 'task_novedad' ||
-        t == 'respuesta_novedad') {
-      return 'Reportado por';
-    }
-    return 'De';
-  }
-
-  bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusedDay = DateTime.now();
-    _selectedDay = DateTime.now();
-  }
-
-  @override
-  void dispose() {
-    _tokenSub?.cancel();
-    _notifSub?.cancel();
-    super.dispose();
-  }
-
-  /// Navega a ComprasDashboard buscando el rol del usuario en el módulo Compras.
-  Future<void> _abrirCompras(
-      BuildContext context, String userId, String empresaId) async {
-    String? rolCompras;
-    try {
-      final rolDoc = await ComprasService()
-          .getRolUsuario(empresaId, userId);
-      rolCompras = rolDoc?.rol;
     } catch (_) {}
-    if (!context.mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ComprasDashboardScreen(
-          userId: userId,
-          empresaId: empresaId,
-          rolCompras: rolCompras,
-        ),
-      ),
-    );
   }
 
   void _startNotifListener(String userId) {
     if (userId.isEmpty) return;
-    if (_listeningUserId == userId && _notifSub != null) return;
-
     _notifSub?.cancel();
     _listeningUserId = userId;
-    _seenNotifIds.clear();
-    _notifsPrimed = false;
-
-    _notifSub = FirebaseFirestore.instance
-        .collection('TBL_NOTIFICACIONES')
-        .doc(userId)
-        .collection('notifications')
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .listen((snap) async {
+    _notifSub = FirebaseFirestore.instance.collection('TBL_NOTIFICACIONES').doc(userId).collection('notifications').orderBy('createdAt', descending: true).snapshots().listen((snap) async {
       if (!_notifsPrimed) {
-        for (final doc in snap.docs) {
-          _seenNotifIds.add(doc.id);
-        }
+        for (final doc in snap.docs) _seenNotifIds.add(doc.id);
         _notifsPrimed = true;
         return;
       }
-
       for (final change in snap.docChanges) {
         if (change.type != DocumentChangeType.added) continue;
-        final doc = change.doc;
-        if (!_seenNotifIds.add(doc.id)) continue;
-
-        final data = doc.data() ?? {};
-        final isRead = (data['read'] as bool?) ?? false;
-        if (isRead) continue;
-
-        final title = (data['title'] as String?)?.trim().isNotEmpty == true
-            ? data['title'].toString()
-            : 'Notificación';
-        final body = (data['description'] as String?)?.trim().isNotEmpty == true
-            ? data['description'].toString()
-            : (data['body']?.toString() ?? '');
-
-        final payload = data['taskId']?.toString();
-
-        await LocalNotificationService.instance.show(
-          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          title: title,
-          body: body,
-          payload: payload,
-        );
+        _seenNotifIds.add(change.doc.id);
+        // La notificación push en foreground y background la gestiona FCM
+        // vía el trigger onNotificationCreated en Cloud Functions.
+        // Este listener sólo mantiene el conjunto de IDs vistos para el badge.
       }
     });
   }
 
   Future<void> _ensureFcmRegistered(String userId) async {
     if (userId.isEmpty) return;
-
     try {
-      await FirebaseMessaging.instance.setAutoInitEnabled(true);
-      await FirebaseMessaging.instance
-          .setForegroundNotificationPresentationOptions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
-      final settings = await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-        announcement: false,
-        carPlay: false,
-        criticalAlert: false,
-        provisional: false,
-      );
-      debugPrint('[FCM] permiso: ${settings.authorizationStatus}');
-
-      _tokenSub ??=
-          FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-            if (newToken.isEmpty) return;
-            await _persistFcmToken(token: newToken, userId: userId);
-          });
-
-      if (!kIsWeb && Platform.isIOS) {
-        final apnsToken = await FirebaseMessaging.instance.getAPNSToken();
-        debugPrint('[FCM] APNS token: $apnsToken');
-      }
-
+      await FirebaseMessaging.instance.requestPermission();
       final token = await _getFcmTokenWithRetries();
-      debugPrint('[FCM] token actual: $token');
-
-      if (token != null && token.isNotEmpty) {
-        await _persistFcmToken(token: token, userId: userId);
-      }
-    } catch (e) {
-      debugPrint('[FCM] error general: $e');
-    }
-  }
-
-  List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
-    final key = DateFormat('yyyy-MM-dd').format(day);
-    return _events[key] ?? [];
-  }
-
-  Future<void> _markAllAsRead({
-    required String cedula,
-    required List<Map<String, dynamic>> notifications,
-  }) async {
-    try {
-      if (notifications.isEmpty) return;
-      final batch = FirebaseFirestore.instance.batch();
-      var hasUpdates = false;
-      for (final n in notifications) {
-        if (_isRead(n)) continue;
-        final id = (n['id'] ?? '').toString();
-        if (id.isEmpty) continue;
-        final ref = FirebaseFirestore.instance
-            .collection('TBL_NOTIFICACIONES')
-            .doc(cedula)
-            .collection('notifications')
-            .doc(id);
-        batch.set(ref, {'read': true}, SetOptions(merge: true));
-        final taskId = (n['taskId'] ?? '').toString();
-        if (taskId.isNotEmpty) {
-          final taskRef =
-          FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId);
-          batch.set(taskRef, {'visto': true}, SetOptions(merge: true));
-        }
-        hasUpdates = true;
-      }
-      if (hasUpdates) {
-        await batch.commit();
-      }
+      if (token != null) await _persistFcmToken(token: token, userId: userId);
     } catch (_) {}
   }
 
-  Future<void> _showNotificationsSheet({
-    required String cedula,
-    required List<Map<String, dynamic>> notifications,
-  }) async {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+  // --- Helpers de Datos ---
 
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: scheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.75,
-        minChildSize: 0.45,
-        maxChildSize: 0.95,
-        builder: (_, controller) {
-          if (notifications.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Notificaciones',
-                      style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  Text('No tienes notificaciones todavía.',
-                      style: TextStyle(
-                          fontFamily: kArial, color: scheme.onSurfaceVariant)),
-                ],
-              ),
-            );
-          }
-
-          return Column(
-            children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 38,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: scheme.onSurface.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text('Notificaciones',
-                  style: TextStyle(
-                      fontFamily: kArial,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView.separated(
-                  controller: controller,
-                  padding:
-                  const EdgeInsets.only(left: 16, right: 16, bottom: 24),
-                  itemCount: notifications.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final n = notifications[i];
-                    final title = (n['title'] ?? '').toString();
-                    final body = (n['description'] ?? '').toString();
-                    final type = (n['type'] ?? '').toString();
-                    final typeLabel = _mapNotificationType(type);
-                    final from = _notifFromOf(n);
-                    final fromLabel = _notifFromLabel(type);
-                    final taskId = (n['taskId'] ?? '').toString();
-                    final dt = _toDate(n['createdAt']);
-                    final when = dt == null
-                        ? ''
-                        : DateFormat('dd/MM/yyyy HH:mm', 'es').format(dt);
-                    final unread = !_isRead(n);
-
-                    return ListTile(
-                      leading: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: scheme.primary,
-                            child: const Icon(Icons.notifications,
-                                color: Colors.white),
-                          ),
-                          if (unread)
-                            const Positioned(
-                              right: -1,
-                              top: -1,
-                              child: CircleAvatar(
-                                  radius: 6, backgroundColor: Colors.red),
-                            ),
-                        ],
-                      ),
-                      title: Text(title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontFamily: kArial)),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(body,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontFamily: kArial)),
-                          if (from.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              '$fromLabel: $from',
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 12,
-                                color: Colors.black54,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              if (typeLabel.isNotEmpty)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: scheme.primary.withOpacity(.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(typeLabel,
-                                      style: TextStyle(
-                                        fontFamily: kArial,
-                                        color: scheme.primary,
-                                        fontWeight: FontWeight.w600,
-                                      )),
-                                ),
-                              if (taskId.isNotEmpty)
-                                TextButton.icon(
-                                  icon: const Icon(Icons.open_in_new, size: 18),
-                                  label: const Text('Ir al detalle'),
-                                  style: TextButton.styleFrom(
-                                      foregroundColor: scheme.primary),
-                                  onPressed: () async {
-                                    if (!mounted) return;
-                                    Navigator.pop(context);
-                                    await _openNotificationTask(
-                                      type: type,
-                                      taskId: taskId,
-                                      cedula: cedula,
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(when,
-                              style: TextStyle(
-                                  fontFamily: kArial,
-                                  color: scheme.onSurfaceVariant,
-                                  fontSize: 12)),
-                        ],
-                      ),
-                      onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: Text(title,
-                                style: const TextStyle(fontFamily: kArial)),
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (typeLabel.isNotEmpty) ...[
-                                  Text('Tipo: $typeLabel',
-                                      style: const TextStyle(
-                                          fontFamily: kArial,
-                                          fontWeight: FontWeight.w600)),
-                                  const SizedBox(height: 8),
-                                ],
-                                Text(body,
-                                    style: const TextStyle(fontFamily: kArial)),
-                                if (when.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text('Fecha: $when',
-                                      style: TextStyle(
-                                          fontFamily: kArial,
-                                          color: scheme.onSurfaceVariant,
-                                          fontSize: 12)),
-                                ],
-                              ],
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Cerrar'),
-                              ),
-                              if (taskId.isNotEmpty)
-                                TextButton.icon(
-                                  icon: const Icon(Icons.arrow_forward),
-                                  label: const Text('Ver origen'),
-                                  onPressed: () async {
-                                    Navigator.pop(context);
-                                    await _openNotificationTask(
-                                      type: type,
-                                      taskId: taskId,
-                                      cedula: cedula,
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    await _markAllAsRead(cedula: cedula, notifications: notifications);
+  DateTime? _toDate(dynamic v) {
+    if (v is Timestamp) return v.toDate();
+    if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+    if (v is String) return DateTime.tryParse(v);
+    return null;
   }
 
-  // ============= WEB SIDEBAR =============
-
-  Widget _buildWebSidebar(BuildContext context, String userId) {
-    const bg = Color(0xFF0F2847);
-    return Container(
-      width: 240,
-      color: bg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Logo + título
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
-            child: Row(children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset('assets/logo.png', width: 36, height: 36),
-              ),
-              const SizedBox(width: 12),
-              const Text('To-Do',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: kArial)),
-            ]),
-          ),
-          const Divider(color: Color(0xFF1E3A5F), height: 1),
-          const SizedBox(height: 4),
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _sidebarItem(Icons.assignment_ind_outlined, 'Tareas asignadas',
-                    () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => AssignedTasksScreen(userId: userId)))),
-                _sidebarItem(Icons.add_task, 'Crear tarea',
-                    () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => CreateTaskScreen(currentUserId: userId)))),
-                _sidebarItem(Icons.history, 'Historial',
-                    () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => TaskHistoryScreen(currentUserId: userId)))),
-                _sidebarItem(Icons.group_outlined, 'Mi equipo',
-                    () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => TeamScreen(userId: userId)))),
-                _sidebarItem(Icons.supervised_user_circle_outlined, 'Actividades del equipo',
-                    () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => TeamOverviewScreen(currentUserId: userId)))),
-                _sidebarItem(Icons.person_outline, 'Perfil',
-                    () => Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => ProfileScreen(userId: userId)))),
-              ],
-            ),
-          ),
-          const Divider(color: Color(0xFF1E3A5F), height: 1),
-          _sidebarItem(
-            Icons.logout, 'Cerrar sesión',
-            () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  (_) => false,
-                );
-              }
-            },
-            iconColor: Colors.redAccent,
-            textColor: Colors.redAccent,
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
+  bool _isRead(Map<String, dynamic> data) => (data['read'] == true || data['leido'] == true || data['visto'] == true);
+  String _titleOf(Map<String, dynamic> m) => (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
+  String _estadoOf(Map<String, dynamic> m) => resolveTaskStatus(m);
+  bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+  
+  List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
+    final key = DateFormat('yyyy-MM-dd').format(day);
+    final tasks = _events[key] ?? [];
+    final citas = _citasEvents[key] ?? [];
+    return [...tasks, ...citas];
   }
 
-  Widget _sidebarItem(
-    IconData icon,
-    String label,
-    VoidCallback onTap, {
-    Color iconColor = const Color(0xFF93B4D4),
-    Color textColor = Colors.white,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        hoverColor: const Color(0xFF1A3A6A),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13),
-          child: Row(children: [
-            Icon(icon, color: iconColor, size: 20),
-            const SizedBox(width: 14),
-            Flexible(
-              child: Text(label,
-                  style: TextStyle(
-                      color: textColor, fontFamily: kArial, fontSize: 14)),
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWebTopBar(BuildContext context, String saludo, int unreadCount,
-      List<Map<String, dynamic>> notifications, String cedula) {
-    return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 4,
-              offset: const Offset(0, 2))
-        ],
-      ),
-      child: Row(children: [
-        const Icon(Icons.home_outlined, color: Color(0xFF6B7280), size: 20),
-        const SizedBox(width: 10),
-        Text('Bienvenido, $saludo 👋',
-            style: const TextStyle(
-                fontFamily: kArial,
-                fontSize: 17,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF111827))),
-        const Spacer(),
-        IconButton(
-          tooltip: 'Notificaciones',
-          onPressed: () => _showNotificationsSheet(
-              cedula: cedula, notifications: notifications),
-          icon: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Icon(Icons.notifications_outlined,
-                  color: Color(0xFF374151), size: 24),
-              if (unreadCount > 0)
-                Positioned(
-                  right: -2,
-                  top: -2,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                    decoration: BoxDecoration(
-                        color: Colors.red,
-                        borderRadius: BorderRadius.circular(10)),
-                    constraints:
-                        const BoxConstraints(minWidth: 18, minHeight: 16),
-                    child: Text(unreadCount > 9 ? '9+' : '$unreadCount',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-      ]),
-    );
-  }
-
-  // ============= Apps grid/horizontal =============
-  Widget _buildAppsSection({
-    required String empresaId,
-    required String role,
-    required List<String> assignedApps,
-    required String cedula,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    final assignedLower = assignedApps
-        .map((e) => e.trim().toLowerCase())
-        .where((e) => e.isNotEmpty)
-        .toSet();
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('TBL_APPS')
-          .where('empresaId', isEqualTo: empresaId)
-          .where('enabled', isEqualTo: true)
-          .snapshots(),
-      builder: (context, appsSnap) {
-        if (appsSnap.connectionState == ConnectionState.waiting) {
-          return const SizedBox(height: 180, child: SkeletonList(items: 2));
+  /// Suscribe (o re-suscribe) a TBL_CITAS_NUTRICION para el cedula+empresa activa.
+  /// Solo re-suscribe cuando cambia la clave cedula:empresaId.
+  void _restartCitasSubscription(String cedula, String empresaId) {
+    final key = '$cedula:$empresaId';
+    if (_lastCitasKey == key) return;
+    _lastCitasKey = key;
+    _citasSub?.cancel();
+    _citasEvents = {};
+    _citasSub = FirebaseFirestore.instance
+        .collection('TBL_CITAS_NUTRICION')
+        .where('userId', isEqualTo: cedula)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('estado', isEqualTo: 'agendada')
+        .snapshots()
+        .listen((snap) {
+      final newEvents = <String, List<Map<String, dynamic>>>{};
+      for (final d in snap.docs) {
+        final data = <String, dynamic>{'id': d.id, ...d.data()};
+        final raw = data['fechaReevaluacion'];
+        final fecha = _toDate(raw);
+        if (fecha != null) {
+          final k = DateFormat('yyyy-MM-dd').format(fecha);
+          // Marcar como cita de Nutrición para diferenciar en el calendario.
+          data['_calType'] = 'cita_nutricion';
+          data['titulo'] = 'Control: ${(data['pacienteNombre'] as String?) ?? 'Nutrición'}';
+          newEvents.putIfAbsent(k, () => []).add(data);
         }
-        final docs = appsSnap.data?.docs ?? [];
-
-        final tiles = docs.where((doc) {
-          final data = doc.data();
-          final appId = (data['appId'] as String?)?.trim() ?? '';
-          final appIdLower = appId.toLowerCase();
-
-          final isTH = appIdLower == 'talentohumanodashboard';
-          final isAdmin = appIdLower == 'admindashboard';
-          final isGerencia = appIdLower == 'gerenciadashboard';
-          final isDoc = appIdLower == 'gestiondocumental';
-          final isNutricion = appIdLower == 'nutriciondashboard';
-          final isCompras = appIdLower == 'comprasdashboard';
-          final visibleByRole = role == 'desarrollador';
-          final visibleByAssign = assignedLower.contains(appIdLower);
-          final visibleDocByAssign = isDoc && visibleByAssign;
-
-          return (isTH && (visibleByRole || visibleByAssign)) ||
-              (isAdmin && (visibleByRole || visibleByAssign)) ||
-              (isGerencia && (visibleByRole || visibleByAssign)) ||
-              (isNutricion && (visibleByRole || visibleByAssign)) ||
-              (isCompras && (visibleByRole || visibleByAssign)) ||
-              visibleDocByAssign;
-        }).map((doc) {
-          final data = doc.data();
-          final appId = (data['appId'] as String?)?.trim() ?? '';
-          final nombre = (data['nombre'] as String?)?.trim() ?? appId;
-
-          Widget icon;
-          switch (appId.toLowerCase()) {
-            case 'admindashboard':
-              icon = const Icon(Icons.admin_panel_settings,
-                  size: 32, color: Colors.white);
-              break;
-            case 'talentohumanodashboard':
-              icon =
-              const Icon(Icons.group_work, size: 32, color: Colors.white);
-              break;
-            case 'gerenciadashboard':
-              icon = const Icon(Icons.domain, size: 32, color: Colors.white);
-              break;
-          case 'gestiondocumental':
-          icon =
-          const Icon(Icons.folder_shared, size: 32, color: Colors.white);
-          break;
-          case 'nutriciondashboard':
-          icon = const Icon(Icons.restaurant_menu,
-          size: 32, color: Colors.white);
-          break;
-          case 'comprasdashboard':
-            icon = const Icon(Icons.local_shipping,
-                size: 32, color: Colors.white);
-            break;
-            default:
-              icon = const Icon(Icons.apps, size: 32, color: Colors.white);
-          }
-
-          return _AppItem(
-            nombre: nombre,
-            iconBuilder: () => icon,
-            onTap: () {
-              switch (appId.toLowerCase()) {
-                case 'admindashboard':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => AdminDashboardScreen(userId: cedula)),
-                  );
-                  break;
-                case 'talentohumanodashboard':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) =>
-                            TalentoHumanoDashboardScreen(userId: cedula)),
-                  );
-                  break;
-                case 'gerenciadashboard':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) =>
-                            GerenciaDashboardScreen(userId: cedula)),
-                  );
-                  break;
-                case 'gestiondocumental':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          DocumentManagementScreen(currentUserId: cedula),
-                    ),
-                  );
-                  break;
-                case 'nutriciondashboard':
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => NutricionDashboardScreen(
-                        userId: cedula,
-                        empresaId: empresaId,
-                      ),
-                    ),
-                  );
-                  break;
-                case 'comprasdashboard':
-                  // Buscar el rol del usuario en el módulo Compras
-                  _abrirCompras(context, cedula, empresaId);
-                  break;
-                default:
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Abrir $nombre')));
-              }
-            },
-          );
-        }).toList();
-
-        if (tiles.isEmpty) {
-          return Text(
-            'No tienes apps disponibles.',
-            style: TextStyle(
-                fontFamily: kArial,
-                fontSize: 16,
-                color: scheme.onSurfaceVariant),
-          );
-        }
-
-        // Tarjeta estilo web (desktop)
-        Widget buildWebCard(_AppItem a) => Card(
-          elevation: 1,
-          margin: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: a.onTap,
-            hoverColor: scheme.primary.withOpacity(0.05),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(children: [
-                Container(
-                  width: 46, height: 46,
-                  decoration: BoxDecoration(
-                      color: scheme.primary, borderRadius: BorderRadius.circular(10)),
-                  child: Center(child: a.iconBuilder()),
-                ),
-                const SizedBox(width: 14),
-                Expanded(child: Text(a.nombre,
-                    style: const TextStyle(fontFamily: kArial, fontSize: 15, fontWeight: FontWeight.w600))),
-                const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
-              ]),
-            ),
-          ),
-        );
-
-        // Ícono móvil (pequeño círculo)
-        Widget buildMobileTile(_AppItem a) => GestureDetector(
-          onTap: a.onTap,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(radius: 28, backgroundColor: scheme.primary, child: a.iconBuilder()),
-              const SizedBox(height: 4),
-              SizedBox(
-                width: 120,
-                child: Text(a.nombre, textAlign: TextAlign.center, maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontFamily: kArial, fontSize: 14)),
-              ),
-            ],
-          ),
-        );
-
-        // Desktop: columna de tarjetas
-        if (kIsWeb && MediaQuery.of(context).size.width > 800) {
-          return Column(
-            children: tiles.map((t) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: buildWebCard(t),
-            )).toList(),
-          );
-        }
-
-        if (tiles.length == 1) return Center(child: buildMobileTile(tiles.first));
-
-        // Tablet (600-800): wrap de íconos
-        if (MediaQuery.of(context).size.width > 600) {
-          return Wrap(spacing: 16, runSpacing: 12,
-              children: tiles.map(buildMobileTile).toList());
-        }
-
-        // Móvil: scroll horizontal
-        return SizedBox(
-          height: 120,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: tiles.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
-            itemBuilder: (_, i) => buildMobileTile(tiles[i]),
-          ),
-        );
-      },
-    );
+      }
+      if (mounted) setState(() => _citasEvents = newEvents);
+    });
   }
 
-  String _mapNotificationType(String raw) {
-    final type = raw.trim().toLowerCase();
-    if (type.startsWith('task_status_')) {
-      final status = type.replaceFirst('task_status_', '').replaceAll('_', ' ').trim();
-      if (status.isEmpty) return '';
-      return status[0].toUpperCase() + status.substring(1);
-    }
-    switch (type) {
-      case 'avance':
-      case 'progress':
-      case 'task_progress':
-      case 'task_avance': // ✅ FIX
-        return 'Avance';
-
-      case 'novedad':
-      case 'news':
-      case 'task_news':
-      case 'task_novedad': // ✅ FIX
-      case 'respuesta_novedad':
-        return 'Novedad';
-
-      case 'task_assigned':
-        return 'Tarea asignada';
-      case 'task_reassigned':
-        return 'Tarea reasignada';
-
-      case 'completed':
-      case 'task_completed':
-      case 'task_finalizada':
-      case 'task_finalizado':
-        return 'Tarea finalizada';
-
-      case 'doc_rechazado':
-      case 'correccion_requerida':
-        return 'Corrección requerida';
-
-      case 'cita_nutricion_agendada':
-        return 'Cita nutricional agendada';
-      case 'cita_nutricion_recordatorio':
-        return 'Recordatorio nutricional';
-
-      default:
-        return type.isEmpty ? '' : raw;
+  Future<void> _abrirCompras(BuildContext context, String userId, String empresaId, Map<String, dynamic> userData) async {
+    if (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'comprasdashboard', deniedMessage: 'Sin acceso a Compras.')) {
+      String? rolCompras;
+      try { rolCompras = (await ComprasService().getRolUsuario(empresaId, userId))?.rol; } catch (_) {}
+      if (context.mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ComprasDashboardScreen(userId: userId, empresaId: empresaId, rolCompras: rolCompras)));
     }
   }
 
-  // ====== Slider "Tareas del día" ======
-  Widget _buildTodayTasksSlider({
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> assignedToMe,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> iCreated,
-    required String myId,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day);
-    final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-    final cards = <Map<String, dynamic>>[];
-
-    for (final d in assignedToMe) {
-      final m = d.data();
-      final due = _dueOf(m);
-      if (due == null) continue;
-      if (due.isBefore(start) || due.isAfter(end)) continue;
-      cards.add({
-        'type': 'yo',
-        'title': _titleOf(m),
-        'due': due,
-        'to': _creatorDisplayOf(m),
-        'estado': _estadoOf(m),
-      });
-    }
-
-    for (final d in iCreated) {
-      final m = d.data();
-      final due = _dueOf(m);
-      if (due == null) continue;
-      if (due.isBefore(start) || due.isAfter(end)) continue;
-      cards.add({
-        'type': 'otros',
-        'title': _titleOf(m),
-        'due': due,
-        'from': _assignedNameOf(m),
-        'estado': _estadoOf(m),
-      });
-    }
-
-    if (cards.isEmpty) {
-      return SizedBox(
-        height: 168,
-        child: EmptyStateWidget(
-          icon: Icons.event_available,
-          title: 'No hay tareas para hoy',
-          message: 'Cuando tengas actividades del día las verás aquí.',
-          actionLabel: 'Ver asignadas',
-          compact: true,
-          onAction: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AssignedTasksScreen(userId: myId),
-              ),
-            );
-          },
-        ),
-      );
-    }
-
-    cards.sort((a, b) => (a['due'] as DateTime).compareTo(b['due'] as DateTime));
-
-    return SizedBox(
-      height: 190,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: cards.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (_, i) {
-          final c = cards[i];
-          final due = c['due'] as DateTime;
-          final type = c['type'] as String;
-          final estado = (c['estado'] as String?) ?? '';
-
-          final bool yoEntrego = type == 'yo';
-          final Color bg =
-          yoEntrego ? scheme.primaryContainer : scheme.tertiaryContainer;
-          final Color fg =
-          yoEntrego ? scheme.onPrimaryContainer : scheme.onTertiaryContainer;
-          final IconData ico = yoEntrego ? Icons.upload : Icons.download;
-
-          return Container(
-            width: 280,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: fg.withOpacity(.25)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(ico, size: 18, color: fg),
-                    const SizedBox(width: 6),
-                    Text(
-                      yoEntrego ? 'Yo entrego' : 'Me entregan',
-                      style: TextStyle(
-                        color: fg,
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const Spacer(),
-                    _chipEstado(estado, scheme),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  (c['title'] as String?) ?? '(Sin título)',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    _pill('Vence: ${DateFormat('HH:mm').format(due)}', scheme),
-                    if (yoEntrego && (c['to'] ?? '').toString().isNotEmpty)
-                      _pill('Para: ${c['to']}', scheme),
-                    if (!yoEntrego && (c['from'] ?? '').toString().isNotEmpty)
-                      _pill('Entrega: ${c['from']}', scheme),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _pill(String text, ColorScheme scheme) => Chip(
-    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
-    labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-    label: Text(text,
-        style: const TextStyle(fontFamily: kArial, fontSize: 11)),
-    backgroundColor: scheme.surface,
-    side: BorderSide(color: scheme.outlineVariant),
-  );
-
-  Widget _chipEstado(String estado, ColorScheme scheme) {
-    Color color;
-    switch (estado) {
-      case 'en_progreso':
-        color = Colors.blue.shade700;
-        break;
-      case 'por_aprobar':
-        color = Colors.orange.shade700;
-        break;
-      case 'finalizado':
-        color = Colors.green.shade700;
-        break;
-      case 'retrasada':
-        color = Colors.red.shade700;
-        break;
-      default:
-        color = scheme.outline;
-    }
-    return Chip(
-      labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-      visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      label: Text(estado.isEmpty ? '—' : estado,
-          style: const TextStyle(
-              color: Colors.white, fontFamily: kArial, fontSize: 11)),
-      backgroundColor: color,
-    );
-  }
-
-
-  Color _calendarMarkerColor(List<Map<String, dynamic>> events) {
-    if (events.any((e) => (e['estado'] ?? '') == 'cita_nutricion')) {
-      return Colors.teal.shade600;
-    }
-    if (events.any((e) => (e['estado'] ?? '') == 'retrasada')) {
-      return Colors.red.shade600;
-    }
-    if (events.any((e) => (e['estado'] ?? '') == 'en_progreso')) {
-      return Colors.blue.shade600;
-    }
-    if (events.any((e) => (e['estado'] ?? '') == 'por_aprobar')) {
-      return Colors.orange.shade700;
-    }
-    return Colors.green.shade600;
+  Future<bool> _guardModuleNavigation({required Map<String, dynamic> userData, required String empresaId, required String appId, required String deniedMessage}) async {
+    final d = await AccessGuard().canAccess(userData: userData, empresaId: empresaId, appId: appId);
+    if (!d.allowed && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d.message ?? deniedMessage)));
+    return d.allowed;
   }
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final empresaState = EmpresaScope.of(context);
-    final selectedEmpresaId = empresaState.selectedEmpresaId?.trim();
-    final empresaId = (selectedEmpresaId != null && selectedEmpresaId.isNotEmpty)
-        ? selectedEmpresaId
-        : widget.empresaId.trim();
+  void initState() { super.initState(); _focusedDay = DateTime.now(); _selectedDay = DateTime.now(); }
 
-    if ((selectedEmpresaId == null || selectedEmpresaId.isEmpty) &&
-        widget.empresaId.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        empresaState.setSelectedEmpresaId(widget.empresaId);
-      });
+  @override
+  void dispose() { _tokenSub?.cancel(); _notifSub?.cancel(); _citasSub?.cancel(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final cedula = widget.username;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final String scopeEmpresa = EmpresaScope.of(context).selectedEmpresaId ?? widget.empresaId;
+    // Mantener empresa activa sincronizada para el listener de toasts.
+    _currentEmpresaId = scopeEmpresa;
+    // Suscribir/re-suscribir citas de Nutrición para el calendario.
+    _restartCitasSubscription(cedula, scopeEmpresa);
+
+    if (!_didRegisterToken) {
+      _didRegisterToken = true;
+      _ensureFcmRegistered(cedula);
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.username)
-          .snapshots(),
+      stream: FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(cedula).snapshots(),
       builder: (context, userSnap) {
-        if (userSnap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: SkeletonList(items: 4));
-        }
-        if (!userSnap.hasData || !userSnap.data!.exists) {
-          return Scaffold(
-            appBar: AppBar(
-              backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
-              title: const Text('Usuario no encontrado',
-                  style: TextStyle(fontFamily: kArial)),
-            ),
-            body: const Center(
-              child: Text(
-                'Error al cargar usuario.\nPor favor, vuelve a iniciar sesión.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontFamily: kArial, fontSize: 16),
-              ),
-            ),
-          );
-        }
-
-        final userData = userSnap.data!.data()!;
-        final cedula = (userData['cedula'] as String?)?.trim() ?? '';
-        final effectiveId = cedula.isNotEmpty ? cedula : widget.username.trim();
-        final pNombre = (userData['nombres'] as String?) ??
-            (userData['primerNombre'] as String? ?? '');
-        final pApellido = (userData['apellidos'] as String?) ??
-            (userData['primerApellido'] as String? ?? '');
-        final role =
-            (userData['role'] as String?)?.trim().toLowerCase() ?? 'usuario';
-        final assignedApps = (userData['apps'] as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList() ??
-            <String>[];
-        final saludo = '$pNombre${(pApellido.isNotEmpty ? ' $pApellido' : '')}';
-
-        _startNotifListener(effectiveId);
-
-        if (!_didRegisterToken && effectiveId.isNotEmpty) {
-          _didRegisterToken = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _ensureFcmRegistered(effectiveId);
-          });
-        }
+        if (!userSnap.hasData) return HomeShell(userId: cedula, body: const SkeletonList());
+        
+        final userData = userSnap.data?.data() ?? {};
+        final apps = extractUserApps(userData, empresaId: scopeEmpresa);
+        final isDev = isDeveloperUser(userData);
+        final nombreUsuario = userData['primerNombre'] ?? userData['nombres'] ?? cedula;
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
-              .collection('TBL_NOTIFICACIONES')
-              .doc(effectiveId)
-              .collection('notifications')
-              .orderBy('createdAt', descending: true)
+              .collection('TBL_APPS')
+              .where('empresaId', isEqualTo: scopeEmpresa)
               .snapshots(),
-          builder: (context, notifSnap) {
-            if (notifSnap.connectionState == ConnectionState.waiting) {
-              return const Scaffold(body: SkeletonList(items: 4));
-            }
+          builder: (context, appsEmpresaSnap) {
+            // Apps explícitamente deshabilitadas para la empresa activa en TBL_APPS.
+            // Semántica: ausencia de documento = habilitado (legacy compat).
+            // Solo se oculta si el documento existe con enabled == false.
+            final disabledAppIds = appsEmpresaSnap.hasData
+                ? appsEmpresaSnap.data!.docs
+                    .where((d) => (d.data()['enabled'] as bool?) == false)
+                    .map((d) {
+                      final raw = (d.data()['appId'] ?? '').toString();
+                      return normalizeAppId(raw) ?? '';
+                    })
+                    .where((id) => id.isNotEmpty)
+                    .toSet()
+                : <String>{};
 
-            final List<Map<String, dynamic>> notifications = [];
-            if (notifSnap.hasData) {
-              for (final doc in notifSnap.data!.docs) {
-                notifications.add({
-                  ...doc.data(),
-                  'id': doc.id,
-                });
-              }
-            }
-            notifications.sort((a, b) {
-              final ad = _toDate(a['createdAt']) ??
-                  DateTime.fromMillisecondsSinceEpoch(0);
-              final bd = _toDate(b['createdAt']) ??
-                  DateTime.fromMillisecondsSinceEpoch(0);
-              return bd.compareTo(ad);
-            });
-            final unreadCount = notifications.where((n) => !_isRead(n)).length;
-
+            // Dos queries separadas porque Firestore no admite OR entre campos distintos.
+            // assignedSnap: tareas donde soy el destinatario.
+            // createdSnap:  tareas donde soy el creador/emisor.
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('TBL_TAREAS')
-                  .where('asignado_uid', isEqualTo: effectiveId)
-                  .where('empresaId', isEqualTo: empresaId)
+                  .where('asignado_uid', isEqualTo: cedula)
                   .snapshots(),
               builder: (context, assignedSnap) {
-                if (assignedSnap.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(body: SkeletonList(items: 4));
-                }
-                final assignedDocs = assignedSnap.data?.docs ?? [];
-
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
                       .collection('TBL_TAREAS')
-                      .where('creador_id', isEqualTo: effectiveId)
-                      .where('empresaId', isEqualTo: empresaId)
+                      .where('creador_id', isEqualTo: cedula)
                       .snapshots(),
                   builder: (context, createdSnap) {
-                    if (createdSnap.connectionState == ConnectionState.waiting) {
-                      return const Scaffold(body: SkeletonList(items: 4));
+                    // Fusionar y deduplicar por doc.id
+                    final seen = <String>{};
+                    final tasks = <Map<String, dynamic>>[];
+                    for (final doc in [
+                      ...(assignedSnap.data?.docs ?? []),
+                      ...(createdSnap.data?.docs ?? []),
+                    ]) {
+                      if (!seen.add(doc.id)) continue;
+                      final data = doc.data();
+                      if (matchesEmpresaScope(data, scopeEmpresa, allowLegacyWithoutEmpresa: true)) {
+                        tasks.add({'id': doc.id, ...data});
+                      }
                     }
-                    final createdDocs = createdSnap.data?.docs ?? [];
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-    stream: FirebaseFirestore.instance
-        .collection('TBL_CITAS_NUTRICION')
-        .where('userId', isEqualTo: effectiveId)
-        .where('empresaId', isEqualTo: empresaId)
-        .where('estado', isEqualTo: 'agendada')
-        .snapshots(),
-    builder: (context, citasSnap) {
-    if (citasSnap.connectionState == ConnectionState.waiting) {
-    return const Scaffold(body: SkeletonList(items: 4));
-    }
+                    // Actualizar mapa de eventos para marcadores del calendario.
+                    // Incluye tanto tareas asignadas a mí como las que yo emití.
+                    // Prioridad: fecha_limite → dueDate → fecha_creacion.
+                    _events.clear();
+                    for (final t in tasks) {
+                      final due = _toDate(t['fecha_limite'] ?? t['dueDate'] ?? t['fecha_creacion']);
+                      if (due != null) {
+                        final key = DateFormat('yyyy-MM-dd').format(due);
+                        _events.putIfAbsent(key, () => []).add(t);
+                      }
+                    }
 
-    final map = <String, List<Map<String, dynamic>>>{};
-    void addEvt(DateTime d, String title, String desc, String estado) {
-    final k = DateFormat('yyyy-MM-dd').format(d);
-    (map[k] ??= []).add({
-    'title': title,
-    'description': desc,
-    'estado': estado,
-    });
-    }
-
-    for (final d in assignedDocs) {
-    final m = d.data();
-    final due = _dueOf(m);
-    if (due != null) {
-    addEvt(
-    due,
-    _titleOf(m),
-    'Yo entrego \u2022 Para: ${_creatorDisplayOf(m).isNotEmpty ? _creatorDisplayOf(m) : "\u2014"}',
-    _estadoOf(m),
-    );
-    }
-    }
-    for (final d in createdDocs) {
-    final m = d.data();
-    final due = _dueOf(m);
-    if (due != null) {
-    addEvt(
-    due,
-    _titleOf(m),
-    'Me entregan \u2022 Entrega: ${_assignedNameOf(m).isNotEmpty ? _assignedNameOf(m) : "\u2014"}',
-    _estadoOf(m),
-    );
-    }
-    }
-    for (final doc in citasSnap.data?.docs ?? const []) {
-    final data = doc.data();
-    final ts = data['fechaReevaluacion'];
-    final fecha = ts is Timestamp ? ts.toDate() : null;
-    if (fecha == null) continue;
-
-    final paciente = (data['pacienteNombre'] ?? '').toString();
-    final dieta = (data['tipoDieta'] ?? '').toString();
-    addEvt(
-    fecha,
-    'Reevaluaci\u00f3n: $paciente',
-    dieta.isNotEmpty
-    ? 'Cita nutricional \u2022 Dieta: $dieta'
-        : 'Cita de reevaluaci\u00f3n nutricional',
-    'cita_nutricion',
-    );
-    }
-
-    _events = map;
-
-    // ── Calendario (widget reutilizable) ──────────────────────────
-    Widget calendarWidget = Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: TableCalendar(
-          locale: 'es_CO',
-          startingDayOfWeek: StartingDayOfWeek.monday,
-          firstDay: DateTime(2000),
-          lastDay: DateTime.now().add(const Duration(days: 365)),
-          focusedDay: _focusedDay,
-          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-          onDaySelected: (selected, focused) {
-            setState(() { _selectedDay = selected; _focusedDay = focused; });
-          },
-          eventLoader: _getEventsForDay,
-          calendarStyle: CalendarStyle(
-            markersMaxCount: 4,
-            markerDecoration: BoxDecoration(color: scheme.primary, shape: BoxShape.circle),
-          ),
-          calendarBuilders: CalendarBuilders(
-            markerBuilder: (context, day, events) {
-              if (events.isEmpty) return const SizedBox.shrink();
-              final color = _calendarMarkerColor(events.cast<Map<String, dynamic>>());
-              return Positioned(
-                bottom: 2,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
-                  child: Text('${events.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-
-    Widget activitiesWidget = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 16),
-        Text('Actividades (${DateFormat('dd/MM/yyyy', 'es').format(_selectedDay)})',
-            style: const TextStyle(fontFamily: kArial, fontSize: 15, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
-        if (_getEventsForDay(_selectedDay).isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text('No hay actividades para este día.',
-                style: TextStyle(fontFamily: kArial, color: Colors.black54)),
-          )
-        else
-          ..._getEventsForDay(_selectedDay).map(
-            (evt) => ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.event, color: scheme.primary),
-              title: Text(evt['title'] as String? ?? '', style: const TextStyle(fontFamily: kArial)),
-              subtitle: Text(evt['description'] as String? ?? '', style: const TextStyle(fontFamily: kArial)),
-            ),
-          ),
-      ],
-    );
-
-    // ── Layout DESKTOP (sidebar + 2 columnas) ──────────────────────
-    final isDesktop = kIsWeb && MediaQuery.of(context).size.width > 800;
-
-    if (isDesktop) {
-      return Scaffold(
-        backgroundColor: const Color(0xFFF3F4F6),
-        body: Row(
-          children: [
-            _buildWebSidebar(context, effectiveId),
-            Expanded(
-              child: Column(
-                children: [
-                  _buildWebTopBar(context, saludo, unreadCount, notifications, effectiveId),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(28),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Columna izquierda: módulos + tareas
-                          Expanded(
-                            flex: 6,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Mis módulos',
-                                    style: TextStyle(fontFamily: kArial, fontSize: 18,
-                                        fontWeight: FontWeight.bold, color: Color(0xFF111827))),
-                                const SizedBox(height: 14),
-                                _buildAppsSection(empresaId: empresaId, role: role,
-                                    assignedApps: assignedApps, cedula: effectiveId),
-                                const SizedBox(height: 32),
-                                const Text('Tareas del día',
-                                    style: TextStyle(fontFamily: kArial, fontSize: 18,
-                                        fontWeight: FontWeight.bold, color: Color(0xFF111827))),
-                                const SizedBox(height: 14),
-                                _buildTodayTasksSlider(
-                                    assignedToMe: assignedDocs, iCreated: createdDocs, myId: effectiveId),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 28),
-                          // Columna derecha: calendario
-                          SizedBox(
-                            width: 370,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Calendario',
-                                    style: TextStyle(fontFamily: kArial, fontSize: 18,
-                                        fontWeight: FontWeight.bold, color: Color(0xFF111827))),
-                                const SizedBox(height: 14),
-                                calendarWidget,
-                                activitiesWidget,
-                              ],
-                            ),
-                          ),
-                        ],
+                    return HomeShell(
+                      userId: cedula,
+                      appBar: _isWebShell ? null : AppBar(
+                        title: CompanyNameWidget(empresaId: scopeEmpresa, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 18)),
+                        backgroundColor: scheme.primary, foregroundColor: scheme.onPrimary,
+                        actions: [_buildNotificationBell(cedula, userData), const SizedBox(width: 8)],
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // ── Layout MOBILE (drawer + appbar) ────────────────────────────
-    return Scaffold(
-      drawer: AppDrawer(userId: effectiveId),
-      appBar: AppBar(
-        backgroundColor: scheme.primary,
-        foregroundColor: scheme.onPrimary,
-        leading: Builder(
-          builder: (ctx) => IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: () => Scaffold.of(ctx).openDrawer(),
-          ),
-        ),
-        title: Text('Bienvenido, $saludo',
-            style: const TextStyle(fontFamily: kArial, fontSize: 20, fontWeight: FontWeight.w600)),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: 'Notificaciones',
-            onPressed: () => _showNotificationsSheet(cedula: effectiveId, notifications: notifications),
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                const Icon(Icons.notifications_none),
-                if (unreadCount > 0)
-                  Positioned(
-                    right: -2, top: -2,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 260),
-                      transitionBuilder: (child, animation) => ScaleTransition(
-                        scale: CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
-                        child: FadeTransition(opacity: animation, child: child),
-                      ),
-                      child: Container(
-                        key: ValueKey<int>(unreadCount),
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(10)),
-                        constraints: const BoxConstraints(minWidth: 18, minHeight: 16),
-                        child: Text(unreadCount > 9 ? '9+' : '$unreadCount',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Mis Apps',
-                    style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                _buildAppsSection(empresaId: empresaId, role: role,
-                    assignedApps: assignedApps, cedula: effectiveId),
-                const SizedBox(height: 24),
-                const Text('Tareas del día',
-                    style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                _buildTodayTasksSlider(
-                    assignedToMe: assignedDocs, iCreated: createdDocs, myId: effectiveId),
-                const SizedBox(height: 24),
-                const Text('Calendario',
-                    style: TextStyle(fontFamily: kArial, fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                calendarWidget,
-                activitiesWidget,
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    },
+                      body: _isWebShell
+                        ? _buildWebHome(cedula, scopeEmpresa, userData, apps, isDev, disabledAppIds, theme, scheme, nombreUsuario)
+                        : _buildMobileHome(cedula, scopeEmpresa, userData, apps, isDev, disabledAppIds, theme, scheme, nombreUsuario),
                     );
                   },
                 );
@@ -1805,15 +348,526 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
-}
 
-class _AppItem {
-  final String nombre;
-  final Widget Function() iconBuilder;
-  final VoidCallback onTap;
-  const _AppItem({
-    required this.nombre,
-    required this.iconBuilder,
-    required this.onTap,
-  });
+  // --- HOME WEB (Consola de Control) ---
+  Widget _buildWebHome(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, ThemeData theme, ColorScheme scheme, String nombre) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Hola, $nombre', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, fontFamily: kArial)),
+                  CompanyNameWidget(empresaId: empresaId, style: theme.textTheme.titleMedium?.copyWith(color: scheme.primary, fontWeight: FontWeight.w600)),
+                ],
+              ),
+              Row(
+                children: [
+                  _buildNotificationBell(cedula, userData),
+                  const SizedBox(width: 16),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CreateTaskScreen(currentUserId: cedula))),
+                    icon: const Icon(Icons.add), label: const Text('Nueva Tarea'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Columna Izquierda: Grid de Módulos (Consola)
+              Expanded(
+                flex: 2,
+                child: _buildModuleGrid(cedula, empresaId, userData, apps, isDev, disabledAppIds, true),
+              ),
+              const SizedBox(width: 32),
+              // Columna Derecha: Agenda y Tareas del día
+              Expanded(
+                flex: 1,
+                child: Column(
+                  children: [
+                    const SectionHeader(title: 'Calendario de Actividades'),
+                    const SizedBox(height: 12),
+                    _buildCalendarCard(scheme),
+                    const SizedBox(height: 24),
+                    SectionHeader(title: 'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}'),
+                    const SizedBox(height: 12),
+                    _buildSelectedDayTasksCard(cedula, empresaId),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- HOME MÓVIL (Acción Rápida) ---
+  Widget _buildMobileHome(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, ThemeData theme, ColorScheme scheme, String nombre) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Hola, $nombre', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, fontFamily: kArial)),
+          const SizedBox(height: 20),
+          
+          const SectionHeader(title: 'Mis Módulos'),
+          const SizedBox(height: 12),
+          // Módulos Deslizables en Móvil
+          _buildMobileModuleSlider(cedula, empresaId, userData, apps, isDev, disabledAppIds),
+          
+          const SizedBox(height: 32),
+          const SectionHeader(title: 'Mi Agenda'),
+          const SizedBox(height: 12),
+          _buildCalendarCard(scheme),
+          
+          const SizedBox(height: 20),
+          SectionHeader(title: 'Pendientes de hoy', trailing: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssignedTasksScreen(userId: cedula))), child: const Text('Ver todos'))),
+          const SizedBox(height: 8),
+          _buildSelectedDayTasksCard(cedula, empresaId),
+        ],
+      ),
+    );
+  }
+
+  // --- Widgets de Soporte ---
+
+  Widget _buildMobileModuleSlider(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds) {
+    final modules = _getModuleWidgets(cedula, empresaId, userData, apps, isDev, disabledAppIds, false);
+    if (modules.isEmpty) return const SizedBox.shrink();
+
+    return SizedBox(
+      height: 120,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: modules.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        itemBuilder: (context, index) => modules[index],
+      ),
+    );
+  }
+
+  Widget _buildNotificationBell(String cedula, Map<String, dynamic> userData) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final scopeEmpresa = EmpresaScope.of(context, listen: false).selectedEmpresaId ?? widget.empresaId;
+    final isMobile = !_isWebShell;
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('TBL_NOTIFICACIONES')
+          .doc(cedula)
+          .collection('notifications')
+          .snapshots(),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? [];
+        final unread = docs.where((d) {
+          final data = d.data();
+          if (_isRead(data)) return false;
+          final notifEmpresa = (data['empresaId'] as String?)?.trim() ?? '';
+          if (notifEmpresa.isEmpty) return false;
+          return notifEmpresa == scopeEmpresa;
+        }).length;
+        final iconColor = isMobile
+            ? Colors.white
+            : (unread > 0
+                ? scheme.primary
+                : scheme.onSurfaceVariant.withOpacity(0.7));
+
+        return IconButton(
+          tooltip: 'Notificaciones',
+          onPressed: () {
+            final eid = EmpresaScope.of(context, listen: false).selectedEmpresaId ?? widget.empresaId;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NotificationsScreen(userId: cedula, empresaId: eid),
+              ),
+            );
+          },
+          icon: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 26,
+                height: 26,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 400),
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: ScaleTransition(scale: anim, child: child),
+                  ),
+                  child: Icon(
+                    unread > 0 ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+                    key: ValueKey(unread > 0),
+                    color: iconColor,
+                    size: 26,
+                  ),
+                ),
+              ),
+              if (unread > 0)
+                Positioned(
+                  right: -7,
+                  top: -6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: scheme.error,
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(color: scheme.surface, width: 1.5),
+                    ),
+                    constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                    child: Text(
+                      unread > 99 ? '99+' : '$unread',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w900,
+                        fontFamily: kArial,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildModuleGrid(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, bool isWeb) {
+    final modules = _getModuleWidgets(cedula, empresaId, userData, apps, isDev, disabledAppIds, isWeb);
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: isWeb ? 300 : 160,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 16,
+        childAspectRatio: isWeb ? 1.6 : 1.3,
+      ),
+      itemCount: modules.length,
+      itemBuilder: (context, index) => modules[index],
+    );
+  }
+
+  /// Verifica si el usuario tiene acceso visible a un módulo.
+  /// Acepta tanto el ID completo ('comprasdashboard') como el ID corto
+  /// legacy ('compras') que puede estar almacenado en el campo apps del
+  /// documento de Firestore antes de la estandarización.
+  /// [disabledAppIds]: apps con enabled=false en TBL_APPS para la empresa
+  /// activa. Si el app está en este set, se oculta aunque el usuario lo tenga
+  /// asignado. Ausencia de documento en TBL_APPS = habilitado (legacy compat).
+  bool _moduleVisible(List<String> apps, bool isDev, String fullAppId, Set<String> disabledAppIds) {
+    if (isDev) return true;
+    // Si está explícitamente deshabilitado para esta empresa, no mostrar.
+    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId))) return false;
+    return apps.any((app) => appIdsEquivalent(app, fullAppId));
+  }
+
+  List<Widget> _getModuleWidgets(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, bool isWeb) {
+    final cardWidth = isWeb ? null : 140.0;
+    return [
+      if (_moduleVisible(apps, isDev, 'admindashboard', disabledAppIds)) 
+        ModuleCard(width: cardWidth, title: 'Administración', icon: Icons.admin_panel_settings_rounded, color: const Color(0xFF475569), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'admindashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => AdminDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
+      
+      if (_moduleVisible(apps, isDev, 'talentohumanodashboard', disabledAppIds)) 
+        ModuleCard(width: cardWidth, title: 'Talento Humano', icon: Icons.groups_rounded, color: const Color(0xFF4F46E5), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'talentohumanodashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => TalentoHumanoDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
+      
+      if (_moduleVisible(apps, isDev, 'gerenciadashboard', disabledAppIds)) 
+        ModuleCard(width: cardWidth, title: 'Gerencia', icon: Icons.query_stats_rounded, color: const Color(0xFF7C3AED), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'gerenciadashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => GerenciaDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
+      
+      if (_moduleVisible(apps, isDev, 'gestiondocumentaldashboard', disabledAppIds)) 
+        ModuleCard(width: cardWidth, title: 'Gestión Documental', icon: Icons.auto_stories_rounded, color: const Color(0xFF0D9488), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'gestiondocumentaldashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => DocumentManagementScreen(currentUserId: cedula, empresaId: empresaId))) : null),
+      
+      if (_moduleVisible(apps, isDev, 'nutriciondashboard', disabledAppIds)) 
+        ModuleCard(width: cardWidth, title: 'Nutrición', icon: Icons.restaurant_menu_rounded, color: const Color(0xFFEA580C), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'nutriciondashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => NutricionDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
+      
+      if (_moduleVisible(apps, isDev, 'comprasdashboard', disabledAppIds)) 
+        ModuleCard(width: cardWidth, title: 'Compras', icon: Icons.shopping_bag_rounded, color: const Color(0xFF2563EB), compact: !isWeb, onTap: () => _abrirCompras(context, cedula, empresaId, userData)),
+    ];
+  }
+
+  Widget _buildCalendarCard(ColorScheme scheme) {
+    return Card(
+      elevation: 2, 
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), 
+      child: TableCalendar(
+        locale: 'es_CO', 
+        firstDay: DateTime.utc(2020, 1, 1), 
+        lastDay: DateTime.utc(2030, 12, 31), 
+        focusedDay: _focusedDay, 
+        selectedDayPredicate: (day) => _isSameDay(_selectedDay, day), 
+        eventLoader: _getEventsForDay, 
+        onDaySelected: (sel, foc) => setState(() { _selectedDay = sel; _focusedDay = foc; }), 
+        calendarStyle: CalendarStyle(
+          todayDecoration: BoxDecoration(color: scheme.primary.withOpacity(0.3), shape: BoxShape.circle), 
+          selectedDecoration: BoxDecoration(color: scheme.primary, shape: BoxShape.circle), 
+          markerDecoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+          markersMaxCount: 3,
+          outsideDaysVisible: false,
+        ), 
+        headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
+        // Personalizar marcadores para que sean visibles
+        calendarBuilders: CalendarBuilders(
+          markerBuilder: (context, date, events) {
+            if (events.isEmpty) return const SizedBox.shrink();
+            return Positioned(
+              right: 1,
+              bottom: 1,
+              child: _buildEventsMarker(events.length),
+            );
+          },
+        ),
+      )
+    );
+  }
+
+  Widget _buildEventsMarker(int count) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+      child: Text(
+        '$count',
+        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  Widget _buildSelectedDayTasksCard(String cedula, String scopeEmpresa) {
+    final tasks = _getEventsForDay(_selectedDay);
+    final scheme = Theme.of(context).colorScheme;
+
+    if (tasks.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.event_available_outlined, size: 40, color: scheme.onSurfaceVariant.withOpacity(0.2)),
+              const SizedBox(height: 8),
+              Text(
+                'Sin pendientes para este día',
+                style: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.5), fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: tasks.map((t) {
+        final esCita = t['_calType'] == 'cita_nutricion';
+
+        if (esCita) {
+          // ── Evento de Nutrición ───────────────────────────────────────────
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                )
+              ],
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.medical_services_outlined, color: Colors.teal, size: 20),
+              ),
+              title: Text(
+                _titleOf(t),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontFamily: kArial,
+                  fontSize: 14,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.teal.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'NUTRICIÓN',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.teal.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NutricionDashboardScreen(
+                    userId: cedula,
+                    empresaId: (t['empresaId'] as String?) ?? scopeEmpresa,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        // ── Tarea normal ──────────────────────────────────────────────────────
+        final estado = _estadoOf(t);
+        final esFinalizada = estado.contains('finalizado') || estado.contains('completada');
+
+        final isAsignadaAMi = t['asignado_uid'] == cedula;
+        // Se considera "recibida" si yo la creé o soy el jefe, y NO está asignada a mí
+        final isRecibida = (t['creador_id'] == cedula || t['jefe_uid'] == cedula) && !isAsignadaAMi;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              )
+            ],
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (esFinalizada ? Colors.green : (isRecibida ? Colors.blue : Colors.orange)).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                esFinalizada
+                    ? Icons.check_rounded
+                    : (isRecibida ? Icons.input_rounded : Icons.pending_actions_rounded),
+                color: esFinalizada
+                    ? Colors.green
+                    : (isRecibida ? Colors.blue : Colors.orange),
+                size: 20,
+              ),
+            ),
+            title: Text(
+              _titleOf(t),
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontFamily: kArial,
+                fontSize: 14,
+                letterSpacing: -0.2,
+              ),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: (isRecibida ? Colors.blue : Colors.orange).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      isRecibida ? 'POR RECIBIR' : 'POR ENTREGAR',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: (isRecibida ? Colors.blue.shade700 : Colors.orange.shade700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    estado.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onSurfaceVariant.withOpacity(0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+            onTap: () {
+              final taskId = (t['id'] ?? t['taskId'] ?? '').toString();
+              if (esFinalizada) {
+                // Finalizada: va al historial (tab según si la creé o fue asignada a mí)
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TaskHistoryScreen(
+                      currentUserId: cedula,
+                      initialTabIndex: isRecibida ? 1 : 0,
+                      highlightTaskId: taskId,
+                    ),
+                  ),
+                );
+                return;
+              }
+              if (isRecibida) {
+                // Activa y soy creador/jefe: va a "Tareas que yo asigné"
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CreatedTasksScreen(
+                      userId: cedula,
+                      highlightTaskId: taskId,
+                    ),
+                  ),
+                );
+                return;
+              }
+              // Activa y soy asignado: va a "Mis tareas asignadas"
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AssignedTasksScreen(
+                    userId: cedula,
+                    highlightTaskId: taskId,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }).toList(),
+    );
+  }
 }

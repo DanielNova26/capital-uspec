@@ -1,8 +1,29 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:todo/nutricion/atencion/diagnostico_models.dart';
 import 'diagnosticos_excel_parser.dart';
+import 'icd11_service.dart';
+
+/// Resultado de una búsqueda de diagnósticos médicos con metadatos de origen.
+/// Permite a la UI distinguir entre resultados en vivo (ICD-11) y catálogo local.
+class DiagnosticosBusquedaResult {
+  /// Lista de diagnósticos encontrados, vacía si no hay coincidencias.
+  final List<DiagnosticoMedico> resultados;
+
+  /// true si la API OMS respondió exitosamente en esta búsqueda (resultados son ICD-11 vivo).
+  final bool icd11Disponible;
+
+  /// true si [Icd11Service.enabled] está activo. false = modo solo-biblioteca por configuración.
+  final bool icd11Activo;
+
+  const DiagnosticosBusquedaResult({
+    required this.resultados,
+    required this.icd11Disponible,
+    required this.icd11Activo,
+  });
+}
 
 class DiagnosticosService {
   static const String _collDiagnosticosMedicos = 'TBL_DIAGNOSTICOS_MEDICOS';
@@ -51,7 +72,7 @@ class DiagnosticosService {
 
       await _loadFromAssets();
     } catch (e) {
-      print('Error cargando diagnósticos desde Firestore: $e');
+      if (kDebugMode) debugPrint('DiagnosticosService: Error cargando desde Firestore: $e');
       await _loadFromAssets();
     }
   }
@@ -76,7 +97,7 @@ class DiagnosticosService {
       _cacheLoadedFromFirestore = false;
       _cacheLoaded = true;
     } catch (e) {
-      print('Error cargando diagnósticos desde assets: $e');
+      if (kDebugMode) debugPrint('DiagnosticosService: Error cargando desde assets: $e');
       _cacheMedicos = [];
       _cacheNutricionales = [];
       _cacheLoadedFromFirestore = false;
@@ -135,7 +156,7 @@ class DiagnosticosService {
             rangos = _parseRangosSimples(rangosStr);
           }
         } catch (e) {
-          print('Error parseando rangos bioquímicos: $e');
+          if (kDebugMode) debugPrint('DiagnosticosService: Error parseando rangos bioquímicos: $e');
         }
       }
 
@@ -219,22 +240,123 @@ class DiagnosticosService {
   // BÚSQUEDA DE DIAGNÓSTICOS
   // ---------------------------------------------------------------------------
 
-  /// Busca diagnósticos médicos por término (CIE-11)
-  /// Lee desde el Excel en assets (cache en memoria)
+  /// Busca diagnósticos médicos por término.
+  ///
+  /// Jerarquía:
+  /// 1. ICD-11 WHO API (vía Cloud Function token broker) — si [Icd11Service.enabled].
+  /// 2. Fallback: caché local (Firestore → Excel en assets).
+  ///
+  /// En modo debug loguea el resultado de cada capa para facilitar diagnóstico.
   Future<List<DiagnosticoMedico>> buscarDiagnosticosMedicos(String termino) async {
-    final terminoNormalizado = _normalizeForSearch(termino);
-    if (terminoNormalizado.isEmpty) return [];
+    if (termino.trim().isEmpty) return [];
 
+    // 1. Intentar ICD-11 online (token broker server-side)
+    final icdRes = await Icd11Service.buscarConDetalle(termino);
+
+    if (kDebugMode) debugPrint('[DiagnosticosService] $icdRes');
+
+    if (icdRes.tieneResultados) return icdRes.resultados;
+
+    // 2. Fallback: caché local (Firestore o Excel)
+    if (kDebugMode) {
+      debugPrint('[DiagnosticosService] activando fallback local para "$termino"');
+    }
+
+    final terminoNormalizado = _normalizeForSearch(termino);
     await _ensureCacheLoaded();
 
-    final resultados = (_cacheMedicos ?? []).where((dx) {
+    final localResults = (_cacheMedicos ?? []).where((dx) {
       final codigo = _normalizeForSearch(dx.codigoCie11);
       final nombre = _normalizeForSearch(dx.nombre);
-      return codigo.contains(terminoNormalizado) ||
-          nombre.contains(terminoNormalizado);
+      return codigo.contains(terminoNormalizado) || nombre.contains(terminoNormalizado);
     }).toList();
 
-    return resultados;
+    if (kDebugMode) {
+      debugPrint('[DiagnosticosService] local: ${localResults.length} resultados '
+          '(fuente: ${_cacheLoadedFromFirestore ? "Firestore" : "Excel/assets"})');
+    }
+
+    return localResults;
+  }
+
+  /// Variante de [buscarDiagnosticosMedicos] que expone metadatos de origen.
+  ///
+  /// - [icd11Disponible]: true si la API OMS respondió en esta búsqueda.
+  /// - [icd11Activo]: true si [Icd11Service.enabled] está activado.
+  ///
+  /// En el path local, ítems con [source] == "who_icd11" (escritos por versiones
+  /// previas de [enriquecerEnCatalogo]) son renormalizados a "firestore_enriched"
+  /// para evitar confusión con resultados en vivo.
+  Future<DiagnosticosBusquedaResult> buscarDiagnosticosMedicosConOrigen(
+      String termino) async {
+    if (termino.trim().isEmpty) {
+      return DiagnosticosBusquedaResult(
+        resultados: [],
+        icd11Disponible: false,
+        icd11Activo: Icd11Service.enabled,
+      );
+    }
+
+    final icdRes = await Icd11Service.buscarConDetalle(termino);
+    if (kDebugMode) debugPrint('[DiagnosticosService] $icdRes');
+
+    if (icdRes.tieneResultados) {
+      return DiagnosticosBusquedaResult(
+        resultados: icdRes.resultados, // source: 'who_icd11' — resultados en vivo
+        icd11Disponible: true,
+        icd11Activo: true,
+      );
+    }
+
+    if (kDebugMode) {
+      debugPrint('[DiagnosticosService] activando fallback local para "$termino"');
+    }
+
+    final terminoNormalizado = _normalizeForSearch(termino);
+    await _ensureCacheLoaded();
+
+    final localResults = (_cacheMedicos ?? []).where((dx) {
+      final codigo = _normalizeForSearch(dx.codigoCie11);
+      final nombre = _normalizeForSearch(dx.nombre);
+      return codigo.contains(terminoNormalizado) || nombre.contains(terminoNormalizado);
+    }).map((dx) {
+      // Ítems en Firestore escritos por versiones anteriores de enriquecerEnCatalogo()
+      // tienen source: 'who_icd11'. En el path local NO son resultados en vivo:
+      // renormalizar a 'firestore_enriched' para que origenLabel sea correcto en la UI.
+      if (dx.source == 'who_icd11') {
+        return DiagnosticoMedico(
+          codigoCie11: dx.codigoCie11,
+          nombre: dx.nombre,
+          categoria: dx.categoria,
+          subcategoria: dx.subcategoria,
+          comorbilidades: dx.comorbilidades,
+          medicamentosRelacionados: dx.medicamentosRelacionados,
+          interaccionesFarmacoNutriente: dx.interaccionesFarmacoNutriente,
+          rangosBioquimicos: dx.rangosBioquimicos,
+          estadio: dx.estadio,
+          gravedad: dx.gravedad,
+          dietasContraindicadas: dx.dietasContraindicadas,
+          dietasSugeridas: dx.dietasSugeridas,
+          activo: dx.activo,
+          icdUri: dx.icdUri,
+          source: 'firestore_enriched',
+          language: dx.language,
+          icdRelease: dx.icdRelease,
+        );
+      }
+      return dx;
+    }).toList();
+
+    if (kDebugMode) {
+      debugPrint('[DiagnosticosService] local: ${localResults.length} resultados '
+          '(fuente: ${_cacheLoadedFromFirestore ? "Firestore" : "Excel/assets"})');
+    }
+
+    return DiagnosticosBusquedaResult(
+      resultados: localResults,
+      icd11Disponible: false,
+      icd11Activo: Icd11Service.enabled,
+    );
   }
 
   /// Busca diagnósticos nutricionales por término
@@ -304,7 +426,12 @@ class DiagnosticosService {
   // EVALUACIONES DIAGNÓSTICAS (Registro de pacientes)
   // ---------------------------------------------------------------------------
 
-  /// Guarda una evaluación diagnóstica de un paciente
+  /// Guarda una evaluación diagnóstica de un paciente.
+  ///
+  /// Los parámetros [icdUri], [icdSource], [icdLanguage] e [icdRelease] son
+  /// opcionales y sólo deben pasarse cuando el diagnóstico proviene de la
+  /// API oficial de la OMS (fase B en adelante). Su ausencia no rompe
+  /// evaluaciones previas ni futuras sin integración ICD-11.
   Future<String> guardarEvaluacionDiagnostica({
     required String empresaId,
     required String pacienteId,
@@ -320,6 +447,11 @@ class DiagnosticosService {
     List<String> objetivosNutricionales = const [],
     List<String> restricciones = const [],
     List<String> alertas = const [],
+    // Campos ICD-11 enriquecidos (opcionales — Fase B)
+    String? icdUri,
+    String? icdSource,
+    String? icdLanguage,
+    String? icdRelease,
   }) async {
     final doc = _db.collection(_collEvaluaciones).doc();
 
@@ -360,6 +492,11 @@ class DiagnosticosService {
       'restricciones': restricciones,
       'alertas': alertas,
       'creadoPor': userId,
+      // Campos ICD-11: solo se escriben si tienen valor (documentos limpios).
+      if (icdUri != null) 'icdUri': icdUri,
+      if (icdSource != null) 'icdSource': icdSource,
+      if (icdLanguage != null) 'icdLanguage': icdLanguage,
+      if (icdRelease != null) 'icdRelease': icdRelease,
     });
 
     return doc.id;
@@ -368,15 +505,61 @@ class DiagnosticosService {
   /// Obtiene el historial de evaluaciones de un paciente
   Stream<List<EvaluacionDiagnostica>> streamEvaluacionesPaciente({
     required String pacienteId,
+    required String empresaId,
   }) {
     return _db
         .collection(_collEvaluaciones)
+        .where('empresaId', isEqualTo: empresaId)
         .where('pacienteId', isEqualTo: pacienteId)
         .orderBy('fecha', descending: true)
         .snapshots()
         .map((snap) => snap.docs
         .map((d) => EvaluacionDiagnostica.fromMap(d.data()))
         .toList());
+  }
+
+  // ---------------------------------------------------------------------------
+  // ENRIQUECIMIENTO ICD-11 → TBL_DIAGNOSTICOS_MEDICOS
+  // ---------------------------------------------------------------------------
+
+  /// Enriquece TBL_DIAGNOSTICOS_MEDICOS con datos de un diagnóstico proveniente
+  /// de la API ICD-11 (WHO). Usa [merge: true] para preservar cualquier dato
+  /// clínico existente importado desde Excel (comorbilidades, rangos, dietas, etc.).
+  ///
+  /// - El ID del documento es [dx.codigoCie11] — mismo esquema que la importación Excel.
+  /// - Los campos de nombre siguen el esquema canónico: [codigoCie11] y [nombre].
+  /// - Solo actúa si [dx.source] es "who_icd11" y [dx.icdUri] no es nulo;
+  ///   diagnósticos del catálogo local se ignoran silenciosamente.
+  /// - Si falla (sin conexión, permisos, etc.) el error se absorbe — no bloquea
+  ///   el flujo clínico principal.
+  Future<void> enriquecerEnCatalogo({
+    required DiagnosticoMedico dx,
+    required String empresaId,
+    required String userId,
+  }) async {
+    if (dx.source != 'who_icd11' || dx.icdUri == null) return;
+
+    try {
+      await _db.collection(_collDiagnosticosMedicos).doc(dx.codigoCie11).set(
+        {
+          'codigoCie11': dx.codigoCie11,
+          'nombre': dx.nombre,
+          'activo': true,
+          'empresaId': empresaId,
+          'source': 'firestore_enriched',
+          'icdUri': dx.icdUri,
+          'language': dx.language ?? 'es',
+          'icdRelease': dx.icdRelease,
+          'enriquecidoEn': FieldValue.serverTimestamp(),
+          'enriquecidoPor': userId,
+        },
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('DiagnosticosService.enriquecerEnCatalogo: $e');
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -1,5 +1,8 @@
 // functions/src/index.ts
 import * as functions from "firebase-functions/v1"; // compat v1
+
+// ICD-11 token broker + proxy (Fase B)
+export { icd11Search } from "./icd11";
 import * as admin from "firebase-admin";
 
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
@@ -98,41 +101,38 @@ function resolveTaskStatus(d: admin.firestore.DocumentData | undefined | null): 
     .trim()
     .toLowerCase();
   const approved = isTrue((d as any)?.approved);
+  const finishRequest = ((d as any)?.solicitud_finalizacion_estado ?? "")
+    .toString()
+    .trim()
+    .toLowerCase();
 
-  if (approved || raw === "finalizado" || raw === "finalizada") return "finalizada";
-  if (raw === "completada" || raw === "pendiente_aprobacion") return "completada";
+  if (approved || raw === "finalizado" || raw === "finalizada") return "finalizado";
+  if (raw === "por_aprobar" || raw === "pendiente_aprobacion" || finishRequest === "pendiente") {
+    return "por_aprobar";
+  }
   if (raw === "devuelta") return "devuelta";
   if (hasPendingReassign(d) || raw === "reasignado") return "reasignado";
 
   const due = taskToDate((d as any)?.fecha_limite ?? (d as any)?.dueDate);
   const days = taskDaysLeft(due);
-  if (raw === "retrasado" || (days !== null && days < 0)) return "retrasado";
+  if (raw === "retrasado" || raw === "retrasada" || (days !== null && days < 0)) return "retrasada";
 
-  if (raw === "en_progreso") return "en_progreso";
-
-  const visto = isTrue((d as any)?.visto);
-  if (visto || raw === "visto") return "visto";
-
-  return "activas";
+  return "en_progreso";
 }
 
 function statusLabel(status: string): string {
   switch (status) {
-    case "activas":
-      return "activa";
-    case "visto":
-      return "vista";
     case "en_progreso":
       return "en progreso";
+    case "por_aprobar":
+      return "pendiente de aprobación";
     case "reasignado":
       return "reasignada";
-    case "completada":
-      return "completada";
-    case "finalizada":
+    case "finalizado":
       return "finalizada";
     case "devuelta":
       return "devuelta";
-    case "retrasado":
+    case "retrasada":
       return "retrasada";
     default:
       return status;
@@ -155,8 +155,23 @@ async function saveInAppNotification(userId: string, payload: Record<string, unk
   // subcollection (esto coincide con tu Flutter)
   const subRef = parentRef.collection("notifications");
 
+  let finalPayload: Record<string, unknown> = { ...payload };
+  const taskId = (payload.taskId ?? "").toString().trim();
+  const rawEmpresaId = (payload.empresaId ?? "").toString().trim();
+  if (!rawEmpresaId && taskId) {
+    try {
+      const taskSnap = await db.collection("TBL_TAREAS").doc(taskId).get();
+      const taskEmpresaId = (taskSnap.get("empresaId") ?? "").toString().trim();
+      if (taskEmpresaId) {
+        finalPayload = { ...finalPayload, empresaId: taskEmpresaId };
+      }
+    } catch (error) {
+      console.error("[saveInAppNotification] empresaId enrich error:", error);
+    }
+  }
+
   await subRef.add({
-    ...payload,
+    ...finalPayload,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     read: false,
   });
@@ -308,21 +323,26 @@ export const onTaskUpdated = functions
 
     console.log("[onTaskUpdated] taskId:", taskId, "prev:", prevAssigned, "new:", newAssigned);
 
-    if (newAssigned && newAssigned !== prevAssigned) {
+    // Conjunto de usuarios ya notificados en este update para evitar duplicados.
+    const notifiedIds = new Set<string>();
+
+    const assigneeChanged = !!(newAssigned && newAssigned !== prevAssigned);
+    if (assigneeChanged) {
       // Notif al nuevo asignado
       try {
-        await saveInAppNotification(newAssigned, {
+        await saveInAppNotification(newAssigned!, {
           title,
           description,
           taskId,
           type: prevAssigned ? "task_reassigned" : "task_assigned",
         });
+        notifiedIds.add(newAssigned!);
       } catch (e) {
         console.error("[onTaskUpdated] saveInAppNotification error:", e);
       }
 
-      // Aviso silencioso al jefe
-      const bossId2 = await resolveBossIdFor(newAssigned, after || undefined);
+      // Aviso al jefe del nuevo asignado
+      const bossId2 = await resolveBossIdFor(newAssigned!, after || undefined);
       if (bossId2 && bossId2 !== newAssigned) {
         try {
           await saveInAppNotification(bossId2, {
@@ -331,23 +351,51 @@ export const onTaskUpdated = functions
             taskId,
             type: "task_reassigned_report",
           });
+          notifiedIds.add(bossId2);
         } catch (e) {
           console.error("[onTaskUpdated] boss save notif error:", e);
+        }
+      }
+
+      // Aviso al creador cuando es una reasignación (no primera asignación)
+      if (prevAssigned) {
+        const creatorId2 = getCreatorId(after || null);
+        if (creatorId2 && !notifiedIds.has(creatorId2)) {
+          try {
+            await saveInAppNotification(creatorId2, {
+              title: "Tarea reasignada",
+              description: `${title} · Nuevo responsable: ${(after as any)?.asignado_nombre || newAssigned}`,
+              taskId,
+              type: "task_reassigned_info",
+            });
+            notifiedIds.add(creatorId2);
+          } catch (e) {
+            console.error("[onTaskUpdated] creator reassign notif error:", e);
+          }
         }
       }
     }
 
     if (statusChanged) {
       const label = statusLabel(statusAfter);
-      const notifTitle = `Estado de tarea: ${label}`;
-      const notifBody = `${title} · ${label}`;
-      const recipients = new Set<string>();
+      const isPorAprobar = statusAfter === "por_aprobar";
+      const notifTitle = isPorAprobar
+        ? "Solicitud de finalización"
+        : `Estado de tarea: ${label}`;
+      const notifBody = `${title} · ${isPorAprobar ? "pendiente de aprobación" : label}`;
+      const notifType = isPorAprobar ? "solicitud_finalizacion" : `task_status_${statusAfter}`;
       const creatorId = getCreatorId(after || null);
       const bossId = getBossId(after || null);
 
-      if (newAssigned) recipients.add(newAssigned);
-      if (creatorId) recipients.add(creatorId);
-      if (bossId) recipients.add(bossId);
+      // Solo notificar a quienes NO recibieron ya la notificación de cambio de asignado
+      // Para solicitud_finalizacion: no notificar al propio solicitante (asignado)
+      const solicitanteUid = isPorAprobar
+        ? ((after as any)?.solicitud_finalizacion_by_uid ?? "").toString().trim()
+        : "";
+      const recipients = new Set<string>();
+      if (!isPorAprobar && newAssigned && !notifiedIds.has(newAssigned)) recipients.add(newAssigned);
+      if (creatorId && !notifiedIds.has(creatorId) && creatorId !== solicitanteUid) recipients.add(creatorId);
+      if (bossId && !notifiedIds.has(bossId) && bossId !== solicitanteUid) recipients.add(bossId);
 
       if (recipients.size === 0) return;
 
@@ -358,7 +406,7 @@ export const onTaskUpdated = functions
               title: notifTitle,
               description: notifBody,
               taskId,
-              type: `task_status_${statusAfter}`,
+              type: notifType,
             });
           } catch (e) {
             console.error("[onTaskUpdated] status notif error:", e);
@@ -470,12 +518,13 @@ export const notifyTaskCompleted = functions
     const taskId = (data?.taskId || "").toString().trim();
     const title = (data?.title || "Tarea completada").toString();
     const body = (data?.body || "").toString();
+    const type = (data?.type || "task_completed").toString();
 
     if (!creatorId || !taskId) {
       throw new functions.https.HttpsError("invalid-argument", "creatorId y taskId requeridos");
     }
 
-    await saveInAppNotification(creatorId, { title, description: body, taskId, type: "task_completed" });
+    await saveInAppNotification(creatorId, { title, description: body, taskId, type });
 
     return { ok: true };
   });
@@ -488,6 +537,7 @@ export const notifyTaskNews = functions
     const boss = (data?.bossId || "").toString().trim();
     const title = (data?.title || "Novedad en tarea").toString();
     const body = (data?.body || "").toString();
+    const type = (data?.type || "task_news").toString();
 
     if (!taskId) throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
 
@@ -495,7 +545,7 @@ export const notifyTaskNews = functions
 
     await Promise.all(
       recipients.map(async (uid) => {
-        await saveInAppNotification(uid, { title, description: body, taskId, type: "task_news" });
+        await saveInAppNotification(uid, { title, description: body, taskId, type });
       })
     );
 

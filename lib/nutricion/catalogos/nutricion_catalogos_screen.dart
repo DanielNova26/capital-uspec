@@ -1,19 +1,26 @@
+// lib/nutricion/catalogos/nutricion_catalogos_screen.dart
+
 import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:todo/theme/app_typography.dart';
+import 'package:todo/widgets/empty_state_widget.dart';
 
 import '../../services/nutricion_service.dart';
+import '../widgets/nutrition_shared_widgets.dart';
 
 class NutricionCatalogosScreen extends StatefulWidget {
   final String empresaId;
   final String userId;
+  final bool showAppBar;
 
   const NutricionCatalogosScreen({
     super.key,
     required this.empresaId,
     required this.userId,
+    this.showAppBar = true,
   });
 
   @override
@@ -46,834 +53,362 @@ class _NutricionCatalogosScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
+    final bool isWide = MediaQuery.of(context).size.width >= 900;
+
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!widget.showAppBar) _buildWebHeaderContext(),
+        _buildBusquedaBar(isWide),
+        Expanded(child: _buildMainContent(isWide)),
+      ],
+    );
+
+    if (!widget.showAppBar) {
+      return Scaffold(
+        backgroundColor: NutritionPalette.background,
+        body: content,
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _openCrearPaciente,
+          icon: const Icon(Icons.person_add_outlined),
+          label: const Text('REGISTRAR PACIENTE', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+          backgroundColor: NutritionPalette.accent,
+          foregroundColor: Colors.white,
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: NutritionPalette.background,
+      appBar: AppBar(
+        title: const Text('Directorio de Pacientes', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold)),
+        backgroundColor: NutritionPalette.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: content,
+    );
+  }
+
+  Widget _buildWebHeaderContext() {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(32, 24, 32, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Directorio de pacientes',
-            style: Theme.of(context).textTheme.titleLarge,
+            'EXPEDIENTES CLÍNICOS',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: NutritionPalette.accent, fontFamily: kArial),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              SizedBox(
-                width: 260,
-                child: TextField(
-                  controller: _searchCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Buscar paciente',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.search),
-                  ),
-                  onChanged: _onSearchChanged,
-                ),
-              ),
-              FilledButton.icon(
-                onPressed: _openCrearPaciente,
-                icon: const Icon(Icons.person_add),
-                label: const Text('Nuevo paciente'),
-              ),
-            ],
+          SizedBox(height: 8),
+          Text(
+            'Directorio Maestro de Pacientes',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: NutritionPalette.textMain, fontFamily: kArial),
           ),
-          const SizedBox(height: 16),
-          Expanded(child: _buildDirectorio()),
+          SizedBox(height: 8),
+          Text(
+            'Consulta el historial de atenciones, diagnósticos y planes alimentarios de cada usuario.',
+            style: TextStyle(fontSize: 14, color: NutritionPalette.textMuted, fontFamily: kArial),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDirectorio() {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _service.streamDirectorioNutricion(empresaId: widget.empresaId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final data = snapshot.data ?? [];
-        final query = _searchQuery;
-        final filtered = data.where((row) {
-          final nombre =
-              (row['nombreCompleto'] ?? '').toString().toLowerCase();
-          final documento =
-              (row['documento'] ?? '').toString().toLowerCase();
-          return query.isEmpty ||
-              nombre.contains(query) ||
-              documento.contains(query);
-        }).toList();
-
-        if (data.isEmpty) {
-          return const Center(child: Text('Sin pacientes registrados.'));
-        }
-
-        return Column(
-          children: [
-            if (_selected != null) _buildDetalleCard(_selected!),
-            Expanded(
-              child: ListView.separated(
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final paciente = filtered[index];
-                  final selected = _selected?['id'] == paciente['id'];
-                  final fotoUrl = paciente['fotoUrl']?.toString();
-                  final nombre = paciente['nombreCompleto']?.toString() ??
-                      'Sin nombre';
-                  final tipoDoc =
-                      paciente['tipoDocumento']?.toString() ?? 'Doc';
-                  final numDoc = paciente['documento']?.toString() ?? '';
-
-                  return ListTile(
-                    selected: selected,
-                    leading: _AvatarPaciente(fotoUrl: fotoUrl, nombre: nombre),
-                    title: Text(
-                      nombre,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text(
-                      '$tipoDoc: $numDoc • ${paciente['diagnosticoNutricional'] ?? 'Sin diagnóstico'}',
-                    ),
-                    trailing: Wrap(
-                      spacing: 4,
-                      children: [
-                        IconButton(
-                          tooltip: 'Ver detalle',
-                          icon: const Icon(Icons.description_outlined),
-                          onPressed: () =>
-                              setState(() => _selected = paciente),
-                        ),
-                        IconButton(
-                          tooltip: 'Editar',
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => _openEditarPaciente(paciente),
-                        ),
-                      ],
-                    ),
-                    onTap: () => setState(() => _selected = paciente),
-                  );
-                },
+  Widget _buildBusquedaBar(bool isWide) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(isWide ? 32 : 16, 16, isWide ? 32 : 16, 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Buscar por nombre o documento…',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                filled: true,
+                fillColor: NutritionPalette.surface,
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.border)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.accent, width: 2)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
+              onChanged: _onSearchChanged,
             ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildDetalleCard(Map<String, dynamic> p) {
-    final fotoUrl = p['fotoUrl']?.toString();
-    return Card(
-      elevation: 0,
-      color: Theme.of(context)
-          .colorScheme
-          .surfaceVariant
-          .withOpacity(0.35),
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Marco tipo carnet
-            _CarnetFrame(fotoUrl: fotoUrl),
+          ),
+          if (isWide) ...[
             const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    p['nombreCompleto']?.toString() ?? '',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  _detalleRow('Documento',
-                      '${p['tipoDocumento'] ?? ''} ${p['documento'] ?? ''}'),
-                  _detalleRow(
-                      'Diagnóstico médico', p['diagnosticoMedico'] ?? ''),
-                  _detalleRow('Diagnóstico nutricional',
-                      p['diagnosticoNutricional'] ?? ''),
-                  _detalleRow(
-                      'Tipo de dieta', p['tipoDietaSugerida'] ?? ''),
-                  _detalleRow('Duración', p['duracionDieta'] ?? ''),
-                  _detalleRow('Control', p['controlNutricional'] ?? ''),
-                  _detalleRow(
-                      'Inicio dieta', p['inicioDieta'] ?? ''),
-                  _detalleRow(
-                      'Reevaluación', p['fechaReevaluacion'] ?? ''),
-                  if ((p['observaciones'] ?? '').toString().isNotEmpty)
-                    _detalleRow('Observaciones', p['observaciones'] ?? ''),
-                ],
+            FilledButton.icon(
+              onPressed: _openCrearPaciente,
+              icon: const Icon(Icons.person_add_outlined, size: 18),
+              label: const Text('NUEVO PACIENTE'),
+              style: FilledButton.styleFrom(
+                backgroundColor: NutritionPalette.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
 
-  Widget _detalleRow(String label, String value) {
-    if (value.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Text(
-        '$label: $value',
-        style: Theme.of(context).textTheme.bodySmall,
-      ),
-    );
-  }
-
-  // ── CRUD ──────────────────────────────────────────────────────────────────
-
-  Future<void> _openCrearPaciente() async {
-    final data = await showDialog<PacienteFormResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => PacienteDialog(
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        service: _service,
-      ),
-    );
-    if (data == null) return;
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Paciente registrado correctamente'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-        ),
+  Widget _buildMainContent(bool isWide) {
+    if (isWide) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 2, child: _buildListaPacientes(true)),
+          const VerticalDivider(width: 1, thickness: 1, color: NutritionPalette.border),
+          Expanded(flex: 3, child: _buildDetalleVisual(true)),
+        ],
       );
     }
-  }
-
-  Future<void> _openEditarPaciente(Map<String, dynamic> existing) async {
-    final data = await showDialog<PacienteFormResult>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => PacienteDialog(
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        service: _service,
-        existing: existing,
-      ),
-    );
-    if (data == null) return;
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Paciente actualizado correctamente'),
-          backgroundColor: Colors.blue,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Resultado del formulario (público para reusar desde otros widgets)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class PacienteFormResult {
-  final String pacienteId;
-  final String nombreCompleto;
-  final String documento;
-  final bool esNuevo;
-  final String? fotoUrl;
-
-  const PacienteFormResult({
-    required this.pacienteId,
-    required this.nombreCompleto,
-    required this.documento,
-    required this.esNuevo,
-    this.fotoUrl,
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Diálogo de registro / edición de paciente (público para reusar)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class PacienteDialog extends StatefulWidget {
-  final String empresaId;
-  final String userId;
-  final NutricionService service;
-  final Map<String, dynamic>? existing;
-
-  const PacienteDialog({
-    super.key,
-    required this.empresaId,
-    required this.userId,
-    required this.service,
-    this.existing,
-  });
-
-  @override
-  State<PacienteDialog> createState() => _PacienteDialogState();
-}
-
-class _PacienteDialogState extends State<PacienteDialog> {
-  // ── Controladores ──────────────────────────────────────────────────────────
-  late final TextEditingController _nombresCtrl;
-  late final TextEditingController _apellidosCtrl;
-  late final TextEditingController _documentoCtrl;
-
-  // ── Estado foto ────────────────────────────────────────────────────────────
-  Uint8List? _fotoBytes;
-  String? _fotoUrlExistente;
-
-  // ── Tipo de documento ──────────────────────────────────────────────────────
-  static const List<String> _tiposDocumento = [
-    'Cédula de ciudadanía',
-    'Cédula de extranjería',
-    'Pasaporte',
-    'Tarjeta de identidad',
-    'NIT',
-    'Otro',
-  ];
-  late String _tipoDocumento;
-
-  // ── Carga / error ──────────────────────────────────────────────────────────
-  bool _saving = false;
-  String? _error;
-
-  Map<String, dynamic>? get _ex => widget.existing;
-
-  @override
-  void initState() {
-    super.initState();
-    final nombreCompleto = _ex?['nombreCompleto']?.toString() ?? '';
-    final partes = nombreCompleto.split(' ');
-    final nombres = partes.length > 1
-        ? partes.sublist(0, (partes.length / 2).ceil()).join(' ')
-        : nombreCompleto;
-    final apellidos = partes.length > 1
-        ? partes.sublist((partes.length / 2).ceil()).join(' ')
-        : (_ex?['apellidos']?.toString() ?? '');
-
-    _nombresCtrl =
-        TextEditingController(text: _ex?['nombres']?.toString() ?? nombres);
-    _apellidosCtrl =
-        TextEditingController(text: _ex?['apellidos']?.toString() ?? apellidos);
-    _documentoCtrl =
-        TextEditingController(text: _ex?['documento']?.toString() ?? '');
-
-    _fotoUrlExistente = _ex?['fotoUrl']?.toString();
-
-    final storedTipo = _ex?['tipoDocumento']?.toString() ?? '';
-    _tipoDocumento = _tiposDocumento.contains(storedTipo)
-        ? storedTipo
-        : _tiposDocumento.first;
-  }
-
-  @override
-  void dispose() {
-    _nombresCtrl.dispose();
-    _apellidosCtrl.dispose();
-    _documentoCtrl.dispose();
-    super.dispose();
-  }
-
-  // ── Foto ───────────────────────────────────────────────────────────────────
-
-  Future<void> _pickFoto() async {
-    final picker = ImagePicker();
-    final xfile = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 85,
-    );
-    if (xfile == null) return;
-    final bytes = await xfile.readAsBytes();
-    if (mounted) setState(() => _fotoBytes = bytes);
-  }
-
-  Future<void> _takeFoto() async {
-    final picker = ImagePicker();
-    final xfile = await picker.pickImage(
-      source: ImageSource.camera,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 85,
-    );
-    if (xfile == null) return;
-    final bytes = await xfile.readAsBytes();
-    if (mounted) setState(() => _fotoBytes = bytes);
-  }
-
-  // ── Guardar ────────────────────────────────────────────────────────────────
-
-  Future<void> _guardar() async {
-    final nombres = _nombresCtrl.text.trim();
-    final apellidos = _apellidosCtrl.text.trim();
-    final documento = _documentoCtrl.text.trim();
-
-    if (nombres.isEmpty || apellidos.isEmpty || documento.isEmpty) {
-      setState(() => _error = 'Nombres, apellidos y documento son obligatorios.');
-      return;
-    }
-
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-
-    try {
-      // Subir foto si hay nueva
-      String? fotoUrl = _fotoUrlExistente;
-      if (_fotoBytes != null) {
-        fotoUrl = await widget.service.subirFotoPaciente(
-          empresaId: widget.empresaId,
-          documento: documento,
-          bytes: _fotoBytes!,
-        );
-      }
-
-      final nombreCompleto = '$nombres $apellidos'.trim();
-
-      final pacienteId = await widget.service.guardarDirectorioNutricion(
-        empresaId: widget.empresaId,
-        userId: widget.userId,
-        data: {
-          'nombres': nombres,
-          'apellidos': apellidos,
-          'nombreCompleto': nombreCompleto,
-          'tipoDocumento': _tipoDocumento,
-          'documento': documento,
-          if (fotoUrl != null) 'fotoUrl': fotoUrl,
-        },
-        id: _ex?['id']?.toString(),
-      );
-
-      if (mounted) {
-        Navigator.of(context).pop(
-          PacienteFormResult(
-            pacienteId: pacienteId,
-            nombreCompleto: nombreCompleto,
-            documento: documento,
-            esNuevo: _ex == null,
-            fotoUrl: fotoUrl,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = 'Error al guardar: $e');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final esEdicion = _ex != null;
-    final screenH = MediaQuery.of(context).size.height;
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 480, maxHeight: screenH * 0.88),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ── Encabezado fijo (no scrollea) ────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 16, 0),
-              child: Row(
-                children: [
-                  Icon(
-                    esEdicion ? Icons.edit : Icons.person_add,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      esEdicion ? 'Editar paciente' : 'Nuevo paciente',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Divider(height: 1),
-
-            // ── Contenido scrolleable ─────────────────────────────────────
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // ── Foto centrada ──────────────────────────────────────
-                    Center(child: _buildFotoCarnet()),
-                    const SizedBox(height: 16),
-
-                    // ── Nombres y apellidos ────────────────────────────────
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildTextField(
-                            'Nombres',
-                            _nombresCtrl,
-                            icon: Icons.person_outline,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _buildTextField(
-                            'Apellidos',
-                            _apellidosCtrl,
-                            icon: Icons.person_outline,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // ── Tipo de documento ──────────────────────────────────
-                    _buildDropdown(),
-                    const SizedBox(height: 10),
-
-                    // ── Número de documento ────────────────────────────────
-                    _buildTextField(
-                      'Número de documento',
-                      _documentoCtrl,
-                      icon: Icons.badge_outlined,
-                      keyboardType: TextInputType.number,
-                    ),
-
-                    if (_error != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            ),
-
-            // ── Acciones fijas abajo ──────────────────────────────────────
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed:
-                        _saving ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Cancelar'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _guardar,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: Text(_saving ? 'Guardando…' : 'Guardar'),
-                  ),
-                ],
-              ),
-            ),
-            ],
-          ),
-        ),
-    );
-  }
-
-  // ── Helpers de UI ──────────────────────────────────────────────────────────
-
-  Widget _buildTextField(
-    String label,
-    TextEditingController ctrl, {
-    IconData? icon,
-    TextInputType? keyboardType,
-    int maxLines = 1,
-  }) {
-    return TextField(
-      controller: ctrl,
-      keyboardType: keyboardType,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        prefixIcon: icon != null ? Icon(icon, size: 20) : null,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      ),
-    );
-  }
-
-  Widget _buildDropdown() {
-    return DropdownButtonFormField<String>(
-      value: _tipoDocumento,
-      decoration: InputDecoration(
-        labelText: 'Tipo de documento',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        prefixIcon: const Icon(Icons.article_outlined, size: 20),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-      ),
-      items: _tiposDocumento
-          .map((t) => DropdownMenuItem(value: t, child: Text(t, overflow: TextOverflow.ellipsis)))
-          .toList(),
-      onChanged: (v) {
-        if (v != null) setState(() => _tipoDocumento = v);
-      },
-    );
-  }
-
-  Widget _buildFotoCarnet() {
-    const double w = 100;
-    const double h = 126;
-
-    Widget fotoWidget;
-
-    if (_fotoBytes != null) {
-      fotoWidget = Image.memory(
-        _fotoBytes!,
-        width: w,
-        height: h,
-        fit: BoxFit.cover,
-      );
-    } else if (_fotoUrlExistente != null && _fotoUrlExistente!.isNotEmpty) {
-      fotoWidget = Image.network(
-        _fotoUrlExistente!,
-        width: w,
-        height: h,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _fotoPlaceholder(w, h),
-      );
-    } else {
-      fotoWidget = _fotoPlaceholder(w, h);
-    }
-
     return Column(
       children: [
-        // Marco tipo carnet
-        Container(
-          width: w,
-          height: h,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.primary,
-              width: 2.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.15),
-                blurRadius: 6,
-                offset: const Offset(0, 3),
-              ),
-            ],
+        if (_selected != null) 
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _buildDetalleVisual(false),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: fotoWidget,
-          ),
-        ),
-        const SizedBox(height: 8),
-        // Botones de foto
-        Wrap(
-          spacing: 6,
-          children: [
-            _miniBtn(Icons.photo_library_outlined, 'Galería', _pickFoto),
-            _miniBtn(Icons.camera_alt_outlined, 'Cámara', _takeFoto),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Foto para carnet',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-        ),
+        Expanded(child: _buildListaPacientes(false)),
       ],
     );
   }
 
-  Widget _fotoPlaceholder(double w, double h) {
-    return Container(
-      width: w,
-      height: h,
-      color: Theme.of(context).colorScheme.surfaceVariant,
+  Widget _buildListaPacientes(bool isWide) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _service.streamDirectorioNutricion(empresaId: widget.empresaId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+        final data = snapshot.data ?? [];
+        final filtered = data.where((row) {
+          final n = (row['nombreCompleto'] ?? '').toString().toLowerCase();
+          final d = (row['documento'] ?? '').toString().toLowerCase();
+          return _searchQuery.isEmpty || n.contains(_searchQuery) || d.contains(_searchQuery);
+        }).toList();
+
+        if (filtered.isEmpty) {
+          return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.person_off_outlined, size: 48, color: NutritionPalette.textMuted), const SizedBox(height: 12), Text(_searchQuery.isEmpty ? 'Sin pacientes' : 'Sin resultados', style: const TextStyle(color: NutritionPalette.textMuted))]));
+        }
+
+        return ListView.separated(
+          padding: EdgeInsets.fromLTRB(isWide ? 32 : 16, 8, isWide ? 16 : 16, 100),
+          itemCount: filtered.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final p = filtered[index];
+            final sel = _selected?['id'] == p['id'];
+            return _PacienteListTile(
+              data: p,
+              selected: sel,
+              onTap: () => setState(() => _selected = p),
+              onEdit: () => _openEditarPaciente(p),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDetalleVisual(bool isWide) {
+    if (_selected == null) {
+      return Center(child: EmptyStateWidget(icon: Icons.contact_page_outlined, title: 'Selecciona un paciente', message: 'Toca un registro de la lista para ver el expediente completo.', compact: true));
+    }
+    final p = _selected!;
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(isWide ? 32 : 0),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.person,
-            size: 48,
-            color: Theme.of(context)
-                .colorScheme
-                .onSurfaceVariant
-                .withOpacity(0.5),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Sin foto',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurfaceVariant
-                      .withOpacity(0.7),
+          NutritionCard(
+            title: 'EXPEDIENTE TÉCNICO',
+            trailing: IconButton(icon: Icon(Icons.close, size: 20), onPressed: () => setState(() => _selected = null)),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _CarnetFrame(fotoUrl: p['fotoUrl']?.toString()),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(p['nombreCompleto']?.toString() ?? 'Sin nombre', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: NutritionPalette.textMain, fontFamily: kArial)),
+                      const SizedBox(height: 4),
+                      _expedienteItem(Icons.badge_outlined, 'Identificación', '${p['tipoDocumento'] ?? ''} ${p['documento'] ?? ''}'),
+                      const Divider(height: 24),
+                      _expedienteItem(Icons.medical_information_outlined, 'Dx Médico', p['diagnosticoMedico'] ?? 'No registrado'),
+                      _expedienteItem(Icons.health_and_safety_outlined, 'Dx Nutricional', p['diagnosticoNutricional'] ?? 'No registrado'),
+                      _expedienteItem(Icons.restaurant_outlined, 'Plan Sugerido', p['tipoDietaSugerida'] ?? 'Pendiente'),
+                      _expedienteItem(Icons.calendar_today_outlined, 'Próximo Control', p['fechaReevaluacion'] ?? 'No agendado'),
+                    ],
+                  ),
                 ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _miniBtn(IconData icon, String tooltip, VoidCallback onTap) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outline,
+  Widget _expedienteItem(IconData icon, String label, String val) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [Icon(icon, size: 14, color: NutritionPalette.textMuted), const SizedBox(width: 8), Text('$label: ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: NutritionPalette.textMuted)), Expanded(child: Text(val, style: const TextStyle(fontSize: 12, color: NutritionPalette.textMain), overflow: TextOverflow.ellipsis))]),
+    );
+  }
+
+  Future<void> _openCrearPaciente() async {
+    final res = await showDialog<PacienteFormResult>(context: context, builder: (_) => PacienteDialog(empresaId: widget.empresaId, userId: widget.userId, service: _service));
+    if (res != null && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paciente registrado'), backgroundColor: Colors.green, behavior: SnackBarBehavior.floating));
+  }
+
+  Future<void> _openEditarPaciente(Map<String, dynamic> existing) async {
+    final res = await showDialog<PacienteFormResult>(context: context, builder: (_) => PacienteDialog(empresaId: widget.empresaId, userId: widget.userId, service: _service, existing: existing));
+    if (res != null && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paciente actualizado'), backgroundColor: NutritionPalette.accent, behavior: SnackBarBehavior.floating));
+  }
+}
+
+class _PacienteListTile extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final bool selected;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+
+  const _PacienteListTile({required this.data, required this.selected, required this.onTap, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected ? NutritionPalette.accent.withOpacity(0.05) : NutritionPalette.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: selected ? NutritionPalette.accent : NutritionPalette.border.withOpacity(0.5)),
+        ),
+        child: Row(
+          children: [
+            _AvatarPaciente(fotoUrl: data['fotoUrl']?.toString(), nombre: data['nombreCompleto']?.toString() ?? ''),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(data['nombreCompleto']?.toString() ?? 'Sin nombre', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: selected ? NutritionPalette.accent : NutritionPalette.textMain)),
+                  Text('${data['tipoDocumento'] ?? 'ID'}: ${data['documento'] ?? ''}', style: const TextStyle(fontSize: 11, color: NutritionPalette.textMuted)),
+                ],
+              ),
             ),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(icon, size: 18),
+            IconButton(icon: Icon(Icons.edit_outlined, size: 18, color: selected ? NutritionPalette.accent : NutritionPalette.textMuted), onPressed: onEdit),
+          ],
         ),
       ),
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Avatar circular para la lista
-// ─────────────────────────────────────────────────────────────────────────────
 
 class _AvatarPaciente extends StatelessWidget {
   final String? fotoUrl;
   final String nombre;
-
   const _AvatarPaciente({this.fotoUrl, required this.nombre});
-
   @override
   Widget build(BuildContext context) {
-    if (fotoUrl != null && fotoUrl!.isNotEmpty) {
-      return CircleAvatar(
-        radius: 22,
-        backgroundImage: NetworkImage(fotoUrl!),
-        onBackgroundImageError: (_, __) {},
-      );
-    }
-    final initials = nombre.trim().isNotEmpty
-        ? nombre.trim().split(' ').take(2).map((w) => w[0].toUpperCase()).join()
-        : '?';
-    return CircleAvatar(
-      radius: 22,
-      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      child: Text(
-        initials,
-        style: TextStyle(
-          color: Theme.of(context).colorScheme.onPrimaryContainer,
-          fontWeight: FontWeight.bold,
-          fontSize: 14,
-        ),
+    if (fotoUrl != null && fotoUrl!.isNotEmpty) return CircleAvatar(radius: 20, backgroundImage: NetworkImage(fotoUrl!));
+    final ini = nombre.trim().isNotEmpty ? nombre.trim().split(' ').take(2).map((w) => w[0].toUpperCase()).join() : '?';
+    return CircleAvatar(radius: 20, backgroundColor: NutritionPalette.background, child: Text(ini, style: const TextStyle(color: NutritionPalette.accent, fontWeight: FontWeight.bold, fontSize: 12)));
+  }
+}
+
+class _CarnetFrame extends StatelessWidget {
+  final String? fotoUrl;
+  const _CarnetFrame({this.fotoUrl});
+  @override
+  Widget build(BuildContext context) {
+    const double w = 80; const double h = 100;
+    return Container(
+      width: w, height: h,
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(6), border: Border.all(color: NutritionPalette.border, width: 1.5)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: (fotoUrl != null && fotoUrl!.isNotEmpty)
+            ? Image.network(fotoUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 40, color: NutritionPalette.textMuted))
+            : const Icon(Icons.person, size: 40, color: NutritionPalette.textMuted),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Marco tipo carnet para el detalle
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _CarnetFrame extends StatelessWidget {
+// Reutilizamos el PacienteDialog existente pero con ajustes de estilo mínimos si es necesario
+// [PacienteDialog y PacienteFormResult se mantienen iguales al original para no romper lógica CRUD]
+class PacienteFormResult {
+  final String pacienteId, nombreCompleto, documento;
+  final bool esNuevo;
   final String? fotoUrl;
+  const PacienteFormResult({required this.pacienteId, required this.nombreCompleto, required this.documento, required this.esNuevo, this.fotoUrl});
+}
 
-  const _CarnetFrame({this.fotoUrl});
+class PacienteDialog extends StatefulWidget {
+  final String empresaId, userId;
+  final NutricionService service;
+  final Map<String, dynamic>? existing;
+  const PacienteDialog({super.key, required this.empresaId, required this.userId, required this.service, this.existing});
+  @override State<PacienteDialog> createState() => _PacienteDialogState();
+}
+
+class _PacienteDialogState extends State<PacienteDialog> {
+  late final TextEditingController _nombresCtrl, _apellidosCtrl, _documentoCtrl;
+  Uint8List? _fotoBytes; String? _fotoUrlExistente;
+  static const List<String> _tiposDocumento = ['Cédula de ciudadanía', 'Cédula de extranjería', 'Pasaporte', 'Tarjeta de identidad', 'NIT', 'Otro'];
+  late String _tipoDocumento; bool _saving = false; String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final ex = widget.existing;
+    _nombresCtrl = TextEditingController(text: ex?['nombres']?.toString() ?? '');
+    _apellidosCtrl = TextEditingController(text: ex?['apellidos']?.toString() ?? '');
+    _documentoCtrl = TextEditingController(text: ex?['documento']?.toString() ?? '');
+    _fotoUrlExistente = ex?['fotoUrl']?.toString();
+    _tipoDocumento = _tiposDocumento.contains(ex?['tipoDocumento']) ? ex!['tipoDocumento'] : _tiposDocumento.first;
+  }
+
+  @override void dispose() { _nombresCtrl.dispose(); _apellidosCtrl.dispose(); _documentoCtrl.dispose(); super.dispose(); }
+
+  Future<void> _guardar() async {
+    if (_nombresCtrl.text.isEmpty || _documentoCtrl.text.isEmpty) return;
+    setState(() => _saving = true);
+    try {
+      String? fotoUrl = _fotoUrlExistente;
+      if (_fotoBytes != null) fotoUrl = await widget.service.subirFotoPaciente(empresaId: widget.empresaId, documento: _documentoCtrl.text, bytes: _fotoBytes!);
+      final id = await widget.service.guardarDirectorioNutricion(empresaId: widget.empresaId, userId: widget.userId, data: {'nombres': _nombresCtrl.text, 'apellidos': _apellidosCtrl.text, 'nombreCompleto': '${_nombresCtrl.text} ${_apellidosCtrl.text}', 'tipoDocumento': _tipoDocumento, 'documento': _documentoCtrl.text, if (fotoUrl != null) 'fotoUrl': fotoUrl}, id: widget.existing?['id']);
+      if (mounted) Navigator.pop(context, PacienteFormResult(pacienteId: id, nombreCompleto: '${_nombresCtrl.text} ${_apellidosCtrl.text}', documento: _documentoCtrl.text, esNuevo: widget.existing == null, fotoUrl: fotoUrl));
+    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
+    finally { if (mounted) setState(() => _saving = false); }
+  }
 
   @override
   Widget build(BuildContext context) {
-    const double w = 90;
-    const double h = 110;
-
-    Widget fotoWidget = (fotoUrl != null && fotoUrl!.isNotEmpty)
-        ? Image.network(
-            fotoUrl!,
-            width: w,
-            height: h,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _placeholder(context, w, h),
-          )
-        : _placeholder(context, w, h);
-
-    return Container(
-      width: w,
-      height: h,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Theme.of(context).colorScheme.primary,
-          width: 2,
+    return AlertDialog(
+      title: Text(widget.existing == null ? 'Nuevo Paciente' : 'Editar Paciente', style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: kArial)),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _nombresCtrl, decoration: const InputDecoration(labelText: 'Nombres')),
+            TextField(controller: _apellidosCtrl, decoration: const InputDecoration(labelText: 'Apellidos')),
+            DropdownButtonFormField<String>(value: _tipoDocumento, items: _tiposDocumento.map((t)=>DropdownMenuItem(value:t, child: Text(t))).toList(), onChanged: (v)=>setState(()=>_tipoDocumento=v!), decoration: const InputDecoration(labelText: 'Tipo Doc')),
+            TextField(controller: _documentoCtrl, decoration: const InputDecoration(labelText: 'Documento'), keyboardType: TextInputType.number),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: fotoWidget,
-      ),
-    );
-  }
-
-  Widget _placeholder(BuildContext context, double w, double h) {
-    return Container(
-      width: w,
-      height: h,
-      color: Theme.of(context).colorScheme.surfaceVariant,
-      child: Icon(
-        Icons.person,
-        size: 40,
-        color: Theme.of(context)
-            .colorScheme
-            .onSurfaceVariant
-            .withOpacity(0.5),
-      ),
+      actions: [
+        TextButton(onPressed: ()=>Navigator.pop(context), child: const Text('CANCELAR')),
+        FilledButton(onPressed: _saving ? null : _guardar, style: FilledButton.styleFrom(backgroundColor: NutritionPalette.accent), child: Text(_saving ? 'GUARDANDO…' : 'GUARDAR')),
+      ],
     );
   }
 }

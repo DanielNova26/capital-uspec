@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/user_company.dart';
+
 /// Estado global sencillo para la empresa seleccionada.
 class EmpresaState extends ChangeNotifier {
   String? _selectedEmpresaId;
@@ -13,17 +15,38 @@ class EmpresaState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getString(_kEmpresaPrefKey);
     if (stored == null || stored.trim().isEmpty) return;
-    _selectedEmpresaId = stored.trim();
+    _selectedEmpresaId = normalizeEmpresaId(stored);
     notifyListeners();
   }
 
   void setSelectedEmpresaId(String? empresaId) {
-    final next = empresaId?.trim();
-    final normalized = (next == null || next.isEmpty) ? null : next;
+    final normalized = normalizeEmpresaId(empresaId);
     if (_selectedEmpresaId == normalized) return;
     _selectedEmpresaId = normalized;
     notifyListeners();
     _persistSelection();
+  }
+
+  Future<String?> reconcileForUserData(
+    Map<String, dynamic> userData, {
+    String? preferredEmpresaId,
+  }) async {
+    final previous = _selectedEmpresaId;
+    final resolved = resolveValidEmpresaId(
+      data: userData,
+      selectedEmpresaId: _selectedEmpresaId,
+      preferredEmpresaId: preferredEmpresaId,
+    );
+    if (_selectedEmpresaId == resolved) return _selectedEmpresaId;
+
+    debugPrint(
+      '[EmpresaState] empresa activa corregida '
+      'from=$previous to=$resolved preferred=$preferredEmpresaId',
+    );
+    _selectedEmpresaId = resolved;
+    notifyListeners();
+    await _persistSelection();
+    return _selectedEmpresaId;
   }
 
   Future<void> _persistSelection() async {

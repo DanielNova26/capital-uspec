@@ -22,10 +22,13 @@ class OrgService {
   final FirebaseFirestore _db;
   OrgService({FirebaseFirestore? db}) : _db = db ?? FirebaseFirestore.instance;
 
-  Future<List<Area>> listAreas() async {
-    final q = await _db.collection(_areas).get();
+  Future<List<Area>> listAreas({String? empresaId}) async {
+    Query<Map<String, dynamic>> ref = _db.collection(_areas);
+    if (empresaId != null && empresaId.trim().isNotEmpty) {
+      ref = ref.where('empresaId', isEqualTo: empresaId.trim());
+    }
+    final q = await ref.get();
     return q.docs.map((d) => Area(id: d.id, nombre: (d.data()['nombre'] ?? '').toString())).toList();
-    // Ajusta el campo 'nombre' si tu colección usa otro nombre (p.ej. 'areaNombre')
   }
 
   Future<List<Rol>> listRoles({String? areaId}) async {
@@ -44,9 +47,12 @@ class OrgService {
     }).toList();
   }
 
-  // Si más adelante necesitas jerarquía (estructura):
-  Future<List<Map<String, dynamic>>> listEstructuraPlano() async {
-    final q = await _db.collection(_estructura).get();
+  Future<List<Map<String, dynamic>>> listEstructuraPlano({String? empresaId}) async {
+    Query<Map<String, dynamic>> ref = _db.collection(_estructura);
+    if (empresaId != null && empresaId.trim().isNotEmpty) {
+      ref = ref.where('empresaId', isEqualTo: empresaId.trim());
+    }
+    final q = await ref.get();
     return q.docs.map((d) => {'id': d.id, ...d.data()}).toList();
   }
 }

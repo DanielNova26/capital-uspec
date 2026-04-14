@@ -1,5 +1,10 @@
+import 'dart:io';
 import 'dart:typed_data';
+import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import '../services/nutricion_service.dart';
 import '../services/nutricion_report_service.dart';
 
@@ -125,15 +130,21 @@ class NutricionDashboardHelper {
         return;
       }
 
-      // En Flutter Web, podemos usar html.AnchorElement para descargar
-      // En móvil, necesitaríamos usar path_provider + share
-      // Por ahora dejamos el método preparado para que se implemente según la plataforma
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(
+          name: nombreArchivo.replaceAll('.xlsx', ''),
+          bytes: bytes,
+          fileExtension: 'xlsx',
+          mimeType: MimeType.microsoftExcel,
+        );
+      } else {
+        final dir = await getApplicationDocumentsDirectory();
+        final file = File('${dir.path}/$nombreArchivo');
+        await file.writeAsBytes(bytes);
+        await OpenFilex.open(file.path);
+      }
 
-      // TODO: Implementar descarga según plataforma
-      // Web: usar dart:html
-      // Móvil: usar path_provider + open_file o share_plus
-
-      _showSuccess(context, 'Reporte generado correctamente');
+      _showSuccess(context, 'Reporte descargado: $nombreArchivo');
     } catch (e) {
       if (!context.mounted) return;
       Navigator.of(context).pop(); // Cerrar loading

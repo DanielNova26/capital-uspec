@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
+import '../widgets/internal_module_layout.dart';
 
 const String _areasCollection   = 'TBL_AREAS';
 const String _cargosCollection  = 'TBL_CARGOS';
@@ -13,7 +14,9 @@ const Color  _kPrimaryColor     = Color(0xffc28942);
 const String _kFontFamily       = 'Arial';
 
 class OrganizationalStructureScreen extends StatefulWidget {
-  const OrganizationalStructureScreen({Key? key}) : super(key: key);
+  final String userId;
+  final String empresaId;
+  const OrganizationalStructureScreen({Key? key, required this.userId, required this.empresaId}) : super(key: key);
 
   @override
   State<OrganizationalStructureScreen> createState() =>
@@ -360,176 +363,194 @@ class _OrganizationalStructureScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Estructura Organizacional',
-            style: TextStyle(fontFamily: _kFontFamily)),
-        backgroundColor: _kPrimaryColor,
-        actions: [
-          IconButton(icon: const Icon(Icons.add), onPressed: () => _openForm()),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(children: [
-          // filtros de área y cargo
-          Row(children: [
-            Expanded(
-              child: TypeAheadField<String>(
-                textFieldConfiguration: TextFieldConfiguration(
-                  controller: _areaFilterCtrl,
-                  decoration: const InputDecoration(labelText: 'Filtrar por Área'),
+    return InternalModuleLayout(
+      userId: widget.userId,
+      empresaId: widget.empresaId,
+      title: 'Estructura Organizacional',
+      subtitle: 'Configuración de jerarquías y dependencias',
+      accentColor: _kPrimaryColor,
+      headerActions: [
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline_rounded, size: 28),
+          onPressed: () => _openForm(),
+          tooltip: 'Agregar Colaborador',
+          color: _kPrimaryColor,
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Column(
+          children: [
+            const SizedBox(height: 16),
+            // filtros de área y cargo
+            Row(
+              children: [
+                Expanded(
+                  child: TypeAheadField<String>(
+                    textFieldConfiguration: TextFieldConfiguration(
+                      controller: _areaFilterCtrl,
+                      decoration: const InputDecoration(labelText: 'Filtrar por Área'),
+                    ),
+                    suggestionsCallback: _fetchAreas,
+                    itemBuilder: (_, a) => ListTile(title: Text(a)),
+                    onSuggestionSelected: (a) => setState(() {
+                      _filterArea = a;
+                      _areaFilterCtrl.text = a;
+                      _filterCargo = null;
+                      _cargoFilterCtrl.clear();
+                    }),
+                    minCharsForSuggestions: 0,
+                  ),
                 ),
-                suggestionsCallback: _fetchAreas,
-                itemBuilder: (_, a) => ListTile(title: Text(a)),
-                onSuggestionSelected: (a) => setState(() {
-                  _filterArea = a;
-                  _areaFilterCtrl.text = a;
-                  _filterCargo = null;
-                  _cargoFilterCtrl.clear();
-                }),
-                minCharsForSuggestions: 0,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TypeAheadField<String>(
-                textFieldConfiguration: TextFieldConfiguration(
-                  controller: _cargoFilterCtrl,
-                  decoration: const InputDecoration(labelText: 'Filtrar por Cargo'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TypeAheadField<String>(
+                    textFieldConfiguration: TextFieldConfiguration(
+                      controller: _cargoFilterCtrl,
+                      decoration: const InputDecoration(labelText: 'Filtrar por Cargo'),
+                    ),
+                    suggestionsCallback: (p) async =>
+                        (await _fetchCargos(p)).map((m) => m['desc']!).toList(),
+                    itemBuilder: (_, d) => ListTile(title: Text(d)),
+                    onSuggestionSelected: (d) => setState(() {
+                      _filterCargo = d;
+                      _cargoFilterCtrl.text = d;
+                    }),
+                    minCharsForSuggestions: 0,
+                  ),
                 ),
-                suggestionsCallback: (p) async =>
-                    (await _fetchCargos(p)).map((m) => m['desc']!).toList(),
-                itemBuilder: (_, d) => ListTile(title: Text(d)),
-                onSuggestionSelected: (d) => setState(() {
-                  _filterCargo = d;
-                  _cargoFilterCtrl.text = d;
-                }),
-                minCharsForSuggestions: 0,
+              ],
+            ),
+            const SizedBox(height: 8),
+            // búsqueda libre
+            TextField(
+              controller: _searchCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Buscar por nombre o ID',
+                prefixIcon: Icon(Icons.search),
               ),
+              onChanged: (_) => setState(() {}),
             ),
-          ]),
-          const SizedBox(height: 8),
-          // búsqueda libre
-          TextField(
-            controller: _searchCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Buscar por nombre o ID',
-              prefixIcon: Icon(Icons.search),
-            ),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 16),
+            const SizedBox(height: 16),
 
-          // listado con foto en tarjetas
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection(_orgCollection)
-                  .snapshots(),
-              builder: (ctx, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final term = _searchCtrl.text.trim().toLowerCase();
-                final docs = snap.data!.docs.where((d) {
-                  final m = d.data();
-                  if (_filterArea != null && m['area'] != _filterArea) return false;
-                  if (_filterCargo != null && m['cargo'] != _filterCargo) return false;
-                  if (term.isNotEmpty) {
-                    final n = (m['nombre'] as String? ?? '').toLowerCase();
-                    final i = d.id.toLowerCase();
-                    return n.contains(term) || i.contains(term);
+            // listado con foto en tarjetas
+            Expanded(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection(_orgCollection)
+                    .snapshots(),
+                builder: (ctx, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
                   }
-                  return true;
-                }).toList();
-
-                if (docs.isEmpty) {
-                  return const Center(child: Text('No se encontraron registros.'));
-                }
-
-                return ListView.separated(
-                  itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (c, i) {
-                    final d = docs[i];
+                  final term = _searchCtrl.text.trim().toLowerCase();
+                  final docs = snap.data!.docs.where((d) {
                     final m = d.data();
-                    final cedula = d.id;
-                    final nombre = m['nombre'] as String? ?? '';
-                    final cargo  = m['cargo'] as String? ?? '';
-                    final area   = m['area'] as String? ?? '';
+                    if (_filterArea != null && m['area'] != _filterArea) return false;
+                    if (_filterCargo != null && m['cargo'] != _filterCargo) return false;
+                    if (term.isNotEmpty) {
+                      final n = (m['nombre'] as String? ?? '').toLowerCase();
+                      final i = d.id.toLowerCase();
+                      return n.contains(term) || i.contains(term);
+                    }
+                    return true;
+                  }).toList();
 
-                    return FutureBuilder<
-                        DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance
-                          .collection(_hojaCollection)
-                          .doc(cedula)
-                          .get(),
-                      builder: (ctxH, snapH) {
-                        String photoUrl = '';
-                        if (snapH.connectionState == ConnectionState.done &&
-                            snapH.hasData &&
-                            snapH.data!.exists) {
-                          final pd = snapH.data!.data()!;
-                          photoUrl = (pd['fotoUrl'] as String?)?.isNotEmpty == true
-                              ? pd['fotoUrl'] as String
-                              : (pd['cedulaDocUrl'] as String? ?? '');
-                        }
+                  if (docs.isEmpty) {
+                    return const Center(child: Text('No se encontraron registros.'));
+                  }
 
-                        return Card(
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          elevation: 2,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
+                  return ListView.separated(
+                    itemCount: docs.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (c, i) {
+                      final d = docs[i];
+                      final m = d.data();
+                      final cedula = d.id;
+                      final nombre = m['nombre'] as String? ?? '';
+                      final cargo = m['cargo'] as String? ?? '';
+                      final area = m['area'] as String? ?? '';
+
+                      return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: FirebaseFirestore.instance
+                            .collection(_hojaCollection)
+                            .doc(cedula)
+                            .get(),
+                        builder: (ctxH, snapH) {
+                          String photoUrl = '';
+                          if (snapH.connectionState == ConnectionState.done &&
+                              snapH.hasData &&
+                              snapH.data!.exists) {
+                            final pd = snapH.data!.data()!;
+                            photoUrl = (pd['fotoUrl'] as String?)?.isNotEmpty == true
+                                ? pd['fotoUrl'] as String
+                                : (pd['cedulaDocUrl'] as String? ?? '');
+                          }
+
+                          return ModuleCard(
+                            padding: const EdgeInsets.all(16),
                             child: Row(
                               children: [
                                 // avatar
                                 ClipOval(
                                   child: photoUrl.isNotEmpty
                                       ? Image.network(
-                                    photoUrl,
-                                    width: 56,
-                                    height: 56,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.person,
-                                      size: 40,
-                                      color: _kPrimaryColor,
-                                    ),
-                                  )
+                                          photoUrl,
+                                          width: 56,
+                                          height: 56,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => const Icon(
+                                            Icons.person,
+                                            size: 40,
+                                            color: _kPrimaryColor,
+                                          ),
+                                        )
                                       : const Icon(Icons.person,
-                                      size: 40, color: _kPrimaryColor),
+                                          size: 40, color: _kPrimaryColor),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 16),
                                 // datos
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(nombre,
-                                          style: const TextStyle(
-                                              fontFamily: _kFontFamily,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold)),
+                                      Text(
+                                        nombre,
+                                        style: const TextStyle(
+                                          fontFamily: _kFontFamily,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
                                       const SizedBox(height: 4),
-                                      Text('ID: $cedula · Cargo: $cargo',
-                                          style: const TextStyle(
-                                              fontFamily: _kFontFamily,
-                                              fontSize: 12)),
-                                      const SizedBox(height: 2),
-                                      Text('Área: $area',
-                                          style: const TextStyle(
-                                              fontFamily: _kFontFamily,
-                                              fontSize: 12)),
+                                      Text(
+                                        'ID: $cedula · $cargo',
+                                        style: const TextStyle(
+                                          fontFamily: _kFontFamily,
+                                          fontSize: 12,
+                                          color: Color(0xFF64748B),
+                                        ),
+                                      ),
                                       const SizedBox(height: 2),
                                       Text(
-                                          'Jefe cargo: ${m['jefe_cargo_desc'] ?? '—'}\n'
-                                              'Jefe directo: ${m['jefe_directo'] ?? '—'}\n'
-                                              'Centro: ${m['centro_nombre'] ?? '—'}',
-                                          style: const TextStyle(
-                                              fontFamily: _kFontFamily,
-                                              fontSize: 12)),
+                                        'Área: $area',
+                                        style: const TextStyle(
+                                          fontFamily: _kFontFamily,
+                                          fontSize: 12,
+                                          color: Color(0xFF64748B),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Superior: ${m['jefe_cargo_desc'] ?? '—'}\n'
+                                        'Centro: ${m['centro_nombre'] ?? '—'}',
+                                        style: const TextStyle(
+                                          fontFamily: _kFontFamily,
+                                          fontSize: 11,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -538,13 +559,14 @@ class _OrganizationalStructureScreenState
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     IconButton(
-                                      icon: const Icon(Icons.edit,
+                                      icon: const Icon(Icons.edit_note_rounded,
                                           color: _kPrimaryColor),
                                       onPressed: () => _openForm(doc: d),
+                                      tooltip: 'Editar',
                                     ),
                                     IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.red),
+                                      icon: const Icon(Icons.delete_outline_rounded,
+                                          color: Colors.redAccent),
                                       onPressed: () async {
                                         final ok = await showDialog<bool>(
                                           context: context,
@@ -555,13 +577,13 @@ class _OrganizationalStructureScreenState
                                             actions: [
                                               TextButton(
                                                   onPressed: () =>
-                                                      Navigator.pop(context,false),
+                                                      Navigator.pop(context, false),
                                                   child: const Text('Cancelar')),
                                               ElevatedButton(
                                                 style: ElevatedButton.styleFrom(
                                                     backgroundColor: Colors.red),
                                                 onPressed: () =>
-                                                    Navigator.pop(context,true),
+                                                    Navigator.pop(context, true),
                                                 child: const Text('Eliminar'),
                                               ),
                                             ],
@@ -571,21 +593,22 @@ class _OrganizationalStructureScreenState
                                           await _deleteEmployee(cedula);
                                         }
                                       },
+                                      tooltip: 'Eliminar',
                                     ),
                                   ],
                                 ),
                               ],
                             ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                );
-              },
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }

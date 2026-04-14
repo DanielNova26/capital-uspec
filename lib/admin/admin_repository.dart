@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:todo/utils/user_company.dart';
 
 class EmpresaItem {
   final String empresaId;
@@ -97,11 +98,17 @@ class AdminRepository {
     return out;
   }
 
-  Future<void> updateUserApps(String userId, Set<String> apps) async {
-    await _db.collection('TBL_USUARIOS').doc(userId).set({
-      'apps': apps.toList(),
+  Future<void> updateUserApps(String userId, Set<String> apps, {String? empresaId}) async {
+    final normalized = normalizeAppIdList(apps.toList());
+    final update = <String, dynamic>{
+      'apps': normalized.ids,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+    // Guarda también en el scope de empresa para soporte multiempresa.
+    if (empresaId != null && empresaId.trim().isNotEmpty) {
+      update['empresasDetalle.${empresaId.trim()}.apps'] = normalized.ids;
+    }
+    await _db.collection('TBL_USUARIOS').doc(userId).set(update, SetOptions(merge: true));
   }
 
   Future<void> updateUserOrg({
@@ -113,6 +120,7 @@ class AdminRepository {
     String? areaId,
     String? areaNombre,
     String? cargo,
+    String? rolDocumental,
   }) async {
     final update = <String, dynamic>{
       'updatedAt': FieldValue.serverTimestamp(),
@@ -126,6 +134,7 @@ class AdminRepository {
     if (areaNombre != null) update['areaNombre'] = areaNombre;
 
     if (cargo != null) update['cargo'] = cargo;
+    if (rolDocumental != null) update['rolDocumental'] = rolDocumental;
 
     // También mantenemos empresasDetalle[empresaId]
     if (centroId != null) update['empresasDetalle.$empresaId.centroId'] = centroId;
@@ -136,6 +145,9 @@ class AdminRepository {
     if (areaNombre != null) update['empresasDetalle.$empresaId.areaNombre'] = areaNombre;
 
     if (cargo != null) update['empresasDetalle.$empresaId.cargo'] = cargo;
+    if (rolDocumental != null) {
+      update['empresasDetalle.$empresaId.rolDocumental'] = rolDocumental;
+    }
 
     await _db.collection('TBL_USUARIOS').doc(userId).set(update, SetOptions(merge: true));
   }

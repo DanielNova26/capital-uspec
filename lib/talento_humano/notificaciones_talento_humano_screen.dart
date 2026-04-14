@@ -2,33 +2,48 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import '../widgets/internal_module_layout.dart';
 
 const String _notifsCollection = 'TBL_NOTIFICACIONES';
 
 /// Notificaciones exclusivas de Talento Humano
 class NotificacionesTalentoHumanoScreen extends StatelessWidget {
   final String userId;
-  const NotificacionesTalentoHumanoScreen({Key? key, required this.userId})
-      : super(key: key);
+  final String empresaId;
+  const NotificacionesTalentoHumanoScreen({super.key, required this.userId, required this.empresaId});
 
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Notificaciones TH'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Nuevas'),
-              Tab(text: 'Historial'),
-            ],
-          ),
-        ),
-        body: TabBarView(
+      child: InternalModuleLayout(
+        userId: userId,
+        empresaId: empresaId,
+        title: 'Notificaciones TH',
+        subtitle: 'Alertas y avisos del departamento de Talento Humano',
+        accentColor: const Color(0xFF6366F1), // Indigo 500
+        child: Column(
           children: [
-            _NotificationList(userId: userId, onlyUnread: true),
-            _NotificationList(userId: userId, onlyUnread: false),
+            const Material(
+              color: Colors.white,
+              child: TabBar(
+                labelColor: Color(0xFF6366F1),
+                unselectedLabelColor: Color(0xFF64748B),
+                indicatorColor: Color(0xFF6366F1),
+                tabs: [
+                  Tab(text: 'Nuevas'),
+                  Tab(text: 'Historial'),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _NotificationList(userId: userId, onlyUnread: true),
+                  _NotificationList(userId: userId, onlyUnread: false),
+                ],
+              ),
+            ),
           ],
         ),
       ),

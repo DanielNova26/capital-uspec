@@ -21,6 +21,9 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/utils/user_company.dart';
+
+import '../core/org_context_resolver.dart';
 
 /// ===================== CONFIG =====================
 /// Tu API KEY (debes tener habilitado Static Maps y billing activo)
@@ -61,6 +64,8 @@ class CreateTaskScreen extends StatefulWidget {
 }
 
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
+  final OrgContextResolver _orgContextResolver = const OrgContextResolver();
+
   // ===================== HELPERS BASE =====================
   String _firstNonEmpty(Map<String, dynamic> data, List<String> keys) {
     for (final k in keys) {
@@ -92,12 +97,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   /// top-level keys when not available. This ensures that users assigned to
   /// multiple companies get the correct cargo for the selected company.
   String _cargoIdDe(Map<String, dynamic> data) {
-    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
-      final detalle = data['empresasDetalle'];
-      if (detalle is Map && detalle[_empresaId] is Map) {
-        final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
-        final cid = _firstNonEmpty(det, const ['cargoId', 'cargo_id']);
-        if (cid.isNotEmpty) return cid;
+    final empresaId = normalizeEmpresaId(_empresaId);
+    if (empresaId != null) {
+      final context = _orgContextResolver.resolve(
+        userData: data,
+        empresaId: empresaId,
+      );
+      if ((context.cargoId ?? '').isNotEmpty) {
+        return context.cargoId!;
       }
     }
     return _firstNonEmpty(data, const ['cargoId', 'cargo_id']);
@@ -108,18 +115,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   /// top-level keys. Without this, a user belonging to multiple companies
   /// would always display the cargo from the primary company.
   String _cargoNombreDe(Map<String, dynamic> data) {
-    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
-      final detalle = data['empresasDetalle'];
-      if (detalle is Map && detalle[_empresaId] is Map) {
-        final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
-        final cname = _firstNonEmpty(det, const [
-          'cargo',
-          'cargoNombre',
-          'cargo_nombre',
-          'puesto',
-          'descripcion',
-        ]);
-        if (cname.isNotEmpty) return cname;
+    final empresaId = normalizeEmpresaId(_empresaId);
+    if (empresaId != null) {
+      final context = _orgContextResolver.resolve(
+        userData: data,
+        empresaId: empresaId,
+      );
+      if ((context.cargoNombre ?? '').isNotEmpty) {
+        return context.cargoNombre!;
       }
     }
     return _firstNonEmpty(
@@ -172,35 +175,25 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   /// logic (using top-level areaId/areaName fields). This ensures that
   /// employees belonging to multiple companies are correctly mapped.
   String? _resolveAreaIdFromUser(Map<String, dynamic> u) {
-    // 0) Busca en empresasDetalle para la empresa actual
-    if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
-      final detalle = u['empresasDetalle'] as Map<String, dynamic>?;
-      final det = detalle?[_empresaId] as Map<String, dynamic>?;
-      if (det != null) {
-        final directDet = _firstNonEmpty(det, const [
-          'areaId',
-          'area_id',
-          'departamentoId',
-          'departamento_id',
-        ]);
-        if (directDet.isNotEmpty && _areas.any((a) => a['id'] == directDet)) {
-          return directDet;
-        }
-        final nombreDet = _firstNonEmpty(det, const [
-          'areaNombre',
-          'area_nombre',
-          'area',
-          'departamento',
-          'departamentoNombre',
-        ]);
-        if (nombreDet.isNotEmpty) {
-          final hit = _areas.firstWhere(
-                (a) => _norm(a['nombre'] ?? '') == _norm(nombreDet),
-            orElse: () => {},
-          );
-          final id = (hit['id'] ?? '').toString().trim();
-          if (id.isNotEmpty) return id;
-        }
+    final empresaId = normalizeEmpresaId(_empresaId);
+    if (empresaId != null) {
+      final context = _orgContextResolver.resolve(
+        userData: u,
+        empresaId: empresaId,
+      );
+      final scopedAreaId = (context.areaId ?? '').trim();
+      if (scopedAreaId.isNotEmpty &&
+          _areas.any((a) => a['id'] == scopedAreaId)) {
+        return scopedAreaId;
+      }
+      final scopedAreaName = (context.areaNombre ?? '').trim();
+      if (scopedAreaName.isNotEmpty) {
+        final hit = _areas.firstWhere(
+          (a) => _norm(a['nombre'] ?? '') == _norm(scopedAreaName),
+          orElse: () => {},
+        );
+        final id = (hit['id'] ?? '').toString().trim();
+        if (id.isNotEmpty) return id;
       }
     }
 
@@ -308,7 +301,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
   List<Map<String, dynamic>> _cargos = []; // [{id,nombre,areaId?,enabled?,cedulas?,empresaId?}]
-  final Set<String> _empresasUsuario = {};
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
 
@@ -551,12 +543,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (!doc.exists) return;
 
       final data = doc.data() ?? {};
-      _empresasUsuario
-        ..clear()
-        ..addAll(_empresasDeUsuario(data));
-      // empresa del usuario (puede venir y sobrescribir lo de scope si no estaba)
-      final emp = _empresaDe(data);
-      if (emp.trim().isNotEmpty) _empresaId = emp.trim();
+      final resolvedEmpresaId = resolveValidEmpresaId(
+        data: data,
+        selectedEmpresaId: _empresaId,
+        preferredEmpresaId: _empresaId,
+      );
+      if (resolvedEmpresaId != null) {
+        _empresaId = resolvedEmpresaId;
+      }
 
     } catch (_) {}
   }
@@ -565,37 +559,41 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     try {
       final baseRef =
       FirebaseFirestore.instance.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
-      QuerySnapshot<Map<String, dynamic>> qs;
-      if (_empresaId != null && _empresaId!.isNotEmpty) {
-        try {
-          qs = await baseRef.where('empresas', arrayContains: _empresaId).get();
-          if (qs.docs.isEmpty) {
-            qs = await baseRef.where('empresaId', isEqualTo: _empresaId).get();
-          }
-        } catch (_) {
-          qs = await baseRef.where('empresaId', isEqualTo: _empresaId).get();
-        }
+      final scopedEmpresaId = normalizeEmpresaId(_empresaId);
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      if (scopedEmpresaId == null) {
+        final qs = await baseRef.limit(1000).get();
+        docs.addAll(qs.docs);
       } else {
-        qs = await baseRef.get();
+        try {
+          final qs = await baseRef.where('empresas', arrayContains: scopedEmpresaId).get();
+          docs.addAll(qs.docs);
+        } catch (_) {}
+        try {
+          final qs = await baseRef.where('empresaId', isEqualTo: scopedEmpresaId).get();
+          docs.addAll(qs.docs);
+        } catch (_) {}
+      }
+
+      final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      for (final doc in docs) {
+        merged[doc.id] = doc;
       }
 
       _estructura.clear();
-      for (final d in qs.docs) {
+      for (final d in merged.values) {
         final data = Map<String, dynamic>.from(d.data());
         if ((data['cedula'] ?? '').toString().trim().isEmpty) {
           data['cedula'] = d.id;
         }
-        if (_empresaId != null && _empresaId!.isNotEmpty) {
+        if (scopedEmpresaId != null) {
           final detalle = data['empresasDetalle'];
-          if (detalle is Map && detalle[_empresaId] is Map) {
-            final det = Map<String, dynamic>.from(detalle[_empresaId] as Map);
+          if (detalle is Map && detalle[scopedEmpresaId] is Map) {
+            final det = Map<String, dynamic>.from(detalle[scopedEmpresaId] as Map);
             data.addAll(det);
-            data['empresaId'] = _empresaId;
-          } else {
-            final rootEmpresa = _empresaDe(data).trim();
-            if (rootEmpresa.isNotEmpty && rootEmpresa != _empresaId) {
-              continue;
-            }
+            data['empresaId'] = scopedEmpresaId;
+          } else if (!matchesEmpresaScope(data, scopedEmpresaId)) {
+            continue;
           }
         }
         _estructura[d.id] = data;
@@ -642,53 +640,53 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return null;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _queryByEmpresa(
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _queryByEmpresa(
       String collection, {
         int limit = 2000,
       }) async {
     final col = FirebaseFirestore.instance.collection(collection);
-    if (_empresaId == null || _empresaId!.isEmpty) {
-      return col.limit(limit).get();
+    final scopedEmpresaId = normalizeEmpresaId(_empresaId);
+    if (scopedEmpresaId == null) {
+      final snap = await col.limit(limit).get();
+      return snap.docs;
     }
 
+    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
-      final snap = await col.where('empresas', arrayContains: _empresaId).limit(limit).get();
-      if (snap.docs.isNotEmpty) return snap;
+      final snap =
+          await col.where('empresas', arrayContains: scopedEmpresaId).limit(limit).get();
+      docs.addAll(snap.docs);
     } catch (_) {}
 
     const keys = ['empresaId', 'empresa_id', 'empresa'];
     for (final k in keys) {
       try {
-        final snap = await col.where(k, isEqualTo: _empresaId).limit(limit).get();
-        if (snap.docs.isNotEmpty) return snap;
+        final snap = await col.where(k, isEqualTo: scopedEmpresaId).limit(limit).get();
+        docs.addAll(snap.docs);
       } catch (_) {}
     }
-    return col.limit(limit).get();
+
+    final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final doc in docs) {
+      merged[doc.id] = doc;
+    }
+
+    return merged.values.toList();
   }
 
   bool _empresaCoincide(Map<String, dynamic> data) {
-    if (_empresaId == null || _empresaId!.isEmpty) return true;
-    final emp = _empresaDe(data).trim();
-    if (emp.isNotEmpty && emp == _empresaId) return true;
-
-    final empresas = data['empresas'] as List<dynamic>?;
-    if (empresas != null) {
-      for (final e in empresas) {
-        if ((e ?? '').toString().trim() == _empresaId) return true;
-      }
-    }
-
-    final detalle = data['empresasDetalle'];
-    if (detalle is Map && detalle[_empresaId] != null) return true;
-
-    return emp.isEmpty;
+    return matchesEmpresaScope(
+      data,
+      _empresaId,
+      allowLegacyWithoutEmpresa: true,
+    );
   }
 
   // ==================== CARGA DE CATÁLOGOS ====================
   Future<void> _loadAreas() async {
-    final qs = await _queryByEmpresa(kCollAreas, limit: 1000);
+    final docs = await _queryByEmpresa(kCollAreas, limit: 1000);
 
-    _areas = qs.docs
+    _areas = docs
         .map((d) {
       final m = d.data();
       if (!_empresaCoincide(m)) return null;
@@ -724,26 +722,23 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _loadCargos() async {
     try {
       final col = FirebaseFirestore.instance.collection(kCollCargos);
-      final empresas = _empresasUsuario.isNotEmpty
-          ? _empresasUsuario.toList()
-          : ((_empresaId ?? '').trim().isNotEmpty ? <String>[_empresaId!.trim()] : <String>[]);
       final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final scopedEmpresaId = normalizeEmpresaId(_empresaId);
 
-      if (empresas.isEmpty) {
+      if (scopedEmpresaId == null) {
         final qs = await col.limit(1000).get();
         docs.addAll(qs.docs);
       } else {
-        for (var i = 0; i < empresas.length; i += 10) {
-          final chunk = empresas.sublist(i, i + 10 > empresas.length ? empresas.length : i + 10);
-          final snap = await col.where('empresaId', whereIn: chunk).limit(1000).get();
+        try {
+          final snap =
+              await col.where('empresaId', isEqualTo: scopedEmpresaId).limit(1000).get();
           docs.addAll(snap.docs);
-        }
-        for (final empresa in empresas) {
-          try {
-            final snap = await col.where('empresas', arrayContains: empresa).limit(1000).get();
-            docs.addAll(snap.docs);
-          } catch (_) {}
-        }
+        } catch (_) {}
+        try {
+          final snap =
+              await col.where('empresas', arrayContains: scopedEmpresaId).limit(1000).get();
+          docs.addAll(snap.docs);
+        } catch (_) {}
       }
 
       final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -800,8 +795,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
 
       final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-      final qs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
-      docs.addAll(qs.docs);
+      final empresaDocs = await _queryByEmpresa(kCollUsuarios, limit: 2500);
+      docs.addAll(empresaDocs);
+
+      final estructuraIds = _estructura.keys.toList();
+      for (var i = 0; i < estructuraIds.length; i += 10) {
+        final chunk = estructuraIds.sublist(
+          i,
+          i + 10 > estructuraIds.length ? estructuraIds.length : i + 10,
+        );
+        final extra = await FirebaseFirestore.instance
+            .collection(kCollUsuarios)
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get();
+        docs.addAll(extra.docs);
+      }
 
       if (cedulasDesdeCargos.isNotEmpty) {
         final cedulasList = cedulasDesdeCargos.toList();
@@ -1108,12 +1116,22 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return (path: storagePath, url: url);
   }
 
+  String _slugFileSegment(String value, {String fallback = 'tarea'}) {
+    final lowered = value.trim().toLowerCase();
+    final cleaned = lowered
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_|_$'), '');
+    return cleaned.isEmpty ? fallback : cleaned;
+  }
+
   Future<({String storagePath, String? downloadURL})> _uploadEvidence(Uint8List bytes) async {
     final now = DateTime.now();
     final y = DateFormat('yyyy').format(now);
     final m = DateFormat('MM').format(now);
     final d = DateFormat('dd').format(now);
-    final fileName = 'evid_${now.millisecondsSinceEpoch}.png';
+    final taskSlug = _slugFileSegment(_titleCtl.text, fallback: 'tarea');
+    final fileName = '${taskSlug}_evidencia_${now.millisecondsSinceEpoch}.png';
     final storagePath = 'tareas/$y/$m/$d/$fileName';
     final up = await _uploadBytes(bytes, storagePath, mime: 'image/png');
     return (storagePath: up.path, downloadURL: up.url);
@@ -1181,14 +1199,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final fresh = await _fetchUserFresh(uid);
     if (fresh != null) _usuarios[uid] = fresh;
 
-    final u = _usuarios[uid];
-    if (u != null) {
-      _asignadoNombre = _nombreDeUsuario(u);
-      final jefeId = (u['jefeId'] ?? u['jefe_uid'] ?? '').toString().trim();
-      _jefeUid = jefeId.isEmpty ? null : jefeId;
-      final jefeNom = (u['jefeNombre'] ?? u['jefe_nombre'] ?? '').toString().trim();
-      _jefeNombre = jefeNom.isEmpty ? null : jefeNom;
-    }
+      final u = _usuarios[uid];
+      if (u != null) {
+        final scopedEmpresaId = normalizeEmpresaId(_empresaId);
+        final orgContext = scopedEmpresaId == null
+            ? null
+            : _orgContextResolver.resolve(
+                userData: u,
+                empresaId: scopedEmpresaId,
+              );
+        _asignadoNombre = _nombreDeUsuario(u);
+        final jefeId = (orgContext?.jefeId ?? u['jefeId'] ?? u['jefe_uid'] ?? '')
+            .toString()
+            .trim();
+        _jefeUid = jefeId.isEmpty ? null : jefeId;
+        final jefeNom = (orgContext?.jefeNombre ??
+                u['jefeNombre'] ??
+                u['jefe_nombre'] ??
+                '')
+            .toString()
+            .trim();
+        _jefeNombre = jefeNom.isEmpty ? null : jefeNom;
+      }
 
     // 2) jefe fresco (si aplica)
     if (_jefeUid != null && _jefeUid!.isNotEmpty) {
@@ -1249,8 +1281,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     // Jefe
     String? jefeUid = _jefeUid ??
-        (asignadoDoc['jefeId']?.toString().trim()) ??
-        (asignadoDoc['jefe_uid']?.toString().trim());
+        (() {
+          final scopedEmpresaId = normalizeEmpresaId(_empresaId);
+          if (scopedEmpresaId == null) {
+            return (asignadoDoc['jefeId']?.toString().trim()) ??
+                (asignadoDoc['jefe_uid']?.toString().trim());
+          }
+          final orgContext = _orgContextResolver.resolve(
+            userData: asignadoDoc,
+            empresaId: scopedEmpresaId,
+          );
+          return (orgContext.jefeId ?? asignadoDoc['jefeId'] ?? asignadoDoc['jefe_uid'])
+              ?.toString()
+              .trim();
+        })();
     Map<String, dynamic>? jefeDoc;
     if (jefeUid != null && jefeUid.isNotEmpty) {
       jefeDoc = await _fetchUser(jefeUid);
@@ -1323,8 +1367,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final resolvedEmpresaId = () {
         final current = (_empresaId ?? '').trim();
         if (current.isNotEmpty) return current;
-        final empFromAsignado = _empresaDe(asignadoDoc).trim();
-        if (empFromAsignado.isNotEmpty) return empFromAsignado;
+        final validFromAsignado = resolveValidEmpresaId(
+          data: asignadoDoc,
+          preferredEmpresaId: current,
+        );
+        if ((validFromAsignado ?? '').isNotEmpty) return validFromAsignado!;
         return '';
       }();
 
