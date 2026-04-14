@@ -26,7 +26,7 @@ class TaskFilterDropdownData {
   });
 }
 
-class TaskFiltersPanel extends StatelessWidget {
+class TaskFiltersPanel extends StatefulWidget {
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
   final String searchHint;
@@ -55,22 +55,31 @@ class TaskFiltersPanel extends StatelessWidget {
   });
 
   @override
+  State<TaskFiltersPanel> createState() => _TaskFiltersPanelState();
+}
+
+class _TaskFiltersPanelState extends State<TaskFiltersPanel> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final isWide = MediaQuery.of(context).size.width >= 900;
+    final showAdvanced =
+        isWide || _expanded || (widget.dropdowns.isEmpty && widget.trailingFilters.isEmpty);
 
     return Container(
       width: double.infinity,
-      margin: EdgeInsets.fromLTRB(isWide ? 20 : 16, 12, isWide ? 20 : 16, 8),
-      padding: const EdgeInsets.all(16),
+      margin: EdgeInsets.fromLTRB(isWide ? 20 : 12, 10, isWide ? 20 : 12, 8),
+      padding: EdgeInsets.all(isWide ? 16 : 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(isWide ? 18 : 16),
         border: Border.all(color: scheme.outlineVariant.withOpacity(0.7)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
+            blurRadius: isWide ? 16 : 12,
             offset: const Offset(0, 6),
           ),
         ],
@@ -79,16 +88,17 @@ class TaskFiltersPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextField(
-            controller: searchController,
+            controller: widget.searchController,
             decoration: InputDecoration(
-              hintText: searchHint,
+              hintText: widget.searchHint,
               prefixIcon: Icon(Icons.search_rounded, color: scheme.primary),
-              suffixIcon: searchController.text.isNotEmpty
+              suffixIcon: widget.searchController.text.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear_rounded, size: 18),
                       onPressed: () {
-                        searchController.clear();
-                        onSearchChanged('');
+                        widget.searchController.clear();
+                        widget.onSearchChanged('');
+                        setState(() {});
                       },
                     )
                   : null,
@@ -98,14 +108,19 @@ class TaskFiltersPanel extends StatelessWidget {
               ),
               filled: true,
               fillColor: scheme.surfaceVariant.withOpacity(0.28),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: isWide ? 12 : 10,
+              ),
             ),
-            onChanged: onSearchChanged,
+            onChanged: (value) {
+              widget.onSearchChanged(value);
+              setState(() {});
+            },
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: isWide ? 16 : 12),
           Text(
-            quickFiltersLabel.toUpperCase(),
+            widget.quickFiltersLabel.toUpperCase(),
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w900,
@@ -118,26 +133,50 @@ class TaskFiltersPanel extends StatelessWidget {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: quickFilters
+            children: widget.quickFilters
                 .map(
                   (filter) => _TaskQuickFilterChip(
                     label: filter.label,
-                    selected: selectedQuickFilter == filter.value,
+                    selected: widget.selectedQuickFilter == filter.value,
                     color: scheme.primary,
-                    onTap: () => onQuickFilterChanged(filter.value),
+                    onTap: () => widget.onQuickFilterChanged(filter.value),
                   ),
                 )
                 .toList(),
           ),
-          if (dropdowns.isNotEmpty || trailingFilters.isNotEmpty) ...[
-            const SizedBox(height: 16),
+          if (!isWide && (widget.dropdowns.isNotEmpty || widget.trailingFilters.isNotEmpty)) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                  icon: Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.tune_rounded,
+                    size: 18,
+                  ),
+                  label: Text(_expanded ? 'Ocultar filtros' : 'Más filtros'),
+                ),
+                const Spacer(),
+                if (widget.hasActiveFilters)
+                  TextButton(
+                    onPressed: widget.onClearFilters,
+                    child: const Text('Limpiar'),
+                  ),
+              ],
+            ),
+          ],
+          if ((widget.dropdowns.isNotEmpty || widget.trailingFilters.isNotEmpty) &&
+              showAdvanced) ...[
+            SizedBox(height: isWide ? 16 : 10),
             isWide
                 ? Wrap(
                     spacing: 12,
                     runSpacing: 12,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      ...dropdowns.map(
+                      ...widget.dropdowns.map(
                         (dropdown) => SizedBox(
                           width: 220,
                           child: DropdownButtonFormField<String>(
@@ -157,12 +196,12 @@ class TaskFiltersPanel extends StatelessWidget {
                           ),
                         ),
                       ),
-                      ...trailingFilters,
+                      ...widget.trailingFilters,
                     ],
                   )
                 : Column(
                     children: [
-                      ...dropdowns.map(
+                      ...widget.dropdowns.map(
                         (dropdown) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: DropdownButtonFormField<String>(
@@ -182,7 +221,7 @@ class TaskFiltersPanel extends StatelessWidget {
                           ),
                         ),
                       ),
-                      ...trailingFilters.map(
+                      ...widget.trailingFilters.map(
                         (widget) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: SizedBox(width: double.infinity, child: widget),
@@ -191,33 +230,35 @@ class TaskFiltersPanel extends StatelessWidget {
                     ],
                   ),
           ],
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              icon: const Icon(Icons.clear_all_rounded),
-              label: const Text(
-                'LIMPIAR FILTROS',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
-                  letterSpacing: 1,
-                  fontFamily: kTaskFilterArial,
+          if (isWide) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                icon: const Icon(Icons.clear_all_rounded),
+                label: const Text(
+                  'LIMPIAR FILTROS',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                    letterSpacing: 1,
+                    fontFamily: kTaskFilterArial,
+                  ),
                 ),
-              ),
-              style: TextButton.styleFrom(
-                foregroundColor: hasActiveFilters
-                    ? Colors.red.shade700
-                    : Colors.grey.shade500,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                style: TextButton.styleFrom(
+                  foregroundColor: widget.hasActiveFilters
+                      ? Colors.red.shade700
+                      : Colors.grey.shade500,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
+                onPressed: widget.onClearFilters,
               ),
-              onPressed: onClearFilters,
             ),
-          ),
+          ],
         ],
       ),
     );

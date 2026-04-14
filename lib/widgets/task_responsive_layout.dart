@@ -31,46 +31,66 @@ class TaskResponsiveLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isWeb = kIsWeb && screenWidth >= 1100;
+    final bool isMobileLike = !isWeb;
     final scheme = Theme.of(context).colorScheme;
 
     Widget body;
-    body = Container(
-      color: scheme.surfaceVariant.withOpacity(0.1),
-      child: Column(
-        children: [
-          if (header != null) header!,
-          if (filters != null) filters!,
-          Expanded(
-            child: detailPanel != null && isWeb
-                ? Row(
-                    children: [
-                      Expanded(child: content),
-                      Container(
-                        width: 450,
-                        decoration: BoxDecoration(
-                          color: scheme.surface,
-                          border: Border(
-                            left: BorderSide(
-                              color: scheme.outlineVariant.withOpacity(0.5),
+    if (isMobileLike && (header != null || filters != null)) {
+      body = Container(
+        color: scheme.surfaceVariant.withOpacity(0.1),
+        child: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            if (header != null)
+              SliverToBoxAdapter(
+                child: header!,
+              ),
+            if (filters != null)
+              SliverToBoxAdapter(
+                child: filters!,
+              ),
+          ],
+          body: content,
+        ),
+      );
+    } else {
+      body = Container(
+        color: scheme.surfaceVariant.withOpacity(0.1),
+        child: Column(
+          children: [
+            if (header != null) header!,
+            if (filters != null) filters!,
+            Expanded(
+              child: detailPanel != null && isWeb
+                  ? Row(
+                      children: [
+                        Expanded(child: content),
+                        Container(
+                          width: 450,
+                          decoration: BoxDecoration(
+                            color: scheme.surface,
+                            border: Border(
+                              left: BorderSide(
+                                color: scheme.outlineVariant.withOpacity(0.5),
+                              ),
                             ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 20,
+                                offset: const Offset(-4, 0),
+                              ),
+                            ],
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
-                              blurRadius: 20,
-                              offset: const Offset(-4, 0),
-                            ),
-                          ],
+                          child: detailPanel,
                         ),
-                        child: detailPanel,
-                      ),
-                    ],
-                  )
-                : content,
-          ),
-        ],
-      ),
-    );
+                      ],
+                    )
+                  : content,
+            ),
+          ],
+        ),
+      );
+    }
 
     if (!useScaffold) return body;
 
