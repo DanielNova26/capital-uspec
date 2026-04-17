@@ -11,10 +11,11 @@ import 'package:intl/intl.dart';
 import '../../gestion_documental/widgets/gd_ui_widgets.dart';
 import '../../utils/user_company.dart';
 import '../../widgets/internal_module_layout.dart';
-import 'pp_models.dart';
-import 'pp_service.dart';
+import 'pp_generar_desde_excel_screen.dart';
 import 'pp_lote_upload_screen.dart';
+import 'pp_models.dart';
 import 'pp_planilla_detail_screen.dart';
+import 'pp_service.dart';
 
 class PpDashboardScreen extends StatefulWidget {
   final String userId;
@@ -156,7 +157,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
               unselectedLabelColor: GdPalette.muted,
               tabs: const [
                 Tab(text: 'PLANILLAS', icon: Icon(Icons.receipt_long_outlined, size: 18)),
-                Tab(text: 'LOTES', icon: Icon(Icons.folder_zip_outlined, size: 18)),
+                Tab(text: 'DESDE EXCEL', icon: Icon(Icons.auto_fix_high_outlined, size: 18)),
               ],
             ),
           ),
@@ -170,7 +171,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                         controller: _tabCtrl,
                         children: [
                           _buildPlanillasList(rolPlanillas, nombreActor),
-                          _buildLotesList(rolPlanillas, nombreActor),
+                          _buildDesdeExcelTab(rolPlanillas, nombreActor),
                         ],
                       ),
                     ),
@@ -247,10 +248,45 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     );
   }
 
+  Widget _buildDesdeExcelTab(String rolPlanillas, String? nombreActor) {
+    if (!PpRoles.puedeEjecutar('confirmar_carga', rolPlanillas)) {
+      return const Center(
+        child: Text('No tienes permiso para generar planillas.',
+            style: TextStyle(fontFamily: kArial, color: GdPalette.muted)),
+      );
+    }
+    return PpGenerarDesdeExcelScreen(
+      userId:       widget.userId,
+      empresaId:    widget.empresaId,
+      rolPlanillas: rolPlanillas,
+      nombreActor:  nombreActor,
+      onLoteCreado: (loteId) {
+        // Volver a pestaña PLANILLAS para ver las planillas generadas
+        _tabCtrl.animateTo(0);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Planillas generadas y listas para el flujo de firma.',
+              style: const TextStyle(fontFamily: kArial))),
+        );
+      },
+    );
+  }
+
   Widget _buildPlanillasList(String rolPlanillas, String? nombreActor) {
     return StreamBuilder<List<PpPlanilla>>(
       stream: _service.streamPlanillasPorEmpresa(widget.empresaId, estado: _filtroEstado),
       builder: (context, snap) {
+        if (snap.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'Error al cargar planillas.\n${snap.error}',
+                style: const TextStyle(fontFamily: kArial, color: Colors.red),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         final planillas = snap.data!;
         if (planillas.isEmpty) {
@@ -264,28 +300,6 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
           itemCount: planillas.length,
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (_, i) => _buildPlanillaCard(planillas[i], rolPlanillas, nombreActor),
-        );
-      },
-    );
-  }
-
-  Widget _buildLotesList(String rolPlanillas, String? nombreActor) {
-    return StreamBuilder<List<PpLote>>(
-      stream: _service.streamLotes(widget.empresaId),
-      builder: (context, snap) {
-        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-        final lotes = snap.data!;
-        if (lotes.isEmpty) {
-          return const Center(
-            child: Text('No hay lotes cargados aún.',
-                style: TextStyle(fontFamily: kArial, color: GdPalette.muted)),
-          );
-        }
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: lotes.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (_, i) => _buildLoteCard(lotes[i]),
         );
       },
     );
@@ -358,41 +372,6 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     );
   }
 
-  Widget _buildLoteCard(PpLote lote) {
-    return ModuleCard(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.folder_zip_outlined, color: GdPalette.accent, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    lote.descripcion ?? 'Lote ${_formatTs(lote.createdAt)}',
-                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 14, color: GdPalette.primary),
-                  ),
-                ),
-                _loteEstadoChip(lote.estado),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Excel: ${lote.excelNombre ?? "—"} · ${lote.totalPlanillas} planillas · ${lote.planillasFirmadas} firmadas',
-              style: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
-            ),
-            Text(
-              'Cargado por ${lote.nombreCreadoPor ?? lote.creadoPor} · ${_formatTs(lote.createdAt)}',
-              style: const TextStyle(fontFamily: kArial, fontSize: 11, color: GdPalette.muted),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _estadoChip(PpEstado estado, (Color, Color) colors) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
@@ -403,24 +382,6 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     child: Text(estado.etiqueta,
         style: TextStyle(fontFamily: kArial, fontSize: 10, color: colors.$2, fontWeight: FontWeight.w700)),
   );
-
-  Widget _loteEstadoChip(PpLoteEstado estado) {
-    final color = switch (estado) {
-      PpLoteEstado.completado => Colors.green.shade700,
-      PpLoteEstado.en_proceso => Colors.orange.shade700,
-      PpLoteEstado.anulado    => Colors.red.shade700,
-      _                       => GdPalette.muted,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(estado.etiqueta,
-          style: TextStyle(fontFamily: kArial, fontSize: 10, color: color, fontWeight: FontWeight.w700)),
-    );
-  }
 
   bool _esPendienteParaRol(PpEstado estado, String rol) {
     if (rol == PpRoles.tesoreria) return estado == PpEstado.cargada || estado == PpEstado.observada;
@@ -440,10 +401,4 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
 
   String _formatCurrency(double v) =>
       NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0).format(v);
-
-  String _formatTs(dynamic ts) {
-    if (ts == null) return '';
-    if (ts is Timestamp) return DateFormat('dd/MM/yyyy HH:mm', 'es').format(ts.toDate());
-    return '';
-  }
 }

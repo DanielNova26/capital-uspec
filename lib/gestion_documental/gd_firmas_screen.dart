@@ -137,6 +137,7 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _nameController,
+            readOnly: true,
             decoration: InputDecoration(
               labelText: 'Nombre Completo',
               filled: true,
@@ -150,6 +151,7 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _cargoController,
+            readOnly: true,
             decoration: InputDecoration(
               labelText: 'Cargo / Posición',
               filled: true,
@@ -361,8 +363,6 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
       await _service.guardarFirmaUsuario(
         empresaId: widget.empresaId,
         userId: widget.userId,
-        nombre: nombre,
-        cargo: cargo.isEmpty ? null : cargo,
         firmaBytes: firmaBytes,
       );
       if (mounted) {

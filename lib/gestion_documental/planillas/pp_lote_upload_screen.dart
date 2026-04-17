@@ -6,6 +6,7 @@
 
 import 'dart:typed_data';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,7 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
   List<PpExcelFila> _filasHuerfanas = [];
 
   bool _uploading = false;
+  bool _isDragging = false;
   String? _error;
 
   @override
@@ -92,8 +94,10 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     );
     if (result == null) return;
 
-    final nuevos = result.files
-        .where((f) => f.bytes != null)
+    final conBytes  = result.files.where((f) => f.bytes != null).toList();
+    final sinBytes  = result.files.length - conBytes.length;
+
+    final nuevos = conBytes
         .map((f) => (nombre: f.name, bytes: f.bytes!))
         .toList();
 
@@ -104,13 +108,45 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
           _pdfs.add(nuevo);
         }
       }
-      _error = null;
+      _error = sinBytes > 0
+          ? 'No se pudieron leer $sinBytes archivo(s). '
+            'Inténtalo de nuevo o selecciona archivos más pequeños.'
+          : null;
     });
     _runMatching();
   }
 
   void _removePdf(String nombre) {
     setState(() => _pdfs.removeWhere((p) => p.nombre == nombre));
+    _runMatching();
+  }
+
+  Future<void> _addDroppedPdfs(DropDoneDetails detail) async {
+    final pdfFiles = detail.files.where(
+      (f) => f.name.toLowerCase().endsWith('.pdf'),
+    ).toList();
+    if (pdfFiles.isEmpty) return;
+
+    final nuevos = <({String nombre, Uint8List bytes})>[];
+    var sinBytes = 0;
+    for (final xFile in pdfFiles) {
+      try {
+        final bytes = await xFile.readAsBytes();
+        nuevos.add((nombre: xFile.name, bytes: bytes));
+      } catch (_) {
+        sinBytes++;
+      }
+    }
+
+    setState(() {
+      _isDragging = false;
+      for (final n in nuevos) {
+        if (!_pdfs.any((p) => p.nombre == n.nombre)) _pdfs.add(n);
+      }
+      _error = sinBytes > 0
+          ? 'No se pudieron leer $sinBytes archivo(s) arrastrados.'
+          : null;
+    });
     _runMatching();
   }
 
@@ -137,12 +173,8 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
   // ── Subir ──────────────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
-    if (_excelBytes == null) {
-      setState(() => _error = 'Selecciona el archivo Excel antes de continuar.');
-      return;
-    }
-    if (_pdfs.isEmpty) {
-      setState(() => _error = 'Selecciona al menos un PDF.');
+    if (_excelBytes == null && _pdfs.isEmpty) {
+      setState(() => _error = 'Selecciona al menos un Excel o un PDF.');
       return;
     }
 
@@ -157,8 +189,8 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
         actorId: widget.userId,
         rolPlanillas: widget.rolPlanillas,
         nombreActor: widget.nombreActor,
-        excelBytes: _excelBytes!,
-        excelNombre: _excelNombre!,
+        excelBytes: _excelBytes,
+        excelNombre: _excelNombre,
         pdfs: _pdfs,
         matchResults: _matches,
         descripcion: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
@@ -225,8 +257,8 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                   children: [
                     _buildSection(
                       icon: Icons.table_chart_outlined,
-                      title: 'Archivo Excel',
-                      subtitle: 'Una sola hoja con columnas: nombre_planilla, fecha, valor, archivo_pdf',
+                      title: 'Archivo Excel (opcional)',
+                      subtitle: 'Si lo subes, permite cruzar PDFs con datos del Excel (nombre, fecha, valor).',
                       child: _buildExcelPicker(),
                     ),
                     const SizedBox(height: 20),
@@ -276,7 +308,9 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                         onPressed: _canSubmit ? _submit : null,
                         icon: const Icon(Icons.cloud_upload_outlined, color: Colors.white),
                         label: Text(
-                          'CREAR LOTE (${_pdfs.length} PDFs)',
+                          _pdfs.isEmpty
+                              ? 'CREAR LOTE (solo Excel)'
+                              : 'CREAR LOTE (${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'})',
                           style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, color: Colors.white),
                         ),
                         style: ElevatedButton.styleFrom(
@@ -293,7 +327,7 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     );
   }
 
-  bool get _canSubmit => _excelBytes != null && _pdfs.isNotEmpty && !_uploading;
+  bool get _canSubmit => (_excelBytes != null || _pdfs.isNotEmpty) && !_uploading;
 
   Widget _buildSection({
     required IconData icon,
@@ -362,28 +396,90 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
   }
 
   Widget _buildPdfPicker() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ..._pdfs.map((p) => Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: _buildFileChip(
-            icon: Icons.picture_as_pdf,
-            name: p.nombre,
-            onRemove: () => _removePdf(p.nombre),
-            matchEstado: _matches.firstWhere(
-              (m) => m.pdfNombre == p.nombre,
-              orElse: () => PpMatchResult(pdfNombre: p.nombre, matchEstado: PpMatchEstado.sin_coincidencia),
-            ).matchEstado,
+    return DropTarget(
+      onDragDone: _addDroppedPdfs,
+      onDragEntered: (_) => setState(() => _isDragging = true),
+      onDragExited:  (_) => setState(() => _isDragging = false),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Zona de arrastre
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 22),
+            decoration: BoxDecoration(
+              color: _isDragging
+                  ? GdPalette.accent.withValues(alpha: 0.08)
+                  : GdPalette.background,
+              border: Border.all(
+                color: _isDragging ? GdPalette.accent : GdPalette.border,
+                width: _isDragging ? 2 : 1.5,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.upload_file_outlined,
+                  size: 32,
+                  color: _isDragging ? GdPalette.accent : GdPalette.muted,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _isDragging
+                      ? 'Suelta los PDFs aquí'
+                      : 'Arrastra PDFs aquí o usa el botón',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 13,
+                    color: _isDragging ? GdPalette.accent : GdPalette.muted,
+                    fontWeight: _isDragging ? FontWeight.w700 : FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildPickButton(
+                  label: _pdfs.isEmpty ? 'Seleccionar PDFs' : 'Agregar más PDFs',
+                  icon: Icons.add_circle_outline,
+                  onTap: _pickPdfs,
+                ),
+              ],
+            ),
           ),
-        )),
-        const SizedBox(height: 8),
-        _buildPickButton(
-          label: _pdfs.isEmpty ? 'Seleccionar PDFs' : 'Agregar más PDFs',
-          icon: Icons.add_circle_outline,
-          onTap: _pickPdfs,
-        ),
-      ],
+          // Lista de PDFs cargados
+          if (_pdfs.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            ..._pdfs.map((p) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _buildFileChip(
+                icon: Icons.picture_as_pdf,
+                name: p.nombre,
+                onRemove: () => _removePdf(p.nombre),
+                matchEstado: _excelBytes == null
+                    ? null
+                    : _matches.firstWhere(
+                        (m) => m.pdfNombre == p.nombre,
+                        orElse: () => PpMatchResult(
+                          pdfNombre: p.nombre,
+                          matchEstado: PpMatchEstado.sin_coincidencia,
+                        ),
+                      ).matchEstado,
+              ),
+            )),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'} seleccionado${_pdfs.length == 1 ? '' : 's'}',
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: GdPalette.muted,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

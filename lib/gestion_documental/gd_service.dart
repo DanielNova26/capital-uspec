@@ -66,7 +66,7 @@ class GdService {
   static const String _colDocumentos = 'TBL_DOCUMENTOS';
   static const String _colVersiones  = 'TBL_DOCUMENTOS_VERSIONES';
   static const String _colFlujo      = 'TBL_DOCUMENTOS_FLUJO';
-  static const String _colFirmas     = 'TBL_FIRMAS_USUARIOS';
+  static const String _colUsuarios   = 'TBL_USUARIOS';
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
@@ -82,7 +82,7 @@ class GdService {
   CollectionReference<Map<String, dynamic>> get _docCol => _db.collection(_colDocumentos);
   CollectionReference<Map<String, dynamic>> get _verCol => _db.collection(_colVersiones);
   CollectionReference<Map<String, dynamic>> get _flujoCol => _db.collection(_colFlujo);
-  CollectionReference<Map<String, dynamic>> get _firmasCol => _db.collection(_colFirmas);
+  CollectionReference<Map<String, dynamic>> get _usersCol => _db.collection(_colUsuarios);
 
   // ─────────────────────────────────────────────────────────────────────────
   // CREAR DOCUMENTO + PRIMERA VERSIÓN
@@ -419,8 +419,9 @@ class GdService {
     // Leer la firma del actor para snapshot permanente
     String? urlFirmaSnapshot;
     try {
-      final firmaDoc = await _firmasCol.doc(FirmaUsuarioDoc.docId(empresaId, actorId)).get();
-      urlFirmaSnapshot = firmaDoc.data()?['urlFirma'] as String?;
+      final firmaDoc = await _usersCol.doc(actorId).get();
+      final firmaPerfil = _mapUserToFirmaUsuario(actorId, empresaId, firmaDoc.data());
+      urlFirmaSnapshot = firmaPerfil?.urlFirma;
     } catch (_) {}
 
     await _transicionar(
@@ -657,16 +658,14 @@ class GdService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // FIRMAS DE USUARIOS — TBL_FIRMAS_USUARIOS
+  // FIRMAS DE USUARIOS — TBL_USUARIOS
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Guarda o actualiza el perfil de firma del usuario.
-  /// Si se proveen [firmaBytes], sube la imagen PNG a Storage.
+  /// Guarda o actualiza la firma del usuario dentro de TBL_USUARIOS.
+  /// El nombre y el cargo se resuelven desde el perfil existente del usuario.
   Future<void> guardarFirmaUsuario({
     required String empresaId,
     required String userId,
-    required String nombre,
-    String? cargo,
     Uint8List? firmaBytes,
   }) async {
     String? urlFirma;
@@ -678,37 +677,41 @@ class GdService {
       await ref.putData(firmaBytes, SettableMetadata(contentType: 'image/png'));
       urlFirma = await ref.getDownloadURL();
     } else {
-      // Si no se proveen bytes, eliminar la firma existente si la hay
-      final docId = FirmaUsuarioDoc.docId(empresaId, userId);
-      final firmaSnap = await _firmasCol.doc(docId).get();
-      if (firmaSnap.exists && firmaSnap.data()?['pathFirma'] != null) {
+      final userSnap = await _usersCol.doc(userId).get();
+      final perfil = _mapUserToFirmaUsuario(userId, empresaId, userSnap.data());
+      if (perfil?.pathFirma != null) {
         try {
-          await _storage.ref(firmaSnap.data()!['pathFirma']).delete();
+          await _storage.ref(perfil!.pathFirma!).delete();
         } catch (e) {
           debugPrint('Error al eliminar firma antigua: $e');
         }
       }
     }
 
-    final update = <String, dynamic>{ 
-      'empresaId': empresaId,
-      'userId': userId,
-      'nombre': nombre,
-      'cargo': cargo,
-      'activa': firmaBytes != null, // Firma activa solo si se subió algo
+    final update = <String, dynamic>{
+      'firmaActiva': firmaBytes != null,
       'updatedAt': FieldValue.serverTimestamp(),
+      'firmaActualizadaEn': FieldValue.serverTimestamp(),
+      'empresasDetalle.$empresaId.firmaActiva': firmaBytes != null,
+      'empresasDetalle.$empresaId.firmaActualizadaEn': FieldValue.serverTimestamp(),
     };
-    if (urlFirma != null) update['urlFirma'] = urlFirma;
-    if (pathFirma != null) update['pathFirma'] = pathFirma;
+    if (urlFirma != null) {
+      update['urlFirma'] = urlFirma;
+      update['empresasDetalle.$empresaId.urlFirma'] = urlFirma;
+    }
+    if (pathFirma != null) {
+      update['pathFirma'] = pathFirma;
+      update['empresasDetalle.$empresaId.pathFirma'] = pathFirma;
+    }
     else if (firmaBytes == null) {
-      // Si firmaBytes es null, significa que se quiere eliminar la firma
       update['urlFirma'] = null;
       update['pathFirma'] = null;
+      update['empresasDetalle.$empresaId.urlFirma'] = null;
+      update['empresasDetalle.$empresaId.pathFirma'] = null;
     }
 
-    final docId = FirmaUsuarioDoc.docId(empresaId, userId);
-    await _firmasCol.doc(docId).set(update, SetOptions(merge: true));
-    debugPrint('[GdService] Firma guardada: $docId');
+    await _usersCol.doc(userId).set(update, SetOptions(merge: true));
+    debugPrint('[GdService] Firma guardada en TBL_USUARIOS: $userId');
   }
 
   /// Stream del perfil de firma del usuario.
@@ -716,10 +719,9 @@ class GdService {
     required String empresaId,
     required String userId,
   }) {
-    final docId = FirmaUsuarioDoc.docId(empresaId, userId);
-    return _firmasCol.doc(docId).snapshots().map((snap) {
+    return _usersCol.doc(userId).snapshots().map((snap) {
       if (!snap.exists || snap.data() == null) return null;
-      return FirmaUsuarioDoc.fromMap(empresaId, userId, snap.data()!);
+      return _mapUserToFirmaUsuario(userId, empresaId, snap.data());
     });
   }
 
@@ -728,9 +730,9 @@ class GdService {
     required String empresaId,
     required String userId,
   }) async {
-    final snap = await _firmasCol.doc(FirmaUsuarioDoc.docId(empresaId, userId)).get();
+    final snap = await _usersCol.doc(userId).get();
     if (!snap.exists || snap.data() == null) return null;
-    return FirmaUsuarioDoc.fromMap(empresaId, userId, snap.data()!);
+    return _mapUserToFirmaUsuario(userId, empresaId, snap.data());
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1008,5 +1010,55 @@ class GdService {
         'El rol "$rolDocumental" no tiene permiso para ejecutar "$accion".',
       );
     }
+  }
+
+  FirmaUsuarioDoc? _mapUserToFirmaUsuario(
+    String userId,
+    String empresaId,
+    Map<String, dynamic>? data,
+  ) {
+    if (data == null) return null;
+
+    final detalleRaw = data['empresasDetalle'];
+    Map<String, dynamic>? scoped;
+    if (detalleRaw is Map) {
+      final rawScoped = detalleRaw[empresaId];
+      if (rawScoped is Map<String, dynamic>) {
+        scoped = rawScoped;
+      } else if (rawScoped is Map) {
+        scoped = rawScoped.map((k, v) => MapEntry(k.toString(), v));
+      }
+    }
+
+    final nombre = _resolveNombreUsuario(userId, data);
+    final cargo = ((scoped?['cargo'] ?? data['cargo']) ?? '').toString().trim();
+    final urlFirma = ((scoped?['urlFirma'] ?? data['urlFirma']) ?? '').toString().trim();
+    final pathFirma = ((scoped?['pathFirma'] ?? data['pathFirma']) ?? '').toString().trim();
+    final activaValue = scoped?['firmaActiva'] ?? data['firmaActiva'];
+    final activa = activaValue is bool ? activaValue : urlFirma.isNotEmpty;
+
+    return FirmaUsuarioDoc(
+      empresaId: empresaId,
+      userId: userId,
+      nombre: nombre,
+      cargo: cargo.isEmpty ? null : cargo,
+      urlFirma: urlFirma.isEmpty ? null : urlFirma,
+      pathFirma: pathFirma.isEmpty ? null : pathFirma,
+      activa: activa,
+      createdAt: data['createdAt'] as Timestamp?,
+      updatedAt: (scoped?['firmaActualizadaEn'] ?? data['firmaActualizadaEn'] ?? data['updatedAt']) as Timestamp?,
+    );
+  }
+
+  String _resolveNombreUsuario(String userId, Map<String, dynamic> data) {
+    final nombre = (data['nombre'] ?? '').toString().trim();
+    if (nombre.isNotEmpty) return nombre;
+
+    final nombres = (data['nombres'] ?? data['primerNombre'] ?? '').toString().trim();
+    final apellidos = (data['apellidos'] ?? data['primerApellido'] ?? '').toString().trim();
+    final fullName = '$nombres $apellidos'.trim();
+    if (fullName.isNotEmpty) return fullName;
+
+    return userId;
   }
 }
