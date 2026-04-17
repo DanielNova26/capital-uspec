@@ -130,6 +130,14 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
   String _processLabel() => widget.requestFinish ? 'Finalización' : 'Evidencia';
 
+  bool get _requiresAttachment {
+    final raw = _task?['requiere_adjunto'] ?? _task?['requiereAdjunto'];
+    if (raw == null) return true;
+    if (raw is bool) return raw;
+    final normalized = raw.toString().trim().toLowerCase();
+    return normalized == 'true' || normalized == 'si';
+  }
+
   // ---------- Adjuntos ----------
 
   Future<void> _pickFiles() async {
@@ -295,7 +303,11 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
   // ---------- Submit ----------
 
-  bool get _canSend => _picked.isNotEmpty;
+  bool get _canSend {
+    if (!widget.requestFinish) return _picked.isNotEmpty;
+    if (_requiresAttachment) return _picked.isNotEmpty;
+    return true;
+  }
 
   Future<void> _submit() async {
     if (!_canSend) return;
@@ -550,10 +562,15 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
             // Listado de archivos seleccionados
             if (_picked.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 16),
-                child: Text('Agrega una foto o adjuntos como evidencia.',
-                    style: TextStyle(fontFamily: kArial, color: Colors.black54)),
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: Text(
+                  widget.requestFinish && !_requiresAttachment
+                      ? 'Esta tarea no requiere adjuntos. Puedes enviarla a aprobación sin evidencia.'
+                      : 'Agrega una foto o adjuntos como evidencia.',
+                  style: const TextStyle(fontFamily: kArial, color: Colors.black54),
+                  textAlign: TextAlign.center,
+                ),
               )
             else
               Expanded(
@@ -616,10 +633,14 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                   ),
                   child: _busy
                       ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-        : Text(
-    widget.requestFinish ? 'Enviar evidencias y solicitar finalización' : 'Enviar evidencias',
-    style: const TextStyle(fontFamily: kArial),
-    ),
+                      : Text(
+                          widget.requestFinish
+                              ? (_requiresAttachment
+                                  ? 'Enviar evidencias y solicitar finalización'
+                                  : 'Solicitar finalización')
+                              : 'Enviar evidencias',
+                          style: const TextStyle(fontFamily: kArial),
+                        ),
                 ),
               ),
             ),

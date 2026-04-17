@@ -3,6 +3,13 @@ import * as functions from "firebase-functions/v1"; // compat v1
 
 // ICD-11 token broker + proxy (Fase B)
 export { icd11Search } from "./icd11";
+
+// Planillas de Pago — notificaciones programadas (08:00, 12:00, 16:00 hora Colombia)
+export {
+  ppNotificaciones0800,
+  ppNotificaciones1200,
+  ppNotificaciones1600,
+} from "./pp_notifications";
 import * as admin from "firebase-admin";
 
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");

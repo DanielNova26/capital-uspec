@@ -46,6 +46,21 @@ const Map<String, String> kDocumentalRoleLabels = <String, String>{
   'admin_doc': 'Administrador documental',
 };
 
+// Roles del subflujo Planillas de Pago (campo: rolPlanillas en empresasDetalle).
+const List<String> kPlanillasRoles = <String>[
+  'tesoreria',
+  'auditoria',
+  'gerencia',
+  'admin_doc',
+];
+
+const Map<String, String> kPlanillasRoleLabels = <String, String>{
+  'tesoreria': 'Tesorería',
+  'auditoria': 'Auditoría',
+  'gerencia': 'Gerencia',
+  'admin_doc': 'Administrador Documental',
+};
+
 const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Usuarios', icon: Icons.people_alt),
   InternalModuleTabItem(label: 'Apps', icon: Icons.apps),
@@ -406,6 +421,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     String rolDocumental = _safe(scoped?['rolDocumental']).isNotEmpty
         ? _safe(scoped?['rolDocumental']).toLowerCase()
         : (_safe(d['rolDocumental']).isEmpty ? '' : _safe(d['rolDocumental']).toLowerCase());
+    String rolPlanillas = _safe(scoped?['rolPlanillas']).isNotEmpty
+        ? _safe(scoped?['rolPlanillas']).toLowerCase()
+        : (_safe(d['rolPlanillas']).isEmpty ? '' : _safe(d['rolPlanillas']).toLowerCase());
 
     CentroCostoItem? centroSel = _centros.where((c) => c.centroId == centroId).cast<CentroCostoItem?>().firstWhere((x) => x != null, orElse: () => null);
     AreaItem? areaSel = _areas.where((a) => a.areaId == areaId).cast<AreaItem?>().firstWhere((x) => x != null, orElse: () => null);
@@ -493,6 +511,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       ],
                       onChanged: (v) => setDialogState(() => rolDocumental = v ?? ''),
                     ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: rolPlanillas,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Rol en Planillas de Pago',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.receipt_long_outlined, color: kAdminAccent),
+                        helperText: 'Define quién puede cargar, auditar o firmar planillas.',
+                        helperStyle: TextStyle(fontFamily: kArial, fontSize: 10, color: kAdminAccent, fontWeight: FontWeight.w700),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(
+                          value: '',
+                          child: Text('Sin rol en planillas', style: TextStyle(fontFamily: kArial)),
+                        ),
+                        ...kPlanillasRoles.map(
+                          (rol) => DropdownMenuItem<String>(
+                            value: rol,
+                            child: Text(
+                              kPlanillasRoleLabels[rol] ?? rol,
+                              style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setDialogState(() => rolPlanillas = v ?? ''),
+                    ),
                   ],
                 ),
               ),
@@ -512,6 +558,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       areaNombre: areaSel?.nombre,
                       cargo: cargoNombre.isEmpty ? null : cargoNombre,
                       rolDocumental: rolDocumental,
+                      rolPlanillas: rolPlanillas,
                     );
                     if (!mounted) return;
                     Navigator.pop(context);
@@ -2824,6 +2871,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 final rolDocumental = _safe(scoped?['rolDocumental']).isNotEmpty
                     ? _safe(scoped?['rolDocumental'])
                     : _safe(d['rolDocumental']);
+                final rolPlanillas = _safe(scoped?['rolPlanillas']).isNotEmpty
+                    ? _safe(scoped?['rolPlanillas'])
+                    : _safe(d['rolPlanillas']);
                 final apps = (_userApps[uDoc.id] ?? {}).toList()..sort();
 
                 return Card(
@@ -2915,6 +2965,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               rolDocumental.isNotEmpty
                                   ? 'GD: ${kDocumentalRoleLabels[rolDocumental.toLowerCase()] ?? rolDocumental}'
                                   : 'GD: Sin rol documental',
+                            ),
+                            const SizedBox(width: 16),
+                            _infoItem(
+                              Icons.receipt_long_outlined,
+                              rolPlanillas.isNotEmpty
+                                  ? 'PP: ${kPlanillasRoleLabels[rolPlanillas.toLowerCase()] ?? rolPlanillas}'
+                                  : 'PP: Sin rol planillas',
                             ),
                           ],
                         ),

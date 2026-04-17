@@ -121,6 +121,7 @@ class AdminRepository {
     String? areaNombre,
     String? cargo,
     String? rolDocumental,
+    String? rolPlanillas,
   }) async {
     final update = <String, dynamic>{
       'updatedAt': FieldValue.serverTimestamp(),
@@ -135,6 +136,7 @@ class AdminRepository {
 
     if (cargo != null) update['cargo'] = cargo;
     if (rolDocumental != null) update['rolDocumental'] = rolDocumental;
+    if (rolPlanillas != null) update['rolPlanillas'] = rolPlanillas;
 
     // También mantenemos empresasDetalle[empresaId]
     if (centroId != null) update['empresasDetalle.$empresaId.centroId'] = centroId;
@@ -147,6 +149,9 @@ class AdminRepository {
     if (cargo != null) update['empresasDetalle.$empresaId.cargo'] = cargo;
     if (rolDocumental != null) {
       update['empresasDetalle.$empresaId.rolDocumental'] = rolDocumental;
+    }
+    if (rolPlanillas != null) {
+      update['empresasDetalle.$empresaId.rolPlanillas'] = rolPlanillas;
     }
 
     await _db.collection('TBL_USUARIOS').doc(userId).set(update, SetOptions(merge: true));

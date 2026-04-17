@@ -9,6 +9,7 @@ import 'gd_detail_screen.dart';
 import 'gd_firmas_screen.dart';
 import 'gd_models.dart';
 import 'gd_service.dart';
+import 'planillas/pp_dashboard_screen.dart';
 import 'widgets/gd_ui_widgets.dart';
 
 class GdDashboardScreen extends StatefulWidget {
@@ -76,6 +77,27 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   icon: const Icon(Icons.draw),
                   onPressed: _openFirmas,
                   tooltip: 'Mi Firma',
+                ),
+              if (isWeb)
+                OutlinedButton.icon(
+                  onPressed: _openPlanillas,
+                  icon: const Icon(Icons.receipt_long_outlined, size: 20),
+                  label: const Text(
+                    'PLANILLAS DE PAGO',
+                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: GdPalette.primary,
+                    side: const BorderSide(color: GdPalette.border),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  onPressed: _openPlanillas,
+                  tooltip: 'Planillas de Pago',
                 ),
               if (isWeb && canCreate)
                 ElevatedButton.icon(
@@ -577,6 +599,18 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         builder: (_) => GdFirmasScreen(
           empresaId: widget.empresaId,
           userId: widget.userId,
+        ),
+      ),
+    );
+  }
+
+  void _openPlanillas() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PpDashboardScreen(
+          userId: widget.userId,
+          empresaId: widget.empresaId,
         ),
       ),
     );

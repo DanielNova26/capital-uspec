@@ -519,8 +519,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _bootstrap() async {
     await _ensurePermissions();
-    await _loadCurrentUser();
-    await _loadEstructura();
+
+    try {
+      await _loadCurrentUser();
+    } catch (_) {}
+
+    try {
+      await _loadEstructura();
+    } catch (_) {}
 
     // IMPORTANT: primero catálogos, luego usuarios (para poder resolver ids por nombre/código)
     await Future.wait([
@@ -528,7 +534,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       _loadAreas(),
       _loadCargos(),
     ]);
-    await _loadUsuarios();
+
+    try {
+      await _loadUsuarios();
+    } catch (_) {}
 
     if (mounted) setState(() {});
   }
@@ -605,14 +614,23 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _ensurePermissions() async {
-    final enabled = await Geolocator.isLocationServiceEnabled();
-    if (!enabled) {
-      await Geolocator.openLocationSettings();
-    }
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-    if (perm == LocationPermission.deniedForever) {
-      await Geolocator.openAppSettings();
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled && !kIsWeb) {
+        await Geolocator.openLocationSettings();
+      }
+
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+
+      if (perm == LocationPermission.deniedForever && !kIsWeb) {
+        await Geolocator.openAppSettings();
+      }
+    } catch (_) {
+      // En web y algunos entornos de escritorio la ubicación puede no estar
+      // disponible o no soportar abrir ajustes; no debe bloquear el formulario.
     }
   }
 

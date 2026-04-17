@@ -1,0 +1,449 @@
+// lib/gestion_documental/planillas/pp_dashboard_screen.dart
+//
+// Dashboard principal del subflujo Planillas de Pago.
+// Listado de lotes y planillas, con filtros por estado y rol.
+// Accede desde GdDashboardScreen → botón "Planillas de Pago".
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import '../../gestion_documental/widgets/gd_ui_widgets.dart';
+import '../../utils/user_company.dart';
+import '../../widgets/internal_module_layout.dart';
+import 'pp_models.dart';
+import 'pp_service.dart';
+import 'pp_lote_upload_screen.dart';
+import 'pp_planilla_detail_screen.dart';
+
+class PpDashboardScreen extends StatefulWidget {
+  final String userId;
+  final String empresaId;
+
+  const PpDashboardScreen({
+    super.key,
+    required this.userId,
+    required this.empresaId,
+  });
+
+  @override
+  State<PpDashboardScreen> createState() => _PpDashboardScreenState();
+}
+
+class _PpDashboardScreenState extends State<PpDashboardScreen>
+    with SingleTickerProviderStateMixin {
+  final _service = PpService();
+  late TabController _tabCtrl;
+  PpEstado? _filtroEstado;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabCtrl = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabCtrl.dispose();
+    super.dispose();
+  }
+
+  String? _resolveRolPlanillas(Map<String, dynamic>? userData) {
+    if (userData == null) return null;
+    if (isDeveloperUser(userData)) return PpRoles.desarrollador;
+    final detail = getUserCompanyDetail(userData, widget.empresaId);
+    final scoped = (detail?['rolPlanillas'] ?? '').toString().trim().toLowerCase();
+    if (scoped.isNotEmpty) return scoped;
+    final global = (userData['rolPlanillas'] ?? '').toString().trim().toLowerCase();
+    if (global.isNotEmpty) return global;
+    return null;
+  }
+
+  void _openUpload(String rolPlanillas, String? nombreActor) async {
+    final loteId = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => PpLoteUploadScreen(
+          userId: widget.userId,
+          empresaId: widget.empresaId,
+          rolPlanillas: rolPlanillas,
+          nombreActor: nombreActor,
+        ),
+      ),
+    );
+    if (loteId != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lote creado exitosamente: $loteId',
+            style: const TextStyle(fontFamily: kArial))),
+      );
+    }
+  }
+
+  void _openPlanilla(PpPlanilla planilla, String rolPlanillas, String? nombreActor) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PpPlanillaDetailScreen(
+          planillaId: planilla.planillaId,
+          userId: widget.userId,
+          empresaId: widget.empresaId,
+          rolPlanillas: rolPlanillas,
+          nombreActor: nombreActor,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isWeb = MediaQuery.of(context).size.width >= 900;
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(widget.userId).snapshots(),
+      builder: (context, userSnap) {
+        final rolPlanillas = _resolveRolPlanillas(userSnap.data?.data());
+        final nombreActor = userSnap.data?.data()?['nombre'] as String?;
+        final canUpload = PpRoles.puedeEjecutar('confirmar_carga', rolPlanillas);
+
+        return Scaffold(
+          backgroundColor: GdPalette.background,
+          appBar: AppBar(
+            backgroundColor: GdPalette.surface,
+            foregroundColor: GdPalette.primary,
+            elevation: 0,
+            title: const Text(
+              'PLANILLAS DE PAGO',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 16),
+            ),
+            actions: [
+              if (rolPlanillas != null)
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: GdPalette.accent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(PpRoles.etiqueta(rolPlanillas),
+                      style: const TextStyle(fontFamily: kArial, fontSize: 11, color: GdPalette.accent, fontWeight: FontWeight.w700)),
+                ),
+              if (canUpload)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: isWeb
+                      ? ElevatedButton.icon(
+                          onPressed: () => _openUpload(rolPlanillas!, nombreActor),
+                          icon: const Icon(Icons.upload_file_outlined, size: 18, color: Colors.white),
+                          label: const Text('NUEVO LOTE',
+                              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 12, color: Colors.white)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: GdPalette.accent,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        )
+                      : IconButton(
+                          icon: const Icon(Icons.upload_file_outlined),
+                          onPressed: () => _openUpload(rolPlanillas!, nombreActor),
+                          tooltip: 'Nuevo lote',
+                        ),
+                ),
+            ],
+            bottom: TabBar(
+              controller: _tabCtrl,
+              labelStyle: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 12),
+              unselectedLabelStyle: const TextStyle(fontFamily: kArial, fontSize: 12),
+              indicatorColor: GdPalette.accent,
+              labelColor: GdPalette.accent,
+              unselectedLabelColor: GdPalette.muted,
+              tabs: const [
+                Tab(text: 'PLANILLAS', icon: Icon(Icons.receipt_long_outlined, size: 18)),
+                Tab(text: 'LOTES', icon: Icon(Icons.folder_zip_outlined, size: 18)),
+              ],
+            ),
+          ),
+          body: rolPlanillas == null
+              ? _buildSinRol()
+              : Column(
+                  children: [
+                    _buildFiltroEstado(),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabCtrl,
+                        children: [
+                          _buildPlanillasList(rolPlanillas, nombreActor),
+                          _buildLotesList(rolPlanillas, nombreActor),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+          floatingActionButton: !isWeb && canUpload
+              ? FloatingActionButton.extended(
+                  onPressed: () => _openUpload(rolPlanillas!, nombreActor),
+                  backgroundColor: GdPalette.accent,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('Nuevo Lote', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+                )
+              : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildSinRol() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: ModuleCard(
+        color: GdPalette.accent.withOpacity(0.04),
+        padding: const EdgeInsets.all(24),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, size: 40, color: GdPalette.muted),
+            SizedBox(height: 16),
+            Text('Sin acceso a Planillas de Pago',
+                style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 16, color: GdPalette.primary)),
+            SizedBox(height: 8),
+            Text(
+              'Tu cuenta no tiene un rol asignado en Planillas de Pago para esta empresa. '
+              'Solicita al administrador que configure tu rol (tesorería, auditoría, gerencia o admin_doc).',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontFamily: kArial, fontSize: 13, color: GdPalette.muted),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildFiltroEstado() {
+    final estados = [null, ...PpEstado.values];
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        itemCount: estados.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final e = estados[i];
+          final selected = _filtroEstado == e;
+          return FilterChip(
+            label: Text(e?.etiqueta ?? 'Todos',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.white : GdPalette.primary,
+                )),
+            selected: selected,
+            selectedColor: GdPalette.accent,
+            checkmarkColor: Colors.white,
+            backgroundColor: GdPalette.surface,
+            side: const BorderSide(color: GdPalette.border),
+            onSelected: (_) => setState(() => _filtroEstado = e),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPlanillasList(String rolPlanillas, String? nombreActor) {
+    return StreamBuilder<List<PpPlanilla>>(
+      stream: _service.streamPlanillasPorEmpresa(widget.empresaId, estado: _filtroEstado),
+      builder: (context, snap) {
+        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+        final planillas = snap.data!;
+        if (planillas.isEmpty) {
+          return Center(
+            child: Text('No hay planillas${_filtroEstado != null ? " en estado ${_filtroEstado!.etiqueta}" : ""}.',
+                style: const TextStyle(fontFamily: kArial, color: GdPalette.muted)),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: planillas.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (_, i) => _buildPlanillaCard(planillas[i], rolPlanillas, nombreActor),
+        );
+      },
+    );
+  }
+
+  Widget _buildLotesList(String rolPlanillas, String? nombreActor) {
+    return StreamBuilder<List<PpLote>>(
+      stream: _service.streamLotes(widget.empresaId),
+      builder: (context, snap) {
+        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+        final lotes = snap.data!;
+        if (lotes.isEmpty) {
+          return const Center(
+            child: Text('No hay lotes cargados aún.',
+                style: TextStyle(fontFamily: kArial, color: GdPalette.muted)),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: lotes.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (_, i) => _buildLoteCard(lotes[i]),
+        );
+      },
+    );
+  }
+
+  Widget _buildPlanillaCard(PpPlanilla planilla, String rolPlanillas, String? nombreActor) {
+    final colors = _estadoColors(planilla.estado);
+    final pendiente = _esPendienteParaRol(planilla.estado, rolPlanillas);
+
+    return ModuleCard(
+      child: InkWell(
+        onTap: () => _openPlanilla(planilla, rolPlanillas, nombreActor),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: colors.$2,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            planilla.nombrePlanillaDetectado ?? planilla.nombreArchivoOriginal,
+                            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 14, color: GdPalette.primary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (pendiente)
+                          Container(
+                            width: 8, height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.orange,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _estadoChip(planilla.estado, colors),
+                        const SizedBox(width: 8),
+                        if (planilla.valorDetectado != null)
+                          Text(
+                            _formatCurrency(planilla.valorDetectado!),
+                            style: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted, fontWeight: FontWeight.w700),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: GdPalette.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoteCard(PpLote lote) {
+    return ModuleCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.folder_zip_outlined, color: GdPalette.accent, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    lote.descripcion ?? 'Lote ${_formatTs(lote.createdAt)}',
+                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 14, color: GdPalette.primary),
+                  ),
+                ),
+                _loteEstadoChip(lote.estado),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Excel: ${lote.excelNombre ?? "—"} · ${lote.totalPlanillas} planillas · ${lote.planillasFirmadas} firmadas',
+              style: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
+            ),
+            Text(
+              'Cargado por ${lote.nombreCreadoPor ?? lote.creadoPor} · ${_formatTs(lote.createdAt)}',
+              style: const TextStyle(fontFamily: kArial, fontSize: 11, color: GdPalette.muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _estadoChip(PpEstado estado, (Color, Color) colors) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: colors.$1,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: colors.$2.withOpacity(0.4)),
+    ),
+    child: Text(estado.etiqueta,
+        style: TextStyle(fontFamily: kArial, fontSize: 10, color: colors.$2, fontWeight: FontWeight.w700)),
+  );
+
+  Widget _loteEstadoChip(PpLoteEstado estado) {
+    final color = switch (estado) {
+      PpLoteEstado.completado => Colors.green.shade700,
+      PpLoteEstado.en_proceso => Colors.orange.shade700,
+      PpLoteEstado.anulado    => Colors.red.shade700,
+      _                       => GdPalette.muted,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(estado.etiqueta,
+          style: TextStyle(fontFamily: kArial, fontSize: 10, color: color, fontWeight: FontWeight.w700)),
+    );
+  }
+
+  bool _esPendienteParaRol(PpEstado estado, String rol) {
+    if (rol == PpRoles.tesoreria) return estado == PpEstado.cargada || estado == PpEstado.observada;
+    if (rol == PpRoles.auditoria) return estado == PpEstado.en_revision_auditoria;
+    if (rol == PpRoles.gerencia) return estado == PpEstado.pendiente_firma_gerencia;
+    return false;
+  }
+
+  (Color, Color) _estadoColors(PpEstado e) => switch (e) {
+    PpEstado.firmada                  => (Colors.green.shade50,  Colors.green.shade700),
+    PpEstado.rechazada                => (Colors.red.shade50,    Colors.red.shade700),
+    PpEstado.en_revision_auditoria ||
+    PpEstado.pendiente_firma_gerencia => (Colors.orange.shade50, Colors.orange.shade700),
+    PpEstado.aprobada_auditoria       => (Colors.blue.shade50,   Colors.blue.shade700),
+    _                                 => (GdPalette.background,          GdPalette.muted),
+  };
+
+  String _formatCurrency(double v) =>
+      NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0).format(v);
+
+  String _formatTs(dynamic ts) {
+    if (ts == null) return '';
+    if (ts is Timestamp) return DateFormat('dd/MM/yyyy HH:mm', 'es').format(ts.toDate());
+    return '';
+  }
+}
