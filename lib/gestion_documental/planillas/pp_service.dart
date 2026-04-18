@@ -169,6 +169,9 @@ class PpService {
         'revisadoEn': null,
         'firmadoPor': null,
         'firmadoEn': null,
+        'urlFirmaAuditoria': null,
+        'nombreAuditorFirmante': null,
+        'cargoAuditorFirmante': null,
         'urlFirmaUsada': null,
         'nombreFirmante': null,
         'cargoFirmante': null,
@@ -356,6 +359,20 @@ class PpService {
     String? comentario,
   }) async {
     _validarRol('aprobar_auditoria', rolPlanillas);
+
+    // Snapshot de firma del auditor desde TBL_USUARIOS
+    String? urlFirmaAuditoria;
+    String? cargoAuditorFirmante;
+    try {
+      final userSnap = await _users.doc(actorId).get();
+      final data = userSnap.data();
+      final scoped = _scopedData(data, empresaId);
+      urlFirmaAuditoria = ((scoped?['urlFirma'] ?? data?['urlFirma']) ?? '').toString().trim();
+      if (urlFirmaAuditoria.isEmpty) urlFirmaAuditoria = null;
+      cargoAuditorFirmante = ((scoped?['cargo'] ?? data?['cargo']) ?? '').toString().trim();
+      if (cargoAuditorFirmante.isEmpty) cargoAuditorFirmante = null;
+    } catch (_) {}
+
     await _transicionar(
       planillaId: planillaId,
       loteId: loteId,
@@ -366,7 +383,13 @@ class PpService {
       actorId: actorId,
       nombreActor: nombreActor,
       observacion: comentario,
-      camposExtra: {'revisadoPor': actorId, 'revisadoEn': FieldValue.serverTimestamp()},
+      camposExtra: {
+        'revisadoPor': actorId,
+        'revisadoEn': FieldValue.serverTimestamp(),
+        'urlFirmaAuditoria': urlFirmaAuditoria,
+        'nombreAuditorFirmante': nombreActor ?? actorId,
+        'cargoAuditorFirmante': cargoAuditorFirmante,
+      },
     );
   }
 
@@ -433,23 +456,39 @@ class PpService {
       if (cargoFirmante.isEmpty) cargoFirmante = null;
     } catch (_) {}
 
-    // URL del PDF original antes de estampar
+    // Leer planilla: URL del PDF original + datos del auditor
     String? urlPdfOriginal;
     String? pathPdfOriginal;
+    String? urlFirmaAuditoria;
+    String? nombreAuditorFirmante;
+    String? fechaAuditoriaStr;
     try {
       final snap = await _planillas.doc(planillaId).get();
-      urlPdfOriginal  = snap.data()?['urlPdf']  as String?;
-      pathPdfOriginal = snap.data()?['pathPdf'] as String?;
+      final pdata = snap.data() ?? {};
+      urlPdfOriginal        = pdata['urlPdf']                as String?;
+      pathPdfOriginal       = pdata['pathPdf']               as String?;
+      urlFirmaAuditoria     = pdata['urlFirmaAuditoria']     as String?;
+      nombreAuditorFirmante = pdata['nombreAuditorFirmante'] as String?;
+      final revisadoEn      = pdata['revisadoEn']            as Timestamp?;
+      if (revisadoEn != null) {
+        fechaAuditoriaStr = DateFormat('dd/MM/yyyy').format(revisadoEn.toDate());
+      }
     } catch (_) {}
 
-    // Estampar firma sobre el PDF y subir versión firmada
+    // Estampar ambas firmas sobre el PDF y subir versión firmada
     String? urlPdfFirmado;
     String? pathPdfFirmado;
     if (urlFirmaSnapshot != null && urlPdfOriginal != null) {
       try {
         final stamped = await _stampearFirmaEnPdf(
-          originalPdfUrl: urlPdfOriginal,
-          firmaImageUrl: urlFirmaSnapshot,
+          originalPdfUrl:   urlPdfOriginal,
+          firmaGerenciaUrl: urlFirmaSnapshot,
+          firmaAuditoriaUrl: urlFirmaAuditoria,
+          nombreGerente:    nombreActor ?? actorId,
+          cargoGerente:     cargoFirmante,
+          nombreAuditor:    nombreAuditorFirmante,
+          fechaAuditoria:   fechaAuditoriaStr,
+          fechaFirma:       DateFormat('dd/MM/yyyy').format(DateTime.now()),
         );
         if (stamped != null) {
           final (url, path) = await _subirPdfFirmado(
@@ -694,11 +733,11 @@ class PpService {
       observacion: observacion,
     );
 
-    // Actualizar estado del lote
-    await _lotes.doc(loteId).update({
+    // Actualizar estado del lote (set con merge para tolerar lotes que no existen aún)
+    await _lotes.doc(loteId).set({
       'estado': PpLoteEstado.en_proceso.valor,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 
   Future<void> _registrarEventoLote({
@@ -754,33 +793,65 @@ class PpService {
     return (url, path);
   }
 
-  // Rasteriza el PDF original, superpone la imagen de firma en la última página
-  // y devuelve los bytes del nuevo PDF firmado.
-  // Posición de la firma: 55 % desde la izquierda, 25 % desde arriba de la página.
+  // Rasteriza el PDF original y superpone en la última página dos sellos de aprobación:
+  // izquierda = auditoría (chulo verde + firma + nombre), derecha = gerencia (firma + nombre + cargo).
   Future<Uint8List?> _stampearFirmaEnPdf({
     required String originalPdfUrl,
-    required String firmaImageUrl,
+    required String firmaGerenciaUrl,
+    String? firmaAuditoriaUrl,
+    String? nombreGerente,
+    String? cargoGerente,
+    String? nombreAuditor,
+    String? fechaAuditoria,
+    String? fechaFirma,
   }) async {
     const dpi = 150.0;
 
-    final pdfResp   = await http.get(Uri.parse(originalPdfUrl));
+    final pdfResp = await http.get(Uri.parse(originalPdfUrl));
     if (pdfResp.statusCode != 200) return null;
 
-    final firmaResp = await http.get(Uri.parse(firmaImageUrl));
-    if (firmaResp.statusCode != 200) return null;
+    final firmaGerenciaResp = await http.get(Uri.parse(firmaGerenciaUrl));
+    if (firmaGerenciaResp.statusCode != 200) return null;
+
+    pw.MemoryImage? firmaAuditoriaImage;
+    if (firmaAuditoriaUrl != null && firmaAuditoriaUrl.isNotEmpty) {
+      try {
+        final resp = await http.get(Uri.parse(firmaAuditoriaUrl));
+        if (resp.statusCode == 200) firmaAuditoriaImage = pw.MemoryImage(resp.bodyBytes);
+      } catch (_) {}
+    }
+
+    pw.Font? arial;
+    try {
+      final data = await rootBundle.load('assets/arial.ttf');
+      arial = pw.Font.ttf(data);
+    } catch (_) {}
+
+    pw.TextStyle tsPdf(double sz, {bool bold = false, PdfColor? color}) => pw.TextStyle(
+      font: arial,
+      fontSize: sz,
+      fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      color: color,
+    );
 
     final pages = await Printing.raster(pdfResp.bodyBytes, dpi: dpi).toList();
     if (pages.isEmpty) return null;
 
-    final doc        = pw.Document();
-    final firmaImage = pw.MemoryImage(firmaResp.bodyBytes);
+    final doc = pw.Document();
+    final firmaGerenciaImage = pw.MemoryImage(firmaGerenciaResp.bodyBytes);
 
     for (int i = 0; i < pages.length; i++) {
-      final page         = pages[i];
-      final pageImage    = pw.MemoryImage(await page.toPng());
-      final pageWidthPts = page.width  * 72.0 / dpi;
-      final pageHeightPts= page.height * 72.0 / dpi;
-      final isLast       = i == pages.length - 1;
+      final page          = pages[i];
+      final pageImage     = pw.MemoryImage(await page.toPng());
+      final pageWidthPts  = page.width  * 72.0 / dpi;
+      final pageHeightPts = page.height * 72.0 / dpi;
+      final isLast        = i == pages.length - 1;
+
+      // Stamp area: bottom 28 % of page, two columns of 44 % width each
+      final stampTop = pageHeightPts * 0.72;
+      final colW     = pageWidthPts  * 0.44;
+      final leftAud  = pageWidthPts  * 0.03;
+      final leftGer  = pageWidthPts  * 0.53;
 
       doc.addPage(pw.Page(
         pageFormat: PdfPageFormat(pageWidthPts, pageHeightPts),
@@ -788,12 +859,85 @@ class PpService {
         build: (_) => pw.Stack(
           children: [
             pw.Image(pageImage, fit: pw.BoxFit.fill),
-            if (isLast)
+            if (isLast) ...[
+              // ── SELLO AUDITORÍA (columna izquierda) ─────────────────
               pw.Positioned(
-                left:  pageWidthPts  * 0.55,
-                top:   pageHeightPts * 0.25,
-                child: pw.Image(firmaImage, width: 130, height: 85),
+                left: leftAud,
+                top:  stampTop,
+                child: pw.SizedBox(
+                  width: colW,
+                  child: pw.Container(
+                  padding: const pw.EdgeInsets.all(5),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.green700, width: 0.8),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    mainAxisSize: pw.MainAxisSize.min,
+                    children: [
+                      pw.Text('APROBADO - AUDITORIA',
+                          style: tsPdf(7, bold: true, color: PdfColors.green700),
+                          textAlign: pw.TextAlign.center),
+                      pw.SizedBox(height: 3),
+                      if (firmaAuditoriaImage != null)
+                        pw.Image(firmaAuditoriaImage, width: 80, height: 50)
+                      else
+                        pw.SizedBox(height: 18),
+                      pw.SizedBox(height: 3),
+                      if (nombreAuditor != null)
+                        pw.Text(nombreAuditor,
+                            style: tsPdf(6.5, bold: true),
+                            textAlign: pw.TextAlign.center),
+                      if (fechaAuditoria != null)
+                        pw.Text(fechaAuditoria,
+                            style: tsPdf(6),
+                            textAlign: pw.TextAlign.center),
+                    ],
+                  ),
+                ),
+                ),
               ),
+              // ── SELLO GERENCIA (columna derecha) ────────────────────
+              pw.Positioned(
+                left: leftGer,
+                top:  stampTop,
+                child: pw.SizedBox(
+                  width: colW,
+                  child: pw.Container(
+                  padding: const pw.EdgeInsets.all(5),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.blue700, width: 0.8),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                  ),
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.center,
+                    mainAxisSize: pw.MainAxisSize.min,
+                    children: [
+                      pw.Text('APROBADO PARA PAGO - GERENCIA',
+                          style: tsPdf(7, bold: true, color: PdfColors.blue700),
+                          textAlign: pw.TextAlign.center),
+                      pw.SizedBox(height: 3),
+                      pw.Image(firmaGerenciaImage, width: 80, height: 50),
+                      pw.SizedBox(height: 3),
+                      if (nombreGerente != null)
+                        pw.Text(nombreGerente,
+                            style: tsPdf(6.5, bold: true),
+                            textAlign: pw.TextAlign.center),
+                      if (cargoGerente != null)
+                        pw.Text(cargoGerente,
+                            style: tsPdf(6),
+                            textAlign: pw.TextAlign.center),
+                      if (fechaFirma != null)
+                        pw.Text(fechaFirma,
+                            style: tsPdf(6),
+                            textAlign: pw.TextAlign.center),
+                    ],
+                  ),
+                ),
+                ),
+              ),
+            ],
           ],
         ),
       ));
@@ -902,6 +1046,7 @@ class PpService {
         'cargadoPor': actorId,
         'revisadoPor': null, 'revisadoEn': null,
         'firmadoPor': null,  'firmadoEn': null,
+        'urlFirmaAuditoria': null, 'nombreAuditorFirmante': null, 'cargoAuditorFirmante': null,
         'urlFirmaUsada': null, 'nombreFirmante': null, 'cargoFirmante': null,
         'urlPdf': pdfUrl,
         'pathPdf': pdfPath,

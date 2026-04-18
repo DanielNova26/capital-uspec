@@ -315,6 +315,11 @@ class PpPlanilla {
   final String? firmadoPor;
   final Timestamp? firmadoEn;
 
+  // Snapshot del auditor al momento de aprobar
+  final String? urlFirmaAuditoria;
+  final String? nombreAuditorFirmante;
+  final String? cargoAuditorFirmante;
+
   // Snapshot del firmante al momento de firmar
   final String? urlFirmaUsada;
   final String? nombreFirmante;
@@ -356,6 +361,9 @@ class PpPlanilla {
     this.revisadoEn,
     this.firmadoPor,
     this.firmadoEn,
+    this.urlFirmaAuditoria,
+    this.nombreAuditorFirmante,
+    this.cargoAuditorFirmante,
     this.urlFirmaUsada,
     this.nombreFirmante,
     this.cargoFirmante,
@@ -390,6 +398,9 @@ class PpPlanilla {
       revisadoEn: m['revisadoEn'] as Timestamp?,
       firmadoPor: m['firmadoPor'] as String?,
       firmadoEn: m['firmadoEn'] as Timestamp?,
+      urlFirmaAuditoria: m['urlFirmaAuditoria'] as String?,
+      nombreAuditorFirmante: m['nombreAuditorFirmante'] as String?,
+      cargoAuditorFirmante: m['cargoAuditorFirmante'] as String?,
       urlFirmaUsada: m['urlFirmaUsada'] as String?,
       nombreFirmante: m['nombreFirmante'] as String?,
       cargoFirmante: m['cargoFirmante'] as String?,
@@ -420,6 +431,9 @@ class PpPlanilla {
     'revisadoEn': revisadoEn,
     'firmadoPor': firmadoPor,
     'firmadoEn': firmadoEn,
+    'urlFirmaAuditoria': urlFirmaAuditoria,
+    'nombreAuditorFirmante': nombreAuditorFirmante,
+    'cargoAuditorFirmante': cargoAuditorFirmante,
     'urlFirmaUsada': urlFirmaUsada,
     'nombreFirmante': nombreFirmante,
     'cargoFirmante': cargoFirmante,
@@ -443,6 +457,9 @@ class PpPlanilla {
     Timestamp? revisadoEn,
     String? firmadoPor,
     Timestamp? firmadoEn,
+    String? urlFirmaAuditoria,
+    String? nombreAuditorFirmante,
+    String? cargoAuditorFirmante,
     String? urlFirmaUsada,
     String? nombreFirmante,
     String? cargoFirmante,
@@ -468,6 +485,9 @@ class PpPlanilla {
     revisadoEn: revisadoEn ?? this.revisadoEn,
     firmadoPor: firmadoPor ?? this.firmadoPor,
     firmadoEn: firmadoEn ?? this.firmadoEn,
+    urlFirmaAuditoria: urlFirmaAuditoria ?? this.urlFirmaAuditoria,
+    nombreAuditorFirmante: nombreAuditorFirmante ?? this.nombreAuditorFirmante,
+    cargoAuditorFirmante: cargoAuditorFirmante ?? this.cargoAuditorFirmante,
     urlFirmaUsada: urlFirmaUsada ?? this.urlFirmaUsada,
     nombreFirmante: nombreFirmante ?? this.nombreFirmante,
     cargoFirmante: cargoFirmante ?? this.cargoFirmante,

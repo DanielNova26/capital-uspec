@@ -2,6 +2,7 @@
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:signature/signature.dart';
 import 'package:file_picker/file_picker.dart';
 import '../widgets/internal_module_layout.dart';
@@ -283,16 +284,28 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
                   children: [
                     Icon(Icons.info_outline, color: const Color(0xFF94A3B8).withOpacity(0.5)),
                     const SizedBox(height: 8),
-                    const Text('Sin firma registrada', 
+                    const Text('Sin firma registrada',
                       style: TextStyle(fontFamily: kArial, color: Color(0xFF64748B), fontSize: 12)),
                   ],
                 )
               : Padding(
                   padding: const EdgeInsets.all(12.0),
-                  child: Image.network(
-                    firma!.urlFirma!, 
-                    fit: BoxFit.contain,
-                    errorBuilder: (c, e, s) => const Center(child: Icon(Icons.broken_image, color: Colors.redAccent)),
+                  child: FutureBuilder<Uint8List>(
+                    key: ValueKey(firma!.urlFirma),
+                    future: _fetchImageBytes(firma.urlFirma!),
+                    builder: (context, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                      }
+                      if (snap.hasData) {
+                        return Image.memory(snap.data!, fit: BoxFit.contain);
+                      }
+                      return const Center(
+                        child: Text('No se pudo cargar la firma.\nIntenta guardarla de nuevo.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.redAccent)),
+                      );
+                    },
                   ),
                 ),
           ),
@@ -313,6 +326,12 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
+  }
+
+  Future<Uint8List> _fetchImageBytes(String url) async {
+    final resp = await http.get(Uri.parse(url));
+    if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
+    return resp.bodyBytes;
   }
 
   Future<void> _pickAndUpload() async {

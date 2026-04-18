@@ -36,6 +36,8 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
   final _service = PpService();
   late TabController _tabCtrl;
   PpEstado? _filtroEstado;
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -46,6 +48,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
   @override
   void dispose() {
     _tabCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -165,6 +168,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
               ? _buildSinRol()
               : Column(
                   children: [
+                    _buildSearchBar(),
                     _buildFiltroEstado(),
                     Expanded(
                       child: TabBarView(
@@ -213,6 +217,41 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
           ],
         ),
       ),
+    ),
+  );
+
+  Widget _buildSearchBar() => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+    child: TextField(
+      controller: _searchCtrl,
+      style: const TextStyle(fontFamily: kArial, fontSize: 13),
+      decoration: InputDecoration(
+        hintText: 'Buscar por nombre o fecha (ej: 2025-04)...',
+        hintStyle: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
+        prefixIcon: const Icon(Icons.search, size: 18, color: GdPalette.muted),
+        suffixIcon: _searchQuery.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear, size: 16, color: GdPalette.muted),
+                onPressed: () => setState(() { _searchCtrl.clear(); _searchQuery = ''; }),
+              )
+            : null,
+        filled: true,
+        fillColor: GdPalette.surface,
+        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: GdPalette.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: GdPalette.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: GdPalette.accent, width: 1.5),
+        ),
+      ),
+      onChanged: (v) => setState(() => _searchQuery = v.trim().toLowerCase()),
     ),
   );
 
@@ -288,11 +327,22 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
           );
         }
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-        final planillas = snap.data!;
+        final all = snap.data!;
+        final planillas = _searchQuery.isEmpty
+            ? all
+            : all.where((p) {
+                final nombre = (p.nombrePlanillaDetectado ?? p.nombreArchivoOriginal).toLowerCase();
+                final fecha  = (p.fechaPlanillaDetectada ?? '').toLowerCase();
+                return nombre.contains(_searchQuery) || fecha.contains(_searchQuery);
+              }).toList();
         if (planillas.isEmpty) {
           return Center(
-            child: Text('No hay planillas${_filtroEstado != null ? " en estado ${_filtroEstado!.etiqueta}" : ""}.',
-                style: const TextStyle(fontFamily: kArial, color: GdPalette.muted)),
+            child: Text(
+              _searchQuery.isNotEmpty
+                  ? 'Sin resultados para "$_searchQuery".'
+                  : 'No hay planillas${_filtroEstado != null ? " en estado ${_filtroEstado!.etiqueta}" : ""}.',
+              style: const TextStyle(fontFamily: kArial, color: GdPalette.muted),
+            ),
           );
         }
         return ListView.separated(

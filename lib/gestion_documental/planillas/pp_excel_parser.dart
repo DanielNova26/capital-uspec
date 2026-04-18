@@ -16,7 +16,9 @@
 //   3. Por posición si las anteriores fallan y hay igual número de PDFs y filas.
 //   4. Sin coincidencia → flag `sin_coincidencia`, requiere conciliación manual.
 
+import 'dart:convert';
 import 'dart:typed_data';
+import 'package:archive/archive.dart';
 import 'package:excel/excel.dart';
 
 import 'pp_models.dart';
@@ -28,7 +30,7 @@ import 'pp_models.dart';
 class PpExcelParser {
   PpExcelParseResult parse(Uint8List bytes) {
     try {
-      final excel = Excel.decodeBytes(bytes);
+      final excel = Excel.decodeBytes(_fixNumFmtIds(bytes));
       Sheet? sheet = _findSheet(excel);
       if (sheet == null || sheet.rows.isEmpty) {
         return const PpExcelParseResult(filas: [], columnas: [], error: 'No se encontró hoja válida en el Excel.');
@@ -165,6 +167,58 @@ class PpExcelParser {
       return double.tryParse(normalized);
     }
     return double.tryParse(cleaned);
+  }
+
+  // El paquete excel 4.x exige numFmtId >= 164 para formatos custom.
+  // Algunos archivos Excel usan IDs < 164 para custom formats (válido en OOXML
+  // pero no tolerado por la librería). Este método remapea esos IDs antes de parsear.
+  Uint8List _fixNumFmtIds(Uint8List bytes) {
+    try {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final stylesEntry = archive.findFile('xl/styles.xml');
+      if (stylesEntry == null) return bytes;
+
+      var xml = utf8.decode(stylesEntry.content as List<int>);
+
+      // Recolectar IDs custom (< 164) definidos en <numFmt numFmtId="N" ...>
+      final defPattern = RegExp(r'<numFmt\b[^>]*\bnumFmtId="(\d+)"');
+      final idsToRemap = <int>{};
+      for (final m in defPattern.allMatches(xml)) {
+        final id = int.tryParse(m.group(1) ?? '') ?? 0;
+        if (id < 164) idsToRemap.add(id);
+      }
+      if (idsToRemap.isEmpty) return bytes;
+
+      // Asignar nuevos IDs desde 500 para evitar colisiones
+      var next = 500;
+      final remap = <int, int>{};
+      for (final id in idsToRemap) {
+        remap[id] = next++;
+      }
+
+      // Reemplazar todos los numFmtId="N" → numFmtId="N_nuevo" en styles.xml
+      xml = xml.replaceAllMapped(
+        RegExp(r'numFmtId="(\d+)"'),
+        (m) {
+          final id = int.tryParse(m.group(1) ?? '') ?? -1;
+          return 'numFmtId="${remap[id] ?? id}"';
+        },
+      );
+
+      // Reconstruir ZIP con styles.xml parcheado
+      final newArchive = Archive();
+      for (final file in archive) {
+        if (file.name == 'xl/styles.xml') {
+          final encoded = utf8.encode(xml);
+          newArchive.addFile(ArchiveFile('xl/styles.xml', encoded.length, encoded));
+        } else {
+          newArchive.addFile(file);
+        }
+      }
+      final reencoded = ZipEncoder().encode(newArchive);
+      if (reencoded != null) return Uint8List.fromList(reencoded);
+    } catch (_) {}
+    return bytes;
   }
 }
 

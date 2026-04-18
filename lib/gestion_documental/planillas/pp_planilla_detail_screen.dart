@@ -99,82 +99,14 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
 
     setState(() => _actioning = true);
     try {
-      switch (accion) {
-        case 'confirmar_carga':
-          await _service.confirmarCarga(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            nombreActor: widget.nombreActor,
+      await _ejecutarAccion(planilla, accion, observacion)
+          .timeout(
+            const Duration(seconds: 25),
+            onTimeout: () => throw PpException(
+              'La operación tardó demasiado (>25 s). '
+              'Verifica los índices de Firestore y tu conexión, luego intenta de nuevo.',
+            ),
           );
-        case 'enviar_auditoria':
-          await _service.enviarAuditoria(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            nombreActor: widget.nombreActor,
-          );
-        case 'observar':
-          await _service.observar(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            observacion: observacion!,
-            nombreActor: widget.nombreActor,
-          );
-        case 'reenviar':
-          await _service.reenviar(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            nombreActor: widget.nombreActor,
-          );
-        case 'aprobar_auditoria':
-          await _service.aprobarAuditoria(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            nombreActor: widget.nombreActor,
-          );
-        case 'enviar_gerencia':
-          await _service.enviarGerencia(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            nombreActor: widget.nombreActor,
-          );
-        case 'firmar':
-          await _service.firmar(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            nombreActor: widget.nombreActor,
-          );
-        case 'rechazar':
-          await _service.rechazar(
-            planillaId: planilla.planillaId,
-            empresaId: widget.empresaId,
-            loteId: planilla.loteId,
-            actorId: widget.userId,
-            rolPlanillas: widget.rolPlanillas,
-            motivo: observacion!,
-            nombreActor: widget.nombreActor,
-          );
-      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Acción completada: ${_accionLabel(accion)}', style: const TextStyle(fontFamily: kArial))),
@@ -186,8 +118,97 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           SnackBar(content: Text(e.mensaje, style: const TextStyle(fontFamily: kArial)), backgroundColor: Colors.red),
         );
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e', style: const TextStyle(fontFamily: kArial)),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _actioning = false);
+    }
+  }
+
+  Future<void> _ejecutarAccion(PpPlanilla planilla, String accion, String? observacion) async {
+    switch (accion) {
+      case 'confirmar_carga':
+        await _service.confirmarCarga(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          nombreActor: widget.nombreActor,
+        );
+      case 'enviar_auditoria':
+        await _service.enviarAuditoria(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          nombreActor: widget.nombreActor,
+        );
+      case 'observar':
+        await _service.observar(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          observacion: observacion!,
+          nombreActor: widget.nombreActor,
+        );
+      case 'reenviar':
+        await _service.reenviar(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          nombreActor: widget.nombreActor,
+        );
+      case 'aprobar_auditoria':
+        await _service.aprobarAuditoria(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          nombreActor: widget.nombreActor,
+        );
+      case 'enviar_gerencia':
+        await _service.enviarGerencia(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          nombreActor: widget.nombreActor,
+        );
+      case 'firmar':
+        await _service.firmar(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          nombreActor: widget.nombreActor,
+        );
+      case 'rechazar':
+        await _service.rechazar(
+          planillaId: planilla.planillaId,
+          empresaId: widget.empresaId,
+          loteId: planilla.loteId,
+          actorId: widget.userId,
+          rolPlanillas: widget.rolPlanillas,
+          motivo: observacion!,
+          nombreActor: widget.nombreActor,
+        );
     }
   }
 
