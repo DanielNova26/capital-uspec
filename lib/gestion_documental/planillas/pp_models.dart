@@ -18,37 +18,41 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PpRoles {
-  static const String tesoreria    = 'tesoreria';
-  static const String auditoria    = 'auditoria';
-  static const String gerencia     = 'gerencia';
-  static const String adminDoc     = 'admin_doc';
+  static const String tesoreria = 'tesoreria';
+  static const String auditoria = 'auditoria';
+  static const String gerencia = 'gerencia';
+  static const String adminDoc = 'admin_doc';
   static const String desarrollador = 'desarrollador';
 
   static const List<String> todos = [
-    tesoreria, auditoria, gerencia, adminDoc, desarrollador,
+    tesoreria,
+    auditoria,
+    gerencia,
+    adminDoc,
+    desarrollador,
   ];
 
   static const Map<String, String> etiquetas = {
-    tesoreria:    'Tesorería',
-    auditoria:    'Auditoría',
-    gerencia:     'Gerencia',
-    adminDoc:     'Administrador Documental',
+    tesoreria: 'Tesorería',
+    auditoria: 'Auditoría',
+    gerencia: 'Gerencia',
+    adminDoc: 'Administrador Documental',
     desarrollador: 'Desarrollador',
   };
 
   static const Map<String, Set<String>> permisosAccion = {
-    'confirmar_carga':   {tesoreria, adminDoc, desarrollador},
-    'enviar_auditoria':  {tesoreria, adminDoc, desarrollador},
-    'reenviar':          {tesoreria, adminDoc, desarrollador},
-    'observar':          {auditoria, adminDoc, desarrollador},
+    'confirmar_carga': {tesoreria, adminDoc, desarrollador},
+    'enviar_auditoria': {tesoreria, adminDoc, desarrollador},
+    'reenviar': {tesoreria, adminDoc, desarrollador},
+    'observar': {auditoria, adminDoc, desarrollador},
     'aprobar_auditoria': {auditoria, adminDoc, desarrollador},
-    'rechazar_auditoria':{auditoria, adminDoc, desarrollador},
-    'enviar_gerencia':   {auditoria, adminDoc, desarrollador},
-    'firmar':            {gerencia,  adminDoc, desarrollador},
-    'rechazar_gerencia': {gerencia,  adminDoc, desarrollador},
+    'rechazar_auditoria': {auditoria, adminDoc, desarrollador},
+    'enviar_gerencia': {auditoria, adminDoc, desarrollador},
+    'firmar': {gerencia, adminDoc, desarrollador},
+    'rechazar_gerencia': {gerencia, adminDoc, desarrollador},
     // admin_doc puede hacer todo lo anterior más:
-    'anular':            {adminDoc, desarrollador},
-    'ver_lote':          {tesoreria, auditoria, gerencia, adminDoc, desarrollador},
+    'anular': {adminDoc, desarrollador},
+    'ver_lote': {tesoreria, auditoria, gerencia, adminDoc, desarrollador},
   };
 
   static bool puedeEjecutar(String accion, String? rol) {
@@ -80,15 +84,24 @@ extension PpEstadoX on PpEstado {
 
   String get etiqueta {
     switch (this) {
-      case PpEstado.cargada:                  return 'Cargada';
-      case PpEstado.pendiente_validacion:     return 'Pendiente validación';
-      case PpEstado.en_revision_auditoria:    return 'En revisión auditoría';
-      case PpEstado.observada:                return 'Observada';
-      case PpEstado.aprobada_auditoria:       return 'Aprobada por auditoría';
-      case PpEstado.pendiente_firma_gerencia: return 'Pendiente firma gerencia';
-      case PpEstado.firmada:                  return 'Firmada';
-      case PpEstado.rechazada:                return 'Rechazada';
-      case PpEstado.anulada:                  return 'Anulada';
+      case PpEstado.cargada:
+        return 'Cargada';
+      case PpEstado.pendiente_validacion:
+        return 'Pendiente validación';
+      case PpEstado.en_revision_auditoria:
+        return 'En revisión auditoría';
+      case PpEstado.observada:
+        return 'Observada';
+      case PpEstado.aprobada_auditoria:
+        return 'Aprobada por auditoría';
+      case PpEstado.pendiente_firma_gerencia:
+        return 'Pendiente firma gerencia';
+      case PpEstado.firmada:
+        return 'Firmada';
+      case PpEstado.rechazada:
+        return 'Rechazada';
+      case PpEstado.anulada:
+        return 'Anulada';
     }
   }
 
@@ -100,15 +113,19 @@ extension PpEstadoX on PpEstado {
 
 /// Transiciones válidas por estado actual.
 const Map<PpEstado, Set<PpEstado>> kPpTransicionesValidas = {
-  PpEstado.cargada:                  {PpEstado.pendiente_validacion},
-  PpEstado.pendiente_validacion:     {PpEstado.en_revision_auditoria},
-  PpEstado.en_revision_auditoria:    {PpEstado.observada, PpEstado.aprobada_auditoria, PpEstado.rechazada},
-  PpEstado.observada:                {PpEstado.en_revision_auditoria},
-  PpEstado.aprobada_auditoria:       {PpEstado.pendiente_firma_gerencia},
+  PpEstado.cargada: {PpEstado.pendiente_validacion},
+  PpEstado.pendiente_validacion: {PpEstado.en_revision_auditoria},
+  PpEstado.en_revision_auditoria: {
+    PpEstado.observada,
+    PpEstado.aprobada_auditoria,
+    PpEstado.rechazada,
+  },
+  PpEstado.observada: {PpEstado.en_revision_auditoria},
+  PpEstado.aprobada_auditoria: {PpEstado.pendiente_firma_gerencia},
   PpEstado.pendiente_firma_gerencia: {PpEstado.firmada, PpEstado.rechazada},
-  PpEstado.firmada:                  {},
-  PpEstado.rechazada:                {},
-  PpEstado.anulada:                  {},
+  PpEstado.firmada: {},
+  PpEstado.rechazada: {},
+  PpEstado.anulada: {},
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,10 +133,10 @@ const Map<PpEstado, Set<PpEstado>> kPpTransicionesValidas = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum PpLoteEstado {
-  procesando,     // en carga inicial
-  listo,          // todas las planillas creadas, esperando acción
-  en_proceso,     // al menos una planilla avanzó del estado inicial
-  completado,     // todas firmadas o rechazadas
+  procesando, // en carga inicial
+  listo, // todas las planillas creadas, esperando acción
+  en_proceso, // al menos una planilla avanzó del estado inicial
+  completado, // todas firmadas o rechazadas
   anulado,
 }
 
@@ -127,11 +144,16 @@ extension PpLoteEstadoX on PpLoteEstado {
   String get valor => name;
   String get etiqueta {
     switch (this) {
-      case PpLoteEstado.procesando:  return 'Procesando';
-      case PpLoteEstado.listo:       return 'Listo';
-      case PpLoteEstado.en_proceso:  return 'En proceso';
-      case PpLoteEstado.completado:  return 'Completado';
-      case PpLoteEstado.anulado:     return 'Anulado';
+      case PpLoteEstado.procesando:
+        return 'Procesando';
+      case PpLoteEstado.listo:
+        return 'Listo';
+      case PpLoteEstado.en_proceso:
+        return 'En proceso';
+      case PpLoteEstado.completado:
+        return 'Completado';
+      case PpLoteEstado.anulado:
+        return 'Anulado';
     }
   }
 
@@ -158,7 +180,7 @@ enum PpAccion {
   firmado,
   rechazado_gerencia,
   anulado,
-  conciliacion_manual,    // cuando se ajusta el matching Excel/PDF a mano
+  conciliacion_manual, // cuando se ajusta el matching Excel/PDF a mano
   metadatos_actualizados, // cuando se corrigen campos detectados automáticamente
 }
 
@@ -166,20 +188,34 @@ extension PpAccionX on PpAccion {
   String get valor => name;
   String get descripcion {
     switch (this) {
-      case PpAccion.lote_creado:              return 'Lote de carga creado';
-      case PpAccion.planilla_creada:          return 'Planilla individual creada';
-      case PpAccion.carga_confirmada:         return 'Carga confirmada por tesorería';
-      case PpAccion.enviado_auditoria:        return 'Enviado a auditoría';
-      case PpAccion.observado:                return 'Observado con comentario';
-      case PpAccion.reenviado:                return 'Reenviado a auditoría';
-      case PpAccion.aprobado_auditoria:       return 'Aprobado por auditoría';
-      case PpAccion.rechazado_auditoria:      return 'Rechazado por auditoría';
-      case PpAccion.enviado_gerencia:         return 'Enviado a firma de gerencia';
-      case PpAccion.firmado:                  return 'Firmado por gerencia';
-      case PpAccion.rechazado_gerencia:       return 'Rechazado por gerencia';
-      case PpAccion.anulado:                  return 'Anulado por administrador';
-      case PpAccion.conciliacion_manual:      return 'Conciliación manual Excel/PDF';
-      case PpAccion.metadatos_actualizados:   return 'Metadatos de extracción actualizados';
+      case PpAccion.lote_creado:
+        return 'Lote de carga creado';
+      case PpAccion.planilla_creada:
+        return 'Planilla individual creada';
+      case PpAccion.carga_confirmada:
+        return 'Carga confirmada por tesorería';
+      case PpAccion.enviado_auditoria:
+        return 'Enviado a auditoría';
+      case PpAccion.observado:
+        return 'Observaciones registradas';
+      case PpAccion.reenviado:
+        return 'Nuevo PDF cargado y reenviado a auditoría';
+      case PpAccion.aprobado_auditoria:
+        return 'Aprobado por auditoría';
+      case PpAccion.rechazado_auditoria:
+        return 'Rechazado por auditoría';
+      case PpAccion.enviado_gerencia:
+        return 'Enviado a firma de gerencia';
+      case PpAccion.firmado:
+        return 'Firmado por gerencia';
+      case PpAccion.rechazado_gerencia:
+        return 'Rechazado por gerencia';
+      case PpAccion.anulado:
+        return 'Anulado por administrador';
+      case PpAccion.conciliacion_manual:
+        return 'Conciliación manual Excel/PDF';
+      case PpAccion.metadatos_actualizados:
+        return 'Metadatos de extracción actualizados';
     }
   }
 
@@ -196,9 +232,9 @@ extension PpAccionX on PpAccion {
 enum PpMatchEstado {
   coincidencia_exacta,
   coincidencia_parcial,
-  sin_coincidencia,   // PDF sin fila Excel
-  fila_sin_pdf,       // fila Excel sin PDF
-  conciliado_manual,  // corregido por usuario
+  sin_coincidencia, // PDF sin fila Excel
+  fila_sin_pdf, // fila Excel sin PDF
+  conciliado_manual, // corregido por usuario
 }
 
 extension PpMatchEstadoX on PpMatchEstado {
@@ -216,7 +252,7 @@ extension PpMatchEstadoX on PpMatchEstado {
 class PpLote {
   final String loteId;
   final String empresaId;
-  final String creadoPor;         // userId (cédula) de tesorería
+  final String creadoPor; // userId (cédula) de tesorería
   final String? nombreCreadoPor;
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
@@ -229,7 +265,7 @@ class PpLote {
 
   // Contadores
   final int totalPdfs;
-  final int totalPlanillas;     // puede diferir de totalPdfs tras la conciliación
+  final int totalPlanillas; // puede diferir de totalPdfs tras la conciliación
   final int planillasFirmadas;
   final int planillasRechazadas;
 
@@ -300,16 +336,19 @@ class PpPlanilla {
   final String loteId;
 
   // Origen del archivo
-  final String nombreArchivoOriginal;     // nombre del PDF físico cargado
-  final String? nombrePlanillaDetectado;  // extraído del PDF o del Excel
-  final String? fechaPlanillaDetectada;   // en formato 'YYYY-MM-DD' si se detectó
-  final double? valorDetectado;           // valor monetario detectado
+  final String nombreArchivoOriginal; // nombre del PDF físico cargado
+  final String? nombrePlanillaDetectado; // extraído del PDF o del Excel
+  final String? fechaPlanillaDetectada; // en formato 'YYYY-MM-DD' si se detectó
+  final double? valorDetectado; // valor monetario detectado
 
   // Estado de flujo
   final PpEstado estado;
 
   // Trazabilidad de actores (userId = cédula)
   final String cargadoPor;
+  final String? nombreCargado;
+  final String? cargoCargado;
+  final String? urlFirmaCargado;
   final String? revisadoPor;
   final Timestamp? revisadoEn;
   final String? firmadoPor;
@@ -357,6 +396,9 @@ class PpPlanilla {
     this.valorDetectado,
     required this.estado,
     required this.cargadoPor,
+    this.nombreCargado,
+    this.cargoCargado,
+    this.urlFirmaCargado,
     this.revisadoPor,
     this.revisadoEn,
     this.firmadoPor,
@@ -381,7 +423,10 @@ class PpPlanilla {
   factory PpPlanilla.fromMap(String planillaId, Map<String, dynamic> m) {
     final obsRaw = m['observaciones'];
     final List<Map<String, dynamic>> obs = obsRaw is List
-        ? obsRaw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+        ? obsRaw
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList()
         : [];
 
     return PpPlanilla(
@@ -394,6 +439,9 @@ class PpPlanilla {
       valorDetectado: (m['valorDetectado'] as num?)?.toDouble(),
       estado: PpEstadoX.deString((m['estado'] ?? 'cargada').toString()),
       cargadoPor: (m['cargadoPor'] ?? '').toString(),
+      nombreCargado: m['nombreCargado'] as String?,
+      cargoCargado: m['cargoCargado'] as String?,
+      urlFirmaCargado: m['urlFirmaCargado'] as String?,
       revisadoPor: m['revisadoPor'] as String?,
       revisadoEn: m['revisadoEn'] as Timestamp?,
       firmadoPor: m['firmadoPor'] as String?,
@@ -406,8 +454,12 @@ class PpPlanilla {
       cargoFirmante: m['cargoFirmante'] as String?,
       urlPdf: m['urlPdf'] as String?,
       pathPdf: m['pathPdf'] as String?,
-      datosExcel: m['datosExcel'] is Map ? Map<String, dynamic>.from(m['datosExcel'] as Map) : {},
-      matchEstado: PpMatchEstadoX.deString((m['matchEstado'] ?? 'sin_coincidencia').toString()),
+      datosExcel: m['datosExcel'] is Map
+          ? Map<String, dynamic>.from(m['datosExcel'] as Map)
+          : {},
+      matchEstado: PpMatchEstadoX.deString(
+        (m['matchEstado'] ?? 'sin_coincidencia').toString(),
+      ),
       excelRowIndex: m['excelRowIndex'] as int?,
       metadatosExtraccion: m['metadatosExtraccion'] is Map
           ? Map<String, dynamic>.from(m['metadatosExtraccion'] as Map)
@@ -427,6 +479,9 @@ class PpPlanilla {
     'valorDetectado': valorDetectado,
     'estado': estado.valor,
     'cargadoPor': cargadoPor,
+    'nombreCargado': nombreCargado,
+    'cargoCargado': cargoCargado,
+    'urlFirmaCargado': urlFirmaCargado,
     'revisadoPor': revisadoPor,
     'revisadoEn': revisadoEn,
     'firmadoPor': firmadoPor,
@@ -453,6 +508,9 @@ class PpPlanilla {
     String? nombrePlanillaDetectado,
     String? fechaPlanillaDetectada,
     double? valorDetectado,
+    String? nombreCargado,
+    String? cargoCargado,
+    String? urlFirmaCargado,
     String? revisadoPor,
     Timestamp? revisadoEn,
     String? firmadoPor,
@@ -476,11 +534,16 @@ class PpPlanilla {
     empresaId: empresaId,
     loteId: loteId,
     nombreArchivoOriginal: nombreArchivoOriginal,
-    nombrePlanillaDetectado: nombrePlanillaDetectado ?? this.nombrePlanillaDetectado,
-    fechaPlanillaDetectada: fechaPlanillaDetectada ?? this.fechaPlanillaDetectada,
+    nombrePlanillaDetectado:
+        nombrePlanillaDetectado ?? this.nombrePlanillaDetectado,
+    fechaPlanillaDetectada:
+        fechaPlanillaDetectada ?? this.fechaPlanillaDetectada,
     valorDetectado: valorDetectado ?? this.valorDetectado,
     estado: estado ?? this.estado,
     cargadoPor: cargadoPor,
+    nombreCargado: nombreCargado ?? this.nombreCargado,
+    cargoCargado: cargoCargado ?? this.cargoCargado,
+    urlFirmaCargado: urlFirmaCargado ?? this.urlFirmaCargado,
     revisadoPor: revisadoPor ?? this.revisadoPor,
     revisadoEn: revisadoEn ?? this.revisadoEn,
     firmadoPor: firmadoPor ?? this.firmadoPor,
@@ -512,7 +575,7 @@ class PpFlujoEvento {
   final String planillaId;
   final String loteId;
   final String empresaId;
-  final String accion;           // PpAccion.valor
+  final String accion; // PpAccion.valor
   final String realizadoPor;
   final String? nombreActor;
   final Timestamp? realizadoEn;
@@ -566,32 +629,61 @@ class PpFlujoEvento {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PpExcelFila {
-  final int rowIndex;               // 0-based (sin contar encabezado)
+  final int rowIndex; // índice interno para selección
+  final int excelRowNumber; // fila real dentro del Excel (1-based)
   final String? nombrePlanilla;
-  final String? fecha;              // 'YYYY-MM-DD' normalizado
+  final String? fecha; // 'YYYY-MM-DD' normalizado
   final double? valor;
-  final String? nombreArchivoPdf;   // si el Excel tiene columna con nombre de archivo
+  final String?
+  nombreArchivoPdf; // si el Excel tiene columna con nombre de archivo
   final Map<String, String> extras; // resto de columnas
 
   const PpExcelFila({
     required this.rowIndex,
+    required this.excelRowNumber,
     this.nombrePlanilla,
     this.fecha,
     this.valor,
     this.nombreArchivoPdf,
     this.extras = const {},
   });
+
+  Map<String, dynamic> toMap() => {
+    'rowIndex': rowIndex,
+    'excelRowNumber': excelRowNumber,
+    if (nombrePlanilla != null) 'nombrePlanilla': nombrePlanilla,
+    if (fecha != null) 'fecha': fecha,
+    if (valor != null) 'valor': valor,
+    if (nombreArchivoPdf != null) 'nombreArchivoPdf': nombreArchivoPdf,
+    'extras': extras,
+  };
+
+  factory PpExcelFila.fromMap(Map<String, dynamic> map) => PpExcelFila(
+    rowIndex: (map['rowIndex'] as num?)?.toInt() ?? 0,
+    excelRowNumber: (map['excelRowNumber'] as num?)?.toInt() ?? 0,
+    nombrePlanilla: map['nombrePlanilla'] as String?,
+    fecha: map['fecha'] as String?,
+    valor: (map['valor'] as num?)?.toDouble(),
+    nombreArchivoPdf: map['nombreArchivoPdf'] as String?,
+    extras:
+        (map['extras'] as Map?)?.map(
+          (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
+        ) ??
+        const {},
+  );
 }
 
 class PpExcelParseResult {
   final List<PpExcelFila> filas;
-  final List<String> columnas;   // encabezados originales
+  final List<String> columnas; // encabezados originales
+  final int headerRowNumber; // fila real del encabezado en Excel (1-based)
   final int filasOmitidas;
   final String? error;
 
   const PpExcelParseResult({
     required this.filas,
     required this.columnas,
+    this.headerRowNumber = 1,
     this.filasOmitidas = 0,
     this.error,
   });
@@ -604,10 +696,10 @@ class PpExcelParseResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class PpMatchResult {
-  final String pdfNombre;           // nombre del archivo PDF
-  final PpExcelFila? filaExcel;     // null si no hay coincidencia
+  final String pdfNombre; // nombre del archivo PDF
+  final PpExcelFila? filaExcel; // null si no hay coincidencia
   final PpMatchEstado matchEstado;
-  final double? score;              // 0.0 – 1.0 para fuzzy match
+  final double? score; // 0.0 – 1.0 para fuzzy match
 
   const PpMatchResult({
     required this.pdfNombre,

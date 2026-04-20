@@ -3,6 +3,8 @@
 // Modelos de datos del módulo Gestión Documental.
 // Independiente de Compras y Nutrición — no reutiliza DocAdjunto ni TBL_FIRMAS.
 
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -457,6 +459,8 @@ class FirmaUsuarioDoc {
   final String? cargo;        // Cargo o rol que aparece bajo la firma
   final String? urlFirma;     // PNG firma manuscrita — descargable
   final String? pathFirma;    // Path en Storage: firmas_doc/{empresaId}/{userId}/firma.png
+  /// Raw PNG bytes stored as Firestore Blob — primary read path on web (avoids Storage CORS).
+  final Uint8List? firmaBlob;
   final bool activa;
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
@@ -468,12 +472,16 @@ class FirmaUsuarioDoc {
     this.cargo,
     this.urlFirma,
     this.pathFirma,
+    this.firmaBlob,
     this.activa = true,
     this.createdAt,
     this.updatedAt,
   });
 
-  bool get tieneFirma => urlFirma != null && urlFirma!.isNotEmpty;
+  bool get tieneFirma =>
+      (firmaBlob != null && firmaBlob!.isNotEmpty) ||
+      (urlFirma != null && urlFirma!.isNotEmpty) ||
+      (pathFirma != null && pathFirma!.isNotEmpty);
 
   static String docId(String empresaId, String userId) => '${empresaId}_$userId';
 
@@ -508,6 +516,7 @@ class FirmaUsuarioDoc {
     String? cargo,
     String? urlFirma,
     String? pathFirma,
+    Uint8List? firmaBlob,
     bool? activa,
     Timestamp? updatedAt,
   }) => FirmaUsuarioDoc(
@@ -517,6 +526,7 @@ class FirmaUsuarioDoc {
     cargo: cargo ?? this.cargo,
     urlFirma: urlFirma ?? this.urlFirma,
     pathFirma: pathFirma ?? this.pathFirma,
+    firmaBlob: firmaBlob ?? this.firmaBlob,
     activa: activa ?? this.activa,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,

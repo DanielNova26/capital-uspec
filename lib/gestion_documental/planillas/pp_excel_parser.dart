@@ -33,32 +33,66 @@ class PpExcelParser {
       final excel = Excel.decodeBytes(_fixNumFmtIds(bytes));
       Sheet? sheet = _findSheet(excel);
       if (sheet == null || sheet.rows.isEmpty) {
-        return const PpExcelParseResult(filas: [], columnas: [], error: 'No se encontró hoja válida en el Excel.');
+        return const PpExcelParseResult(
+          filas: [],
+          columnas: [],
+          error: 'No se encontró hoja válida en el Excel.',
+        );
       }
 
-      final rawHeaders = sheet.rows.first
-          .map((c) => _cellStr(c?.value))
+      final headerRowIndex = _findHeaderRowIndex(sheet);
+      final rawHeaders = sheet.rows[headerRowIndex]
+          .map((c) => _cellText(sheet, headerRowIndex, c?.columnIndex ?? 0))
           .toList(growable: false);
       final headers = rawHeaders.map(_normalize).toList(growable: false);
 
       final filas = <PpExcelFila>[];
       var omitidas = 0;
+      var internalRowIndex = 0;
 
-      for (var i = 1; i < sheet.rows.length; i++) {
+      for (var i = headerRowIndex + 1; i < sheet.rows.length; i++) {
         final row = sheet.rows[i];
-        if (row.every((c) => _cellStr(c?.value).trim().isEmpty)) continue;
+        if (row.every(
+          (c) => _cellText(sheet, i, c?.columnIndex ?? 0).trim().isEmpty,
+        )) {
+          continue;
+        }
 
         final map = <String, String>{};
         for (var j = 0; j < headers.length; j++) {
           final key = headers[j];
           if (key.isEmpty) continue;
-          map[key] = j < row.length ? _cellStr(row[j]?.value).trim() : '';
+          map[key] = j < row.length ? _cellText(sheet, i, j).trim() : '';
         }
 
-        final nombre = _pick(map, ['nombre_planilla', 'planilla', 'nombre']);
-        final fechaRaw = _pick(map, ['fecha', 'fecha_planilla', 'fecha_pago']);
-        final valorRaw = _pick(map, ['valor', 'monto', 'total', 'valor_planilla']);
-        final archivoPdf = _pick(map, ['archivo_pdf', 'pdf', 'nombre_archivo', 'archivo']);
+        final nombre = _pick(map, [
+          'consolidado',
+          'planilla',
+          'nombre_planilla',
+          'n_planilla',
+          'numero_planilla',
+          'nombre',
+        ]);
+        final fechaRaw = _pick(map, [
+          'fecha_programada',
+          'fecha',
+          'fecha_planilla',
+          'fecha_pago',
+          'fecha_banco',
+        ]);
+        final valorRaw = _pick(map, [
+          'valor_a_pagar',
+          'valor',
+          'monto',
+          'total',
+          'valor_planilla',
+        ]);
+        final archivoPdf = _pick(map, [
+          'archivo_pdf',
+          'pdf',
+          'nombre_archivo',
+          'archivo',
+        ]);
 
         if (nombre.isEmpty && archivoPdf.isEmpty) {
           omitidas++;
@@ -81,29 +115,45 @@ class PpExcelParser {
           ..remove('nombre_archivo')
           ..remove('archivo');
 
-        filas.add(PpExcelFila(
-          rowIndex: i - 1,
-          nombrePlanilla: nombre.isEmpty ? null : nombre,
-          fecha: _parseDate(fechaRaw),
-          valor: _parseDouble(valorRaw),
-          nombreArchivoPdf: archivoPdf.isEmpty ? null : archivoPdf,
-          extras: extras,
-        ));
+        filas.add(
+          PpExcelFila(
+            rowIndex: internalRowIndex++,
+            excelRowNumber: i + 1,
+            nombrePlanilla: nombre.isEmpty ? null : nombre,
+            fecha: _parseDate(fechaRaw),
+            valor: _parseDouble(valorRaw),
+            nombreArchivoPdf: archivoPdf.isEmpty ? null : archivoPdf,
+            extras: extras,
+          ),
+        );
       }
 
       return PpExcelParseResult(
         filas: filas,
         columnas: rawHeaders.where((h) => h.isNotEmpty).toList(),
+        headerRowNumber: headerRowIndex + 1,
         filasOmitidas: omitidas,
       );
     } catch (e) {
-      return PpExcelParseResult(filas: [], columnas: [], error: 'Error al procesar Excel: $e');
+      return PpExcelParseResult(
+        filas: [],
+        columnas: [],
+        error: 'Error al procesar Excel: $e',
+      );
     }
   }
 
   Sheet? _findSheet(Excel excel) {
     // Preferir hojas con nombres relacionados a planillas/pago
-    const preferred = ['planillas', 'pago', 'planillas_pago', 'hoja1', 'sheet1', 'data'];
+    const preferred = [
+      'planillas',
+      'pago',
+      'planillas_pago',
+      'consolidado',
+      'hoja1',
+      'sheet1',
+      'data',
+    ];
     for (final name in preferred) {
       final key = excel.tables.keys.firstWhere(
         (k) => _normalize(k).contains(name),
@@ -116,6 +166,47 @@ class PpExcelParser {
     return null;
   }
 
+  int _findHeaderRowIndex(Sheet sheet) {
+    var bestIndex = 0;
+    var bestScore = -1;
+    final limit = sheet.rows.length < 30 ? sheet.rows.length : 30;
+
+    for (var rowIndex = 0; rowIndex < limit; rowIndex++) {
+      final normalized = sheet.rows[rowIndex]
+          .map(
+            (c) => _normalize(_cellText(sheet, rowIndex, c?.columnIndex ?? 0)),
+          )
+          .where((v) => v.isNotEmpty)
+          .toSet();
+      if (normalized.isEmpty) {
+        continue;
+      }
+
+      var score = 0;
+      if (normalized.contains('planilla') ||
+          normalized.contains('consolidado')) {
+        score += 3;
+      }
+      if (normalized.contains('valor_a_pagar') ||
+          normalized.contains('valor')) {
+        score += 3;
+      }
+      if (normalized.contains('fecha_programada') ||
+          normalized.contains('fecha')) {
+        score += 2;
+      }
+      if (normalized.contains('proveedor')) score += 2;
+      if (normalized.contains('banco')) score += 1;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = rowIndex;
+      }
+    }
+
+    return bestIndex;
+  }
+
   String _pick(Map<String, String> map, List<String> keys) {
     for (final k in keys) {
       final v = map[k];
@@ -124,19 +215,45 @@ class PpExcelParser {
     return '';
   }
 
-  String _normalize(String s) => s.toLowerCase()
+  String _normalize(String s) => s
+      .toLowerCase()
       .replaceAllMapped(RegExp(r'[áéíóú\s\-]'), (m) {
-        const map = {'á':'a','é':'e','í':'i','ó':'o','ú':'u',' ':'_','-':'_'};
+        const map = {
+          'á': 'a',
+          'é': 'e',
+          'í': 'i',
+          'ó': 'o',
+          'ú': 'u',
+          ' ': '_',
+          '-': '_',
+        };
         return map[m.group(0)!] ?? m.group(0)!;
       })
       .replaceAll(RegExp(r'[^a-z0-9_]'), '');
 
-  String _cellStr(dynamic value) {
+  String _cellText(Sheet sheet, int rowIndex, int colIndex) {
+    final rows = sheet.rows;
+    if (rowIndex < 0 || rowIndex >= rows.length) return '';
+    final row = rows[rowIndex];
+    if (colIndex < 0 || colIndex >= row.length) return '';
+    return _cellStr(sheet, rowIndex, colIndex, row[colIndex]?.value);
+  }
+
+  String _cellStr(Sheet sheet, int rowIndex, int colIndex, dynamic value) {
     if (value == null) return '';
     if (value is TextCellValue) return value.value.toString();
     if (value is IntCellValue) return value.value.toString();
     if (value is DoubleCellValue) return value.value.toString();
-    if (value is DateCellValue) return '${value.year}-${value.month.toString().padLeft(2,'0')}-${value.day.toString().padLeft(2,'0')}';
+    if (value is DateCellValue) {
+      return '${value.year}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+    }
+    if (value is FormulaCellValue) {
+      final evaluated = _evaluateFormulaCell(sheet, rowIndex, colIndex, {});
+      if (evaluated != null) {
+        return evaluated.toString();
+      }
+      return value.formula;
+    }
     return value.toString();
   }
 
@@ -146,27 +263,84 @@ class PpExcelParser {
     final iso = RegExp(r'^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$');
     var m = iso.firstMatch(raw.trim());
     if (m != null) {
-      return '${m.group(1)}-${m.group(2)!.padLeft(2,'0')}-${m.group(3)!.padLeft(2,'0')}';
+      return '${m.group(1)}-${m.group(2)!.padLeft(2, '0')}-${m.group(3)!.padLeft(2, '0')}';
     }
     // DD/MM/YYYY
     final dmy = RegExp(r'^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$');
     m = dmy.firstMatch(raw.trim());
     if (m != null) {
-      return '${m.group(3)}-${m.group(2)!.padLeft(2,'0')}-${m.group(1)!.padLeft(2,'0')}';
+      return '${m.group(3)}-${m.group(2)!.padLeft(2, '0')}-${m.group(1)!.padLeft(2, '0')}';
     }
     return raw.trim(); // devolver tal cual si no se reconoce el formato
   }
 
   double? _parseDouble(String raw) {
     if (raw.isEmpty) return null;
-    final cleaned = raw.replaceAll(RegExp(r'[\$,\.]'), '').replaceAll(',', '.');
+    final normalizedRaw = raw.trim();
+    final cleaned = normalizedRaw.replaceAll(RegExp(r'[\$\s]'), '');
     // Manejar separadores colombianos (1.234.567,89 → 1234567.89)
     final colonFormat = RegExp(r'^[\d.]+,\d{2}$');
-    if (colonFormat.hasMatch(raw.trim())) {
-      final normalized = raw.trim().replaceAll('.', '').replaceAll(',', '.');
+    if (colonFormat.hasMatch(normalizedRaw)) {
+      final normalized = normalizedRaw.replaceAll('.', '').replaceAll(',', '.');
       return double.tryParse(normalized);
     }
-    return double.tryParse(cleaned);
+    final standard = cleaned.replaceAll(',', '');
+    return double.tryParse(standard);
+  }
+
+  double? _evaluateFormulaCell(
+    Sheet sheet,
+    int rowIndex,
+    int colIndex,
+    Map<String, double?> cache,
+  ) {
+    final key = '$rowIndex:$colIndex';
+    if (cache.containsKey(key)) return cache[key];
+    cache[key] = null;
+
+    final rows = sheet.rows;
+    if (rowIndex < 0 || rowIndex >= rows.length) return null;
+    final row = rows[rowIndex];
+    if (colIndex < 0 || colIndex >= row.length) return null;
+
+    final value = row[colIndex]?.value;
+    if (value is IntCellValue) return cache[key] = value.value.toDouble();
+    if (value is DoubleCellValue) return cache[key] = value.value;
+    if (value is TextCellValue) {
+      return cache[key] = _parseDouble(value.value.toString());
+    }
+    if (value is FormulaCellValue) {
+      final expression = value.formula
+          .replaceFirst('=', '')
+          .replaceFirst('+', '')
+          .trim();
+      final resolved = expression.replaceAllMapped(
+        RegExp(r'\$?([A-Z]+)\$?(\d+)'),
+        (match) {
+          final colRef = _columnNameToIndex(match.group(1)!);
+          final rowRef = int.tryParse(match.group(2) ?? '') ?? 0;
+          final cellValue =
+              _evaluateFormulaCell(sheet, rowRef - 1, colRef, cache) ?? 0;
+          return cellValue.toString();
+        },
+      );
+      if (!RegExp(r'^[0-9\.\+\-\*\/\(\)\s]+$').hasMatch(resolved)) return null;
+      return cache[key] = _evaluateArithmetic(resolved);
+    }
+    return null;
+  }
+
+  int _columnNameToIndex(String columnName) {
+    var result = 0;
+    for (final codeUnit in columnName.codeUnits) {
+      result = result * 26 + (codeUnit - 64);
+    }
+    return result - 1;
+  }
+
+  double? _evaluateArithmetic(String input) {
+    final parser = _SimpleExpressionParser(input);
+    return parser.parse();
   }
 
   // El paquete excel 4.x exige numFmtId >= 164 para formatos custom.
@@ -197,20 +371,19 @@ class PpExcelParser {
       }
 
       // Reemplazar todos los numFmtId="N" → numFmtId="N_nuevo" en styles.xml
-      xml = xml.replaceAllMapped(
-        RegExp(r'numFmtId="(\d+)"'),
-        (m) {
-          final id = int.tryParse(m.group(1) ?? '') ?? -1;
-          return 'numFmtId="${remap[id] ?? id}"';
-        },
-      );
+      xml = xml.replaceAllMapped(RegExp(r'numFmtId="(\d+)"'), (m) {
+        final id = int.tryParse(m.group(1) ?? '') ?? -1;
+        return 'numFmtId="${remap[id] ?? id}"';
+      });
 
       // Reconstruir ZIP con styles.xml parcheado
       final newArchive = Archive();
       for (final file in archive) {
         if (file.name == 'xl/styles.xml') {
           final encoded = utf8.encode(xml);
-          newArchive.addFile(ArchiveFile('xl/styles.xml', encoded.length, encoded));
+          newArchive.addFile(
+            ArchiveFile('xl/styles.xml', encoded.length, encoded),
+          );
         } else {
           newArchive.addFile(file);
         }
@@ -222,6 +395,74 @@ class PpExcelParser {
   }
 }
 
+class _SimpleExpressionParser {
+  final String source;
+  int _index = 0;
+
+  _SimpleExpressionParser(String source) : source = source.replaceAll(' ', '');
+
+  double? parse() {
+    if (source.isEmpty) return null;
+    final value = _parseExpression();
+    if (value == null || _index != source.length) return null;
+    return value;
+  }
+
+  double? _parseExpression() {
+    var value = _parseTerm();
+    while (value != null && _index < source.length) {
+      final op = source[_index];
+      if (op != '+' && op != '-') break;
+      _index++;
+      final rhs = _parseTerm();
+      if (rhs == null) return null;
+      value = op == '+' ? value + rhs : value - rhs;
+    }
+    return value;
+  }
+
+  double? _parseTerm() {
+    var value = _parseFactor();
+    while (value != null && _index < source.length) {
+      final op = source[_index];
+      if (op != '*' && op != '/') break;
+      _index++;
+      final rhs = _parseFactor();
+      if (rhs == null) return null;
+      value = op == '*' ? value * rhs : value / rhs;
+    }
+    return value;
+  }
+
+  double? _parseFactor() {
+    if (_index >= source.length) return null;
+    if (source[_index] == '+') {
+      _index++;
+      return _parseFactor();
+    }
+    if (source[_index] == '-') {
+      _index++;
+      final value = _parseFactor();
+      return value == null ? null : -value;
+    }
+    if (source[_index] == '(') {
+      _index++;
+      final value = _parseExpression();
+      if (_index >= source.length || source[_index] != ')') return null;
+      _index++;
+      return value;
+    }
+
+    final start = _index;
+    while (_index < source.length &&
+        RegExp(r'[0-9.]').hasMatch(source[_index])) {
+      _index++;
+    }
+    if (start == _index) return null;
+    return double.tryParse(source.substring(start, _index));
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MATCHER PDF ↔ FILA EXCEL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,31 +471,29 @@ class PpMatcher {
   /// Recibe la lista de nombres de archivos PDF y las filas del Excel.
   /// Retorna un resultado de matching por cada PDF.
   /// Las filas sin PDF correspondiente se incluyen en [filasHuerfanas].
-  static ({
-    List<PpMatchResult> matches,
-    List<PpExcelFila> filasHuerfanas,
-  }) match({
-    required List<String> pdfNombres,
-    required List<PpExcelFila> filas,
-  }) {
+  static ({List<PpMatchResult> matches, List<PpExcelFila> filasHuerfanas})
+  match({required List<String> pdfNombres, required List<PpExcelFila> filas}) {
     final usedRowIndices = <int>{};
     final matches = <PpMatchResult>[];
 
     for (final pdf in pdfNombres) {
       // 1. Exacto por nombre de archivo en columna archivo_pdf
       final exactoIdx = filas.indexWhere(
-        (f) => !usedRowIndices.contains(f.rowIndex) &&
-               f.nombreArchivoPdf != null &&
-               _normalizeFilename(f.nombreArchivoPdf!) == _normalizeFilename(pdf),
+        (f) =>
+            !usedRowIndices.contains(f.rowIndex) &&
+            f.nombreArchivoPdf != null &&
+            _normalizeFilename(f.nombreArchivoPdf!) == _normalizeFilename(pdf),
       );
       if (exactoIdx >= 0) {
         usedRowIndices.add(filas[exactoIdx].rowIndex);
-        matches.add(PpMatchResult(
-          pdfNombre: pdf,
-          filaExcel: filas[exactoIdx],
-          matchEstado: PpMatchEstado.coincidencia_exacta,
-          score: 1.0,
-        ));
+        matches.add(
+          PpMatchResult(
+            pdfNombre: pdf,
+            filaExcel: filas[exactoIdx],
+            matchEstado: PpMatchEstado.coincidencia_exacta,
+            score: 1.0,
+          ),
+        );
         continue;
       }
 
@@ -264,7 +503,10 @@ class PpMatcher {
       for (final fila in filas) {
         if (usedRowIndices.contains(fila.rowIndex)) continue;
         if (fila.nombrePlanilla == null) continue;
-        final score = _similarity(_normalizeFilename(pdf), _normalizeFilename(fila.nombrePlanilla!));
+        final score = _similarity(
+          _normalizeFilename(pdf),
+          _normalizeFilename(fila.nombrePlanilla!),
+        );
         if (score > mejorScore) {
           mejorScore = score;
           mejorFila = fila;
@@ -273,21 +515,25 @@ class PpMatcher {
 
       if (mejorFila != null && mejorScore >= 0.6) {
         usedRowIndices.add(mejorFila.rowIndex);
-        matches.add(PpMatchResult(
-          pdfNombre: pdf,
-          filaExcel: mejorFila,
-          matchEstado: PpMatchEstado.coincidencia_parcial,
-          score: mejorScore,
-        ));
+        matches.add(
+          PpMatchResult(
+            pdfNombre: pdf,
+            filaExcel: mejorFila,
+            matchEstado: PpMatchEstado.coincidencia_parcial,
+            score: mejorScore,
+          ),
+        );
         continue;
       }
 
       // 3. Sin coincidencia
-      matches.add(PpMatchResult(
-        pdfNombre: pdf,
-        filaExcel: null,
-        matchEstado: PpMatchEstado.sin_coincidencia,
-      ));
+      matches.add(
+        PpMatchResult(
+          pdfNombre: pdf,
+          filaExcel: null,
+          matchEstado: PpMatchEstado.sin_coincidencia,
+        ),
+      );
     }
 
     // 4. Posicional como último recurso: si hay PDFs sin match y filas sin asignar
@@ -297,9 +543,12 @@ class PpMatcher {
         .where((e) => e.value.matchEstado == PpMatchEstado.sin_coincidencia)
         .map((e) => e.key)
         .toList();
-    final filasLibres = filas.where((f) => !usedRowIndices.contains(f.rowIndex)).toList();
+    final filasLibres = filas
+        .where((f) => !usedRowIndices.contains(f.rowIndex))
+        .toList();
 
-    if (sinMatchIndices.length == filasLibres.length && sinMatchIndices.isNotEmpty) {
+    if (sinMatchIndices.length == filasLibres.length &&
+        sinMatchIndices.isNotEmpty) {
       for (var i = 0; i < sinMatchIndices.length; i++) {
         final idx = sinMatchIndices[i];
         usedRowIndices.add(filasLibres[i].rowIndex);
@@ -313,13 +562,17 @@ class PpMatcher {
     }
 
     // Filas huérfanas (sin PDF)
-    final filasHuerfanas = filas.where((f) => !usedRowIndices.contains(f.rowIndex)).toList();
+    final filasHuerfanas = filas
+        .where((f) => !usedRowIndices.contains(f.rowIndex))
+        .toList();
 
     return (matches: matches, filasHuerfanas: filasHuerfanas);
   }
 
-  static String _normalizeFilename(String s) =>
-      s.toLowerCase().replaceAll(RegExp(r'\.pdf$'), '').replaceAll(RegExp(r'[\s_\-]'), '');
+  static String _normalizeFilename(String s) => s
+      .toLowerCase()
+      .replaceAll(RegExp(r'\.pdf$'), '')
+      .replaceAll(RegExp(r'[\s_\-]'), '');
 
   /// Similitud simple basada en bigramas (Dice coefficient).
   static double _similarity(String a, String b) {

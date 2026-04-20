@@ -23,12 +23,11 @@
 //
 // Regla fuerte: solo una versión puede tener esVigente=true por documento.
 
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 // Eliminado import de file_picker.dart
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import 'gd_models.dart';
 import '../services/task_service.dart';
@@ -49,13 +48,13 @@ class GdException implements Exception {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const Map<GdEstado, Set<GdEstado>> _kTransicionesValidas = {
-  GdEstado.borrador:    {GdEstado.en_revision},
+  GdEstado.borrador: {GdEstado.en_revision},
   GdEstado.en_revision: {GdEstado.observado, GdEstado.aprobado},
-  GdEstado.observado:   {GdEstado.en_revision},
-  GdEstado.aprobado:    {GdEstado.firmado},
-  GdEstado.firmado:     {GdEstado.vigente},
-  GdEstado.vigente:     {GdEstado.obsoleto},
-  GdEstado.obsoleto:    {},
+  GdEstado.observado: {GdEstado.en_revision},
+  GdEstado.aprobado: {GdEstado.firmado},
+  GdEstado.firmado: {GdEstado.vigente},
+  GdEstado.vigente: {GdEstado.obsoleto},
+  GdEstado.obsoleto: {},
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,25 +63,32 @@ const Map<GdEstado, Set<GdEstado>> _kTransicionesValidas = {
 
 class GdService {
   static const String _colDocumentos = 'TBL_DOCUMENTOS';
-  static const String _colVersiones  = 'TBL_DOCUMENTOS_VERSIONES';
-  static const String _colFlujo      = 'TBL_DOCUMENTOS_FLUJO';
-  static const String _colUsuarios   = 'TBL_USUARIOS';
+  static const String _colVersiones = 'TBL_DOCUMENTOS_VERSIONES';
+  static const String _colFlujo = 'TBL_DOCUMENTOS_FLUJO';
+  static const String _colUsuarios = 'TBL_USUARIOS';
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
   final TaskService _taskService;
 
-  GdService({FirebaseFirestore? db, FirebaseStorage? storage, TaskService? taskService})
-      : _db = db ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance,
-        _taskService = taskService ?? TaskService();
+  GdService({
+    FirebaseFirestore? db,
+    FirebaseStorage? storage,
+    TaskService? taskService,
+  }) : _db = db ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance,
+       _taskService = taskService ?? TaskService();
 
   // ── Colecciones ─────────────────────────────────────────────────────────────
 
-  CollectionReference<Map<String, dynamic>> get _docCol => _db.collection(_colDocumentos);
-  CollectionReference<Map<String, dynamic>> get _verCol => _db.collection(_colVersiones);
-  CollectionReference<Map<String, dynamic>> get _flujoCol => _db.collection(_colFlujo);
-  CollectionReference<Map<String, dynamic>> get _usersCol => _db.collection(_colUsuarios);
+  CollectionReference<Map<String, dynamic>> get _docCol =>
+      _db.collection(_colDocumentos);
+  CollectionReference<Map<String, dynamic>> get _verCol =>
+      _db.collection(_colVersiones);
+  CollectionReference<Map<String, dynamic>> get _flujoCol =>
+      _db.collection(_colFlujo);
+  CollectionReference<Map<String, dynamic>> get _usersCol =>
+      _db.collection(_colUsuarios);
 
   // ─────────────────────────────────────────────────────────────────────────
   // CREAR DOCUMENTO + PRIMERA VERSIÓN
@@ -95,7 +101,7 @@ class GdService {
     required String empresaId,
     required String titulo,
     required String codigo,
-    required String actorId,      // userId del redactor
+    required String actorId, // userId del redactor
     required String rolDocumental,
     String? descripcion,
     String? categoria,
@@ -199,7 +205,9 @@ class GdService {
       );
     }
 
-    debugPrint('[GdService] Documento creado: docId=$docId versionId=$versionId');
+    debugPrint(
+      '[GdService] Documento creado: docId=$docId versionId=$versionId',
+    );
     return docId;
   }
 
@@ -224,8 +232,11 @@ class GdService {
     // Verificar estado permitido para reemplazar PDF
     final verSnap = await _verCol.doc(versionId).get();
     if (!verSnap.exists) throw const GdException('Versión no encontrada.');
-    final estadoActual = GdEstadoX.deString((verSnap.data()?['estado'] ?? 'borrador').toString());
-    if (estadoActual != GdEstado.borrador && estadoActual != GdEstado.observado) {
+    final estadoActual = GdEstadoX.deString(
+      (verSnap.data()?['estado'] ?? 'borrador').toString(),
+    );
+    if (estadoActual != GdEstado.borrador &&
+        estadoActual != GdEstado.observado) {
       throw GdException(
         'Solo se puede reemplazar el PDF en estado borrador u observado. '
         'Estado actual: ${estadoActual.etiqueta}',
@@ -324,9 +335,7 @@ class GdService {
         'revisadoEn': FieldValue.serverTimestamp(),
         'observacion': observacion.trim(),
       },
-      camposDocumento: {
-        'revisadoPor': actorId,
-      },
+      camposDocumento: {'revisadoPor': actorId},
     );
     await _notificarObservacionDocumento(
       docId: docId,
@@ -394,9 +403,7 @@ class GdService {
         'aprobadoPor': actorId,
         'aprobadoEn': FieldValue.serverTimestamp(),
       },
-      camposDocumento: {
-        'aprobadoPor': actorId,
-      },
+      camposDocumento: {'aprobadoPor': actorId},
     );
   }
 
@@ -420,7 +427,11 @@ class GdService {
     String? urlFirmaSnapshot;
     try {
       final firmaDoc = await _usersCol.doc(actorId).get();
-      final firmaPerfil = _mapUserToFirmaUsuario(actorId, empresaId, firmaDoc.data());
+      final firmaPerfil = _mapUserToFirmaUsuario(
+        actorId,
+        empresaId,
+        firmaDoc.data(),
+      );
       urlFirmaSnapshot = firmaPerfil?.urlFirma;
     } catch (_) {}
 
@@ -440,9 +451,7 @@ class GdService {
         'urlFirmaUsada': urlFirmaSnapshot,
         'nombreFirmante': nombreActor ?? actorId,
       },
-      camposDocumento: {
-        'firmadoPor': actorId,
-      },
+      camposDocumento: {'firmadoPor': actorId},
     );
   }
 
@@ -463,7 +472,9 @@ class GdService {
     // Validar que la versión esté en estado firmado
     final verSnap = await _verCol.doc(versionId).get();
     if (!verSnap.exists) throw const GdException('Versión no encontrada.');
-    final estadoActual = GdEstadoX.deString((verSnap.data()?['estado'] ?? '').toString());
+    final estadoActual = GdEstadoX.deString(
+      (verSnap.data()?['estado'] ?? '').toString(),
+    );
     if (estadoActual != GdEstado.firmado) {
       throw GdException(
         'La versión debe estar en estado "firmado" para marcarse vigente. '
@@ -531,7 +542,9 @@ class GdService {
       nombreActor: nombreActor,
     );
 
-    debugPrint('[GdService] Versión vigente: versionId=$versionId docId=$docId');
+    debugPrint(
+      '[GdService] Versión vigente: versionId=$versionId docId=$docId',
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -559,9 +572,7 @@ class GdService {
     final data = docSnap.data()!;
 
     // Calcular nuevo número de versión
-    final versionsSnap = await _verCol
-        .where('docId', isEqualTo: docId)
-        .get();
+    final versionsSnap = await _verCol.where('docId', isEqualTo: docId).get();
     final maxNumero = versionsSnap.docs.fold<int>(0, (max, d) {
       final n = (d.data()['numero'] as int?) ?? 0;
       return n > max ? n : max;
@@ -653,7 +664,9 @@ class GdService {
       );
     }
 
-    debugPrint('[GdService] Nueva versión: versionId=$versionId ($nuevaEtiqueta) docId=$docId');
+    debugPrint(
+      '[GdService] Nueva versión: versionId=$versionId ($nuevaEtiqueta) docId=$docId',
+    );
     return versionId;
   }
 
@@ -693,7 +706,8 @@ class GdService {
       'updatedAt': FieldValue.serverTimestamp(),
       'firmaActualizadaEn': FieldValue.serverTimestamp(),
       'empresasDetalle.$empresaId.firmaActiva': firmaBytes != null,
-      'empresasDetalle.$empresaId.firmaActualizadaEn': FieldValue.serverTimestamp(),
+      'empresasDetalle.$empresaId.firmaActualizadaEn':
+          FieldValue.serverTimestamp(),
     };
     if (urlFirma != null) {
       update['urlFirma'] = urlFirma;
@@ -702,12 +716,19 @@ class GdService {
     if (pathFirma != null) {
       update['pathFirma'] = pathFirma;
       update['empresasDetalle.$empresaId.pathFirma'] = pathFirma;
-    }
-    else if (firmaBytes == null) {
+    } else if (firmaBytes == null) {
       update['urlFirma'] = null;
       update['pathFirma'] = null;
+      update['firmaBlob'] = null;
       update['empresasDetalle.$empresaId.urlFirma'] = null;
       update['empresasDetalle.$empresaId.pathFirma'] = null;
+      update['empresasDetalle.$empresaId.firmaBlob'] = null;
+    }
+    // Store raw bytes in Firestore as Blob — this is the most reliable read path
+    // on web (no Storage CORS or security-rule issues).
+    if (firmaBytes != null) {
+      update['firmaBlob'] = firmaBytes;
+      update['empresasDetalle.$empresaId.firmaBlob'] = firmaBytes;
     }
 
     await _usersCol.doc(userId).set(update, SetOptions(merge: true));
@@ -735,6 +756,49 @@ class GdService {
     return _mapUserToFirmaUsuario(userId, empresaId, snap.data());
   }
 
+  Future<Uint8List> getFirmaBytes(FirmaUsuarioDoc firma) async {
+    // Priority 0: Blob from Firestore — no Storage, no CORS, always works.
+    if (firma.firmaBlob != null && firma.firmaBlob!.isNotEmpty) {
+      return firma.firmaBlob!;
+    }
+
+    // Storage SDK first: handles auth/CORS automatically on web.
+    if (firma.pathFirma != null && firma.pathFirma!.trim().isNotEmpty) {
+      try {
+        final bytes = await _storage.ref(firma.pathFirma!).getData();
+        if (bytes != null && bytes.isNotEmpty) return bytes;
+      } catch (e) {
+        debugPrint('[GdService] getFirmaBytes.getData error: $e');
+      }
+
+      // Refresh the download URL and retry via HTTP (covers expired-token case).
+      try {
+        final freshUrl =
+            await _storage.ref(firma.pathFirma!).getDownloadURL();
+        final resp = await http.get(Uri.parse(freshUrl));
+        if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+          return resp.bodyBytes;
+        }
+      } catch (e) {
+        debugPrint('[GdService] getFirmaBytes.freshUrl error: $e');
+      }
+    }
+
+    // Last resort: use the stored URL directly.
+    if (firma.urlFirma != null && firma.urlFirma!.trim().isNotEmpty) {
+      try {
+        final resp = await http.get(Uri.parse(firma.urlFirma!));
+        if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
+          return resp.bodyBytes;
+        }
+      } catch (e) {
+        debugPrint('[GdService] getFirmaBytes.storedUrl error: $e');
+      }
+    }
+
+    throw Exception('No se pudo cargar la firma.');
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // READS: BIBLIOTECA, VERSIONES, HISTORIAL
   // ─────────────────────────────────────────────────────────────────────────
@@ -746,9 +810,11 @@ class GdService {
         .where('empresaId', isEqualTo: empresaId)
         .orderBy('updatedAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => DocumentoDoc.fromMap(d.id, d.data()))
-            .toList());
+        .map(
+          (snap) => snap.docs
+              .map((d) => DocumentoDoc.fromMap(d.id, d.data()))
+              .toList(),
+        );
   }
 
   /// Stream de documentos vigentes de la empresa (para biblioteca pública).
@@ -758,9 +824,11 @@ class GdService {
         .where('estado', isEqualTo: GdEstado.vigente.valor)
         .orderBy('updatedAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => DocumentoDoc.fromMap(d.id, d.data()))
-            .toList());
+        .map(
+          (snap) => snap.docs
+              .map((d) => DocumentoDoc.fromMap(d.id, d.data()))
+              .toList(),
+        );
   }
 
   /// Stream de todas las versiones de un documento.
@@ -791,9 +859,11 @@ class GdService {
         .where('docId', isEqualTo: docId)
         .orderBy('realizadoEn', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => FlujoEventoDoc.fromMap(d.id, d.data()))
-            .toList());
+        .map(
+          (snap) => snap.docs
+              .map((d) => FlujoEventoDoc.fromMap(d.id, d.data()))
+              .toList(),
+        );
   }
 
   /// Lee el documento maestro una vez.
@@ -858,14 +928,14 @@ class GdService {
     final batch = _db.batch();
 
     // Actualizar versión
-    final versionUpdate = <String, dynamic>{ 
+    final versionUpdate = <String, dynamic>{
       'estado': hacia.valor,
       ...camposTrazabilidad,
     };
     batch.update(_verCol.doc(versionId), versionUpdate);
 
     // Actualizar documento maestro
-    final docUpdate = <String, dynamic>{ 
+    final docUpdate = <String, dynamic>{
       'estado': hacia.valor,
       'updatedAt': now,
       ...?camposDocumento,
@@ -885,7 +955,9 @@ class GdService {
       observacion: observacion,
     );
 
-    debugPrint('[GdService] Transición: $docId $versionId ${desde.valor} → ${hacia.valor}');
+    debugPrint(
+      '[GdService] Transición: $docId $versionId ${desde.valor} → ${hacia.valor}',
+    );
   }
 
   /// Escribe un evento en TBL_DOCUMENTOS_FLUJO (append-only, nunca modifica ni elimina).
@@ -921,7 +993,10 @@ class GdService {
     required String nombre,
   }) async {
     final ts = DateTime.now().millisecondsSinceEpoch;
-    final safeName = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_'); // Limpiar nombre de archivo
+    final safeName = nombre.replaceAll(
+      RegExp(r'[^\w.\-]'),
+      '_',
+    ); // Limpiar nombre de archivo
     final path = 'documentos/$empresaId/$docId/v$numero/${ts}_$safeName';
     final ref = _storage.ref(path);
     await ref.putData(bytes, SettableMetadata(contentType: 'application/pdf'));
@@ -950,7 +1025,9 @@ class GdService {
       }, SetOptions(merge: true));
       version = version.copyWith(urlPdf: url);
     } catch (e) {
-      debugPrint('[GdService] No fue posible hidratar urlPdf para $versionId: $e');
+      debugPrint(
+        '[GdService] No fue posible hidratar urlPdf para $versionId: $e',
+      );
     }
 
     return version;
@@ -972,8 +1049,10 @@ class GdService {
       final String titulo;
       final String codigo;
 
-      if (creadoPorHint != null && creadoPorHint.trim().isNotEmpty &&
-          tituloHint != null && codigoHint != null) {
+      if (creadoPorHint != null &&
+          creadoPorHint.trim().isNotEmpty &&
+          tituloHint != null &&
+          codigoHint != null) {
         creadorId = creadoPorHint.trim();
         titulo = tituloHint;
         codigo = codigoHint;
@@ -999,7 +1078,9 @@ class GdService {
         empresaId: empresaId,
       );
     } catch (e) {
-      debugPrint('[GdService] No fue posible notificar observación para $docId: $e');
+      debugPrint(
+        '[GdService] No fue posible notificar observación para $docId: $e',
+      );
     }
   }
 
@@ -1032,10 +1113,23 @@ class GdService {
 
     final nombre = _resolveNombreUsuario(userId, data);
     final cargo = ((scoped?['cargo'] ?? data['cargo']) ?? '').toString().trim();
-    final urlFirma = ((scoped?['urlFirma'] ?? data['urlFirma']) ?? '').toString().trim();
-    final pathFirma = ((scoped?['pathFirma'] ?? data['pathFirma']) ?? '').toString().trim();
+    final urlFirma = ((scoped?['urlFirma'] ?? data['urlFirma']) ?? '')
+        .toString()
+        .trim();
+    final pathFirma = ((scoped?['pathFirma'] ?? data['pathFirma']) ?? '')
+        .toString()
+        .trim();
     final activaValue = scoped?['firmaActiva'] ?? data['firmaActiva'];
     final activa = activaValue is bool ? activaValue : urlFirma.isNotEmpty;
+
+    // Read Blob stored directly in Firestore (primary read path — no Storage CORS needed).
+    final blobRaw = scoped?['firmaBlob'] ?? data['firmaBlob'];
+    Uint8List? firmaBlob;
+    if (blobRaw is Uint8List && blobRaw.isNotEmpty) {
+      firmaBlob = blobRaw;
+    } else if (blobRaw is List && blobRaw.isNotEmpty) {
+      firmaBlob = Uint8List.fromList(blobRaw.cast<int>());
+    }
 
     return FirmaUsuarioDoc(
       empresaId: empresaId,
@@ -1044,18 +1138,30 @@ class GdService {
       cargo: cargo.isEmpty ? null : cargo,
       urlFirma: urlFirma.isEmpty ? null : urlFirma,
       pathFirma: pathFirma.isEmpty ? null : pathFirma,
+      firmaBlob: firmaBlob,
       activa: activa,
       createdAt: data['createdAt'] as Timestamp?,
-      updatedAt: (scoped?['firmaActualizadaEn'] ?? data['firmaActualizadaEn'] ?? data['updatedAt']) as Timestamp?,
+      updatedAt:
+          (scoped?['firmaActualizadaEn'] ??
+                  data['firmaActualizadaEn'] ??
+                  data['updatedAt'])
+              as Timestamp?,
     );
   }
 
   String _resolveNombreUsuario(String userId, Map<String, dynamic> data) {
+    final nombreCompleto = (data['nombreCompleto'] ?? '').toString().trim();
+    if (nombreCompleto.isNotEmpty) return nombreCompleto;
+
     final nombre = (data['nombre'] ?? '').toString().trim();
     if (nombre.isNotEmpty) return nombre;
 
-    final nombres = (data['nombres'] ?? data['primerNombre'] ?? '').toString().trim();
-    final apellidos = (data['apellidos'] ?? data['primerApellido'] ?? '').toString().trim();
+    final nombres = (data['nombres'] ?? data['primerNombre'] ?? '')
+        .toString()
+        .trim();
+    final apellidos = (data['apellidos'] ?? data['primerApellido'] ?? '')
+        .toString()
+        .trim();
     final fullName = '$nombres $apellidos'.trim();
     if (fullName.isNotEmpty) return fullName;
 

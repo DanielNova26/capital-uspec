@@ -2,7 +2,6 @@
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:signature/signature.dart';
 import 'package:file_picker/file_picker.dart';
 import '../widgets/internal_module_layout.dart';
@@ -28,7 +27,7 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
   final _service = GdService();
   final _nameController = TextEditingController();
   final _cargoController = TextEditingController();
-  
+
   final _signatureController = SignatureController(
     penStrokeWidth: 3,
     penColor: const Color(0xFF0F172A),
@@ -36,6 +35,8 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
   );
 
   bool _loading = false;
+  // Bytes kept in memory after a successful save to avoid re-fetching from Storage.
+  Uint8List? _savedBytes;
 
   @override
   void dispose() {
@@ -57,10 +58,13 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
       subtitle: 'Configuración de firma y datos para documentos oficiales',
       accentColor: GdPalette.accent,
       child: StreamBuilder<FirmaUsuarioDoc?>(
-        stream: _service.streamFirmaUsuario(empresaId: widget.empresaId, userId: widget.userId),
+        stream: _service.streamFirmaUsuario(
+          empresaId: widget.empresaId,
+          userId: widget.userId,
+        ),
         builder: (context, snapshot) {
           final firma = snapshot.data;
-          
+
           if (firma != null && _nameController.text.isEmpty) {
             _nameController.text = firma.nombre;
             _cargoController.text = firma.cargo ?? '';
@@ -143,9 +147,18 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
               labelText: 'Nombre Completo',
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-              prefixIcon: const Icon(Icons.person_outline, color: Color(0xFF64748B)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              prefixIcon: const Icon(
+                Icons.person_outline,
+                color: Color(0xFF64748B),
+              ),
             ),
             style: const TextStyle(fontFamily: kArial, fontSize: 14),
           ),
@@ -157,9 +170,18 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
               labelText: 'Cargo / Posición',
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-              prefixIcon: const Icon(Icons.badge_outlined, color: Color(0xFF64748B)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+              ),
+              prefixIcon: const Icon(
+                Icons.badge_outlined,
+                color: Color(0xFF64748B),
+              ),
             ),
             style: const TextStyle(fontFamily: kArial, fontSize: 14),
           ),
@@ -211,8 +233,16 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
                     children: [
                       Container(height: 1, color: const Color(0xFFE2E8F0)),
                       const SizedBox(height: 4),
-                      Text('FIRMAR AQUÍ', 
-                        style: TextStyle(fontFamily: kArial, fontSize: 10, color: const Color(0xFF94A3B8).withOpacity(0.5), fontWeight: FontWeight.bold, letterSpacing: 2)),
+                      Text(
+                        'FIRMAR AQUÍ',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 10,
+                          color: const Color(0xFF94A3B8).withValues(alpha: 0.5),
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 2,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -237,14 +267,25 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
               ElevatedButton.icon(
                 onPressed: _loading ? null : _saveSignature,
                 icon: const Icon(Icons.save_alt, size: 20),
-                label: const Text('GUARDAR IDENTIDAD', 
-                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+                label: const Text(
+                  'GUARDAR IDENTIDAD',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GdPalette.accent,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 20,
+                  ),
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
             ],
@@ -278,47 +319,107 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: const Color(0xFFE2E8F0)),
             ),
-            child: firma?.urlFirma == null
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.info_outline, color: const Color(0xFF94A3B8).withOpacity(0.5)),
-                    const SizedBox(height: 8),
-                    const Text('Sin firma registrada',
-                      style: TextStyle(fontFamily: kArial, color: Color(0xFF64748B), fontSize: 12)),
-                  ],
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: FutureBuilder<Uint8List>(
-                    key: ValueKey(firma!.urlFirma),
-                    future: _fetchImageBytes(firma.urlFirma!),
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                      }
-                      if (snap.hasData) {
-                        return Image.memory(snap.data!, fit: BoxFit.contain);
-                      }
-                      return const Center(
-                        child: Text('No se pudo cargar la firma.\nIntenta guardarla de nuevo.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.redAccent)),
-                      );
-                    },
+            child:
+                (firma == null ||
+                    (!firma.tieneFirma &&
+                        (firma.pathFirma == null || firma.pathFirma!.isEmpty)))
+                ? Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: const Color(0xFF94A3B8).withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Sin firma registrada',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          color: Color(0xFF64748B),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: _buildFirmaImage(firma),
                   ),
-                ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildActionBtn({required String label, required IconData icon, required VoidCallback onTap}) {
+  Widget _buildFirmaImage(FirmaUsuarioDoc firma) {
+    // Priority 1: bytes from the most recent successful save (no round-trip at all).
+    if (_savedBytes != null) {
+      return Image.memory(_savedBytes!, fit: BoxFit.contain);
+    }
+
+    // Priority 2: Blob stored in Firestore — no Storage, no CORS.
+    if (firma.firmaBlob != null && firma.firmaBlob!.isNotEmpty) {
+      return Image.memory(firma.firmaBlob!, fit: BoxFit.contain);
+    }
+
+    // Priority 3: load via download URL (token-based network image).
+    if (firma.urlFirma != null && firma.urlFirma!.isNotEmpty) {
+      return Image.network(
+        firma.urlFirma!,
+        fit: BoxFit.contain,
+        loadingBuilder: (_, child, progress) => progress == null
+            ? child
+            : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        errorBuilder: (context2, e, _) => _buildFirmaFallback(firma),
+      );
+    }
+
+    // Priority 4: full byte-fetch fallback (Storage SDK + HTTP).
+    return _buildFirmaFallback(firma);
+  }
+
+  Widget _buildFirmaFallback(FirmaUsuarioDoc firma) {
+    return FutureBuilder<Uint8List>(
+      key: ValueKey('${firma.urlFirma ?? ''}|${firma.pathFirma ?? ''}'),
+      future: _service.getFirmaBytes(firma),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        if (snap.hasData) {
+          return Image.memory(snap.data!, fit: BoxFit.contain);
+        }
+        return const Center(
+          child: Text(
+            'No se pudo cargar la firma.\nIntenta guardarla de nuevo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: Colors.redAccent,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionBtn({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
     return OutlinedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
-      label: Text(label.toUpperCase(), style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 11)),
+      label: Text(
+        label.toUpperCase(),
+        style: const TextStyle(
+          fontFamily: kArial,
+          fontWeight: FontWeight.w800,
+          fontSize: 11,
+        ),
+      ),
       style: OutlinedButton.styleFrom(
         foregroundColor: const Color(0xFF0F172A),
         side: const BorderSide(color: Color(0xFFE2E8F0)),
@@ -326,12 +427,6 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
-  }
-
-  Future<Uint8List> _fetchImageBytes(String url) async {
-    final resp = await http.get(Uri.parse(url));
-    if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
-    return resp.bodyBytes;
   }
 
   Future<void> _pickAndUpload() async {
@@ -348,20 +443,25 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al seleccionar archivo: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al seleccionar archivo: $e')),
+        );
       }
     }
   }
 
   Future<void> _saveSignature() async {
     Uint8List? bytes;
-    if (!_signatureController.isEmpty) {
+    if (_signatureController.isNotEmpty) {
       bytes = await _signatureController.toPngBytes();
     }
 
     if (bytes == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor, dibuja tu firma o sube una imagen PNG.'))
+        const SnackBar(
+          content: Text('Por favor, dibuja tu firma o sube una imagen PNG.'),
+        ),
       );
       return;
     }
@@ -370,10 +470,11 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
 
   Future<void> _saveData({Uint8List? firmaBytes}) async {
     final nombre = _nameController.text.trim();
-    final cargo = _cargoController.text.trim();
 
     if (nombre.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El nombre es obligatorio.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El nombre es obligatorio.')),
+      );
       return;
     }
 
@@ -385,18 +486,22 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
         firmaBytes: firmaBytes,
       );
       if (mounted) {
+        if (firmaBytes != null) setState(() => _savedBytes = firmaBytes);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Identidad digital actualizada correctamente'),
             backgroundColor: Color(0xFF10B981),
-          )
+          ),
         );
         _signatureController.clear();
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent)
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
     } finally {

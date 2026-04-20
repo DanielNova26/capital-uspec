@@ -12,8 +12,8 @@ import '../../gestion_documental/widgets/gd_ui_widgets.dart';
 import '../../utils/user_company.dart';
 import '../../widgets/internal_module_layout.dart';
 import 'pp_generar_desde_excel_screen.dart';
-import 'pp_lote_upload_screen.dart';
 import 'pp_models.dart';
+import 'pp_subir_pdf_screen.dart';
 import 'pp_planilla_detail_screen.dart';
 import 'pp_service.dart';
 
@@ -63,23 +63,29 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     return null;
   }
 
-  void _openUpload(String rolPlanillas, String? nombreActor) async {
-    final loteId = await Navigator.of(context).push<String>(
+  void _openSubirPdf(String rolPlanillas, String? nombreActor) {
+    Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PpLoteUploadScreen(
+        builder: (_) => PpSubirPdfScreen(
           userId: widget.userId,
           empresaId: widget.empresaId,
           rolPlanillas: rolPlanillas,
           nombreActor: nombreActor,
+          onSubido: (n) {
+            Navigator.of(context).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '$n planilla${n == 1 ? '' : 's'} cargada${n == 1 ? '' : 's'} correctamente.',
+                  style: const TextStyle(fontFamily: kArial),
+                ),
+                backgroundColor: const Color(0xFF10B981),
+              ),
+            );
+          },
         ),
       ),
     );
-    if (loteId != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lote creado exitosamente: $loteId',
-            style: const TextStyle(fontFamily: kArial))),
-      );
-    }
   }
 
   void _openPlanilla(PpPlanilla planilla, String rolPlanillas, String? nombreActor) {
@@ -134,9 +140,9 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                   padding: const EdgeInsets.only(right: 12),
                   child: isWeb
                       ? ElevatedButton.icon(
-                          onPressed: () => _openUpload(rolPlanillas!, nombreActor),
-                          icon: const Icon(Icons.upload_file_outlined, size: 18, color: Colors.white),
-                          label: const Text('NUEVO LOTE',
+                          onPressed: () => _openSubirPdf(rolPlanillas!, nombreActor),
+                          icon: const Icon(Icons.picture_as_pdf_outlined, size: 18, color: Colors.white),
+                          label: const Text('SUBIR PDFs',
                               style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 12, color: Colors.white)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: GdPalette.accent,
@@ -145,9 +151,9 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                           ),
                         )
                       : IconButton(
-                          icon: const Icon(Icons.upload_file_outlined),
-                          onPressed: () => _openUpload(rolPlanillas!, nombreActor),
-                          tooltip: 'Nuevo lote',
+                          icon: const Icon(Icons.picture_as_pdf_outlined),
+                          onPressed: () => _openSubirPdf(rolPlanillas!, nombreActor),
+                          tooltip: 'Subir PDFs',
                         ),
                 ),
             ],
@@ -183,10 +189,10 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                 ),
           floatingActionButton: !isWeb && canUpload
               ? FloatingActionButton.extended(
-                  onPressed: () => _openUpload(rolPlanillas!, nombreActor),
+                  onPressed: () => _openSubirPdf(rolPlanillas!, nombreActor),
                   backgroundColor: GdPalette.accent,
-                  icon: const Icon(Icons.upload_file_outlined),
-                  label: const Text('Nuevo Lote', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Subir PDFs', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
                 )
               : null,
         );
@@ -414,11 +420,35 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: GdPalette.muted),
+              const SizedBox(width: 12),
+              _estadoIconBadge(planilla.estado, colors),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _estadoIconBadge(PpEstado estado, (Color, Color) colors) {
+    final (IconData icon, Color color) = switch (estado) {
+      PpEstado.cargada                   => (Icons.upload_rounded,          Colors.blueGrey.shade400),
+      PpEstado.pendiente_validacion      => (Icons.hourglass_top_rounded,   Colors.grey.shade400),
+      PpEstado.en_revision_auditoria     => (Icons.hourglass_top_rounded,   Colors.orange.shade400),
+      PpEstado.aprobada_auditoria        => (Icons.check_circle_outline,    Colors.blue.shade400),
+      PpEstado.pendiente_firma_gerencia  => (Icons.hourglass_top_rounded,   Colors.amber.shade600),
+      PpEstado.firmada                   => (Icons.check_circle_rounded,    Colors.green.shade600),
+      PpEstado.rechazada                 => (Icons.cancel_rounded,          Colors.red.shade400),
+      PpEstado.observada                 => (Icons.visibility_rounded,      Colors.purple.shade300),
+      PpEstado.anulada                   => (Icons.block_rounded,            Colors.grey.shade500),
+    };
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, color: color, size: 22),
     );
   }
 

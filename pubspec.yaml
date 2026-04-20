@@ -60,6 +60,7 @@ dependencies:
   # PDF
   pdf: ^3.11.1
   printing: ^5.13.2
+  pointer_interceptor: ^0.9.3+7
 
   # Localización
   flutter_localizations:

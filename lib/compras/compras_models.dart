@@ -207,6 +207,8 @@ class DocAdjunto {
   final String? nombre;
   final String? path;
   final Timestamp? fechaSubida;
+  /// Fecha de vencimiento del documento (opcional, p.ej. para registro sanitario).
+  final Timestamp? fechaVencimiento;
   /// Estado de revisión calidad: '' | 'pendiente' | 'aprobado' | 'rechazado'
   final String estadoCalidad;
   final String? observacionActualizacion;
@@ -221,6 +223,7 @@ class DocAdjunto {
     this.nombre,
     this.path,
     this.fechaSubida,
+    this.fechaVencimiento,
     this.estadoCalidad = '',
     this.observacionActualizacion,
     this.observacionCalidad,
@@ -244,6 +247,7 @@ class DocAdjunto {
       nombre: m['nombre'] as String?,
       path: m['path'] as String?,
       fechaSubida: m['fechaSubida'] as Timestamp?,
+      fechaVencimiento: m['fechaVencimiento'] as Timestamp?,
       estadoCalidad: m['estadoCalidad'] as String? ?? '',
       observacionActualizacion: m['observacionActualizacion'] as String?,
       observacionCalidad: m['observacionCalidad'] as String?,
@@ -258,6 +262,7 @@ class DocAdjunto {
         'nombre': nombre,
         'path': path,
         'fechaSubida': fechaSubida,
+        'fechaVencimiento': fechaVencimiento,
         'estadoCalidad': estadoCalidad,
         'observacionCalidad': observacionCalidad,
         'observacionActualizacion': observacionActualizacion,
@@ -271,6 +276,7 @@ class DocAdjunto {
     String? nombre,
     String? path,
     Timestamp? fechaSubida,
+    Timestamp? fechaVencimiento,
     String? estadoCalidad,
     String? observacionCalidad,
     String? observacionActualizacion,
@@ -283,6 +289,7 @@ class DocAdjunto {
         nombre: nombre ?? this.nombre,
         path: path ?? this.path,
         fechaSubida: fechaSubida ?? this.fechaSubida,
+        fechaVencimiento: fechaVencimiento ?? this.fechaVencimiento,
         estadoCalidad: estadoCalidad ?? this.estadoCalidad,
         observacionCalidad: observacionCalidad ?? this.observacionCalidad,
         observacionActualizacion:

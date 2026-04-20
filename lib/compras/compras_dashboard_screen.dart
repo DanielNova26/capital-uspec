@@ -29,12 +29,12 @@ import '../widgets/internal_module_layout.dart';
 // COLORES DEL MÓDULO
 // ══════════════════════════════════════════════════════════════════════════════
 
-const Color kComprasPrimary = Color(0xFF1565C0);   // Blue 800
-const Color kComprasAccent  = Color(0xFF42A5F5);   // Blue 300
-const Color kComprasBg      = Color(0xFFF0F4FF);   // Fondo azul muy claro
-const Color kComprasCard    = Colors.white;
-const Color kComprasGreen   = Color(0xFF16A34A);
-const Color kComprasRed     = Color(0xFFDC2626);
+const Color kComprasPrimary = Color(0xFF1565C0); // Blue 800
+const Color kComprasAccent = Color(0xFF42A5F5); // Blue 300
+const Color kComprasBg = Color(0xFFF0F4FF); // Fondo azul muy claro
+const Color kComprasCard = Colors.white;
+const Color kComprasGreen = Color(0xFF16A34A);
+const Color kComprasRed = Color(0xFFDC2626);
 const String _kFont = 'Arial';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -67,10 +67,13 @@ String? _matchDepartamento(String? raw) {
 String _normalizarNombre(String input) {
   final trimmed = input.trim();
   if (trimmed.isEmpty) return trimmed;
-  return trimmed.split(RegExp(r'\s+')).map((w) {
-    if (w.isEmpty) return w;
-    return w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : '');
-  }).join(' ');
+  return trimmed
+      .split(RegExp(r'\s+'))
+      .map((w) {
+        if (w.isEmpty) return w;
+        return w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : '');
+      })
+      .join(' ');
 }
 
 String _normalizarUM(String input) {
@@ -84,7 +87,6 @@ String _fmtFecha(Timestamp ts) {
 String _fmtFechaHora(Timestamp ts) {
   return DateFormat('dd/MM/yyyy HH:mm', 'es').format(ts.toDate());
 }
-
 
 List<String> docsParaCategoria(String? categoria) {
   final cat = (categoria ?? '').trim().toLowerCase();
@@ -108,17 +110,9 @@ List<String> docsParaCategoria(String? categoria) {
     'docTransporte',
   ];
 
-  final aseo = <String>[
-    'hojaSeguridad',
-    'sustanciasPermitidas',
-    'rotuladoSGA',
-  ];
+  final aseo = <String>['hojaSeguridad', 'sustanciasPermitidas', 'rotuladoSGA'];
 
-  final fruver = <String>[
-    'permisoZoo',
-    'vistoInvima',
-    'declImport',
-  ];
+  final fruver = <String>['permisoZoo', 'vistoInvima', 'declImport'];
 
   final merged = <String>[...base];
   if (cat.contains('prote')) merged.addAll(proteina);
@@ -127,10 +121,7 @@ List<String> docsParaCategoria(String? categoria) {
 
   if (merged.length == base.length) {
     // Categoría no clasificada: mantener solo documentos universales.
-    merged.addAll([
-      'guiaTransporte',
-      'docTransporte',
-    ]);
+    merged.addAll(['guiaTransporte', 'docTransporte']);
   }
 
   // Únicos + existentes en mapa de etiquetas para evitar llaves inválidas.
@@ -232,7 +223,11 @@ Future<void> abrirDetalleFichaRechazada(
   }
 
   // El usuario debe ir al proveedor para volver a cargar la ficha rechazada.
-  await abrirDetalleProveedor(context, userId: userId, proveedorId: proveedorId);
+  await abrirDetalleProveedor(
+    context,
+    userId: userId,
+    proveedorId: proveedorId,
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -242,6 +237,7 @@ Future<void> abrirDetalleFichaRechazada(
 class ComprasDashboardScreen extends StatelessWidget {
   final String userId;
   final String empresaId;
+
   /// Rol del usuario: 'calidad' | 'compras' | 'bodega' | null (sin restricción)
   final String? rolCompras;
 
@@ -252,10 +248,11 @@ class ComprasDashboardScreen extends StatelessWidget {
     this.rolCompras,
   });
 
-  bool get _esBodega    => rolCompras == kRolBodega;
-  bool get _esCalidad   => rolCompras == kRolCalidad;
-  bool get _esCompras   => rolCompras == kRolCompras;
+  bool get _esBodega => rolCompras == kRolBodega;
+  bool get _esCalidad => rolCompras == kRolCalidad;
+  bool get _esCompras => rolCompras == kRolCompras;
   bool get _esConsultas => rolCompras == kRolConsultas;
+
   /// Solo ve recepción (sin consultas ni gestión)
   bool get _soloRecepcion => false; // Bodega ahora también tiene consultas
   /// Oculta la sección de gestión (proveedores/productos/marcas/recepción)
@@ -298,11 +295,7 @@ class ComprasDashboardScreen extends StatelessWidget {
         accentColor: colorRol,
         headerActions: [
           if (!_esConsultas)
-            _NotifBadge(
-              empresaId: empresaId,
-              userId: userId,
-              svc: svc,
-            ),
+            _NotifBadge(empresaId: empresaId, userId: userId, svc: svc),
           CompanyNameWidget(
             empresaId: empresaId,
             style: TextStyle(
@@ -319,7 +312,12 @@ class ComprasDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildMobileLayout(BuildContext context, ComprasService svc, String subtituloRol, Color colorRol) {
+  Widget _buildMobileLayout(
+    BuildContext context,
+    ComprasService svc,
+    String subtituloRol,
+    Color colorRol,
+  ) {
     return _buildDashboardShell(
       context,
       svc,
@@ -329,8 +327,12 @@ class ComprasDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildWebLayout(BuildContext context, ComprasService svc,
-      String subtituloRol, Color colorRol) {
+  Widget _buildWebLayout(
+    BuildContext context,
+    ComprasService svc,
+    String subtituloRol,
+    Color colorRol,
+  ) {
     return _buildDashboardShell(
       context,
       svc,
@@ -365,9 +367,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                           child: _buildOverviewLead(colorRol, subtituloRol),
                         ),
                         const SizedBox(width: 24),
-                        Expanded(
-                          child: _buildOverviewContext(colorRol),
-                        ),
+                        Expanded(child: _buildOverviewContext(colorRol)),
                       ],
                     )
                   : Column(
@@ -381,11 +381,7 @@ class ComprasDashboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             if (isDesktop)
-              Wrap(
-                spacing: 18,
-                runSpacing: 18,
-                children: cards,
-              )
+              Wrap(spacing: 18, runSpacing: 18, children: cards)
             else
               Column(
                 children: [
@@ -432,26 +428,44 @@ class ComprasDashboardScreen extends StatelessWidget {
           titulo: 'Proveedores',
           subtitulo: 'Registrar y gestionar proveedores',
           color: const Color(0xFF1565C0),
-          onTap: () => Navigator.push(context, MaterialPageRoute(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
               builder: (_) => _ProveedoresScreen(
-                  empresaId: empresaId, svc: svc, userId: userId))),
+                empresaId: empresaId,
+                svc: svc,
+                userId: userId,
+              ),
+            ),
+          ),
         ),
         card(
           icon: Icons.label_important,
           titulo: 'Marcas',
           subtitulo: 'Gestionar marcas vinculadas a productos',
           color: const Color(0xFF1976D2),
-          onTap: () => Navigator.push(context, MaterialPageRoute(
-              builder: (_) => _MarcasScreen(empresaId: empresaId, svc: svc))),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _MarcasScreen(empresaId: empresaId, svc: svc),
+            ),
+          ),
         ),
         card(
           icon: Icons.inventory_2,
           titulo: 'Productos',
           subtitulo: 'Catálogo de productos del almacén',
           color: const Color(0xFF0277BD),
-          onTap: () => Navigator.push(context, MaterialPageRoute(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
               builder: (_) => _ProductosScreen(
-                  empresaId: empresaId, svc: svc, userId: userId))),
+                empresaId: empresaId,
+                svc: svc,
+                userId: userId,
+              ),
+            ),
+          ),
         ),
       ],
       if (!_esConsultas)
@@ -460,17 +474,28 @@ class ComprasDashboardScreen extends StatelessWidget {
           titulo: 'Recepción de Mercancía',
           subtitulo: 'Registrar llegada de proveedores con documentos',
           color: kComprasPrimary,
-          onTap: () => Navigator.push(context, MaterialPageRoute(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
               builder: (_) => _RecepcionesScreen(
-                  empresaId: empresaId, svc: svc, userId: userId))),
+                empresaId: empresaId,
+                svc: svc,
+                userId: userId,
+              ),
+            ),
+          ),
         ),
       card(
         icon: Icons.manage_search,
         titulo: 'Consultas',
         subtitulo: 'Consultar por proveedor, producto o recepción',
         color: const Color(0xFF283593),
-        onTap: () => Navigator.push(context, MaterialPageRoute(
-            builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc))),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc),
+          ),
+        ),
       ),
       if (_esCalidad)
         card(
@@ -478,9 +503,16 @@ class ComprasDashboardScreen extends StatelessWidget {
           titulo: 'Revisión de Calidad',
           subtitulo: 'Aprobar o rechazar documentos de recepción',
           color: const Color(0xFF15803D),
-          onTap: () => Navigator.push(context, MaterialPageRoute(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
               builder: (_) => _CalidadScreen(
-                  empresaId: empresaId, svc: svc, userId: userId))),
+                empresaId: empresaId,
+                svc: svc,
+                userId: userId,
+              ),
+            ),
+          ),
         ),
     ];
   }
@@ -571,8 +603,10 @@ class ComprasDashboardScreen extends StatelessWidget {
           children: pills
               .map(
                 (pill) => Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: colorRol.withOpacity(0.08),
                     borderRadius: BorderRadius.circular(999),
@@ -634,13 +668,18 @@ class _NotifBadge extends StatelessWidget {
                   width: 16,
                   height: 16,
                   decoration: const BoxDecoration(
-                      color: Colors.red, shape: BoxShape.circle),
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
                   child: Center(
-                    child: Text('$count',
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -651,17 +690,17 @@ class _NotifBadge extends StatelessWidget {
   }
 
   void _mostrarNotificaciones(
-      BuildContext context, List<NotificacionComprasDoc> notifs) {
+    BuildContext context,
+    List<NotificacionComprasDoc> notifs,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _NotifSheet(
-        notifs: notifs,
-        svc: svc,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
+      builder: (_) => _NotifSheet(notifs: notifs, svc: svc),
     );
   }
 }
@@ -682,75 +721,96 @@ class _NotifSheet extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           const Center(
-            child: Text('Notificaciones de Calidad',
-                style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold)),
+            child: Text(
+              'Notificaciones de Calidad',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           const SizedBox(height: 12),
-          ...notifs.map((n) => Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.cancel, color: Colors.red, size: 18),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text('Documento rechazado',
-                                style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.red)),
+          ...notifs.map(
+            (n) => Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.cancel, color: Colors.red, size: 18),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Documento rechazado',
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
                           ),
-                        ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Producto: ${n.productoNombre}',
+                      style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                    ),
+                    Text(
+                      'Documento: ${n.docLabel}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: Colors.black54,
                       ),
-                      const SizedBox(height: 6),
-                      Text('Producto: ${n.productoNombre}',
-                          style: const TextStyle(
-                              fontFamily: _kFont, fontSize: 13)),
-                      Text('Documento: ${n.docLabel}',
-                          style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              color: Colors.black54)),
-                      Text('Motivo: ${n.motivo}',
-                          style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic)),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () async {
-                            await svc.marcarNotificacionLeida(n.id);
-                            if (context.mounted) Navigator.pop(context);
-                          },
-                          child: const Text('Marcar como leída',
-                              style: TextStyle(fontFamily: _kFont)),
+                    ),
+                    Text(
+                      'Motivo: ${n.motivo}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () async {
+                          await svc.marcarNotificacionLeida(n.id);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                        child: const Text(
+                          'Marcar como leída',
+                          style: TextStyle(fontFamily: _kFont),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              )),
+              ),
+            ),
+          ),
           if (notifs.isNotEmpty)
             TextButton.icon(
               onPressed: () async {
                 if (notifs.isNotEmpty) {
                   await svc.marcarTodasLeidas(
-                      notifs.first.empresaId, notifs.first.userId);
+                    notifs.first.empresaId,
+                    notifs.first.userId,
+                  );
                   if (context.mounted) Navigator.pop(context);
                 }
               },
               icon: const Icon(Icons.done_all),
-              label: const Text('Marcar todas como leídas',
-                  style: TextStyle(fontFamily: _kFont)),
+              label: const Text(
+                'Marcar todas como leídas',
+                style: TextStyle(fontFamily: _kFont),
+              ),
             ),
         ],
       ),
@@ -794,19 +854,25 @@ class _MenuTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(titulo,
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: color)),
+                Text(
+                  titulo,
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text(subtitulo,
-                    style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 13,
-                        color: Colors.black54,
-                        height: 1.35)),
+                Text(
+                  subtitulo,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 13,
+                    color: Colors.black54,
+                    height: 1.35,
+                  ),
+                ),
               ],
             ),
           ),
@@ -851,8 +917,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
     super.initState();
     if (kIsWeb) {
       WebDragDrop.instance.enable();
-      _wDragSub = WebDragDrop.instance.isDragging
-          .listen((v) { if (mounted) setState(() => _isDragging = v); });
+      _wDragSub = WebDragDrop.instance.isDragging.listen((v) {
+        if (mounted) setState(() => _isDragging = v);
+      });
       _wFileSub = WebDragDrop.instance.droppedFile.listen(_onWebFileDrop);
     }
   }
@@ -867,7 +934,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
 
   Future<void> _tomarFoto() async {
     final img = await _picker.pickImage(
-        source: ImageSource.camera, imageQuality: 80);
+      source: ImageSource.camera,
+      imageQuality: 80,
+    );
     if (img != null) {
       final bytes = await img.readAsBytes();
       setState(() => _imagenes.add(bytes));
@@ -892,8 +961,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
     final file = result.files.first;
     if (file.bytes == null) return;
     final nombre = file.name;
-    final contentType =
-        nombre.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg';
+    final contentType = nombre.toLowerCase().endsWith('.pdf')
+        ? 'application/pdf'
+        : 'image/jpeg';
     setState(() => _subiendo = true);
     try {
       final doc = await widget.svc.subirBytes(
@@ -906,8 +976,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
       if (mounted) Navigator.pop(context, doc);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al subir archivo: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al subir archivo: $e')));
       }
     } finally {
       if (mounted) setState(() => _subiendo = false);
@@ -922,9 +993,8 @@ class _ScannerSheetState extends State<_ScannerSheet> {
         pw.Page(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(16),
-          build: (ctx) => pw.Center(
-            child: pw.Image(pdfImg, fit: pw.BoxFit.contain),
-          ),
+          build: (ctx) =>
+              pw.Center(child: pw.Image(pdfImg, fit: pw.BoxFit.contain)),
         ),
       );
     }
@@ -948,8 +1018,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
       if (mounted) Navigator.pop(context, doc);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al convertir PDF: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al convertir PDF: $e')));
       }
     } finally {
       if (mounted) setState(() => _subiendo = false);
@@ -965,18 +1036,28 @@ class _ScannerSheetState extends State<_ScannerSheet> {
       final ext = name.toLowerCase().split('.').last;
       if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Archivo ignorado (${xFile.name}): solo PDF/JPG/PNG',
-                  style: const TextStyle(fontFamily: _kFont))));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Archivo ignorado (${xFile.name}): solo PDF/JPG/PNG',
+                style: const TextStyle(fontFamily: _kFont),
+              ),
+            ),
+          );
         }
         continue;
       }
       final bytes = await xFile.readAsBytes();
       if (bytes.length > 10 * 1024 * 1024) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Archivo ignorado: supera el límite de 10 MB',
-                  style: TextStyle(fontFamily: _kFont))));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Archivo ignorado: supera el límite de 10 MB',
+                style: TextStyle(fontFamily: _kFont),
+              ),
+            ),
+          );
         }
         continue;
       }
@@ -996,8 +1077,12 @@ class _ScannerSheetState extends State<_ScannerSheet> {
           // Zona de arrastre
           Expanded(
             child: DropTarget(
-              onDragEntered: (_) { if (mounted) setState(() => _isDragging = true); },
-              onDragExited: (_) { if (mounted) setState(() => _isDragging = false); },
+              onDragEntered: (_) {
+                if (mounted) setState(() => _isDragging = true);
+              },
+              onDragExited: (_) {
+                if (mounted) setState(() => _isDragging = false);
+              },
               onDragDone: _handleScannerWebDrop,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
@@ -1008,9 +1093,7 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                       : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: _isDragging
-                        ? kComprasPrimary
-                        : Colors.grey.shade300,
+                    color: _isDragging ? kComprasPrimary : Colors.grey.shade300,
                     width: _isDragging ? 2 : 1.5,
                   ),
                 ),
@@ -1019,39 +1102,48 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const CircularProgressIndicator(
-                              color: kComprasPrimary),
+                            color: kComprasPrimary,
+                          ),
                           const SizedBox(height: 16),
-                          Text('Convirtiendo y subiendo como PDF…',
-                              style: TextStyle(
-                                  fontFamily: _kFont,
-                                  color: Colors.grey.shade600)),
+                          Text(
+                            'Convirtiendo y subiendo como PDF…',
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ],
                       )
                     : Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.cloud_upload_outlined,
-                              size: 64,
-                              color: _isDragging
-                                  ? kComprasPrimary
-                                  : Colors.grey.shade300),
+                          Icon(
+                            Icons.cloud_upload_outlined,
+                            size: 64,
+                            color: _isDragging
+                                ? kComprasPrimary
+                                : Colors.grey.shade300,
+                          ),
                           const SizedBox(height: 14),
                           Text(
                             _isDragging
                                 ? '¡Suelta el archivo aquí!'
                                 : 'Arrastra el archivo aquí',
                             style: TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: _isDragging
-                                    ? kComprasPrimary
-                                    : Colors.black54),
+                              fontFamily: _kFont,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: _isDragging
+                                  ? kComprasPrimary
+                                  : Colors.black54,
+                            ),
                           ),
                           const SizedBox(height: 10),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 4),
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade100,
                               borderRadius: BorderRadius.circular(8),
@@ -1059,9 +1151,10 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                             child: Text(
                               'PDF · JPG · PNG — Se guarda como PDF',
                               style: TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 11,
-                                  color: Colors.grey.shade500),
+                                fontFamily: _kFont,
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
                             ),
                           ),
                         ],
@@ -1077,8 +1170,10 @@ class _ScannerSheetState extends State<_ScannerSheet> {
               child: OutlinedButton.icon(
                 onPressed: _desdeArchivo,
                 icon: const Icon(Icons.folder_open, size: 16),
-                label: const Text('o seleccionar archivo (PDF/img)',
-                    style: TextStyle(fontFamily: _kFont)),
+                label: const Text(
+                  'o seleccionar archivo (PDF/img)',
+                  style: TextStyle(fontFamily: _kFont),
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: kComprasPrimary,
                   side: const BorderSide(color: kComprasPrimary),
@@ -1100,9 +1195,14 @@ class _ScannerSheetState extends State<_ScannerSheet> {
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Solo se permiten PDF, JPG o PNG',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Solo se permiten PDF, JPG o PNG',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
@@ -1121,8 +1221,9 @@ class _ScannerSheetState extends State<_ScannerSheet> {
         if (mounted) Navigator.pop(context, doc);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error al subir: $e')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error al subir: $e')));
         }
       } finally {
         if (mounted) setState(() => _subiendo = false);
@@ -1161,15 +1262,19 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                 const Icon(Icons.document_scanner, color: kComprasPrimary),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text('Adjuntar Documento',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold)),
+                  child: Text(
+                    'Adjuntar Documento',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
                 IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close)),
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
               ],
             ),
           ),
@@ -1178,88 +1283,112 @@ class _ScannerSheetState extends State<_ScannerSheet> {
           Expanded(
             child: _imagenes.isEmpty
                 ? (kIsWeb
-                    ? _buildWebDropZoneArea(scrollCtrl)
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt_outlined,
-                              size: 56, color: Colors.grey.shade300),
-                          const SizedBox(height: 12),
-                          Text('Sin imágenes capturadas',
+                      ? _buildWebDropZoneArea(scrollCtrl)
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.camera_alt_outlined,
+                              size: 56,
+                              color: Colors.grey.shade300,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Sin imágenes capturadas',
                               style: TextStyle(
-                                  fontFamily: _kFont,
-                                  color: Colors.grey.shade500)),
-                          const SizedBox(height: 6),
-                          Text('Usa la cámara o selecciona un archivo',
+                                fontFamily: _kFont,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Usa la cámara o selecciona un archivo',
                               style: TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 12,
-                                  color: Colors.grey.shade400)),
-                        ],
-                      ))
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                          ],
+                        ))
                 : (_subiendo && kIsWeb
-                    ? Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const CircularProgressIndicator(color: kComprasPrimary),
-                          const SizedBox(height: 16),
-                          Text('Convirtiendo y subiendo como PDF…',
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const CircularProgressIndicator(
+                              color: kComprasPrimary,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Convirtiendo y subiendo como PDF…',
                               style: TextStyle(
-                                  fontFamily: _kFont,
-                                  color: Colors.grey.shade600)),
-                        ],
-                      )
-                    : GridView.builder(
-                        controller: scrollCtrl,
-                        padding: const EdgeInsets.all(12),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                        ),
-                        itemCount: _imagenes.length,
-                        itemBuilder: (ctx, i) => ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Image.memory(_imagenes[i], fit: BoxFit.cover),
-                              Positioned(
-                                top: 6,
-                                right: 6,
-                                child: GestureDetector(
-                                  onTap: () =>
-                                      setState(() => _imagenes.removeAt(i)),
-                                  child: Container(
-                                    decoration: const BoxDecoration(
+                                fontFamily: _kFont,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        )
+                      : GridView.builder(
+                          controller: scrollCtrl,
+                          padding: const EdgeInsets.all(12),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                          itemCount: _imagenes.length,
+                          itemBuilder: (ctx, i) => ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                Image.memory(_imagenes[i], fit: BoxFit.cover),
+                                Positioned(
+                                  top: 6,
+                                  right: 6,
+                                  child: GestureDetector(
+                                    onTap: () =>
+                                        setState(() => _imagenes.removeAt(i)),
+                                    child: Container(
+                                      decoration: const BoxDecoration(
                                         color: Colors.red,
-                                        shape: BoxShape.circle),
-                                    padding: const EdgeInsets.all(3),
-                                    child: const Icon(Icons.close,
-                                        size: 14, color: Colors.white),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      padding: const EdgeInsets.all(3),
+                                      child: const Icon(
+                                        Icons.close,
+                                        size: 14,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Positioned(
-                                bottom: 6,
-                                left: 6,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text('Pág. ${i + 1}',
+                                Positioned(
+                                  bottom: 6,
+                                  left: 6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      'Pág. ${i + 1}',
                                       style: const TextStyle(
-                                          fontSize: 10, color: Colors.white)),
+                                        fontSize: 10,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      )),
+                        )),
           ),
           // Botones
           Container(
@@ -1268,9 +1397,10 @@ class _ScannerSheetState extends State<_ScannerSheet> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 6,
-                    offset: Offset(0, -2))
+                  color: Colors.black12,
+                  blurRadius: 6,
+                  offset: Offset(0, -2),
+                ),
               ],
             ),
             child: kIsWeb
@@ -1280,33 +1410,42 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                         child: OutlinedButton.icon(
                           onPressed: _subiendo ? null : _desdeArchivo,
                           icon: const Icon(Icons.upload_file, size: 18),
-                          label: const Text('Seleccionar archivo (PDF/img)',
-                              style: TextStyle(fontFamily: _kFont)),
+                          label: const Text(
+                            'Seleccionar archivo (PDF/img)',
+                            style: TextStyle(fontFamily: _kFont),
+                          ),
                           style: OutlinedButton.styleFrom(
-                              foregroundColor: kComprasPrimary,
-                              side: const BorderSide(color: kComprasPrimary)),
+                            foregroundColor: kComprasPrimary,
+                            side: const BorderSide(color: kComprasPrimary),
+                          ),
                         ),
                       ),
                       if (_imagenes.isNotEmpty) ...[
                         const SizedBox(width: 8),
                         Expanded(
                           child: FilledButton.icon(
-                            onPressed:
-                                (_subiendo || _imagenes.isEmpty) ? null : _convertirYSubir,
+                            onPressed: (_subiendo || _imagenes.isEmpty)
+                                ? null
+                                : _convertirYSubir,
                             icon: _subiendo
                                 ? const SizedBox(
                                     width: 16,
                                     height: 16,
                                     child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white))
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
                                 : const Icon(Icons.picture_as_pdf, size: 18),
                             label: Text(
-                                _subiendo
-                                    ? 'Subiendo…'
-                                    : 'PDF (${_imagenes.length} pág.)',
-                                style: const TextStyle(fontFamily: _kFont)),
+                              _subiendo
+                                  ? 'Subiendo…'
+                                  : 'PDF (${_imagenes.length} pág.)',
+                              style: const TextStyle(fontFamily: _kFont),
+                            ),
                             style: FilledButton.styleFrom(
-                                backgroundColor: kComprasPrimary),
+                              backgroundColor: kComprasPrimary,
+                            ),
                           ),
                         ),
                       ],
@@ -1320,12 +1459,14 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                             child: OutlinedButton.icon(
                               onPressed: _subiendo ? null : _tomarFoto,
                               icon: const Icon(Icons.camera_alt, size: 18),
-                              label: const Text('Cámara',
-                                  style: TextStyle(fontFamily: _kFont)),
+                              label: const Text(
+                                'Cámara',
+                                style: TextStyle(fontFamily: _kFont),
+                              ),
                               style: OutlinedButton.styleFrom(
-                                  foregroundColor: kComprasPrimary,
-                                  side: const BorderSide(
-                                      color: kComprasPrimary)),
+                                foregroundColor: kComprasPrimary,
+                                side: const BorderSide(color: kComprasPrimary),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -1333,12 +1474,14 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                             child: OutlinedButton.icon(
                               onPressed: _subiendo ? null : _desdeGaleria,
                               icon: const Icon(Icons.photo_library, size: 18),
-                              label: const Text('Galería',
-                                  style: TextStyle(fontFamily: _kFont)),
+                              label: const Text(
+                                'Galería',
+                                style: TextStyle(fontFamily: _kFont),
+                              ),
                               style: OutlinedButton.styleFrom(
-                                  foregroundColor: kComprasPrimary,
-                                  side: const BorderSide(
-                                      color: kComprasPrimary)),
+                                foregroundColor: kComprasPrimary,
+                                side: const BorderSide(color: kComprasPrimary),
+                              ),
                             ),
                           ),
                         ],
@@ -1350,10 +1493,13 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                             child: OutlinedButton.icon(
                               onPressed: _subiendo ? null : _desdeArchivo,
                               icon: const Icon(Icons.attach_file, size: 18),
-                              label: const Text('Archivo (PDF/img)',
-                                  style: TextStyle(fontFamily: _kFont)),
+                              label: const Text(
+                                'Archivo (PDF/img)',
+                                style: TextStyle(fontFamily: _kFont),
+                              ),
                               style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.grey.shade700),
+                                foregroundColor: Colors.grey.shade700,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -1367,17 +1513,20 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                                       width: 16,
                                       height: 16,
                                       child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white))
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
                                   : const Icon(Icons.picture_as_pdf, size: 18),
                               label: Text(
-                                  _subiendo
-                                      ? 'Subiendo...'
-                                      : 'PDF (${_imagenes.length} pág.)',
-                                  style:
-                                      const TextStyle(fontFamily: _kFont)),
+                                _subiendo
+                                    ? 'Subiendo...'
+                                    : 'PDF (${_imagenes.length} pág.)',
+                                style: const TextStyle(fontFamily: _kFont),
+                              ),
                               style: FilledButton.styleFrom(
-                                  backgroundColor: kComprasPrimary),
+                                backgroundColor: kComprasPrimary,
+                              ),
                             ),
                           ),
                         ],
@@ -1404,7 +1553,8 @@ Future<DocAdjunto?> _mostrarEscaneador(
     useSafeArea: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
     builder: (_) => _ScannerSheet(
       empresaId: empresaId,
       carpeta: carpeta,
@@ -1433,6 +1583,11 @@ class _DocAttachButton extends StatefulWidget {
   final bool uploading;
   final VoidCallback onAttach;
   final VoidCallback? onView;
+
+  /// Mostrar selector de fecha de vencimiento.
+  final bool showCalendar;
+  final ValueChanged<DateTime?>? onDateChanged;
+
   /// Solo web: callback que recibe bytes + nombre y sube el archivo.
   /// El caller es responsable de actualizar su estado con el DocAdjunto resultante.
   final Future<void> Function(Uint8List bytes, String name)? onWebUpload;
@@ -1447,6 +1602,8 @@ class _DocAttachButton extends StatefulWidget {
     this.uploading = false,
     required this.onAttach,
     this.onView,
+    this.showCalendar = false,
+    this.onDateChanged,
     this.onWebUpload,
     this.onDelete,
   });
@@ -1474,8 +1631,9 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     super.initState();
     if (kIsWeb) {
       WebDragDrop.instance.enable();
-      _wDragSub = WebDragDrop.instance.isDragging
-          .listen((v) { if (mounted) setState(() => _isDragging = v); });
+      _wDragSub = WebDragDrop.instance.isDragging.listen((v) {
+        if (mounted) setState(() => _isDragging = v);
+      });
       _wFileSub = WebDragDrop.instance.droppedFile.listen(_onWebFileDrop);
     }
   }
@@ -1488,10 +1646,40 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     super.dispose();
   }
 
+  Future<void> _selectDate() async {
+    final now = DateTime.now();
+    final initialDate = widget.doc?.fechaVencimiento?.toDate() ?? now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate.isBefore(now) ? now : initialDate,
+      firstDate: now.subtract(const Duration(days: 365 * 5)),
+      lastDate: now.add(const Duration(days: 365 * 10)),
+      helpText: 'Fecha de Vencimiento',
+      cancelText: 'Limpiar',
+      confirmText: 'Seleccionar',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: kComprasPrimary,
+              onPrimary: Colors.white,
+              onSurface: Colors.black87,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (widget.onDateChanged != null) {
+      widget.onDateChanged!(picked);
+    }
+  }
+
   /// Recibe archivo arrastrado; lo agrega a la cola de pendientes si el cursor
   /// cayó sobre este widget.
   void _onWebFileDrop(DroppedFile file) {
-    if (!mounted || _isUploading || _combining || widget.onWebUpload == null) return;
+    if (!mounted || _isUploading || _combining || widget.onWebUpload == null)
+      return;
     // Verificar que el drop ocurrió dentro de los límites de este widget.
     // Si la zona drop no está visible (rb == null) rechazar el drop.
     final rb = _dropKey.currentContext?.findRenderObject() as RenderBox?;
@@ -1503,17 +1691,27 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Solo se permiten PDF, JPG o PNG',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Solo se permiten PDF, JPG o PNG',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
     if (file.bytes.length > _maxBytes) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('El archivo supera el límite de 10 MB',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El archivo supera el límite de 10 MB',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
@@ -1567,9 +1765,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       if (f.bytes == null) continue;
       if (f.bytes!.length > _maxBytes) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('${f.name}: supera el límite de 10 MB',
-                  style: const TextStyle(fontFamily: _kFont))));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${f.name}: supera el límite de 10 MB',
+                style: const TextStyle(fontFamily: _kFont),
+              ),
+            ),
+          );
         }
         continue;
       }
@@ -1588,9 +1791,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Solo se permiten PDF, JPG o PNG',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Solo se permiten PDF, JPG o PNG',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
@@ -1601,9 +1809,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
   Future<void> _processWebBytes(Uint8List bytes, String name) async {
     if (bytes.length > _maxBytes) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('El archivo supera el límite de 10 MB',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El archivo supera el límite de 10 MB',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
@@ -1612,9 +1825,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       await widget.onWebUpload!(bytes, name);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error al subir: $e',
-                style: const TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error al subir: $e',
+              style: const TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _webUploading = false);
@@ -1639,28 +1857,31 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
         for (final pf in _pending) {
           if (pf.isPdf) {
             // Rasterizar cada página del PDF a imagen
-            await for (final raster
-                in Printing.raster(pf.bytes, dpi: 150)) {
+            await for (final raster in Printing.raster(pf.bytes, dpi: 150)) {
               final imgBytes = await raster.toPng();
               final pwImg = pw.MemoryImage(imgBytes);
               // Reconstituir tamaño original en puntos (150 dpi → puntos a 72 dpi)
               final wPt = raster.width * 72.0 / 150.0;
               final hPt = raster.height * 72.0 / 150.0;
-              pdfDoc.addPage(pw.Page(
-                pageFormat: PdfPageFormat(wPt, hPt),
-                margin: pw.EdgeInsets.zero,
-                build: (_) => pw.Image(pwImg, fit: pw.BoxFit.fill),
-              ));
+              pdfDoc.addPage(
+                pw.Page(
+                  pageFormat: PdfPageFormat(wPt, hPt),
+                  margin: pw.EdgeInsets.zero,
+                  build: (_) => pw.Image(pwImg, fit: pw.BoxFit.fill),
+                ),
+              );
             }
           } else {
             // Imagen: agregar como página A4
             final pwImg = pw.MemoryImage(pf.bytes);
-            pdfDoc.addPage(pw.Page(
-              pageFormat: PdfPageFormat.a4,
-              margin: const pw.EdgeInsets.all(16),
-              build: (_) =>
-                  pw.Center(child: pw.Image(pwImg, fit: pw.BoxFit.contain)),
-            ));
+            pdfDoc.addPage(
+              pw.Page(
+                pageFormat: PdfPageFormat.a4,
+                margin: const pw.EdgeInsets.all(16),
+                build: (_) =>
+                    pw.Center(child: pw.Image(pwImg, fit: pw.BoxFit.contain)),
+              ),
+            );
           }
         }
         finalBytes = await pdfDoc.save();
@@ -1671,9 +1892,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       if (mounted) setState(() => _pending.clear());
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error al combinar: $e',
-                style: const TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error al combinar: $e',
+              style: const TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _combining = false);
@@ -1697,15 +1923,18 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               child: Text(
                 widget.label,
                 style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: Colors.grey.shade600),
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                ),
                 softWrap: true,
               ),
             ),
             if (widget.required_)
-              const Text(' *',
-                  style: TextStyle(color: Colors.red, fontSize: 12)),
+              const Text(
+                ' *',
+                style: TextStyle(color: Colors.red, fontSize: 12),
+              ),
           ],
         ),
         const SizedBox(height: 4),
@@ -1718,25 +1947,29 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                     ? const SizedBox(
                         width: 14,
                         height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : Icon(_icon, size: 16, color: _iconColor),
                 label: Text(
                   widget.uploading
                       ? 'Subiendo...'
                       : tiene
-                          ? '${widget.doc!.nombre ?? 'Adjunto'}$_estadoLabel'
-                          : 'Adjuntar / Escanear',
+                      ? '${widget.doc!.nombre ?? 'Adjunto'}$_estadoLabel'
+                      : 'Adjuntar / Escanear',
                   style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: widget.uploading ? Colors.grey : _iconColor),
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: widget.uploading ? Colors.grey : _iconColor,
+                  ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                 ),
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: _borderColor),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   alignment: Alignment.centerLeft,
                 ),
               ),
@@ -1745,12 +1978,14 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               const SizedBox(width: 6),
               IconButton(
                 onPressed: widget.onView,
-                icon: const Icon(Icons.open_in_new,
-                    size: 18, color: Colors.blue),
+                icon: const Icon(
+                  Icons.open_in_new,
+                  size: 18,
+                  color: Colors.blue,
+                ),
                 tooltip: 'Ver documento',
                 padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 32, minHeight: 32),
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               ),
             ],
           ],
@@ -1768,9 +2003,10 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
             child: Text(
               'Motivo: ${widget.doc!.observacionCalidad}',
               style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 11,
-                  color: Colors.red.shade700),
+                fontFamily: _kFont,
+                fontSize: 11,
+                color: Colors.red.shade700,
+              ),
             ),
           ),
         ],
@@ -1785,19 +2021,26 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Label
-        Row(children: [
-          Expanded(
-            child: Text(widget.label,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                widget.label,
                 style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: Colors.grey.shade600),
-                softWrap: true),
-          ),
-          if (widget.required_)
-            const Text(' *',
-                style: TextStyle(color: Colors.red, fontSize: 12)),
-        ]),
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                ),
+                softWrap: true,
+              ),
+            ),
+            if (widget.required_)
+              const Text(
+                ' *',
+                style: TextStyle(color: Colors.red, fontSize: 12),
+              ),
+          ],
+        ),
         const SizedBox(height: 6),
         // Zona de contenido según estado
         if (_pending.isNotEmpty)
@@ -1820,9 +2063,10 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
             child: Text(
               'Motivo: ${widget.doc!.observacionCalidad}',
               style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 11,
-                  color: Colors.red.shade700),
+                fontFamily: _kFont,
+                fontSize: 11,
+                color: Colors.red.shade700,
+              ),
             ),
           ),
         ],
@@ -1836,26 +2080,31 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Encabezado con contador y botón "Agregar más"
-        Row(children: [
-          Text(
-            'Archivos a combinar (${_pending.length})',
-            style: const TextStyle(
+        Row(
+          children: [
+            Text(
+              'Archivos a combinar (${_pending.length})',
+              style: const TextStyle(
                 fontFamily: _kFont,
                 fontSize: 12,
-                fontWeight: FontWeight.w600),
-          ),
-          const Spacer(),
-          TextButton.icon(
-            onPressed: _combining ? null : _handleWebFilePick,
-            icon: const Icon(Icons.add, size: 14),
-            label: const Text('Agregar más',
-                style: TextStyle(fontFamily: _kFont, fontSize: 11)),
-            style: TextButton.styleFrom(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _combining ? null : _handleWebFilePick,
+              icon: const Icon(Icons.add, size: 14),
+              label: const Text(
+                'Agregar más',
+                style: TextStyle(fontFamily: _kFont, fontSize: 11),
+              ),
+              style: TextButton.styleFrom(
                 foregroundColor: kComprasPrimary,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
-          ),
-        ]),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 4),
         // Lista de archivos pendientes
         Container(
@@ -1871,28 +2120,35 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               final isImg = ['jpg', 'jpeg', 'png'].contains(ext);
               return ListTile(
                 dense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 0,
+                ),
                 leading: Icon(
-                    isImg ? Icons.image : Icons.picture_as_pdf,
-                    size: 18,
-                    color: isImg ? Colors.blue.shade600 : Colors.red.shade600),
-                title: Text(pf.name,
-                    style: const TextStyle(
-                        fontFamily: _kFont, fontSize: 12),
-                    overflow: TextOverflow.ellipsis),
+                  isImg ? Icons.image : Icons.picture_as_pdf,
+                  size: 18,
+                  color: isImg ? Colors.blue.shade600 : Colors.red.shade600,
+                ),
+                title: Text(
+                  pf.name,
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
+                ),
                 subtitle: Text(
-                    '${(pf.bytes.length / 1024).toStringAsFixed(0)} KB',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 10,
-                        color: Colors.grey.shade500)),
+                  '${(pf.bytes.length / 1024).toStringAsFixed(0)} KB',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 10,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
                 trailing: IconButton(
-                  icon: const Icon(Icons.close,
-                      size: 16, color: Colors.grey),
+                  icon: const Icon(Icons.close, size: 16, color: Colors.grey),
                   padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 28, minHeight: 28),
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                   onPressed: _combining
                       ? null
                       : () => setState(() => _pending.removeAt(idx)),
@@ -1904,49 +2160,55 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
         ),
         const SizedBox(height: 8),
         // Botones de acción
-        Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _combining
-                  ? null
-                  : () => setState(() => _pending.clear()),
-              icon: const Icon(Icons.clear, size: 13),
-              label: const Text('Cancelar',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 11)),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: Colors.grey.shade300),
-                padding: const EdgeInsets.symmetric(vertical: 6),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _combining
+                    ? null
+                    : () => setState(() => _pending.clear()),
+                icon: const Icon(Icons.clear, size: 13),
+                label: const Text(
+                  'Cancelar',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 11),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.grey.shade300),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 2,
-            child: FilledButton.icon(
-              onPressed: _combining ? null : _combinarYSubir,
-              icon: _combining
-                  ? const SizedBox(
-                      width: 13,
-                      height: 13,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.merge_type, size: 14),
-              label: Text(
-                _combining
-                    ? 'Combinando...'
-                    : _pending.length == 1
-                        ? 'Subir archivo'
-                        : 'Combinar y subir PDF',
-                style: const TextStyle(
-                    fontFamily: _kFont, fontSize: 11),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: kComprasPrimary,
-                padding: const EdgeInsets.symmetric(vertical: 6),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: FilledButton.icon(
+                onPressed: _combining ? null : _combinarYSubir,
+                icon: _combining
+                    ? const SizedBox(
+                        width: 13,
+                        height: 13,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.merge_type, size: 14),
+                label: Text(
+                  _combining
+                      ? 'Combinando...'
+                      : _pending.length == 1
+                      ? 'Subir archivo'
+                      : 'Combinar y subir PDF',
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 11),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: kComprasPrimary,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                ),
               ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ],
     );
   }
@@ -1963,8 +2225,12 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
           key: _dropKey,
           height: 72,
           child: DropTarget(
-            onDragEntered: (_) { if (mounted) setState(() => _isDragging = true); },
-            onDragExited: (_) { if (mounted) setState(() => _isDragging = false); },
+            onDragEntered: (_) {
+              if (mounted) setState(() => _isDragging = true);
+            },
+            onDragExited: (_) {
+              if (mounted) setState(() => _isDragging = false);
+            },
             onDragDone: _handleWebDrop,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
@@ -1973,13 +2239,11 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                 color: _isDragging
                     ? kComprasPrimary.withOpacity(0.07)
                     : (_isUploading
-                        ? Colors.blue.shade50
-                        : Colors.grey.shade50),
+                          ? Colors.blue.shade50
+                          : Colors.grey.shade50),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: _isDragging
-                      ? kComprasPrimary
-                      : Colors.grey.shade300,
+                  color: _isDragging ? kComprasPrimary : Colors.grey.shade300,
                   width: _isDragging ? 2 : 1,
                 ),
               ),
@@ -1988,26 +2252,34 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: kComprasPrimary)),
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: kComprasPrimary,
+                          ),
+                        ),
                         const SizedBox(width: 10),
-                        Text('Subiendo...',
-                            style: TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 12,
-                                color: Colors.grey.shade600)),
+                        Text(
+                          'Subiendo...',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
                       ],
                     )
                   : Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.cloud_upload_outlined,
-                            size: 26,
-                            color: _isDragging
-                                ? kComprasPrimary
-                                : Colors.grey.shade400),
+                        Icon(
+                          Icons.cloud_upload_outlined,
+                          size: 26,
+                          color: _isDragging
+                              ? kComprasPrimary
+                              : Colors.grey.shade400,
+                        ),
                         const SizedBox(width: 10),
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -2018,18 +2290,22 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                                   ? '¡Suelta el archivo aquí!'
                                   : 'Arrastra el archivo aquí',
                               style: TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: _isDragging
-                                      ? kComprasPrimary
-                                      : Colors.black54),
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _isDragging
+                                    ? kComprasPrimary
+                                    : Colors.black54,
+                              ),
                             ),
-                            Text('PDF · JPG · PNG · Máx. 10 MB',
-                                style: TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 10,
-                                    color: Colors.grey.shade500)),
+                            Text(
+                              'PDF · JPG · PNG · Máx. 10 MB',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 10,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -2042,13 +2318,19 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
           const SizedBox(height: 4),
           OutlinedButton.icon(
             onPressed: _handleWebFilePick,
-            icon: Icon(Icons.folder_open,
-                size: 13, color: Colors.grey.shade600),
-            label: Text('o seleccionar archivo',
-                style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 11,
-                    color: Colors.grey.shade600)),
+            icon: Icon(
+              Icons.folder_open,
+              size: 13,
+              color: Colors.grey.shade600,
+            ),
+            label: Text(
+              'o seleccionar archivo',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
+            ),
             style: OutlinedButton.styleFrom(
               side: BorderSide(color: Colors.grey.shade300),
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -2091,8 +2373,11 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
       ),
       child: Row(
         children: [
-          Icon(isImg ? Icons.image : Icons.picture_as_pdf,
-              color: statusColor, size: 20),
+          Icon(
+            isImg ? Icons.image : Icons.picture_as_pdf,
+            color: statusColor,
+            size: 20,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -2101,20 +2386,26 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                 Text(
                   nombre,
                   style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600),
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
-                Row(children: [
-                  Icon(statusIcon, size: 11, color: statusColor),
-                  const SizedBox(width: 3),
-                  Text(statusText,
+                Row(
+                  children: [
+                    Icon(statusIcon, size: 11, color: statusColor),
+                    const SizedBox(width: 3),
+                    Text(
+                      statusText,
                       style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 10,
-                          color: statusColor)),
-                ]),
+                        fontFamily: _kFont,
+                        fontSize: 10,
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -2122,33 +2413,39 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
             TextButton.icon(
               onPressed: widget.onView,
               icon: const Icon(Icons.open_in_new, size: 14),
-              label: const Text('Ver',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 11)),
+              label: const Text(
+                'Ver',
+                style: TextStyle(fontFamily: _kFont, fontSize: 11),
+              ),
               style: TextButton.styleFrom(
-                  foregroundColor: Colors.blue,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4)),
+                foregroundColor: Colors.blue,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
             ),
           if (widget.onWebUpload != null)
             TextButton.icon(
               onPressed: _isUploading ? null : _handleWebFilePick,
               icon: const Icon(Icons.add_circle_outline, size: 14),
-              label: const Text('Agregar',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 11)),
+              label: const Text(
+                'Agregar',
+                style: TextStyle(fontFamily: _kFont, fontSize: 11),
+              ),
               style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey.shade600,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4)),
+                foregroundColor: Colors.grey.shade600,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
             ),
           if (widget.onDelete != null)
             IconButton(
               onPressed: _isUploading ? null : widget.onDelete,
-              icon: Icon(Icons.delete_outline,
-                  size: 18, color: Colors.red.shade400),
+              icon: Icon(
+                Icons.delete_outline,
+                size: 18,
+                color: Colors.red.shade400,
+              ),
               tooltip: 'Eliminar documento',
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              constraints:
-                  const BoxConstraints(minWidth: 32, minHeight: 32),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
         ],
       ),
@@ -2165,7 +2462,8 @@ void _abrirUrl(BuildContext context, String? url) async {
   } else {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo abrir el documento')));
+        const SnackBar(content: Text('No se pudo abrir el documento')),
+      );
     }
   }
 }
@@ -2179,7 +2477,11 @@ class _ProveedoresScreen extends StatefulWidget {
   final ComprasService svc;
   final String userId;
 
-  const _ProveedoresScreen({required this.empresaId, required this.svc, required this.userId});
+  const _ProveedoresScreen({
+    required this.empresaId,
+    required this.svc,
+    required this.userId,
+  });
 
   @override
   State<_ProveedoresScreen> createState() => _ProveedoresScreenState();
@@ -2200,8 +2502,10 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: const Text('Proveedores',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Proveedores',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: kComprasPrimary,
         foregroundColor: Colors.white,
       ),
@@ -2213,11 +2517,11 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
               controller: _searchCtrl,
               decoration: InputDecoration(
                 hintText: 'Buscar por nombre o NIT...',
-                hintStyle:
-                    const TextStyle(fontFamily: _kFont, fontSize: 14),
+                hintStyle: const TextStyle(fontFamily: _kFont, fontSize: 14),
                 prefixIcon: const Icon(Icons.search, size: 20),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 filled: true,
                 fillColor: Colors.white,
@@ -2236,19 +2540,24 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
                 final filtered = _query.isEmpty
                     ? all
                     : all
-                        .where((p) =>
-                            p.razonSocial.toLowerCase().contains(_query) ||
-                            p.nit.contains(_query) ||
-                            p.ciudad.toLowerCase().contains(_query))
-                        .toList();
+                          .where(
+                            (p) =>
+                                p.razonSocial.toLowerCase().contains(_query) ||
+                                p.nit.contains(_query) ||
+                                p.ciudad.toLowerCase().contains(_query),
+                          )
+                          .toList();
                 if (filtered.isEmpty) {
                   return Center(
                     child: Text(
-                        _query.isEmpty
-                            ? 'Sin proveedores registrados'
-                            : 'Sin resultados para "$_query"',
-                        style: const TextStyle(
-                            fontFamily: _kFont, color: Colors.black45)),
+                      _query.isEmpty
+                          ? 'Sin proveedores registrados'
+                          : 'Sin resultados para "$_query"',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        color: Colors.black45,
+                      ),
+                    ),
                   );
                 }
                 return ListView.builder(
@@ -2273,40 +2582,47 @@ class _ProveedoresScreenState extends State<_ProveedoresScreen> {
         foregroundColor: Colors.white,
         onPressed: () => _openForm(),
         icon: const Icon(Icons.add),
-        label:
-            const Text('Nuevo Proveedor', style: TextStyle(fontFamily: _kFont)),
+        label: const Text(
+          'Nuevo Proveedor',
+          style: TextStyle(fontFamily: _kFont),
+        ),
       ),
     );
   }
 
   void _openForm({ProveedorDoc? existing}) => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => _ProveedorFormScreen(
-            empresaId: widget.empresaId,
-            svc: widget.svc,
-            existing: existing,
-            userId: widget.userId,
-          ),
-        ),
-      );
+    context,
+    MaterialPageRoute(
+      builder: (_) => _ProveedorFormScreen(
+        empresaId: widget.empresaId,
+        svc: widget.svc,
+        existing: existing,
+        userId: widget.userId,
+      ),
+    ),
+  );
 
   Future<void> _confirmDelete(ProveedorDoc p) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar proveedor',
-            style: TextStyle(fontFamily: _kFont)),
-        content: Text('¿Desea eliminar a "${p.razonSocial}"?',
-            style: const TextStyle(fontFamily: _kFont)),
+        title: const Text(
+          'Eliminar proveedor',
+          style: TextStyle(fontFamily: _kFont),
+        ),
+        content: Text(
+          '¿Desea eliminar a "${p.razonSocial}"?',
+          style: const TextStyle(fontFamily: _kFont),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Eliminar',
-                  style: TextStyle(color: Colors.red))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
@@ -2327,13 +2643,10 @@ class _ProveedorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final docsKeys = [
-      kDocRut,
-      kDocCertExistencia,
-      kDocActaInspeccion
-    ];
-    final tieneRequeridos =
-        docsKeys.every((k) => proveedor.documentos[k]?.tieneDoc == true);
+    final docsKeys = [kDocRut, kDocCertExistencia, kDocActaInspeccion];
+    final tieneRequeridos = docsKeys.every(
+      (k) => proveedor.documentos[k]?.tieneDoc == true,
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -2350,11 +2663,14 @@ class _ProveedorCard extends StatelessWidget {
               Row(
                 children: [
                   Expanded(
-                    child: Text(proveedor.razonSocial,
-                        style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 15)),
+                    child: Text(
+                      proveedor.razonSocial,
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
+                    ),
                   ),
                   _StatusDot(ok: tieneRequeridos),
                   const SizedBox(width: 4),
@@ -2365,14 +2681,22 @@ class _ProveedorCard extends StatelessWidget {
                     },
                     itemBuilder: (_) => [
                       const PopupMenuItem(
-                          value: 'edit',
-                          child: Text('Editar',
-                              style: TextStyle(fontFamily: _kFont))),
+                        value: 'edit',
+                        child: Text(
+                          'Editar',
+                          style: TextStyle(fontFamily: _kFont),
+                        ),
+                      ),
                       const PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Eliminar',
-                              style: TextStyle(
-                                  fontFamily: _kFont, color: Colors.red))),
+                        value: 'delete',
+                        child: Text(
+                          'Eliminar',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ),
                     ],
                     icon: const Icon(Icons.more_vert, size: 20),
                   ),
@@ -2383,23 +2707,32 @@ class _ProveedorCard extends StatelessWidget {
                 children: [
                   const Icon(Icons.badge, size: 14, color: Colors.black45),
                   const SizedBox(width: 4),
-                  Text('NIT: ${proveedor.nit}',
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          color: Colors.black54)),
+                  Text(
+                    'NIT: ${proveedor.nit}',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
                   const Spacer(),
                   if (proveedor.ciudad.isNotEmpty)
                     Row(
                       children: [
-                        const Icon(Icons.location_on,
-                            size: 13, color: Colors.black38),
+                        const Icon(
+                          Icons.location_on,
+                          size: 13,
+                          color: Colors.black38,
+                        ),
                         const SizedBox(width: 2),
-                        Text(proveedor.ciudad,
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 12,
-                                color: Colors.black45)),
+                        Text(
+                          proveedor.ciudad,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black45,
+                          ),
+                        ),
                       ],
                     ),
                 ],
@@ -2504,7 +2837,12 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
   @override
   void dispose() {
     for (final c in [
-      _nitCtrl, _razonCtrl, _dirCtrl, _telCtrl, _emailCtrl, _ciudadCtrl
+      _nitCtrl,
+      _razonCtrl,
+      _dirCtrl,
+      _telCtrl,
+      _emailCtrl,
+      _ciudadCtrl,
     ]) {
       c.dispose();
     }
@@ -2532,16 +2870,19 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
       );
       await widget.svc.guardarProveedor(p, isNew: isNew);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isNew ? 'Proveedor creado' : 'Proveedor actualizado'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isNew ? 'Proveedor creado' : 'Proveedor actualizado'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
+          SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed),
+        );
       }
     } finally {
       if (mounted) setState(() => _guardando = false);
@@ -2561,34 +2902,43 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
   }
 
   Widget _sectionHeader(String title) => Padding(
-        padding: const EdgeInsets.only(top: 24, bottom: 10),
-        child: Row(
-          children: [
-            Container(
-                width: 4,
-                height: 18,
-                decoration: BoxDecoration(
-                    color: kComprasPrimary,
-                    borderRadius: BorderRadius.circular(2))),
-            const SizedBox(width: 8),
-            Text(title,
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                    color: kComprasPrimary)),
-          ],
+    padding: const EdgeInsets.only(top: 24, bottom: 10),
+    child: Row(
+      children: [
+        Container(
+          width: 4,
+          height: 18,
+          decoration: BoxDecoration(
+            color: kComprasPrimary,
+            borderRadius: BorderRadius.circular(2),
+          ),
         ),
-      );
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+            color: kComprasPrimary,
+          ),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: Text(isNew ? 'Nuevo Proveedor' : 'Editar Proveedor',
-            style: const TextStyle(
-                fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: Text(
+          isNew ? 'Nuevo Proveedor' : 'Editar Proveedor',
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: kComprasPrimary,
         foregroundColor: Colors.white,
         actions: [
@@ -2596,19 +2946,25 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
             const Padding(
               padding: EdgeInsets.all(14),
               child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white)),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
             )
           else
             TextButton(
               onPressed: _guardar,
-              child: const Text('Guardar',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontFamily: _kFont,
-                      fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Guardar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
         ],
       ),
@@ -2627,7 +2983,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                 hint: 'Ej: 900123456-1',
                 keyboardType: TextInputType.text,
                 inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[\d\-]'))
+                  FilteringTextInputFormatter.allow(RegExp(r'[\d\-]')),
                 ],
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
@@ -2643,9 +2999,10 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
               // ── Contacto ────────────────────────────────
               _sectionHeader('Contacto'),
               _buildField(
-                  controller: _dirCtrl,
-                  label: 'Dirección',
-                  hint: 'Calle 123 # 45-67'),
+                controller: _dirCtrl,
+                label: 'Dirección',
+                hint: 'Calle 123 # 45-67',
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -2675,23 +3032,32 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                 decoration: _inputDecoration('Departamento'),
                 isExpanded: true,
                 items: kDepartamentos
-                    .map((d) => DropdownMenuItem(
+                    .map(
+                      (d) => DropdownMenuItem(
                         value: d,
-                        child: Text(d, style: const TextStyle(fontFamily: _kFont))))
+                        child: Text(
+                          d,
+                          style: const TextStyle(fontFamily: _kFont),
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _departamento = v),
               ),
               const SizedBox(height: 12),
               _buildField(
-                  controller: _ciudadCtrl,
-                  label: 'Ciudad / Municipio',
-                  hint: 'Bogotá'),
+                controller: _ciudadCtrl,
+                label: 'Ciudad / Municipio',
+                hint: 'Bogotá',
+              ),
               const SizedBox(height: 12),
               SwitchListTile(
                 value: _esLocal,
                 onChanged: (v) => setState(() => _esLocal = v),
-                title: const Text('Es proveedor local',
-                    style: TextStyle(fontFamily: _kFont, fontSize: 14)),
+                title: const Text(
+                  'Es proveedor local',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 14),
+                ),
                 activeColor: kComprasPrimary,
                 contentPadding: EdgeInsets.zero,
                 dense: true,
@@ -2704,9 +3070,10 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                 children: kCategoriasCompras.map((cat) {
                   final sel = _categorias.contains(cat);
                   return FilterChip(
-                    label: Text(cat,
-                        style:
-                            const TextStyle(fontFamily: _kFont, fontSize: 13)),
+                    label: Text(
+                      cat,
+                      style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                    ),
                     selected: sel,
                     onSelected: (v) {
                       setState(() {
@@ -2720,7 +3087,8 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                     selectedColor: kComprasPrimary.withOpacity(0.15),
                     checkmarkColor: kComprasPrimary,
                     side: BorderSide(
-                        color: sel ? kComprasPrimary : Colors.grey.shade300),
+                      color: sel ? kComprasPrimary : Colors.grey.shade300,
+                    ),
                   );
                 }).toList(),
               ),
@@ -2741,9 +3109,27 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                         ? () => _abrirUrl(context, _documentos[key]!.url)
                         : null,
                     onDelete: _documentos[key]?.tieneDoc == true
-                        ? () => setState(() =>
-                            _documentos = {..._documentos, key: const DocAdjunto()})
+                        ? () => setState(
+                            () => _documentos = {
+                              ..._documentos,
+                              key: const DocAdjunto(),
+                            },
+                          )
                         : null,
+                    showCalendar: key == 'soporteActaInspeccion',
+                    onDateChanged: (date) {
+                      setState(() {
+                        final current = _documentos[key] ?? const DocAdjunto();
+                        _documentos = {
+                          ..._documentos,
+                          key: current.copyWith(
+                            fechaVencimiento: date != null
+                                ? Timestamp.fromDate(date)
+                                : null,
+                          ),
+                        };
+                      });
+                    },
                     onWebUpload: (bytes, name) async {
                       final ext = name.toLowerCase().split('.').last;
                       final ct = ext == 'pdf'
@@ -2762,8 +3148,9 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                         subidoPor: widget.userId,
                         estadoCalidad: 'pendiente_revision_calidad',
                       );
-                      setState(() =>
-                          _documentos = {..._documentos, key: docFinal});
+                      setState(
+                        () => _documentos = {..._documentos, key: docFinal},
+                      );
                       // Auto-guardar en Firestore inmediatamente para que
                       // Revisión de Calidad lo vea sin tener que pulsar Guardar
                       if (!isNew) {
@@ -2796,26 +3183,24 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
     TextInputType? keyboardType,
     List<TextInputFormatter>? inputFormatters,
     String? Function(String?)? validator,
-  }) =>
-      TextFormField(
-        controller: controller,
-        decoration: _inputDecoration(label).copyWith(hintText: hint),
-        keyboardType: keyboardType,
-        inputFormatters: inputFormatters,
-        validator: validator,
-        style: const TextStyle(fontFamily: _kFont, fontSize: 14),
-      );
+  }) => TextFormField(
+    controller: controller,
+    decoration: _inputDecoration(label).copyWith(hintText: hint),
+    keyboardType: keyboardType,
+    inputFormatters: inputFormatters,
+    validator: validator,
+    style: const TextStyle(fontFamily: _kFont, fontSize: 14),
+  );
 }
 
 InputDecoration _inputDecoration(String label) => InputDecoration(
-      labelText: label,
-      labelStyle: const TextStyle(fontFamily: _kFont, fontSize: 13),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      filled: true,
-      fillColor: Colors.white,
-    );
+  labelText: label,
+  labelStyle: const TextStyle(fontFamily: _kFont, fontSize: 13),
+  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+  filled: true,
+  fillColor: Colors.white,
+);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PRODUCTOS SCREEN — listado
@@ -2826,8 +3211,11 @@ class _ProductosScreen extends StatefulWidget {
   final ComprasService svc;
   final String userId;
 
-  const _ProductosScreen(
-      {required this.empresaId, required this.svc, required this.userId});
+  const _ProductosScreen({
+    required this.empresaId,
+    required this.svc,
+    required this.userId,
+  });
 
   @override
   State<_ProductosScreen> createState() => _ProductosScreenState();
@@ -2849,8 +3237,10 @@ class _ProductosScreenState extends State<_ProductosScreen> {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: const Text('Productos',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Productos',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: const Color(0xFF0277BD),
         foregroundColor: Colors.white,
       ),
@@ -2864,8 +3254,9 @@ class _ProductosScreenState extends State<_ProductosScreen> {
                 hintText: 'Buscar producto o código...',
                 hintStyle: const TextStyle(fontFamily: _kFont, fontSize: 14),
                 prefixIcon: const Icon(Icons.search, size: 20),
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
                 filled: true,
                 fillColor: Colors.white,
@@ -2880,12 +3271,18 @@ class _ProductosScreenState extends State<_ProductosScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 14),
               children: [
-                _CatChip('Todos', _filtroCategoria == null,
-                    () => setState(() => _filtroCategoria = null)),
-                ...kCategoriasCompras.map((c) => _CatChip(
+                _CatChip(
+                  'Todos',
+                  _filtroCategoria == null,
+                  () => setState(() => _filtroCategoria = null),
+                ),
+                ...kCategoriasCompras.map(
+                  (c) => _CatChip(
                     c,
                     _filtroCategoria == c,
-                    () => setState(() => _filtroCategoria = c))),
+                    () => setState(() => _filtroCategoria = c),
+                  ),
+                ),
               ],
             ),
           ),
@@ -2901,11 +3298,13 @@ class _ProductosScreenState extends State<_ProductosScreen> {
                 var filtered = _query.isEmpty
                     ? all
                     : all
-                        .where((p) =>
-                            p.nombre.toLowerCase().contains(_query) ||
-                            p.codigo.toLowerCase().contains(_query) ||
-                            p.categoria.toLowerCase().contains(_query))
-                        .toList();
+                          .where(
+                            (p) =>
+                                p.nombre.toLowerCase().contains(_query) ||
+                                p.codigo.toLowerCase().contains(_query) ||
+                                p.categoria.toLowerCase().contains(_query),
+                          )
+                          .toList();
                 if (_filtroCategoria != null) {
                   filtered = filtered
                       .where((p) => p.categoria == _filtroCategoria)
@@ -2913,9 +3312,14 @@ class _ProductosScreenState extends State<_ProductosScreen> {
                 }
                 if (filtered.isEmpty) {
                   return Center(
-                      child: Text('Sin productos',
-                          style: const TextStyle(
-                              fontFamily: _kFont, color: Colors.black45)));
+                    child: Text(
+                      'Sin productos',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        color: Colors.black45,
+                      ),
+                    ),
+                  );
                 }
                 return ListView.builder(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 80),
@@ -2936,43 +3340,51 @@ class _ProductosScreenState extends State<_ProductosScreen> {
         foregroundColor: Colors.white,
         onPressed: () => _openForm(),
         icon: const Icon(Icons.add),
-        label:
-            const Text('Nuevo Producto', style: TextStyle(fontFamily: _kFont)),
+        label: const Text(
+          'Nuevo Producto',
+          style: TextStyle(fontFamily: _kFont),
+        ),
       ),
     );
   }
 
   void _openForm({ProductoDoc? existing}) => showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.white,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-        builder: (_) => _ProductoFormSheet(
-          empresaId: widget.empresaId,
-          svc: widget.svc,
-          existing: existing,
-          userId: widget.userId,
-        ),
-      );
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (_) => _ProductoFormSheet(
+      empresaId: widget.empresaId,
+      svc: widget.svc,
+      existing: existing,
+      userId: widget.userId,
+    ),
+  );
 
   Future<void> _confirmDelete(ProductoDoc p) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar producto',
-            style: TextStyle(fontFamily: _kFont)),
-        content: Text('¿Eliminar "${p.nombre}"?',
-            style: const TextStyle(fontFamily: _kFont)),
+        title: const Text(
+          'Eliminar producto',
+          style: TextStyle(fontFamily: _kFont),
+        ),
+        content: Text(
+          '¿Eliminar "${p.nombre}"?',
+          style: const TextStyle(fontFamily: _kFont),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Eliminar',
-                  style: TextStyle(color: Colors.red))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
@@ -2981,37 +3393,41 @@ class _ProductosScreenState extends State<_ProductosScreen> {
 }
 
 Widget _CatChip(String label, bool selected, VoidCallback onTap) => Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: selected ? const Color(0xFF0277BD) : Colors.white,
-            border: Border.all(
-                color: selected
-                    ? const Color(0xFF0277BD)
-                    : Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(label,
-              style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  color: selected ? Colors.white : Colors.black54)),
+  padding: const EdgeInsets.only(right: 6),
+  child: GestureDetector(
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFF0277BD) : Colors.white,
+        border: Border.all(
+          color: selected ? const Color(0xFF0277BD) : Colors.grey.shade300,
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: _kFont,
+          fontSize: 12,
+          color: selected ? Colors.white : Colors.black54,
         ),
       ),
-    );
+    ),
+  ),
+);
 
 class _ProductoCard extends StatelessWidget {
   final ProductoDoc producto;
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
-  const _ProductoCard(
-      {required this.producto, required this.onTap, required this.onDelete});
+  const _ProductoCard({
+    required this.producto,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3033,8 +3449,11 @@ class _ProductoCard extends StatelessWidget {
                   color: const Color(0xFF0277BD).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.inventory_2,
-                    color: Color(0xFF0277BD), size: 22),
+                child: const Icon(
+                  Icons.inventory_2,
+                  color: Color(0xFF0277BD),
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3045,17 +3464,22 @@ class _ProductoCard extends StatelessWidget {
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.grey.shade100,
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Text(producto.codigo,
-                              style: const TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black54)),
+                          child: Text(
+                            producto.codigo,
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black54,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 8),
                         if (producto.esPerecedero)
@@ -3063,11 +3487,14 @@ class _ProductoCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(producto.nombre,
-                        style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14)),
+                    Text(
+                      producto.nombre,
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                     const SizedBox(height: 3),
                     Row(
                       children: [
@@ -3086,14 +3513,16 @@ class _ProductoCard extends StatelessWidget {
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(
-                      value: 'edit',
-                      child: Text('Editar',
-                          style: TextStyle(fontFamily: _kFont))),
+                    value: 'edit',
+                    child: Text('Editar', style: TextStyle(fontFamily: _kFont)),
+                  ),
                   const PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Eliminar',
-                          style: TextStyle(
-                              fontFamily: _kFont, color: Colors.red))),
+                    value: 'delete',
+                    child: Text(
+                      'Eliminar',
+                      style: TextStyle(fontFamily: _kFont, color: Colors.red),
+                    ),
+                  ),
                 ],
                 icon: const Icon(Icons.more_vert, size: 20),
               ),
@@ -3115,11 +3544,12 @@ class _ProductoFormSheet extends StatefulWidget {
   final ProductoDoc? existing;
   final String userId;
 
-  const _ProductoFormSheet(
-      {required this.empresaId,
-      required this.svc,
-      this.existing,
-      required this.userId});
+  const _ProductoFormSheet({
+    required this.empresaId,
+    required this.svc,
+    this.existing,
+    required this.userId,
+  });
 
   @override
   State<_ProductoFormSheet> createState() => _ProductoFormSheetState();
@@ -3153,7 +3583,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     _perecedero = p?.esPerecedero ?? false;
     _marcasProducto = List.from(p?.marcas ?? []);
     _origen = p?.origen ?? 'NACIONAL';
-    _fichasPorMarca = Map<String, DocAdjunto>.from(p?.fichasTecnicasPorMarca ?? {});
+    _fichasPorMarca = Map<String, DocAdjunto>.from(
+      p?.fichasTecnicasPorMarca ?? {},
+    );
     _loadMarcas();
     _loadProductosExistentes();
   }
@@ -3165,10 +3597,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final list = snap.docs
-          .map((d) => MarcaDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+      final list =
+          snap.docs.map((d) => MarcaDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
       setState(() {
         _todasMarcas = list;
         _loadingMarcas = false;
@@ -3228,12 +3659,17 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   Future<void> _agregarMarca() async {
     // Mostrar sólo las marcas que aún no están vinculadas
     final yaVinculadas = _marcasProducto.map((r) => r.marcaId).toSet();
-    final disponibles =
-        _todasMarcas.where((m) => !yaVinculadas.contains(m.id)).toList();
+    final disponibles = _todasMarcas
+        .where((m) => !yaVinculadas.contains(m.id))
+        .toList();
     if (disponibles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('No hay marcas disponibles. Crea marcas desde el menú.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No hay marcas disponibles. Crea marcas desde el menú.',
+          ),
+        ),
+      );
       return;
     }
     final seleccionada = await showModalBottomSheet<MarcaDoc>(
@@ -3241,7 +3677,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => _MarcaSelectorSheet(marcas: disponibles),
     );
     if (seleccionada != null && mounted) {
@@ -3253,12 +3690,14 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     if (_unidad == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleccione la unidad de medida')));
+        const SnackBar(content: Text('Seleccione la unidad de medida')),
+      );
       return;
     }
     if (_categoria == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleccione la categoría')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Seleccione la categoría')));
       return;
     }
 
@@ -3267,12 +3706,14 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
       nombre: _nombreCtrl.text,
     );
     if (coincidencia != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          'Ya existe un producto similar (${coincidencia.codigo} - ${coincidencia.nombre}). Revise antes de crear uno nuevo.',
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Ya existe un producto similar (${coincidencia.codigo} - ${coincidencia.nombre}). Revise antes de crear uno nuevo.',
+          ),
+          backgroundColor: kComprasRed,
         ),
-        backgroundColor: kComprasRed,
-      ));
+      );
       return;
     }
 
@@ -3319,16 +3760,19 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
       );
       await widget.svc.guardarProducto(p, isNew: isNew);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isNew ? 'Producto creado' : 'Producto actualizado'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isNew ? 'Producto creado' : 'Producto actualizado'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
+          SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed),
+        );
       }
     } finally {
       if (mounted) setState(() => _guardando = false);
@@ -3339,7 +3783,8 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom),
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Form(
@@ -3355,19 +3800,23 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(4)),
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
               Row(
                 children: [
                   const Icon(Icons.inventory_2, color: Color(0xFF0277BD)),
                   const SizedBox(width: 8),
-                  Text(isNew ? 'Nuevo Producto' : 'Editar Producto',
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold)),
+                  Text(
+                    isNew ? 'Nuevo Producto' : 'Editar Producto',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -3380,10 +3829,11 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   helperText: 'Se guardará en mayúsculas automáticamente',
                 ),
                 style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.2),
+                  fontFamily: _kFont,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
                 textCapitalization: TextCapitalization.characters,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
@@ -3391,8 +3841,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               const SizedBox(height: 14),
               TextFormField(
                 controller: _nombreCtrl,
-                decoration: _inputDecoration('Nombre del producto *')
-                    .copyWith(hintText: 'Ej: Carne De Res'),
+                decoration: _inputDecoration(
+                  'Nombre del producto *',
+                ).copyWith(hintText: 'Ej: Carne De Res'),
                 style: const TextStyle(fontFamily: _kFont, fontSize: 14),
                 textCapitalization: TextCapitalization.words,
                 validator: (v) =>
@@ -3407,11 +3858,15 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                       decoration: _inputDecoration('Unidad de medida *'),
                       isExpanded: true,
                       items: kUnidadesMedida
-                          .map((u) => DropdownMenuItem(
+                          .map(
+                            (u) => DropdownMenuItem(
                               value: u,
-                              child: Text(u,
-                                  style:
-                                      const TextStyle(fontFamily: _kFont))))
+                              child: Text(
+                                u,
+                                style: const TextStyle(fontFamily: _kFont),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => setState(() => _unidad = v),
                     ),
@@ -3423,11 +3878,15 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                       decoration: _inputDecoration('Categoría *'),
                       isExpanded: true,
                       items: kCategoriasCompras
-                          .map((c) => DropdownMenuItem(
+                          .map(
+                            (c) => DropdownMenuItem(
                               value: c,
-                              child: Text(c,
-                                  style:
-                                      const TextStyle(fontFamily: _kFont))))
+                              child: Text(
+                                c,
+                                style: const TextStyle(fontFamily: _kFont),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => setState(() => _categoria = v),
                     ),
@@ -3438,20 +3897,25 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               SwitchListTile(
                 value: _perecedero,
                 onChanged: (v) => setState(() => _perecedero = v),
-                title: const Text('Es perecedero',
-                    style: TextStyle(fontFamily: _kFont, fontSize: 14)),
+                title: const Text(
+                  'Es perecedero',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 14),
+                ),
                 activeColor: const Color(0xFF0277BD),
                 contentPadding: EdgeInsets.zero,
                 dense: true,
               ),
               const SizedBox(height: 14),
               // ── Origen Nacional / Importado ───────────────────────────────
-              const Text('Origen del producto',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black54)),
+              const Text(
+                'Origen del producto',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black54,
+                ),
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -3498,43 +3962,52 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                 ),
                 child: (_categoria == null)
                     ? const Text(
-                  'Seleccione una categoría para previsualizar los documentos obligatorios.',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 12),
-                )
+                        'Seleccione una categoría para previsualizar los documentos obligatorios.',
+                        style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                      )
                     : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: docsParaCategoria(_categoria)
-                      .map((key) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      '• ${kDocRecepcionLabels[key] ?? key}',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: docsParaCategoria(_categoria)
+                            .map(
+                              (key) => Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  '• ${kDocRecepcionLabels[key] ?? key}',
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ),
-                    ),
-                  ))
-                      .toList(),
-                ),
               ),
               const SizedBox(height: 16),
               // ── Marcas vinculadas ─────────────────────────────────────────
               Row(
                 children: [
-                  const Icon(Icons.label_important,
-                      size: 16, color: Color(0xFF1976D2)),
+                  const Icon(
+                    Icons.label_important,
+                    size: 16,
+                    color: Color(0xFF1976D2),
+                  ),
                   const SizedBox(width: 6),
-                  const Text('Marcas del producto',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600)),
+                  const Text(
+                    'Marcas del producto',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const Spacer(),
                   if (_loadingMarcas)
                     const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2)),
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -3544,9 +4017,10 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   child: Text(
                     'Sin marcas vinculadas',
                     style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 13,
-                        color: Colors.blueGrey.shade400),
+                      fontFamily: _kFont,
+                      fontSize: 13,
+                      color: Colors.blueGrey.shade400,
+                    ),
                   ),
                 )
               else
@@ -3557,20 +4031,30 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                     color: const Color(0xFFE3F2FD),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: const BorderSide(
-                            color: Color(0xFF90CAF9), width: 0.8)),
+                      borderRadius: BorderRadius.circular(8),
+                      side: const BorderSide(
+                        color: Color(0xFF90CAF9),
+                        width: 0.8,
+                      ),
+                    ),
                     child: ListTile(
                       dense: true,
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 12),
-                      leading: const Icon(Icons.label,
-                          size: 18, color: Color(0xFF1976D2)),
-                      title: Text('${ref.codigo} – ${ref.descripcion}',
-                          style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500)),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                      ),
+                      leading: const Icon(
+                        Icons.label,
+                        size: 18,
+                        color: Color(0xFF1976D2),
+                      ),
+                      title: Text(
+                        '${ref.codigo} – ${ref.descripcion}',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                       subtitle: const Text(
                         'Gestiona fichas técnicas por proveedor',
                         style: TextStyle(
@@ -3583,39 +4067,47 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.description_outlined,
-                                size: 18, color: Color(0xFF1976D2)),
+                            icon: const Icon(
+                              Icons.description_outlined,
+                              size: 18,
+                              color: Color(0xFF1976D2),
+                            ),
                             tooltip: 'Fichas técnicas por proveedor',
                             onPressed: widget.existing == null
                                 ? null
                                 : () => showModalBottomSheet(
-                                      context: context,
-                                      isScrollControlled: true,
-                                      useSafeArea: true,
-                                      backgroundColor: Colors.white,
-                                      shape: const RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.vertical(
-                                              top: Radius.circular(20))),
-                                      builder: (_) =>
-                                          _FichasTecnicasPorMarcaSheet(
-                                        empresaId: widget.empresaId,
-                                        svc: widget.svc,
-                                        productoId: widget.existing!.id,
-                                        productoNombre:
-                                            widget.existing!.nombre,
-                                        productoCategoria:
-                                            widget.existing!.categoria,
-                                        marcaId: ref.marcaId,
-                                        marcaNombre: ref.descripcion,
-                                        userId: widget.userId,
+                                    context: context,
+                                    isScrollControlled: true,
+                                    useSafeArea: true,
+                                    backgroundColor: Colors.white,
+                                    shape: const RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.vertical(
+                                        top: Radius.circular(20),
                                       ),
                                     ),
+                                    builder: (_) =>
+                                        _FichasTecnicasPorMarcaSheet(
+                                          empresaId: widget.empresaId,
+                                          svc: widget.svc,
+                                          productoId: widget.existing!.id,
+                                          productoNombre:
+                                              widget.existing!.nombre,
+                                          productoCategoria:
+                                              widget.existing!.categoria,
+                                          marcaId: ref.marcaId,
+                                          marcaNombre: ref.descripcion,
+                                          userId: widget.userId,
+                                        ),
+                                  ),
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.remove_circle_outline,
-                                size: 18, color: Colors.redAccent),
+                            icon: const Icon(
+                              Icons.remove_circle_outline,
+                              size: 18,
+                              color: Colors.redAccent,
+                            ),
                             onPressed: () => setState(() {
                               final removed = _marcasProducto.removeAt(i);
                               _fichasPorMarca.remove(removed.marcaId);
@@ -3634,16 +4126,22 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: _agregarMarca,
-                    icon: const Icon(Icons.add, size: 16,
-                        color: Color(0xFF1976D2)),
-                    label: const Text('Agregar marca',
-                        style: TextStyle(
-                            fontFamily: _kFont, color: Color(0xFF1976D2))),
+                    icon: const Icon(
+                      Icons.add,
+                      size: 16,
+                      color: Color(0xFF1976D2),
+                    ),
+                    label: const Text(
+                      'Agregar marca',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        color: Color(0xFF1976D2),
+                      ),
+                    ),
                     style: OutlinedButton.styleFrom(
-                        side:
-                            const BorderSide(color: Color(0xFF1976D2)),
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 10)),
+                      side: const BorderSide(color: Color(0xFF1976D2)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
                   ),
                 ),
               const SizedBox(height: 20),
@@ -3656,13 +4154,19 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
                       : const Icon(Icons.save),
-                  label: Text(_guardando ? 'Guardando...' : 'Guardar',
-                      style: const TextStyle(fontFamily: _kFont)),
+                  label: Text(
+                    _guardando ? 'Guardando...' : 'Guardar',
+                    style: const TextStyle(fontFamily: _kFont),
+                  ),
                   style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF0277BD),
-                      padding: const EdgeInsets.symmetric(vertical: 14)),
+                    backgroundColor: const Color(0xFF0277BD),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
                 ),
               ),
               const SizedBox(height: 10),
@@ -3713,8 +4217,9 @@ class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2)),
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
           const SizedBox(height: 12),
           Padding(
@@ -3727,17 +4232,23 @@ class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(productoNombre,
-                          style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700)),
+                      Text(
+                        productoNombre,
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       if (marcaNombre.isNotEmpty)
-                        Text('Marca: $marcaNombre',
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 12,
-                                color: Colors.black54)),
+                        Text(
+                          'Marca: $marcaNombre',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -3752,27 +4263,36 @@ class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
                 if (snap.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final fichas = (snap.data ?? [])
-                    .where((f) =>
-                        f.productoId == productoId && f.marcaId == marcaId)
-                    .toList()
-                  ..sort((a, b) => a.proveedorNombre.compareTo(b.proveedorNombre));
+                final fichas =
+                    (snap.data ?? [])
+                        .where(
+                          (f) =>
+                              f.productoId == productoId &&
+                              f.marcaId == marcaId,
+                        )
+                        .toList()
+                      ..sort(
+                        (a, b) =>
+                            a.proveedorNombre.compareTo(b.proveedorNombre),
+                      );
 
                 return ListView(
                   controller: ctrl,
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 20),
                   children: [
-                    ...fichas.map((f) => _FichaProveedorCard(
-                          ficha: f,
-                          svc: svc,
-                          userId: userId,
-                          empresaId: empresaId,
-                          productoId: productoId,
-                          productoNombre: productoNombre,
-                          productoCategoria: productoCategoria,
-                          marcaId: marcaId,
-                          marcaNombre: marcaNombre,
-                        )),
+                    ...fichas.map(
+                      (f) => _FichaProveedorCard(
+                        ficha: f,
+                        svc: svc,
+                        userId: userId,
+                        empresaId: empresaId,
+                        productoId: productoId,
+                        productoNombre: productoNombre,
+                        productoCategoria: productoCategoria,
+                        marcaId: marcaId,
+                        marcaNombre: marcaNombre,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: () => showModalBottomSheet(
@@ -3781,8 +4301,10 @@ class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
                         useSafeArea: true,
                         backgroundColor: Colors.white,
                         shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(
-                                top: Radius.circular(20))),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(20),
+                          ),
+                        ),
                         builder: (_) => _SubirFichaSheet(
                           empresaId: empresaId,
                           svc: svc,
@@ -3796,12 +4318,14 @@ class _FichasTecnicasPorMarcaSheet extends StatelessWidget {
                         ),
                       ),
                       icon: const Icon(Icons.add, size: 16),
-                      label: const Text('Agregar ficha para otro proveedor',
-                          style: TextStyle(fontFamily: _kFont)),
+                      label: const Text(
+                        'Agregar ficha para otro proveedor',
+                        style: TextStyle(fontFamily: _kFont),
+                      ),
                       style: OutlinedButton.styleFrom(
-                          side:
-                              const BorderSide(color: Color(0xFF0277BD)),
-                          padding: const EdgeInsets.symmetric(vertical: 10)),
+                        side: const BorderSide(color: Color(0xFF0277BD)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
                     ),
                   ],
                 );
@@ -3867,43 +4391,58 @@ class _FichaProveedorCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(ficha.proveedorNombre,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13)),
+                  child: Text(
+                    ficha.proveedorNombre,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
-                      color: badgeColor.withAlpha(30),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: badgeColor)),
-                  child: Text(badgeLabel,
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: badgeColor)),
+                    color: badgeColor.withAlpha(30),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: badgeColor),
+                  ),
+                  child: Text(
+                    badgeLabel,
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: badgeColor,
+                    ),
+                  ),
                 ),
               ],
             ),
             if (doc != null && doc.tieneDoc) ...[
               const SizedBox(height: 4),
-              Text(doc.nombre ?? '',
-                  style: const TextStyle(
-                      fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+              Text(
+                doc.nombre ?? '',
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black54,
+                ),
+              ),
               if (doc.observacionActualizacion?.isNotEmpty == true)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     'Obs: ${doc.observacionActualizacion}',
                     style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 11,
-                        fontStyle: FontStyle.italic,
-                        color: Colors.black45),
+                      fontFamily: _kFont,
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: Colors.black45,
+                    ),
                   ),
                 ),
               if (doc.rechazado && doc.observacionCalidad?.isNotEmpty == true)
@@ -3912,9 +4451,10 @@ class _FichaProveedorCard extends StatelessWidget {
                   child: Text(
                     'Motivo rechazo: ${doc.observacionCalidad}',
                     style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 11,
-                        color: kComprasRed),
+                      fontFamily: _kFont,
+                      fontSize: 11,
+                      color: kComprasRed,
+                    ),
                   ),
                 ),
             ],
@@ -3923,15 +4463,18 @@ class _FichaProveedorCard extends StatelessWidget {
               children: [
                 if (doc != null && doc.tieneDoc)
                   TextButton.icon(
-                    onPressed: () =>
-                        _abrirUrl(context, doc.url),
+                    onPressed: () => _abrirUrl(context, doc.url),
                     icon: const Icon(Icons.open_in_new, size: 14),
-                    label: const Text('Ver PDF',
-                        style:
-                            TextStyle(fontFamily: _kFont, fontSize: 12)),
+                    label: const Text(
+                      'Ver PDF',
+                      style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                    ),
                     style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
                   ),
                 const Spacer(),
                 TextButton.icon(
@@ -3941,8 +4484,10 @@ class _FichaProveedorCard extends StatelessWidget {
                     useSafeArea: true,
                     backgroundColor: Colors.white,
                     shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(20))),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(20),
+                      ),
+                    ),
                     builder: (_) => _SubirFichaSheet(
                       empresaId: empresaId,
                       svc: svc,
@@ -3956,22 +4501,33 @@ class _FichaProveedorCard extends StatelessWidget {
                       fichaExistente: ficha,
                     ),
                   ),
-                  icon: const Icon(Icons.upload_file, size: 14,
-                      color: Color(0xFF0277BD)),
+                  icon: const Icon(
+                    Icons.upload_file,
+                    size: 14,
+                    color: Color(0xFF0277BD),
+                  ),
                   label: Text(
-                      doc != null && doc.tieneDoc ? 'Actualizar' : 'Subir',
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          color: Color(0xFF0277BD))),
+                    doc != null && doc.tieneDoc ? 'Actualizar' : 'Subir',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Color(0xFF0277BD),
+                    ),
+                  ),
                   style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  ),
                 ),
                 // ── Botón eliminar ficha ───────────────────────────────────
                 IconButton(
-                  icon: const Icon(Icons.delete_outline,
-                      size: 18, color: kComprasRed),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: kComprasRed,
+                  ),
                   tooltip: 'Eliminar ficha técnica',
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   constraints: const BoxConstraints(),
@@ -3979,8 +4535,10 @@ class _FichaProveedorCard extends StatelessWidget {
                     final ok = await showDialog<bool>(
                       context: context,
                       builder: (_) => AlertDialog(
-                        title: const Text('Eliminar ficha técnica',
-                            style: TextStyle(fontFamily: _kFont)),
+                        title: const Text(
+                          'Eliminar ficha técnica',
+                          style: TextStyle(fontFamily: _kFont),
+                        ),
                         content: Text(
                           '¿Eliminar la ficha de "${ficha.proveedorNombre}"?\n'
                           'Esta acción no se puede deshacer.',
@@ -3994,7 +4552,8 @@ class _FichaProveedorCard extends StatelessWidget {
                           FilledButton(
                             onPressed: () => Navigator.pop(context, true),
                             style: FilledButton.styleFrom(
-                                backgroundColor: kComprasRed),
+                              backgroundColor: kComprasRed,
+                            ),
                             child: const Text('Eliminar'),
                           ),
                         ],
@@ -4015,8 +4574,9 @@ class _FichaProveedorCard extends StatelessWidget {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                              content: Text('Error: $e'),
-                              backgroundColor: kComprasRed),
+                            content: Text('Error: $e'),
+                            backgroundColor: kComprasRed,
+                          ),
                         );
                       }
                     }
@@ -4044,8 +4604,10 @@ class _SubirFichaSheet extends StatefulWidget {
   final String marcaId;
   final String marcaNombre;
   final String userId;
+
   /// Fichas ya existentes para el producto+marca (para validar unicidad proveedor).
   final List<FichaTecnicaDoc> fichasExistentes;
+
   /// Si se pasa, es actualización de la ficha existente.
   final FichaTecnicaDoc? fichaExistente;
 
@@ -4091,8 +4653,9 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
     _cargarProveedores();
     if (kIsWeb) {
       WebDragDrop.instance.enable();
-      _wDragSub = WebDragDrop.instance.isDragging
-          .listen((v) { if (mounted) setState(() => _isDragging = v); });
+      _wDragSub = WebDragDrop.instance.isDragging.listen((v) {
+        if (mounted) setState(() => _isDragging = v);
+      });
       _wFileSub = WebDragDrop.instance.droppedFile.listen(_onWebFileDrop);
     }
   }
@@ -4113,15 +4676,15 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
         .get();
     if (!mounted) return;
     setState(() {
-      _proveedores = snap.docs
-          .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
+      _proveedores =
+          snap.docs.map((d) => ProveedorDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
       // Pre-seleccionar si es actualización
       if (isUpdate) {
         try {
           _proveedor = _proveedores.firstWhere(
-              (p) => p.id == widget.fichaExistente!.proveedorId);
+            (p) => p.id == widget.fichaExistente!.proveedorId,
+          );
         } catch (_) {}
       }
       _loadingProvs = false;
@@ -4149,17 +4712,27 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Solo se permiten PDF, JPG o PNG',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Solo se permiten PDF, JPG o PNG',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
     if (file.bytes.length > 10 * 1024 * 1024) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('El archivo supera el límite de 10 MB',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El archivo supera el límite de 10 MB',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
@@ -4178,22 +4751,36 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
     final ext = name.toLowerCase().split('.').last;
     if (!['pdf', 'jpg', 'jpeg', 'png'].contains(ext)) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Solo se permiten PDF, JPG o PNG',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Solo se permiten PDF, JPG o PNG',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
     final bytes = await xFile.readAsBytes();
     if (bytes.length > 10 * 1024 * 1024) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('El archivo supera el límite de 10 MB',
-                style: TextStyle(fontFamily: _kFont))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'El archivo supera el límite de 10 MB',
+              style: TextStyle(fontFamily: _kFont),
+            ),
+          ),
+        );
       }
       return;
     }
-    if (mounted) setState(() { _fileName = name; _fileBytes = bytes; });
+    if (mounted)
+      setState(() {
+        _fileName = name;
+        _fileBytes = bytes;
+      });
   }
 
   Widget _buildFileZone() {
@@ -4207,8 +4794,8 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           overflow: TextOverflow.ellipsis,
         ),
         style: OutlinedButton.styleFrom(
-            padding:
-                const EdgeInsets.symmetric(vertical: 10, horizontal: 12)),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        ),
       );
     }
 
@@ -4232,8 +4819,12 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           SizedBox(
             height: 110,
             child: DropTarget(
-              onDragEntered: (_) { if (mounted) setState(() => _isDragging = true); },
-              onDragExited: (_) { if (mounted) setState(() => _isDragging = false); },
+              onDragEntered: (_) {
+                if (mounted) setState(() => _isDragging = true);
+              },
+              onDragExited: (_) {
+                if (mounted) setState(() => _isDragging = false);
+              },
               onDragDone: _handleFichaWebDrop,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
@@ -4244,39 +4835,41 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                       : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: _isDragging
-                        ? kComprasPrimary
-                        : Colors.grey.shade300,
+                    color: _isDragging ? kComprasPrimary : Colors.grey.shade300,
                     width: _isDragging ? 2 : 1.5,
                   ),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.cloud_upload_outlined,
-                        size: 34,
-                        color: _isDragging
-                            ? kComprasPrimary
-                            : Colors.grey.shade400),
+                    Icon(
+                      Icons.cloud_upload_outlined,
+                      size: 34,
+                      color: _isDragging
+                          ? kComprasPrimary
+                          : Colors.grey.shade400,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       _isDragging
                           ? '¡Suelta el archivo aquí!'
                           : 'Arrastra el archivo aquí',
                       style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: _isDragging
-                              ? kComprasPrimary
-                              : Colors.black54),
+                        fontFamily: _kFont,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _isDragging ? kComprasPrimary : Colors.black54,
+                      ),
                     ),
                     const SizedBox(height: 2),
-                    Text('PDF · JPG · PNG · Máx. 10 MB',
-                        style: TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 10,
-                            color: Colors.grey.shade500)),
+                    Text(
+                      'PDF · JPG · PNG · Máx. 10 MB',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 10,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -4286,23 +4879,27 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
         // Botón separado para abrir selector de archivo
         OutlinedButton.icon(
           onPressed: _subiendo ? null : _pickFile,
-          icon: Icon(Icons.folder_open,
-              size: 14,
-              color: _subiendo ? Colors.grey : kComprasPrimary),
+          icon: Icon(
+            Icons.folder_open,
+            size: 14,
+            color: _subiendo ? Colors.grey : kComprasPrimary,
+          ),
           label: Text(
             _fileBytes != null
                 ? 'Cambiar archivo'
                 : 'o seleccionar archivo (PDF/img)',
             style: TextStyle(
-                fontFamily: _kFont,
-                fontSize: 12,
-                color: _subiendo ? Colors.grey : kComprasPrimary),
+              fontFamily: _kFont,
+              fontSize: 12,
+              color: _subiendo ? Colors.grey : kComprasPrimary,
+            ),
           ),
           style: OutlinedButton.styleFrom(
             side: BorderSide(
-                color: _subiendo
-                    ? Colors.grey.shade300
-                    : kComprasPrimary.withOpacity(0.5)),
+              color: _subiendo
+                  ? Colors.grey.shade300
+                  : kComprasPrimary.withOpacity(0.5),
+            ),
             padding: const EdgeInsets.symmetric(vertical: 8),
           ),
         ),
@@ -4330,26 +4927,31 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
               Text(
                 _fileName ?? '',
                 style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600),
+                  fontFamily: _kFont,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 3),
               Text(
                 'Haz clic para cambiar',
                 style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 11,
-                    color: Colors.grey.shade500),
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.grey.shade500,
+                ),
               ),
             ],
           ),
         ),
         Padding(
           padding: const EdgeInsets.all(16),
-          child: Icon(Icons.check_circle,
-              color: Colors.green.shade600, size: 22),
+          child: Icon(
+            Icons.check_circle,
+            color: Colors.green.shade600,
+            size: 22,
+          ),
         ),
       ],
     );
@@ -4357,36 +4959,51 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
 
   Future<void> _subir() async {
     if (!isUpdate && _proveedor == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Selecciona un proveedor.',
-              style: TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Selecciona un proveedor.',
+            style: TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
       return;
     }
     if (isUpdate && _obsCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ingresa el motivo de la actualización.',
-              style: TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ingresa el motivo de la actualización.',
+            style: TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
       return;
     }
     if (_fileBytes == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Selecciona un archivo PDF o imagen.',
-              style: TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Selecciona un archivo PDF o imagen.',
+            style: TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
       return;
     }
 
     setState(() => _subiendo = true);
     try {
       final ext = _fileName?.split('.').last.toLowerCase() ?? 'pdf';
-      final contentType =
-          ext == 'pdf' ? 'application/pdf' : 'image/$ext';
+      final contentType = ext == 'pdf' ? 'application/pdf' : 'image/$ext';
       final doc = await widget.svc.subirBytes(
         bytes: _fileBytes!,
         empresaId: widget.empresaId,
         carpeta: 'fichas_tecnicas',
         nombre: _fileName ?? 'ficha.pdf',
         contentType: contentType,
-        pendienteCalidad: false, // guardarFichaTecnica marca pendiente_revision_calidad
+        pendienteCalidad:
+            false, // guardarFichaTecnica marca pendiente_revision_calidad
       );
 
       final prov = isUpdate
@@ -4395,7 +5012,8 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
               empresaId: widget.empresaId,
               nit: '',
               razonSocial: widget.fichaExistente!.proveedorNombre,
-              createdAt: Timestamp.now())
+              createdAt: Timestamp.now(),
+            )
           : _proveedor!;
 
       final ficha = FichaTecnicaDoc(
@@ -4425,17 +5043,26 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
 
       if (!mounted) return;
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text(
-              isUpdate
-                  ? 'Ficha actualizada. Pendiente de revisión de calidad.'
-                  : 'Ficha cargada. Pendiente de revisión de calidad.',
-              style: const TextStyle(fontFamily: _kFont))));
+            isUpdate
+                ? 'Ficha actualizada. Pendiente de revisión de calidad.'
+                : 'Ficha cargada. Pendiente de revisión de calidad.',
+            style: const TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error: $e',
-              style: const TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error: $e',
+            style: const TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _subiendo = false);
     }
@@ -4456,25 +5083,28 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
               height: 4,
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2)),
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
           Text(
-            isUpdate
-                ? 'Actualizar ficha técnica'
-                : 'Agregar ficha técnica',
+            isUpdate ? 'Actualizar ficha técnica' : 'Agregar ficha técnica',
             style: const TextStyle(
-                fontFamily: _kFont,
-                fontSize: 16,
-                fontWeight: FontWeight.w800),
+              fontFamily: _kFont,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             '${widget.productoNombre}'
             '${widget.marcaNombre.isNotEmpty ? ' / ${widget.marcaNombre}' : ''}',
             style: const TextStyle(
-                fontFamily: _kFont, fontSize: 12, color: Colors.black54),
+              fontFamily: _kFont,
+              fontSize: 12,
+              color: Colors.black54,
+            ),
           ),
           const SizedBox(height: 16),
           // Proveedor
@@ -4487,20 +5117,31 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                       labelText: 'Proveedor *',
                       labelStyle: TextStyle(fontFamily: _kFont),
                       border: OutlineInputBorder(),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                     ),
                     isExpanded: true,
                     items: _proveedores
-                        .where((p) => widget.fichasExistentes
-                            .every((f) => f.proveedorId != p.id))
-                        .map((p) => DropdownMenuItem(
-                              value: p,
-                              child: Text(p.razonSocial,
-                                  style: const TextStyle(
-                                      fontFamily: _kFont, fontSize: 13),
-                                  overflow: TextOverflow.ellipsis),
-                            ))
+                        .where(
+                          (p) => widget.fichasExistentes.every(
+                            (f) => f.proveedorId != p.id,
+                          ),
+                        )
+                        .map(
+                          (p) => DropdownMenuItem(
+                            value: p,
+                            child: Text(
+                              p.razonSocial,
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 13,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) => setState(() => _proveedor = v),
                   ),
@@ -4510,17 +5151,21 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
               padding: const EdgeInsets.all(10),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8)),
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Row(
                 children: [
                   const Icon(Icons.store, size: 16, color: Colors.black54),
                   const SizedBox(width: 8),
-                  Text(widget.fichaExistente!.proveedorNombre,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600)),
+                  Text(
+                    widget.fichaExistente!.proveedorNombre,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -4538,8 +5183,10 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                   ? '¿Por qué se actualiza la ficha técnica?'
                   : 'Nota inicial sobre la ficha…',
               border: const OutlineInputBorder(),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
             ),
             style: const TextStyle(fontFamily: _kFont, fontSize: 13),
           ),
@@ -4551,23 +5198,29 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             width: double.infinity,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0277BD),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12)),
+                backgroundColor: const Color(0xFF0277BD),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
               onPressed: _subiendo ? null : _subir,
               icon: _subiendo
                   ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Icon(Icons.upload_file),
               label: Text(
                 _subiendo
                     ? 'Subiendo...'
                     : (isUpdate ? 'Actualizar ficha' : 'Subir ficha'),
                 style: const TextStyle(
-                    fontFamily: _kFont, fontWeight: FontWeight.bold),
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -4603,10 +5256,12 @@ class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
     final filtered = _q.isEmpty
         ? widget.marcas
         : widget.marcas
-            .where((m) =>
-                m.descripcion.toLowerCase().contains(_q) ||
-                m.codigo.toLowerCase().contains(_q))
-            .toList();
+              .where(
+                (m) =>
+                    m.descripcion.toLowerCase().contains(_q) ||
+                    m.codigo.toLowerCase().contains(_q),
+              )
+              .toList();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -4615,8 +5270,9 @@ class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(4)),
+            color: Colors.grey.shade300,
+            borderRadius: BorderRadius.circular(4),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -4624,11 +5280,14 @@ class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
             children: [
               const Icon(Icons.label_important, color: Color(0xFF1976D2)),
               const SizedBox(width: 8),
-              const Text('Seleccionar Marca',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold)),
+              const Text(
+                'Seleccionar Marca',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
         ),
@@ -4640,10 +5299,13 @@ class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
             decoration: InputDecoration(
               hintText: 'Buscar marca...',
               prefixIcon: const Icon(Icons.search, size: 18),
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 8,
+                horizontal: 12,
+              ),
               filled: true,
               fillColor: Colors.grey.shade50,
             ),
@@ -4652,24 +5314,32 @@ class _MarcaSelectorSheetState extends State<_MarcaSelectorSheet> {
           ),
         ),
         ConstrainedBox(
-          constraints:
-              BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.4),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4,
+          ),
           child: ListView.builder(
             shrinkWrap: true,
             itemCount: filtered.length,
             itemBuilder: (_, i) {
               final m = filtered[i];
               return ListTile(
-                leading: const Icon(Icons.label,
-                    size: 18, color: Color(0xFF1976D2)),
-                title: Text(m.descripcion,
-                    style: const TextStyle(
-                        fontFamily: _kFont, fontSize: 14)),
-                subtitle: Text(m.codigo,
-                    style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: Colors.black54)),
+                leading: const Icon(
+                  Icons.label,
+                  size: 18,
+                  color: Color(0xFF1976D2),
+                ),
+                title: Text(
+                  m.descripcion,
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 14),
+                ),
+                subtitle: Text(
+                  m.codigo,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
                 onTap: () => Navigator.pop(context, m),
               );
             },
@@ -4706,8 +5376,10 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: const Text('Recepción de Mercancía',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Recepción de Mercancía',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: kComprasPrimary,
         foregroundColor: Colors.white,
       ),
@@ -4721,9 +5393,10 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text('Error al cargar: ${snap.error}',
-                    style: const TextStyle(
-                        fontFamily: _kFont, color: Colors.red)),
+                child: Text(
+                  'Error al cargar: ${snap.error}',
+                  style: const TextStyle(fontFamily: _kFont, color: Colors.red),
+                ),
               ),
             );
           }
@@ -4733,12 +5406,16 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.local_shipping_outlined,
-                      size: 64, color: Colors.grey.shade300),
+                  Icon(
+                    Icons.local_shipping_outlined,
+                    size: 64,
+                    color: Colors.grey.shade300,
+                  ),
                   const SizedBox(height: 12),
-                  const Text('Sin recepciones registradas',
-                      style: TextStyle(
-                          fontFamily: _kFont, color: Colors.black45)),
+                  const Text(
+                    'Sin recepciones registradas',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                  ),
                 ],
               ),
             );
@@ -4751,7 +5428,8 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
+                  borderRadius: BorderRadius.circular(14),
+                ),
                 elevation: 1,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
@@ -4774,40 +5452,58 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                         Row(
                           children: [
                             Expanded(
-                              child: Text(r.razonSocial,
-                                  style: const TextStyle(
-                                      fontFamily: _kFont,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 15)),
-                            ),
-                            Text(_fmtFecha(r.fecha),
+                              child: Text(
+                                r.razonSocial,
                                 style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 12,
-                                    color: Colors.black45)),
+                                  fontFamily: _kFont,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              _fmtFecha(r.fecha),
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black45,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            const Icon(Icons.badge,
-                                size: 13, color: Colors.black38),
+                            const Icon(
+                              Icons.badge,
+                              size: 13,
+                              color: Colors.black38,
+                            ),
                             const SizedBox(width: 4),
-                            Text('NIT: ${r.nit}',
-                                style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 12,
-                                    color: Colors.black54)),
+                            Text(
+                              'NIT: ${r.nit}',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black54,
+                              ),
+                            ),
                             const Spacer(),
                             if (r.ordenCompra.isNotEmpty) ...[
-                              const Icon(Icons.receipt,
-                                  size: 13, color: Colors.black38),
+                              const Icon(
+                                Icons.receipt,
+                                size: 13,
+                                color: Colors.black38,
+                              ),
                               const SizedBox(width: 4),
-                              Text('OC: ${r.ordenCompra}',
-                                  style: const TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 12,
-                                      color: Colors.black54)),
+                              Text(
+                                'OC: ${r.ordenCompra}',
+                                style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
                             ],
                           ],
                         ),
@@ -4815,11 +5511,14 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                         Row(
                           children: [
                             _Chip(
-                                '${r.productos.length} producto${r.productos.length == 1 ? '' : 's'}',
-                                kComprasPrimary),
+                              '${r.productos.length} producto${r.productos.length == 1 ? '' : 's'}',
+                              kComprasPrimary,
+                            ),
                             const Spacer(),
-                            const Icon(Icons.chevron_right,
-                                color: Colors.black26),
+                            const Icon(
+                              Icons.chevron_right,
+                              color: Colors.black26,
+                            ),
                           ],
                         ),
                       ],
@@ -4845,8 +5544,10 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
           ),
         ),
         icon: const Icon(Icons.add),
-        label: const Text('Nueva Recepción',
-            style: TextStyle(fontFamily: _kFont)),
+        label: const Text(
+          'Nueva Recepción',
+          style: TextStyle(fontFamily: _kFont),
+        ),
       ),
     );
   }
@@ -4888,8 +5589,8 @@ class _NuevaRecepcionScreen extends StatefulWidget {
 
 class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   ProveedorDoc? _proveedor;
-  final _provCtrl   = TextEditingController();
-  final _ordenCtrl  = TextEditingController();
+  final _provCtrl = TextEditingController();
+  final _ordenCtrl = TextEditingController();
   final _bodegaCtrl = TextEditingController();
   List<_RecepcionEntry> _entries = [];
   List<ProveedorDoc> _proveedores = [];
@@ -4905,10 +5606,12 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   FichaTecnicaDoc? _fichaParaEntry(_RecepcionEntry e) {
     if (_proveedor == null || e.producto == null) return null;
     try {
-      return _fichasTecnicas.firstWhere((f) =>
-          f.proveedorId == _proveedor!.id &&
-          f.productoId == e.producto!.id &&
-          f.marcaId == (e.marcaSeleccionada?.id ?? ''));
+      return _fichasTecnicas.firstWhere(
+        (f) =>
+            f.proveedorId == _proveedor!.id &&
+            f.productoId == e.producto!.id &&
+            f.marcaId == (e.marcaSeleccionada?.id ?? ''),
+      );
     } catch (_) {
       return null;
     }
@@ -4919,7 +5622,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     super.initState();
     if (!isNew) {
       final r = widget.existing!;
-      _ordenCtrl.text  = r.ordenCompra;
+      _ordenCtrl.text = r.ordenCompra;
       _bodegaCtrl.text = r.bodega;
       _entries = r.productos.map((rp) {
         final e = _RecepcionEntry();
@@ -4951,20 +5654,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
 
       if (!mounted) return;
 
-      final provs = pSnap.docs
-          .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
+      final provs =
+          pSnap.docs.map((d) => ProveedorDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
 
-      final prods = prSnap.docs
-          .map((d) => ProductoDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.nombre.compareTo(b.nombre));
+      final prods =
+          prSnap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
-      final marcas = mSnap.docs
-          .map((d) => MarcaDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+      final marcas =
+          mSnap.docs.map((d) => MarcaDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
 
       final fichas = await widget.svc.getFichasTecnicas(widget.empresaId);
 
@@ -4977,26 +5677,25 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         if (!isNew) {
           final r = widget.existing!;
           try {
-            _proveedor =
-                _proveedores.firstWhere((p) => p.id == r.proveedorId);
+            _proveedor = _proveedores.firstWhere((p) => p.id == r.proveedorId);
             _provCtrl.text = _proveedor?.razonSocial ?? r.razonSocial;
           } catch (_) {
             _provCtrl.text = r.razonSocial;
           }
-          for (int i = 0;
-              i < _entries.length && i < r.productos.length;
-              i++) {
+          for (int i = 0; i < _entries.length && i < r.productos.length; i++) {
             final rp = r.productos[i];
             // Restaurar producto
             try {
-              _entries[i].producto =
-                  _productos.firstWhere((p) => p.id == rp.productoId);
+              _entries[i].producto = _productos.firstWhere(
+                (p) => p.id == rp.productoId,
+              );
             } catch (_) {}
             // Restaurar marca
             if (_entries[i].pendingMarcaId.isNotEmpty) {
               try {
-                _entries[i].marcaSeleccionada = _marcas
-                    .firstWhere((m) => m.id == _entries[i].pendingMarcaId);
+                _entries[i].marcaSeleccionada = _marcas.firstWhere(
+                  (m) => m.id == _entries[i].pendingMarcaId,
+                );
               } catch (_) {}
             }
           }
@@ -5029,41 +5728,56 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
 
   Future<void> _guardar() async {
     if (_proveedor == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleccione un proveedor')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Seleccione un proveedor')));
       return;
     }
     if (_entries.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Agregue al menos un producto')));
+        const SnackBar(content: Text('Agregue al menos un producto')),
+      );
       return;
     }
     final sinProducto = _entries.any((e) => e.producto == null);
     if (sinProducto) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Seleccione el producto en cada fila')));
+        const SnackBar(content: Text('Seleccione el producto en cada fila')),
+      );
       return;
     }
 
     // Marca obligatoria para TODOS los productos
-    final sinMarca = _entries.any((e) => e.producto != null && e.marcaSeleccionada == null);
+    final sinMarca = _entries.any(
+      (e) => e.producto != null && e.marcaSeleccionada == null,
+    );
     if (sinMarca) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Cada producto debe tener una marca seleccionada. Seleccione o cree una marca para continuar.'),
-        backgroundColor: kComprasRed,
-        duration: Duration(seconds: 4),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cada producto debe tener una marca seleccionada. Seleccione o cree una marca para continuar.',
+          ),
+          backgroundColor: kComprasRed,
+          duration: Duration(seconds: 4),
+        ),
+      );
       return;
     }
     // Ficha técnica obligatoria por producto
-    final sinFicha = _entries.any((e) =>
-        e.producto != null && e.documentos['fichaTecnica']?.tieneDoc != true);
+    final sinFicha = _entries.any(
+      (e) =>
+          e.producto != null && e.documentos['fichaTecnica']?.tieneDoc != true,
+    );
     if (sinFicha) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Cada producto debe tener una ficha técnica cargada antes de guardar.'),
-        backgroundColor: kComprasRed,
-        duration: Duration(seconds: 4),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cada producto debe tener una ficha técnica cargada antes de guardar.',
+          ),
+          backgroundColor: kComprasRed,
+          duration: Duration(seconds: 4),
+        ),
+      );
       return;
     }
 
@@ -5098,16 +5812,19 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       );
       await widget.svc.guardarRecepcion(r);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Recepción guardada correctamente'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Recepción guardada correctamente'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
+          SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed),
+        );
       }
     } finally {
       if (mounted) setState(() => _guardando = false);
@@ -5124,18 +5841,20 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
 
   Future<void> _seleccionarProducto(int idx) async {
     // Filtrar productos según las categorías del proveedor seleccionado
-    final productosFiltrados = (_proveedor == null || _proveedor!.categorias.isEmpty)
+    final productosFiltrados =
+        (_proveedor == null || _proveedor!.categorias.isEmpty)
         ? _productos
         : _productos
-            .where((p) => _proveedor!.categorias.contains(p.categoria))
-            .toList();
+              .where((p) => _proveedor!.categorias.contains(p.categoria))
+              .toList();
 
     final seleccionado = await showModalBottomSheet<ProductoDoc>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => _ProductoSelectorSheet(
         productos: productosFiltrados,
         categoriasFiltradas: _proveedor?.categorias ?? [],
@@ -5180,7 +5899,11 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         _marcas.add(nuevaMarca);
         _marcas.sort((a, b) => a.descripcion.compareTo(b.descripcion));
         // Actualizar el producto localmente para reflejar la nueva marca vinculada
-        final ref = MarcaRef(marcaId: nuevaMarca.id, codigo: nuevaMarca.codigo, descripcion: nuevaMarca.descripcion);
+        final ref = MarcaRef(
+          marcaId: nuevaMarca.id,
+          codigo: nuevaMarca.codigo,
+          descripcion: nuevaMarca.descripcion,
+        );
         final prodIdx = _productos.indexWhere((p) => p.id == producto.id);
         if (prodIdx >= 0) {
           _productos[prodIdx] = _productos[prodIdx].copyWith(
@@ -5211,12 +5934,22 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       final docFinal = key == 'fichaTecnica'
           ? doc.copyWith(
               estadoCalidad: 'pendiente_revision_calidad',
-              observacionActualizacion:
-                  _entries[idx].observacionesCtrl.text.trim(),
+              observacionActualizacion: _entries[idx].observacionesCtrl.text
+                  .trim(),
             )
           : doc;
       setState(() => _entries[idx].documentos[key] = docFinal);
     }
+  }
+
+  void _onDateChangedDoc(int idx, String key, DateTime? date) {
+    if (idx < 0 || idx >= _entries.length) return;
+    setState(() {
+      final current = _entries[idx].documentos[key] ?? const DocAdjunto();
+      _entries[idx].documentos[key] = current.copyWith(
+        fechaVencimiento: date != null ? Timestamp.fromDate(date) : null,
+      );
+    });
   }
 
   @override
@@ -5228,9 +5961,13 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: Text(isNew ? 'Nueva Recepción' : 'Ver Recepción',
-            style: const TextStyle(
-                fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: Text(
+          isNew ? 'Nueva Recepción' : 'Ver Recepción',
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: kComprasPrimary,
         foregroundColor: Colors.white,
         actions: [
@@ -5238,19 +5975,25 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             const Padding(
               padding: EdgeInsets.all(14),
               child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white)),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
             )
           else
             TextButton(
               onPressed: _guardar,
-              child: const Text('Guardar',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontFamily: _kFont,
-                      fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Guardar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
         ],
       ),
@@ -5263,26 +6006,38 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                 children: [
                   // ── Encabezado ──────────────────────────
                   _SectionHeader(
-                      'Encabezado', Icons.info_outline, kComprasPrimary),
+                    'Encabezado',
+                    Icons.info_outline,
+                    kComprasPrimary,
+                  ),
                   const SizedBox(height: 12),
                   // Fecha (solo lectura)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.grey.shade200)),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today,
-                            size: 16, color: Colors.black45),
+                        const Icon(
+                          Icons.calendar_today,
+                          size: 16,
+                          color: Colors.black45,
+                        ),
                         const SizedBox(width: 8),
-                        Text('Fecha: $fechaDisplay',
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 13,
-                                color: Colors.black87)),
+                        Text(
+                          'Fecha: $fechaDisplay',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 13,
+                            color: Colors.black87,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -5295,74 +6050,94 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                         hintText: 'Buscar proveedor...',
                         prefixIcon: const Icon(Icons.business, size: 18),
                       ),
-                      style:
-                          const TextStyle(fontFamily: _kFont, fontSize: 14),
+                      style: const TextStyle(fontFamily: _kFont, fontSize: 14),
                     ),
                     suggestionsCallback: (pattern) => _proveedores
-                        .where((p) =>
-                            p.razonSocial
-                                .toLowerCase()
-                                .contains(pattern.toLowerCase()) ||
-                            p.nit.contains(pattern))
+                        .where(
+                          (p) =>
+                              p.razonSocial.toLowerCase().contains(
+                                pattern.toLowerCase(),
+                              ) ||
+                              p.nit.contains(pattern),
+                        )
                         .toList(),
                     itemBuilder: (ctx, p) => ListTile(
                       dense: true,
-                      title: Text(p.razonSocial,
-                          style:
-                              const TextStyle(fontFamily: _kFont, fontSize: 13)),
-                      subtitle: Text('NIT: ${p.nit}',
-                          style: const TextStyle(
-                              fontFamily: _kFont, fontSize: 11)),
+                      title: Text(
+                        p.razonSocial,
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'NIT: ${p.nit}',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                        ),
+                      ),
                     ),
-                    onSuggestionSelected: (p) =>
-                        setState(() {
-                          _proveedor = p;
-                          _provCtrl.text = p.razonSocial;
-                        }),
+                    onSuggestionSelected: (p) => setState(() {
+                      _proveedor = p;
+                      _provCtrl.text = p.razonSocial;
+                    }),
                     noItemsFoundBuilder: (_) => const Padding(
                       padding: EdgeInsets.all(8),
-                      child: Text('Sin resultados',
-                          style: TextStyle(fontFamily: _kFont)),
+                      child: Text(
+                        'Sin resultados',
+                        style: TextStyle(fontFamily: _kFont),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   // NIT (auto)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 12),
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.grey.shade200)),
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.badge,
-                            size: 16, color: Colors.black38),
+                        const Icon(
+                          Icons.badge,
+                          size: 16,
+                          color: Colors.black38,
+                        ),
                         const SizedBox(width: 8),
                         Text(
-                            'NIT: ${_proveedor?.nit ?? '(Seleccione proveedor)'}',
-                            style: TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 13,
-                                color: _proveedor != null
-                                    ? Colors.black87
-                                    : Colors.black38)),
+                          'NIT: ${_proveedor?.nit ?? '(Seleccione proveedor)'}',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 13,
+                            color: _proveedor != null
+                                ? Colors.black87
+                                : Colors.black38,
+                          ),
+                        ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _ordenCtrl,
-                    decoration: _inputDecoration('Orden de Compra')
-                        .copyWith(hintText: 'OC-2024-001'),
-                    style:
-                        const TextStyle(fontFamily: _kFont, fontSize: 14),
+                    decoration: _inputDecoration(
+                      'Orden de Compra',
+                    ).copyWith(hintText: 'OC-2024-001'),
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 14),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _bodegaCtrl,
-                    decoration: _inputDecoration('Bodega / Ubicación de destino')
-                        .copyWith(
+                    decoration:
+                        _inputDecoration(
+                          'Bodega / Ubicación de destino',
+                        ).copyWith(
                           hintText: 'Ej: Bodega Principal, Bodega 2...',
                           prefixIcon: const Icon(Icons.warehouse, size: 18),
                         ),
@@ -5371,7 +6146,10 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   const SizedBox(height: 24),
                   // ── Productos ────────────────────────────
                   _SectionHeader(
-                      'Productos recibidos', Icons.inventory, kComprasPrimary),
+                    'Productos recibidos',
+                    Icons.inventory,
+                    kComprasPrimary,
+                  ),
                   const SizedBox(height: 12),
                   ..._entries.asMap().entries.map((entry) {
                     final idx = entry.key;
@@ -5382,8 +6160,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                       onSelectProducto: () => _seleccionarProducto(idx),
                       onRemove: () => _eliminarEntrada(idx),
                       onAdjuntarDoc: (key) => _adjuntarDocProducto(idx, key),
-                      onVerDoc: (key) => _abrirUrl(
-                          context, e.documentos[key]?.url),
+                      onVerDoc: (key) =>
+                          _abrirUrl(context, e.documentos[key]?.url),
                       onChanged: () => setState(() {}),
                       todasMarcas: _marcas,
                       onMarcaChanged: (m) =>
@@ -5411,11 +6189,14 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                                     .trim(),
                               )
                             : doc;
-                        setState(() =>
-                            _entries[idx].documentos[key] = docFinal);
+                        setState(
+                          () => _entries[idx].documentos[key] = docFinal,
+                        );
                       },
                       onWebDeleteDoc: (key) =>
                           setState(() => _entries[idx].documentos.remove(key)),
+                      onDateChangedDoc: (key, date) =>
+                          _onDateChangedDoc(idx, key, date),
                     );
                   }),
                   const SizedBox(height: 10),
@@ -5424,13 +6205,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     child: OutlinedButton.icon(
                       onPressed: _agregarProducto,
                       icon: const Icon(Icons.add, color: kComprasPrimary),
-                      label: const Text('Agregar Producto',
-                          style: TextStyle(
-                              fontFamily: _kFont, color: kComprasPrimary)),
+                      label: const Text(
+                        'Agregar Producto',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          color: kComprasPrimary,
+                        ),
+                      ),
                       style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: kComprasPrimary),
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 12)),
+                        side: const BorderSide(color: kComprasPrimary),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 30),
@@ -5443,14 +6228,19 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                           : const Icon(Icons.save),
-                      label: Text(_guardando ? 'Guardando...' : 'Guardar Recepción',
-                          style: const TextStyle(fontFamily: _kFont)),
+                      label: Text(
+                        _guardando ? 'Guardando...' : 'Guardar Recepción',
+                        style: const TextStyle(fontFamily: _kFont),
+                      ),
                       style: FilledButton.styleFrom(
-                          backgroundColor: kComprasPrimary,
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 14)),
+                        backgroundColor: kComprasPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -5471,15 +6261,19 @@ class _ProductoEntryCard extends StatelessWidget {
   final VoidCallback onChanged;
   final List<MarcaDoc> todasMarcas;
   final void Function(MarcaDoc?) onMarcaChanged;
+
   /// Ficha técnica encontrada en la colección TBL_COMPRAS_FICHAS_TECNICAS para
   /// este proveedor + producto + marca. Null si no existe todavía.
   final FichaTecnicaDoc? fichaTecnicaDoc;
+
   /// Solo web: recibe (key, bytes, name) y sube el archivo directamente.
   final Future<void> Function(String key, Uint8List bytes, String name)?
-      onWebUploadDoc;
+  onWebUploadDoc;
 
   /// Solo web: elimina el documento ya adjunto para la clave indicada.
   final void Function(String key)? onWebDeleteDoc;
+
+  final void Function(String key, DateTime? date)? onDateChangedDoc;
 
   const _ProductoEntryCard({
     required this.idx,
@@ -5494,6 +6288,7 @@ class _ProductoEntryCard extends StatelessWidget {
     this.fichaTecnicaDoc,
     this.onWebUploadDoc,
     this.onWebDeleteDoc,
+    this.onDateChangedDoc,
   });
 
   @override
@@ -5513,23 +6308,26 @@ class _ProductoEntryCard extends StatelessWidget {
               onChanged();
             },
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
                   Container(
                     width: 26,
                     height: 26,
                     decoration: BoxDecoration(
-                        color: kComprasPrimary.withOpacity(0.1),
-                        shape: BoxShape.circle),
+                      color: kComprasPrimary.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
                     child: Center(
-                      child: Text('${idx + 1}',
-                          style: const TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: kComprasPrimary)),
+                      child: Text(
+                        '${idx + 1}',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: kComprasPrimary,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -5539,22 +6337,32 @@ class _ProductoEntryCard extends StatelessWidget {
                             onTap: onSelectProducto,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                  vertical: 8, horizontal: 10),
+                                vertical: 8,
+                                horizontal: 10,
+                              ),
                               decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: kComprasPrimary.withOpacity(0.4),
-                                      style: BorderStyle.solid),
-                                  borderRadius: BorderRadius.circular(8)),
+                                border: Border.all(
+                                  color: kComprasPrimary.withOpacity(0.4),
+                                  style: BorderStyle.solid,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                               child: const Row(
                                 children: [
-                                  Icon(Icons.search,
-                                      size: 16, color: kComprasPrimary),
+                                  Icon(
+                                    Icons.search,
+                                    size: 16,
+                                    color: kComprasPrimary,
+                                  ),
                                   SizedBox(width: 6),
-                                  Text('Seleccionar producto...',
-                                      style: TextStyle(
-                                          fontFamily: _kFont,
-                                          fontSize: 13,
-                                          color: kComprasPrimary)),
+                                  Text(
+                                    'Seleccionar producto...',
+                                    style: TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 13,
+                                      color: kComprasPrimary,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -5564,11 +6372,14 @@ class _ProductoEntryCard extends StatelessWidget {
                             children: [
                               GestureDetector(
                                 onTap: onSelectProducto,
-                                child: Text(producto.nombre,
-                                    style: const TextStyle(
-                                        fontFamily: _kFont,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 14)),
+                                child: Text(
+                                  producto.nombre,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                ),
                               ),
                               Wrap(
                                 spacing: 4,
@@ -5584,78 +6395,191 @@ class _ProductoEntryCard extends StatelessWidget {
                                 ],
                               ),
                               // ─ Resumen de documentación cargada ─
-                              Builder(builder: (context) {
-                                final docs = entry.documentos;
-                                final docKeys = docsParaCategoria(producto.categoria);
-                                final cargados = docKeys.where((k) => docs[k]?.tieneDoc == true).length;
-                                final tieneFicha = docs['fichaTecnica']?.tieneDoc == true;
-                                final marcaNombre = entry.marcaSeleccionada?.descripcion;
-                                if (marcaNombre == null && cargados == 0) return const SizedBox.shrink();
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Wrap(
-                                    spacing: 4,
-                                    runSpacing: 2,
-                                    children: [
-                                      if (marcaNombre != null)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF283593).withOpacity(0.08),
-                                            borderRadius: BorderRadius.circular(5),
-                                            border: Border.all(color: const Color(0xFF283593).withOpacity(0.3)),
+                              Builder(
+                                builder: (context) {
+                                  final docs = entry.documentos;
+                                  final docKeys = docsParaCategoria(
+                                    producto.categoria,
+                                  );
+                                  final cargados = docKeys
+                                      .where((k) => docs[k]?.tieneDoc == true)
+                                      .length;
+                                  final tieneFicha =
+                                      docs['fichaTecnica']?.tieneDoc == true;
+                                  final marcaNombre =
+                                      entry.marcaSeleccionada?.descripcion;
+                                  if (marcaNombre == null && cargados == 0)
+                                    return const SizedBox.shrink();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Wrap(
+                                      spacing: 4,
+                                      runSpacing: 2,
+                                      children: [
+                                        if (marcaNombre != null)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: const Color(
+                                                0xFF283593,
+                                              ).withOpacity(0.08),
+                                              borderRadius:
+                                                  BorderRadius.circular(5),
+                                              border: Border.all(
+                                                color: const Color(
+                                                  0xFF283593,
+                                                ).withOpacity(0.3),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(
+                                                  Icons.local_offer,
+                                                  size: 10,
+                                                  color: Color(0xFF283593),
+                                                ),
+                                                const SizedBox(width: 3),
+                                                Text(
+                                                  marcaNombre,
+                                                  style: const TextStyle(
+                                                    fontFamily: _kFont,
+                                                    fontSize: 10,
+                                                    color: Color(0xFF283593),
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                            const Icon(Icons.local_offer, size: 10, color: Color(0xFF283593)),
-                                            const SizedBox(width: 3),
-                                            Text(marcaNombre, style: const TextStyle(fontFamily: _kFont, fontSize: 10, color: Color(0xFF283593), fontWeight: FontWeight.w600)),
-                                          ]),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: cargados == docKeys.length
+                                                ? kComprasGreen.withOpacity(
+                                                    0.08,
+                                                  )
+                                                : Colors.amber.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              5,
+                                            ),
+                                            border: Border.all(
+                                              color: cargados == docKeys.length
+                                                  ? kComprasGreen.withOpacity(
+                                                      0.4,
+                                                    )
+                                                  : Colors.amber.shade300,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.description,
+                                                size: 10,
+                                                color:
+                                                    cargados == docKeys.length
+                                                    ? kComprasGreen
+                                                    : Colors.amber.shade700,
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                '$cargados/${docKeys.length} docs',
+                                                style: TextStyle(
+                                                  fontFamily: _kFont,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color:
+                                                      cargados == docKeys.length
+                                                      ? kComprasGreen
+                                                      : Colors.amber.shade700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: cargados == docKeys.length ? kComprasGreen.withOpacity(0.08) : Colors.amber.shade50,
-                                          borderRadius: BorderRadius.circular(5),
-                                          border: Border.all(color: cargados == docKeys.length ? kComprasGreen.withOpacity(0.4) : Colors.amber.shade300),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: tieneFicha
+                                                ? kComprasGreen.withOpacity(
+                                                    0.08,
+                                                  )
+                                                : kComprasRed.withOpacity(0.08),
+                                            borderRadius: BorderRadius.circular(
+                                              5,
+                                            ),
+                                            border: Border.all(
+                                              color: tieneFicha
+                                                  ? kComprasGreen.withOpacity(
+                                                      0.4,
+                                                    )
+                                                  : kComprasRed.withOpacity(
+                                                      0.4,
+                                                    ),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                tieneFicha
+                                                    ? Icons.check_circle
+                                                    : Icons.warning_amber,
+                                                size: 10,
+                                                color: tieneFicha
+                                                    ? kComprasGreen
+                                                    : kComprasRed,
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Text(
+                                                'Ficha',
+                                                style: TextStyle(
+                                                  fontFamily: _kFont,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: tieneFicha
+                                                      ? kComprasGreen
+                                                      : kComprasRed,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                          Icon(Icons.description, size: 10, color: cargados == docKeys.length ? kComprasGreen : Colors.amber.shade700),
-                                          const SizedBox(width: 3),
-                                          Text('$cargados/${docKeys.length} docs', style: TextStyle(fontFamily: _kFont, fontSize: 10, fontWeight: FontWeight.w600, color: cargados == docKeys.length ? kComprasGreen : Colors.amber.shade700)),
-                                        ]),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: tieneFicha ? kComprasGreen.withOpacity(0.08) : kComprasRed.withOpacity(0.08),
-                                          borderRadius: BorderRadius.circular(5),
-                                          border: Border.all(color: tieneFicha ? kComprasGreen.withOpacity(0.4) : kComprasRed.withOpacity(0.4)),
-                                        ),
-                                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                                          Icon(tieneFicha ? Icons.check_circle : Icons.warning_amber, size: 10, color: tieneFicha ? kComprasGreen : kComprasRed),
-                                          const SizedBox(width: 3),
-                                          Text('Ficha', style: TextStyle(fontFamily: _kFont, fontSize: 10, fontWeight: FontWeight.w600, color: tieneFicha ? kComprasGreen : kComprasRed)),
-                                        ]),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
                             ],
                           ),
                   ),
                   IconButton(
-                      onPressed: onRemove,
-                      icon: const Icon(Icons.delete_outline,
-                          color: Colors.red, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 32, minHeight: 32)),
+                    onPressed: onRemove,
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.red,
+                      size: 20,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
                   Icon(
-                      entry.expandido
-                          ? Icons.expand_less
-                          : Icons.expand_more,
-                      color: Colors.black38),
+                    entry.expandido ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.black38,
+                  ),
                 ],
               ),
             ),
@@ -5669,268 +6593,326 @@ class _ProductoEntryCard extends StatelessWidget {
                 children: [
                   const Divider(height: 16),
                   // ─ Selector de Marca ─
-                  Builder(builder: (context) {
-                    if (producto == null) return const SizedBox.shrink();
-                    final linkedIds = producto.marcas
-                        .map((r) => r.marcaId)
-                        .toSet();
-                    final disponibles = todasMarcas
-                        .where((m) => linkedIds.contains(m.id))
-                        .toList();
-                    if (disponibles.isEmpty) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.info_outline,
-                                size: 15, color: Colors.black45),
-                            SizedBox(width: 6),
-                            Text(
-                              'Sin marcas configuradas para este producto',
-                              style: TextStyle(
+                  Builder(
+                    builder: (context) {
+                      if (producto == null) return const SizedBox.shrink();
+                      final linkedIds = producto.marcas
+                          .map((r) => r.marcaId)
+                          .toSet();
+                      final disponibles = todasMarcas
+                          .where((m) => linkedIds.contains(m.id))
+                          .toList();
+                      if (disponibles.isEmpty) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 15,
+                                color: Colors.black45,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'Sin marcas configuradas para este producto',
+                                style: TextStyle(
                                   fontFamily: _kFont,
                                   fontSize: 12,
-                                  color: Colors.black45),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    final currentId = entry.marcaSeleccionada?.id;
-                    final validId = disponibles.any((m) => m.id == currentId)
-                        ? currentId
-                        : null;
-                    return DropdownButtonFormField<String>(
-                      value: validId,
-                      decoration: _inputDecoration('Marca').copyWith(
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                      ),
-                      isExpanded: true,
-                      items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('— Sin selección —',
-                              style: TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 13,
-                                  color: Colors.black45)),
-                        ),
-                        ...disponibles.map((m) => DropdownMenuItem(
-                              value: m.id,
-                              child: Text('${m.codigo} – ${m.descripcion}',
-                                  style: const TextStyle(
-                                      fontFamily: _kFont, fontSize: 13)),
-                            )),
-                      ],
-                      onChanged: (id) {
-                        if (id == null) {
-                          onMarcaChanged(null);
-                        } else {
-                          try {
-                            onMarcaChanged(disponibles
-                                .firstWhere((m) => m.id == id));
-                          } catch (_) {}
-                        }
-                        onChanged();
-                      },
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 13,
-                          color: Colors.black87),
-                    );
-                  }),
-                  const SizedBox(height: 12),
-                  // ─ Ficha técnica (nueva colección primero, fallback producto) ─
-                  Builder(builder: (context) {
-                    if (producto == null) return const SizedBox.shrink();
-
-                    // 1. Ficha de la nueva colección (pasada como parámetro)
-                    final fichaDoc = fichaTecnicaDoc;
-
-                    // 2. Fallback: fichasTecnicasPorMarca / fichaTecnica del producto
-                    final fichaMarcaLegacy = entry.marcaSeleccionada != null
-                        ? producto.fichasTecnicasPorMarca[
-                            entry.marcaSeleccionada!.id]
-                        : null;
-                    final fichaLegacy = (fichaMarcaLegacy?.tieneDoc == true)
-                        ? fichaMarcaLegacy
-                        : producto.fichaTecnica;
-
-                    // Si no hay ninguna fuente, no mostrar
-                    if (fichaDoc == null && fichaLegacy?.tieneDoc != true) {
-                      return const SizedBox.shrink();
-                    }
-
-                    // Determinar fuente y estado
-                    final doc = fichaDoc?.documentoActual ?? fichaLegacy;
-                    final url = doc?.url;
-
-                    Color badgeColor;
-                    String badgeLabel;
-                    String badgeTip;
-                    if (fichaDoc != null) {
-                      final d = fichaDoc.documentoActual;
-                      if (d == null || !d.tieneDoc) {
-                        badgeColor = Colors.grey;
-                        badgeLabel = 'Sin ficha';
-                        badgeTip = 'No hay ficha técnica registrada';
-                      } else if (d.aprobado) {
-                        badgeColor = kComprasGreen;
-                        badgeLabel = 'Aprobada';
-                        badgeTip = 'Ficha técnica aprobada por calidad';
-                      } else if (d.rechazado) {
-                        badgeColor = kComprasRed;
-                        badgeLabel = 'Rechazada';
-                        badgeTip =
-                            'Ficha rechazada: ${d.observacionCalidad ?? ''}';
-                      } else {
-                        badgeColor = const Color(0xFFB45309);
-                        badgeLabel = 'Pendiente';
-                        badgeTip = 'Ficha técnica pendiente de revisión';
-                      }
-                    } else {
-                      badgeColor = Colors.blue;
-                      badgeLabel = 'Disponible';
-                      badgeTip = 'Ficha técnica del producto';
-                    }
-
-                    return Column(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: badgeColor.withAlpha(20),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                                color: badgeColor.withAlpha(80)),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.description,
-                                  size: 16, color: badgeColor),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Ficha técnica',
-                                        style: TextStyle(
-                                            fontFamily: _kFont,
-                                            fontSize: 12,
-                                            fontWeight:
-                                                FontWeight.w600)),
-                                    Text(badgeTip,
-                                        style: TextStyle(
-                                            fontFamily: _kFont,
-                                            fontSize: 11,
-                                            color: badgeColor)),
-                                  ],
+                                  color: Colors.black45,
                                 ),
                               ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 7, vertical: 3),
-                                decoration: BoxDecoration(
-                                    color: badgeColor.withAlpha(30),
-                                    borderRadius:
-                                        BorderRadius.circular(6),
-                                    border: Border.all(
-                                        color: badgeColor)),
-                                child: Text(badgeLabel,
-                                    style: TextStyle(
-                                        fontFamily: _kFont,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: badgeColor)),
-                              ),
-                              if (url != null && url.isNotEmpty)
-                                IconButton(
-                                  onPressed: () =>
-                                      _abrirUrl(context, url),
-                                  icon: const Icon(Icons.open_in_new,
-                                      size: 16),
-                                  tooltip: 'Ver ficha técnica',
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(
-                                      minWidth: 32, minHeight: 32),
-                                ),
                             ],
                           ),
+                        );
+                      }
+                      final currentId = entry.marcaSeleccionada?.id;
+                      final validId = disponibles.any((m) => m.id == currentId)
+                          ? currentId
+                          : null;
+                      return DropdownButtonFormField<String>(
+                        value: validId,
+                        decoration: _inputDecoration('Marca').copyWith(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                         ),
-                        const SizedBox(height: 10),
-                      ],
-                    );
-                  }),
+                        isExpanded: true,
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text(
+                              '— Sin selección —',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 13,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ),
+                          ...disponibles.map(
+                            (m) => DropdownMenuItem(
+                              value: m.id,
+                              child: Text(
+                                '${m.codigo} – ${m.descripcion}',
+                                style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (id) {
+                          if (id == null) {
+                            onMarcaChanged(null);
+                          } else {
+                            try {
+                              onMarcaChanged(
+                                disponibles.firstWhere((m) => m.id == id),
+                              );
+                            } catch (_) {}
+                          }
+                          onChanged();
+                        },
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          color: Colors.black87,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // ─ Ficha técnica (nueva colección primero, fallback producto) ─
+                  Builder(
+                    builder: (context) {
+                      if (producto == null) return const SizedBox.shrink();
+
+                      // 1. Ficha de la nueva colección (pasada como parámetro)
+                      final fichaDoc = fichaTecnicaDoc;
+
+                      // 2. Fallback: fichasTecnicasPorMarca / fichaTecnica del producto
+                      final fichaMarcaLegacy = entry.marcaSeleccionada != null
+                          ? producto.fichasTecnicasPorMarca[entry
+                                .marcaSeleccionada!
+                                .id]
+                          : null;
+                      final fichaLegacy = (fichaMarcaLegacy?.tieneDoc == true)
+                          ? fichaMarcaLegacy
+                          : producto.fichaTecnica;
+
+                      // Si no hay ninguna fuente, no mostrar
+                      if (fichaDoc == null && fichaLegacy?.tieneDoc != true) {
+                        return const SizedBox.shrink();
+                      }
+
+                      // Determinar fuente y estado
+                      final doc = fichaDoc?.documentoActual ?? fichaLegacy;
+                      final url = doc?.url;
+
+                      Color badgeColor;
+                      String badgeLabel;
+                      String badgeTip;
+                      if (fichaDoc != null) {
+                        final d = fichaDoc.documentoActual;
+                        if (d == null || !d.tieneDoc) {
+                          badgeColor = Colors.grey;
+                          badgeLabel = 'Sin ficha';
+                          badgeTip = 'No hay ficha técnica registrada';
+                        } else if (d.aprobado) {
+                          badgeColor = kComprasGreen;
+                          badgeLabel = 'Aprobada';
+                          badgeTip = 'Ficha técnica aprobada por calidad';
+                        } else if (d.rechazado) {
+                          badgeColor = kComprasRed;
+                          badgeLabel = 'Rechazada';
+                          badgeTip =
+                              'Ficha rechazada: ${d.observacionCalidad ?? ''}';
+                        } else {
+                          badgeColor = const Color(0xFFB45309);
+                          badgeLabel = 'Pendiente';
+                          badgeTip = 'Ficha técnica pendiente de revisión';
+                        }
+                      } else {
+                        badgeColor = Colors.blue;
+                        badgeLabel = 'Disponible';
+                        badgeTip = 'Ficha técnica del producto';
+                      }
+
+                      return Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: badgeColor.withAlpha(20),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: badgeColor.withAlpha(80),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.description,
+                                  size: 16,
+                                  color: badgeColor,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Ficha técnica',
+                                        style: TextStyle(
+                                          fontFamily: _kFont,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        badgeTip,
+                                        style: TextStyle(
+                                          fontFamily: _kFont,
+                                          fontSize: 11,
+                                          color: badgeColor,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: badgeColor.withAlpha(30),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: badgeColor),
+                                  ),
+                                  child: Text(
+                                    badgeLabel,
+                                    style: TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: badgeColor,
+                                    ),
+                                  ),
+                                ),
+                                if (url != null && url.isNotEmpty)
+                                  IconButton(
+                                    onPressed: () => _abrirUrl(context, url),
+                                    icon: const Icon(
+                                      Icons.open_in_new,
+                                      size: 16,
+                                    ),
+                                    tooltip: 'Ver ficha técnica',
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 32,
+                                      minHeight: 32,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      );
+                    },
+                  ),
                   // ─ Documentos requeridos ─
                   Row(
                     children: [
-                      const Text('Documentos requeridos',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black54)),
+                      const Text(
+                        'Documentos requeridos',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
                       const Spacer(),
                       if (producto?.categoria != null)
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: kComprasPrimary.withOpacity(0.08),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text(producto!.categoria,
-                              style: const TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 10,
-                                  color: kComprasPrimary)),
+                          child: Text(
+                            producto!.categoria,
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 10,
+                              color: kComprasPrimary,
+                            ),
+                          ),
                         ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  ...docsParaCategoria(producto?.categoria)
-                      .map((key) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _DocAttachButton(
-                              label: kDocRecepcionLabels[key] ?? key,
-                              doc: entry.documentos[key],
-                              onAttach: () => onAdjuntarDoc(key),
-                              onView: entry.documentos[key]?.tieneDoc == true
-                                  ? () => onVerDoc(key)
-                                  : null,
-                              onDelete: entry.documentos[key]?.tieneDoc ==
-                                          true &&
-                                      onWebDeleteDoc != null
-                                  ? () => onWebDeleteDoc!(key)
-                                  : null,
-                              onWebUpload: onWebUploadDoc != null
-                                  ? (bytes, name) =>
-                                      onWebUploadDoc!(key, bytes, name)
-                                  : null,
-                            ),
-                          )),
+                  ...docsParaCategoria(producto?.categoria).map(
+                    (key) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _DocAttachButton(
+                        label: kDocRecepcionLabels[key] ?? key,
+                        doc: entry.documentos[key],
+                        onAttach: () => onAdjuntarDoc(key),
+                        onView: entry.documentos[key]?.tieneDoc == true
+                            ? () => onVerDoc(key)
+                            : null,
+                        onDelete:
+                            entry.documentos[key]?.tieneDoc == true &&
+                                onWebDeleteDoc != null
+                            ? () => onWebDeleteDoc!(key)
+                            : null,
+                        onWebUpload: onWebUploadDoc != null
+                            ? (bytes, name) => onWebUploadDoc!(key, bytes, name)
+                            : null,
+                        showCalendar:
+                            key == 'soporteRegistroInvima' ||
+                            key == 'fechaVencimientoEtiqueta',
+                        onDateChanged: (date) =>
+                            onDateChangedDoc?.call(key, date),
+                      ),
+                    ),
+                  ),
                   // ─ Observaciones: solo visible cuando la ficha técnica está cargada ─
                   if (entry.documentos['fichaTecnica']?.tieneDoc == true) ...[
                     const SizedBox(height: 10),
                     TextField(
                       controller: entry.observacionesCtrl,
-                      decoration: _inputDecoration(
-                        'Observaciones de la ficha técnica',
-                      ).copyWith(
-                        hintText:
-                            'Explique por qué se actualiza la ficha técnica...',
-                        prefixIcon:
-                            const Icon(Icons.note_alt_outlined, size: 18),
-                      ),
+                      decoration:
+                          _inputDecoration(
+                            'Observaciones de la ficha técnica',
+                          ).copyWith(
+                            hintText:
+                                'Explique por qué se actualiza la ficha técnica...',
+                            prefixIcon: const Icon(
+                              Icons.note_alt_outlined,
+                              size: 18,
+                            ),
+                          ),
                       maxLines: 2,
                       style: const TextStyle(fontFamily: _kFont, fontSize: 13),
                       onChanged: (_) => onChanged(),
@@ -5948,6 +6930,7 @@ class _ProductoEntryCard extends StatelessWidget {
 // Selector de producto para recepción
 class _ProductoSelectorSheet extends StatefulWidget {
   final List<ProductoDoc> productos;
+
   /// Categorías del proveedor para mostrar una nota de filtro (vacío = sin filtro)
   final List<String> categoriasFiltradas;
 
@@ -5975,11 +6958,13 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
     final filtered = _q.isEmpty
         ? widget.productos
         : widget.productos
-            .where((p) =>
-                p.nombre.toLowerCase().contains(_q) ||
-                p.codigo.toLowerCase().contains(_q) ||
-                p.categoria.toLowerCase().contains(_q))
-            .toList();
+              .where(
+                (p) =>
+                    p.nombre.toLowerCase().contains(_q) ||
+                    p.codigo.toLowerCase().contains(_q) ||
+                    p.categoria.toLowerCase().contains(_q),
+              )
+              .toList();
 
     return Column(
       children: [
@@ -5988,8 +6973,9 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(4)),
+            color: Colors.grey.shade300,
+            borderRadius: BorderRadius.circular(4),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -5999,9 +6985,13 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
             decoration: InputDecoration(
               hintText: 'Buscar producto...',
               prefixIcon: const Icon(Icons.search, size: 18),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 8,
+                horizontal: 12,
+              ),
               filled: true,
               fillColor: Colors.grey.shade50,
             ),
@@ -6027,9 +7017,10 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
                   child: Text(
                     'Filtrado por categorías del proveedor: ${widget.categoriasFiltradas.join(', ')}',
                     style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 11,
-                        color: kComprasPrimary),
+                      fontFamily: _kFont,
+                      fontSize: 11,
+                      color: kComprasPrimary,
+                    ),
                   ),
                 ),
               ],
@@ -6046,19 +7037,27 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                      color: const Color(0xFF0277BD).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8)),
-                  child: const Icon(Icons.inventory_2,
-                      size: 18, color: Color(0xFF0277BD)),
+                    color: const Color(0xFF0277BD).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.inventory_2,
+                    size: 18,
+                    color: Color(0xFF0277BD),
+                  ),
                 ),
-                title: Text(p.nombre,
-                    style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500)),
-                subtitle: Text('${p.codigo} · ${p.categoria}',
-                    style: const TextStyle(
-                        fontFamily: _kFont, fontSize: 11)),
+                title: Text(
+                  p.nombre,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                subtitle: Text(
+                  '${p.codigo} · ${p.categoria}',
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 11),
+                ),
                 trailing: _Chip(p.unidadMedida, Colors.blueGrey),
                 onTap: () => Navigator.pop(context, p),
               );
@@ -6077,7 +7076,8 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
 class _MarcaDialogResult {
   final MarcaDoc? seleccionada;
   final MarcaDoc? nuevaMarca;
-  const _MarcaDialogResult.marcaExistente(this.seleccionada) : nuevaMarca = null;
+  const _MarcaDialogResult.marcaExistente(this.seleccionada)
+    : nuevaMarca = null;
   const _MarcaDialogResult.marcaCreada(this.nuevaMarca) : seleccionada = null;
 }
 
@@ -6125,9 +7125,17 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
     setState(() => _generandoCodigo = true);
     try {
       final codigo = await widget.svc.generarCodigoMarca(widget.empresaId);
-      if (mounted) setState(() { _codigoGenerado = codigo; _generandoCodigo = false; });
+      if (mounted)
+        setState(() {
+          _codigoGenerado = codigo;
+          _generandoCodigo = false;
+        });
     } catch (_) {
-      if (mounted) setState(() { _codigoGenerado = 'MRC-???'; _generandoCodigo = false; });
+      if (mounted)
+        setState(() {
+          _codigoGenerado = 'MRC-???';
+          _generandoCodigo = false;
+        });
     }
   }
 
@@ -6146,7 +7154,11 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
       );
       final id = await widget.svc.guardarMarca(nuevaMarca, isNew: true);
       // Vincular la marca al producto
-      final ref = MarcaRef(marcaId: id, codigo: nuevaMarca.codigo, descripcion: nuevaMarca.descripcion);
+      final ref = MarcaRef(
+        marcaId: id,
+        codigo: nuevaMarca.codigo,
+        descripcion: nuevaMarca.descripcion,
+      );
       await widget.svc.guardarProducto(
         widget.producto.copyWith(marcas: [...widget.producto.marcas, ref]),
         isNew: false,
@@ -6158,11 +7170,16 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
         descripcion: nuevaMarca.descripcion,
         createdAt: nuevaMarca.createdAt,
       );
-      if (mounted) Navigator.pop(context, _MarcaDialogResult.marcaCreada(creada));
+      if (mounted)
+        Navigator.pop(context, _MarcaDialogResult.marcaCreada(creada));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al crear marca: $e'), backgroundColor: kComprasRed));
+          SnackBar(
+            content: Text('Error al crear marca: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
         setState(() => _guardando = false);
       }
     }
@@ -6178,19 +7195,41 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: kComprasPrimary.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Icons.local_offer, size: 18, color: kComprasPrimary),
-            ),
-            const SizedBox(width: 10),
-            const Text('Seleccionar Marca', style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold, fontSize: 16)),
-          ]),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: kComprasPrimary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.local_offer,
+                  size: 18,
+                  color: kComprasPrimary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Seleccionar Marca',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
-          Text(widget.producto.nombre,
-              style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54),
-              overflow: TextOverflow.ellipsis),
+          Text(
+            widget.producto.nombre,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 12,
+              color: Colors.black54,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
       content: SizedBox(
@@ -6201,35 +7240,77 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (widget.marcasDisponibles.isNotEmpty && !_creandoNueva) ...[
-                const Text('Marcas disponibles', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                const Text(
+                  'Marcas disponibles',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black54,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                ...widget.marcasDisponibles.map((m) => InkWell(
-                  onTap: () => Navigator.pop(context, _MarcaDialogResult.marcaExistente(m)),
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: kComprasPrimary.withOpacity(0.3)),
-                      borderRadius: BorderRadius.circular(10),
-                      color: kComprasPrimary.withOpacity(0.04),
+                ...widget.marcasDisponibles.map(
+                  (m) => InkWell(
+                    onTap: () => Navigator.pop(
+                      context,
+                      _MarcaDialogResult.marcaExistente(m),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.local_offer_outlined, size: 16, color: kComprasPrimary),
-                        const SizedBox(width: 10),
-                        Expanded(child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(m.descripcion, style: const TextStyle(fontFamily: _kFont, fontSize: 13, fontWeight: FontWeight.w600)),
-                            Text(m.codigo, style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
-                          ],
-                        )),
-                        const Icon(Icons.check_circle_outline, size: 18, color: kComprasPrimary),
-                      ],
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: kComprasPrimary.withOpacity(0.3),
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        color: kComprasPrimary.withOpacity(0.04),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.local_offer_outlined,
+                            size: 16,
+                            color: kComprasPrimary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  m.descripcion,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  m.codigo,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 11,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.check_circle_outline,
+                            size: 18,
+                            color: kComprasPrimary,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                )),
+                ),
                 const Divider(height: 16),
                 OutlinedButton.icon(
                   onPressed: () {
@@ -6237,7 +7318,10 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                     _generarCodigo();
                   },
                   icon: const Icon(Icons.add, size: 16),
-                  label: const Text('Crear nueva marca', style: TextStyle(fontFamily: _kFont, fontSize: 13)),
+                  label: const Text(
+                    'Crear nueva marca',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: kComprasPrimary,
                     side: const BorderSide(color: kComprasPrimary),
@@ -6251,26 +7335,62 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                   decoration: BoxDecoration(
                     color: kComprasPrimary.withOpacity(0.04),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: kComprasPrimary.withOpacity(0.15)),
+                    border: Border.all(
+                      color: kComprasPrimary.withOpacity(0.15),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(children: [
-                        const Icon(Icons.add_circle_outline, size: 15, color: kComprasPrimary),
-                        const SizedBox(width: 6),
-                        const Text('Nueva marca para este producto', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: kComprasPrimary)),
-                      ]),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.add_circle_outline,
+                            size: 15,
+                            color: kComprasPrimary,
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Nueva marca para este producto',
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: kComprasPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
                       if (_generandoCodigo) ...[
                         const SizedBox(height: 8),
-                        const Row(children: [
-                          SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                          SizedBox(width: 8),
-                          Text('Generando código...', style: TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
-                        ]),
+                        const Row(
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Generando código...',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 11,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ],
+                        ),
                       ] else if (_codigoGenerado.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text('Código: $_codigoGenerado', style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+                        Text(
+                          'Código: $_codigoGenerado',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            color: Colors.black45,
+                          ),
+                        ),
                       ],
                     ],
                   ),
@@ -6279,10 +7399,13 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                 TextField(
                   controller: _nombreCtrl,
                   autofocus: true,
-                  decoration: _inputDecoration('Nombre / Descripción de la marca').copyWith(
-                    hintText: 'Ej: Nike, Zenú, Colanta...',
-                    prefixIcon: const Icon(Icons.label_outline, size: 18),
-                  ),
+                  decoration:
+                      _inputDecoration(
+                        'Nombre / Descripción de la marca',
+                      ).copyWith(
+                        hintText: 'Ej: Nike, Zenú, Colanta...',
+                        prefixIcon: const Icon(Icons.label_outline, size: 18),
+                      ),
                   style: const TextStyle(fontFamily: _kFont, fontSize: 13),
                   textCapitalization: TextCapitalization.words,
                 ),
@@ -6292,18 +7415,41 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                     if (widget.marcasDisponibles.isNotEmpty)
                       Expanded(
                         child: OutlinedButton(
-                          onPressed: _guardando ? null : () => setState(() => _creandoNueva = false),
-                          child: const Text('Volver', style: TextStyle(fontFamily: _kFont)),
+                          onPressed: _guardando
+                              ? null
+                              : () => setState(() => _creandoNueva = false),
+                          child: const Text(
+                            'Volver',
+                            style: TextStyle(fontFamily: _kFont),
+                          ),
                         ),
                       ),
-                    if (widget.marcasDisponibles.isNotEmpty) const SizedBox(width: 10),
+                    if (widget.marcasDisponibles.isNotEmpty)
+                      const SizedBox(width: 10),
                     Expanded(
                       child: FilledButton(
-                        onPressed: (_guardando || _generandoCodigo) ? null : _crearYSeleccionar,
-                        style: FilledButton.styleFrom(backgroundColor: kComprasPrimary),
+                        onPressed: (_guardando || _generandoCodigo)
+                            ? null
+                            : _crearYSeleccionar,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: kComprasPrimary,
+                        ),
                         child: _guardando
-                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : const Text('Crear y Seleccionar', style: TextStyle(fontFamily: _kFont, fontSize: 12)),
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Crear y Seleccionar',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 12,
+                                ),
+                              ),
                       ),
                     ),
                   ],
@@ -6316,7 +7462,10 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar', style: TextStyle(fontFamily: _kFont, color: Colors.black54)),
+          child: const Text(
+            'Cancelar',
+            style: TextStyle(fontFamily: _kFont, color: Colors.black54),
+          ),
         ),
       ],
     );
@@ -6387,8 +7536,10 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: const Text('Consultas',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Consultas',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: const Color(0xFF283593),
         foregroundColor: Colors.white,
         bottom: TabBar(
@@ -6402,15 +7553,24 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
           labelColor: Colors.white,
           unselectedLabelColor: const Color(0xFFB3E5FC),
           labelStyle: const TextStyle(
-              fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w700),
+            fontFamily: _kFont,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
           unselectedLabelStyle: const TextStyle(
-              fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w500),
+            fontFamily: _kFont,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
           tabs: const [
             Tab(icon: Icon(Icons.business, size: 16), text: 'Proveedores'),
             Tab(icon: Icon(Icons.inventory_2, size: 16), text: 'Productos'),
             Tab(icon: Icon(Icons.local_offer, size: 16), text: 'Marcas'),
             Tab(icon: Icon(Icons.receipt_long, size: 16), text: 'Recepciones'),
-            Tab(icon: Icon(Icons.description, size: 16), text: 'Fichas Técnicas'),
+            Tab(
+              icon: Icon(Icons.description, size: 16),
+              text: 'Fichas Técnicas',
+            ),
           ],
         ),
       ),
@@ -6436,7 +7596,8 @@ class _ConsultaProveedoresTab extends StatefulWidget {
   final ComprasService svc;
   const _ConsultaProveedoresTab({required this.empresaId, required this.svc});
   @override
-  State<_ConsultaProveedoresTab> createState() => _ConsultaProveedoresTabState();
+  State<_ConsultaProveedoresTab> createState() =>
+      _ConsultaProveedoresTabState();
 }
 
 class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
@@ -6458,20 +7619,29 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
   }
 
   Future<void> _buscar() async {
-    setState(() { _loading = true; _todos = null; });
+    setState(() {
+      _loading = true;
+      _todos = null;
+    });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_PROVEEDORES')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final lista = snap.docs
-          .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
-      setState(() { _todos = lista; _loading = false; });
+      final lista =
+          snap.docs.map((d) => ProveedorDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
+      setState(() {
+        _todos = lista;
+        _loading = false;
+      });
     } catch (e) {
-      if (mounted) setState(() { _todos = []; _loading = false; });
+      if (mounted)
+        setState(() {
+          _todos = [];
+          _loading = false;
+        });
     }
   }
 
@@ -6481,24 +7651,46 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
     try {
       final docKeys = kDocProveedorLabels.keys.toList();
       final columnas = [
-        'NIT', 'Razón Social', 'Dirección', 'Teléfono', 'Email',
-        'Departamento', 'Ciudad', 'Es Local', 'Categorías',
+        'NIT',
+        'Razón Social',
+        'Dirección',
+        'Teléfono',
+        'Email',
+        'Departamento',
+        'Ciudad',
+        'Es Local',
+        'Categorías',
         ...docKeys.map((k) => kDocProveedorLabels[k]!),
       ];
-      final filas = _todos!.map((p) => [
-        p.nit, p.razonSocial, p.direccion, p.telefono, p.email,
-        p.departamento, p.ciudad, p.esLocal ? 'Sí' : 'No',
-        p.categorias.join(', '),
-        ...docKeys.map((k) => p.documentos[k]?.url ?? 'Sin cargar'),
-      ]).toList();
+      final filas = _todos!
+          .map(
+            (p) => [
+              p.nit,
+              p.razonSocial,
+              p.direccion,
+              p.telefono,
+              p.email,
+              p.departamento,
+              p.ciudad,
+              p.esLocal ? 'Sí' : 'No',
+              p.categorias.join(', '),
+              ...docKeys.map((k) => p.documentos[k]?.url ?? 'Sin cargar'),
+            ],
+          )
+          .toList();
       await _exportarExcel(
         nombreArchivo: 'consulta_proveedores',
         columnas: columnas,
         filas: filas,
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al exportar: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -6507,11 +7699,15 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
   @override
   Widget build(BuildContext context) {
     final q = _searchCtrl.text.toLowerCase();
-    final lista = (_todos ?? []).where((p) =>
-        q.isEmpty ||
-        p.razonSocial.toLowerCase().contains(q) ||
-        p.nit.contains(q) ||
-        p.ciudad.toLowerCase().contains(q)).toList();
+    final lista = (_todos ?? [])
+        .where(
+          (p) =>
+              q.isEmpty ||
+              p.razonSocial.toLowerCase().contains(q) ||
+              p.nit.contains(q) ||
+              p.ciudad.toLowerCase().contains(q),
+        )
+        .toList();
 
     return Column(
       children: [
@@ -6528,51 +7724,132 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : lista.isEmpty
-                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+              ? const Center(
+                  child: Text(
+                    'Sin resultados',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                  ),
+                )
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
                   itemCount: lista.length,
                   itemBuilder: (_, i) {
                     final p = lista[i];
-                    final docsSubidos = kDocProveedorLabels.keys.where((k) => p.documentos[k]?.tieneDoc == true).length;
+                    final docsSubidos = kDocProveedorLabels.keys
+                        .where((k) => p.documentos[k]?.tieneDoc == true)
+                        .length;
                     final totalDocs = kDocProveedorLabels.length;
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                       child: ExpansionTile(
-                        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                        title: Text(p.razonSocial, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                        subtitle: Text('NIT: ${p.nit}  •  ${p.ciudad}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 4,
+                        ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          14,
+                          0,
+                          14,
+                          14,
+                        ),
+                        title: Text(
+                          p.razonSocial,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'NIT: ${p.nit}  •  ${p.ciudad}',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: docsSubidos == totalDocs ? kComprasGreen.withOpacity(0.1) : Colors.amber.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: docsSubidos == totalDocs ? kComprasGreen : Colors.amber.shade400),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
                               ),
-                              child: Text('$docsSubidos/$totalDocs docs',
-                                  style: TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w600,
-                                      color: docsSubidos == totalDocs ? kComprasGreen : Colors.amber.shade800)),
+                              decoration: BoxDecoration(
+                                color: docsSubidos == totalDocs
+                                    ? kComprasGreen.withOpacity(0.1)
+                                    : Colors.amber.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: docsSubidos == totalDocs
+                                      ? kComprasGreen
+                                      : Colors.amber.shade400,
+                                ),
+                              ),
+                              child: Text(
+                                '$docsSubidos/$totalDocs docs',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: docsSubidos == totalDocs
+                                      ? kComprasGreen
+                                      : Colors.amber.shade800,
+                                ),
+                              ),
                             ),
-                            const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                            const Icon(
+                              Icons.expand_more,
+                              size: 18,
+                              color: Colors.black38,
+                            ),
                           ],
                         ),
                         children: [
                           // Info general
-                          _InfoRow(Icons.phone, 'Teléfono', p.telefono.isEmpty ? '—' : p.telefono),
-                          _InfoRow(Icons.email, 'Email', p.email.isEmpty ? '—' : p.email),
-                          _InfoRow(Icons.location_on, 'Dirección', p.direccion.isEmpty ? '—' : p.direccion),
-                          _InfoRow(Icons.home_work, 'Tipo', p.esLocal ? 'Local' : 'No local'),
+                          _InfoRow(
+                            Icons.phone,
+                            'Teléfono',
+                            p.telefono.isEmpty ? '—' : p.telefono,
+                          ),
+                          _InfoRow(
+                            Icons.email,
+                            'Email',
+                            p.email.isEmpty ? '—' : p.email,
+                          ),
+                          _InfoRow(
+                            Icons.location_on,
+                            'Dirección',
+                            p.direccion.isEmpty ? '—' : p.direccion,
+                          ),
+                          _InfoRow(
+                            Icons.home_work,
+                            'Tipo',
+                            p.esLocal ? 'Local' : 'No local',
+                          ),
                           if (p.categorias.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            Wrap(spacing: 6, children: p.categorias.map((c) => _Chip(c, kComprasPrimary)).toList()),
+                            Wrap(
+                              spacing: 6,
+                              children: p.categorias
+                                  .map((c) => _Chip(c, kComprasPrimary))
+                                  .toList(),
+                            ),
                           ],
                           const SizedBox(height: 10),
-                          const Text('Documentos', style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 12, color: Colors.black54)),
+                          const Text(
+                            'Documentos',
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
+                          ),
                           const SizedBox(height: 6),
                           ...kDocProveedorLabels.entries.map((e) {
                             final doc = p.documentos[e.key];
@@ -6581,16 +7858,42 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
                               padding: const EdgeInsets.only(bottom: 4),
                               child: Row(
                                 children: [
-                                  Icon(tiene ? Icons.check_circle : Icons.radio_button_unchecked,
-                                      size: 14, color: tiene ? kComprasGreen : Colors.grey.shade400),
+                                  Icon(
+                                    tiene
+                                        ? Icons.check_circle
+                                        : Icons.radio_button_unchecked,
+                                    size: 14,
+                                    color: tiene
+                                        ? kComprasGreen
+                                        : Colors.grey.shade400,
+                                  ),
                                   const SizedBox(width: 6),
-                                  Expanded(child: Text(e.value, style: TextStyle(fontFamily: _kFont, fontSize: 12, color: tiene ? Colors.black87 : Colors.black38))),
+                                  Expanded(
+                                    child: Text(
+                                      e.value,
+                                      style: TextStyle(
+                                        fontFamily: _kFont,
+                                        fontSize: 12,
+                                        color: tiene
+                                            ? Colors.black87
+                                            : Colors.black38,
+                                      ),
+                                    ),
+                                  ),
                                   if (tiene)
                                     IconButton(
-                                      onPressed: () => _abrirUrl(context, doc!.url),
-                                      icon: const Icon(Icons.open_in_new, size: 14, color: kComprasPrimary),
+                                      onPressed: () =>
+                                          _abrirUrl(context, doc!.url),
+                                      icon: const Icon(
+                                        Icons.open_in_new,
+                                        size: 14,
+                                        color: kComprasPrimary,
+                                      ),
                                       padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 28,
+                                        minHeight: 28,
+                                      ),
                                       tooltip: 'Ver documento',
                                     ),
                                 ],
@@ -6632,21 +7935,35 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
   }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _buscar() async {
-    setState(() { _loading = true; _todos = null; });
+    setState(() {
+      _loading = true;
+      _todos = null;
+    });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_PRODUCTOS')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final lista = snap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data()))
-          .toList()..sort((a, b) => a.nombre.compareTo(b.nombre));
-      setState(() { _todos = lista; _loading = false; });
+      final lista =
+          snap.docs.map((d) => ProductoDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.nombre.compareTo(b.nombre));
+      setState(() {
+        _todos = lista;
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() { _todos = []; _loading = false; });
+      if (mounted)
+        setState(() {
+          _todos = [];
+          _loading = false;
+        });
     }
   }
 
@@ -6654,16 +7971,41 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
     if (_todos == null) return;
     setState(() => _exportando = true);
     try {
-      final columnas = ['Código', 'Nombre', 'Unidad de Medida', 'Categoría', 'Perecedero', 'Origen', 'Marcas'];
-      final filas = _todos!.map((p) => [
-        p.codigo, p.nombre, p.unidadMedida, p.categoria,
-        p.esPerecedero ? 'Sí' : 'No', p.origen,
-        p.marcas.map((m) => m.descripcion).join(', '),
-      ]).toList();
-      await _exportarExcel(nombreArchivo: 'consulta_productos', columnas: columnas, filas: filas);
+      final columnas = [
+        'Código',
+        'Nombre',
+        'Unidad de Medida',
+        'Categoría',
+        'Perecedero',
+        'Origen',
+        'Marcas',
+      ];
+      final filas = _todos!
+          .map(
+            (p) => [
+              p.codigo,
+              p.nombre,
+              p.unidadMedida,
+              p.categoria,
+              p.esPerecedero ? 'Sí' : 'No',
+              p.origen,
+              p.marcas.map((m) => m.descripcion).join(', '),
+            ],
+          )
+          .toList();
+      await _exportarExcel(
+        nombreArchivo: 'consulta_productos',
+        columnas: columnas,
+        filas: filas,
+      );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al exportar: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -6672,11 +8014,15 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
   @override
   Widget build(BuildContext context) {
     final q = _searchCtrl.text.toLowerCase();
-    final lista = (_todos ?? []).where((p) =>
-        q.isEmpty ||
-        p.nombre.toLowerCase().contains(q) ||
-        p.codigo.toLowerCase().contains(q) ||
-        p.categoria.toLowerCase().contains(q)).toList();
+    final lista = (_todos ?? [])
+        .where(
+          (p) =>
+              q.isEmpty ||
+              p.nombre.toLowerCase().contains(q) ||
+              p.codigo.toLowerCase().contains(q) ||
+              p.categoria.toLowerCase().contains(q),
+        )
+        .toList();
 
     return Column(
       children: [
@@ -6693,7 +8039,12 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : lista.isEmpty
-              ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
+              ? const Center(
+                  child: Text(
+                    'Sin resultados',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                  ),
+                )
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
                   itemCount: lista.length,
@@ -6701,23 +8052,71 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                     final p = lista[i];
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                       child: ExpansionTile(
-                        tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                        title: Text(p.nombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                        subtitle: Text('${p.codigo}  •  ${p.categoria}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
-                        trailing: const Icon(Icons.expand_more, size: 18, color: Colors.black38),
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 4,
+                        ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          14,
+                          0,
+                          14,
+                          14,
+                        ),
+                        title: Text(
+                          p.nombre,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${p.codigo}  •  ${p.categoria}',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        trailing: const Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: Colors.black38,
+                        ),
                         children: [
                           _InfoRow(Icons.straighten, 'Unidad', p.unidadMedida),
                           _InfoRow(Icons.public, 'Origen', p.origen),
-                          _InfoRow(Icons.eco, 'Perecedero', p.esPerecedero ? 'Sí' : 'No'),
+                          _InfoRow(
+                            Icons.eco,
+                            'Perecedero',
+                            p.esPerecedero ? 'Sí' : 'No',
+                          ),
                           if (p.marcas.isNotEmpty) ...[
                             const SizedBox(height: 6),
-                            const Text('Marcas', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                            const Text(
+                              'Marcas',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black54,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Wrap(spacing: 6, runSpacing: 4,
-                              children: p.marcas.map((m) => _Chip(m.descripcion, kComprasPrimary)).toList()),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: p.marcas
+                                  .map(
+                                    (m) =>
+                                        _Chip(m.descripcion, kComprasPrimary),
+                                  )
+                                  .toList(),
+                            ),
                           ],
                         ],
                       ),
@@ -6754,21 +8153,35 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
   }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _buscar() async {
-    setState(() { _loading = true; _todos = null; });
+    setState(() {
+      _loading = true;
+      _todos = null;
+    });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_MARCAS')
           .where('empresaId', isEqualTo: widget.empresaId)
           .get();
       if (!mounted) return;
-      final lista = snap.docs.map((d) => MarcaDoc.fromMap(d.id, d.data()))
-          .toList()..sort((a, b) => a.descripcion.compareTo(b.descripcion));
-      setState(() { _todos = lista; _loading = false; });
+      final lista =
+          snap.docs.map((d) => MarcaDoc.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => a.descripcion.compareTo(b.descripcion));
+      setState(() {
+        _todos = lista;
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() { _todos = []; _loading = false; });
+      if (mounted)
+        setState(() {
+          _todos = [];
+          _loading = false;
+        });
     }
   }
 
@@ -6778,13 +8191,24 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
     try {
       final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
       final columnas = ['Código', 'Descripción', 'Fecha Creación'];
-      final filas = _todos!.map((m) => [
-        m.codigo, m.descripcion, fmt.format(m.createdAt.toDate()),
-      ]).toList();
-      await _exportarExcel(nombreArchivo: 'consulta_marcas', columnas: columnas, filas: filas);
+      final filas = _todos!
+          .map(
+            (m) => [m.codigo, m.descripcion, fmt.format(m.createdAt.toDate())],
+          )
+          .toList();
+      await _exportarExcel(
+        nombreArchivo: 'consulta_marcas',
+        columnas: columnas,
+        filas: filas,
+      );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al exportar: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -6793,8 +8217,14 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
   @override
   Widget build(BuildContext context) {
     final q = _searchCtrl.text.toLowerCase();
-    final lista = (_todos ?? []).where((m) =>
-        q.isEmpty || m.descripcion.toLowerCase().contains(q) || m.codigo.toLowerCase().contains(q)).toList();
+    final lista = (_todos ?? [])
+        .where(
+          (m) =>
+              q.isEmpty ||
+              m.descripcion.toLowerCase().contains(q) ||
+              m.codigo.toLowerCase().contains(q),
+        )
+        .toList();
 
     return Column(
       children: [
@@ -6811,25 +8241,62 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : lista.isEmpty
-                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(10),
-                          itemCount: lista.length,
-                          itemBuilder: (_, i) {
-                            final m = lista[i];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 6),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              child: ListTile(
-                                leading: const CircleAvatar(backgroundColor: Color(0xFF283593), child: Icon(Icons.local_offer, color: Colors.white, size: 18)),
-                                title: Text(m.descripcion, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                                subtitle: Text(m.codigo, style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black45)),
-                                trailing: Text(DateFormat('dd/MM/yyyy', 'es').format(m.createdAt.toDate()),
-                                    style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black38)),
-                              ),
-                            );
-                          },
+              ? const Center(
+                  child: Text(
+                    'Sin resultados',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: lista.length,
+                  itemBuilder: (_, i) {
+                    final m = lista[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xFF283593),
+                          child: Icon(
+                            Icons.local_offer,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                         ),
+                        title: Text(
+                          m.descripcion,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          m.codigo,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black45,
+                          ),
+                        ),
+                        trailing: Text(
+                          DateFormat(
+                            'dd/MM/yyyy',
+                            'es',
+                          ).format(m.createdAt.toDate()),
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            color: Colors.black38,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -6844,12 +8311,13 @@ class _ConsultaRecepcionesTab extends StatefulWidget {
   final ComprasService svc;
   const _ConsultaRecepcionesTab({required this.empresaId, required this.svc});
   @override
-  State<_ConsultaRecepcionesTab> createState() => _ConsultaRecepcionesTabState();
+  State<_ConsultaRecepcionesTab> createState() =>
+      _ConsultaRecepcionesTabState();
 }
 
 class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
   final _searchCtrl = TextEditingController();
-  final _ordenCtrl  = TextEditingController(); // búsqueda por OC
+  final _ordenCtrl = TextEditingController(); // búsqueda por OC
   List<RecepcionDoc>? _todos;
   bool _loading = false;
   bool _exportando = false;
@@ -6857,11 +8325,18 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
   DateTime? _hasta;
 
   @override
-  void dispose() { _searchCtrl.dispose(); _ordenCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    _ordenCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _buscar() async {
     if (_desde == null || _hasta == null) return;
-    setState(() { _loading = true; _todos = null; });
+    setState(() {
+      _loading = true;
+      _todos = null;
+    });
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_COMPRAS_RECEPCIONES')
@@ -6869,13 +8344,29 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
           .get();
       if (!mounted) return;
       final desdeTs = Timestamp.fromDate(_desde!);
-      final hastaTs = Timestamp.fromDate(DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59));
-      final lista = snap.docs.map((d) => RecepcionDoc.fromMap(d.id, d.data()))
-          .where((r) => r.fecha.compareTo(desdeTs) >= 0 && r.fecha.compareTo(hastaTs) <= 0)
-          .toList()..sort((a, b) => b.fecha.compareTo(a.fecha));
-      setState(() { _todos = lista; _loading = false; });
+      final hastaTs = Timestamp.fromDate(
+        DateTime(_hasta!.year, _hasta!.month, _hasta!.day, 23, 59, 59),
+      );
+      final lista =
+          snap.docs
+              .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+              .where(
+                (r) =>
+                    r.fecha.compareTo(desdeTs) >= 0 &&
+                    r.fecha.compareTo(hastaTs) <= 0,
+              )
+              .toList()
+            ..sort((a, b) => b.fecha.compareTo(a.fecha));
+      setState(() {
+        _todos = lista;
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() { _todos = []; _loading = false; });
+      if (mounted)
+        setState(() {
+          _todos = [];
+          _loading = false;
+        });
     }
   }
 
@@ -6884,29 +8375,62 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
     setState(() => _exportando = true);
     try {
       final fmt = DateFormat('dd/MM/yyyy', 'es');
-      final docKeys = ['certCalidad', 'fichaTecnica', 'evidenciaEtiqueta',
-          'fechaVencimientoEtiqueta', 'guiaTransporte', 'docTransporte',
-          'guiaSacrificio', 'permisoZoo', 'vistoInvima', 'declImport'];
+      final docKeys = [
+        'certCalidad',
+        'fichaTecnica',
+        'evidenciaEtiqueta',
+        'fechaVencimientoEtiqueta',
+        'guiaTransporte',
+        'docTransporte',
+        'guiaSacrificio',
+        'permisoZoo',
+        'vistoInvima',
+        'declImport',
+      ];
       final columnas = [
-        'Fecha', 'Orden de Compra', 'Bodega', 'Proveedor', 'NIT',
-        'Producto', 'Categoría', 'Marca', 'Origen', 'Observaciones',
+        'Fecha',
+        'Orden de Compra',
+        'Bodega',
+        'Proveedor',
+        'NIT',
+        'Producto',
+        'Categoría',
+        'Marca',
+        'Origen',
+        'Observaciones',
         ...docKeys.map((k) => kDocRecepcionLabels[k] ?? k),
       ];
       final filas = <List<String>>[];
       for (final r in _todos!) {
         for (final rp in r.productos) {
           filas.add([
-            fmt.format(r.fecha.toDate()), r.ordenCompra, r.bodega,
-            r.razonSocial, r.nit, rp.nombre, rp.categoria,
-            rp.marca, rp.origen, rp.observaciones,
+            fmt.format(r.fecha.toDate()),
+            r.ordenCompra,
+            r.bodega,
+            r.razonSocial,
+            r.nit,
+            rp.nombre,
+            rp.categoria,
+            rp.marca,
+            rp.origen,
+            rp.observaciones,
             ...docKeys.map((k) => rp.documentos[k]?.url ?? 'Sin cargar'),
           ]);
         }
       }
-      await _exportarExcel(nombreArchivo: 'consulta_recepciones', columnas: columnas, filas: filas);
+      await _exportarExcel(
+        nombreArchivo: 'consulta_recepciones',
+        columnas: columnas,
+        filas: filas,
+      );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al exportar: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -6914,10 +8438,11 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
 
   @override
   Widget build(BuildContext context) {
-    final q   = _searchCtrl.text.toLowerCase();
-    final oc  = _ordenCtrl.text.toLowerCase();
+    final q = _searchCtrl.text.toLowerCase();
+    final oc = _ordenCtrl.text.toLowerCase();
     final lista = (_todos ?? []).where((r) {
-      final qMatch = q.isEmpty ||
+      final qMatch =
+          q.isEmpty ||
           r.razonSocial.toLowerCase().contains(q) ||
           r.nit.contains(q) ||
           r.productos.any((p) => p.nombre.toLowerCase().contains(q));
@@ -6928,10 +8453,12 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
     return Column(
       children: [
         _ConsultasFechaBar(
-          desde: _desde, hasta: _hasta,
+          desde: _desde,
+          hasta: _hasta,
           onDesdeCambiado: (d) => setState(() => _desde = d),
           onHastaCambiado: (h) => setState(() => _hasta = h),
-          onBuscar: _buscar, cargando: _loading,
+          onBuscar: _buscar,
+          cargando: _loading,
         ),
         if (_todos != null) ...[
           // Barra búsqueda general
@@ -6953,9 +8480,15 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
               decoration: InputDecoration(
                 hintText: 'Buscar por Orden de Compra...',
                 prefixIcon: const Icon(Icons.receipt_long, size: 16),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                filled: true, fillColor: Colors.grey.shade50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
+                filled: true,
+                fillColor: Colors.grey.shade50,
                 hintStyle: const TextStyle(fontFamily: _kFont, fontSize: 12),
               ),
               style: const TextStyle(fontFamily: _kFont, fontSize: 13),
@@ -6966,82 +8499,214 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _todos == null
-                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
-                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
-                  : lista.isEmpty
-                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(10),
-                          itemCount: lista.length,
-                          itemBuilder: (_, i) {
-                            final r = lista[i];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              child: ExpansionTile(
-                                tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                                childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                                title: Text(r.razonSocial, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                                subtitle: Text(
-                                  '${DateFormat('dd/MM/yyyy', 'es').format(r.fecha.toDate())}  •  OC: ${r.ordenCompra.isEmpty ? '—' : r.ordenCompra}${r.bodega.isNotEmpty ? '  •  ${r.bodega}' : ''}  •  ${r.productos.length} producto(s)',
-                                  style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54),
-                                ),
-                                trailing: const Icon(Icons.expand_more, size: 18, color: Colors.black38),
-                                children: r.productos.map((rp) {
-                                  final docsSubidos = rp.documentos.values.where((d) => d.tieneDoc).length;
-                                  return Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF0F4FF),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: kComprasPrimary.withOpacity(0.15)),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(children: [
-                                          Expanded(child: Text(rp.nombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 13))),
-                                          if (rp.marca.isNotEmpty) _Chip(rp.marca, kComprasPrimary),
-                                          const SizedBox(width: 4),
-                                          _Chip(rp.origen, rp.origen == 'IMPORTADO' ? Colors.purple.shade700 : Colors.green.shade700),
-                                        ]),
-                                        const SizedBox(height: 4),
-                                        Text('$docsSubidos doc(s) cargado(s)', style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
-                                        if (rp.observaciones.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text('Obs: ${rp.observaciones}', style: const TextStyle(fontFamily: _kFont, fontSize: 11, fontStyle: FontStyle.italic, color: Colors.black54)),
-                                        ],
-                                        const SizedBox(height: 8),
-                                        ...rp.documentos.entries.where((e) => e.value.tieneDoc).map((e) {
-                                          final doc = e.value;
-                                          final label = kDocRecepcionLabels[e.key] ?? e.key;
-                                          return Padding(
-                                            padding: const EdgeInsets.only(bottom: 4),
-                                            child: Row(children: [
-                                              Icon(doc.aprobado ? Icons.check_circle : (doc.rechazado ? Icons.cancel : Icons.hourglass_empty),
-                                                  size: 13,
-                                                  color: doc.aprobado ? kComprasGreen : (doc.rechazado ? kComprasRed : Colors.orange)),
-                                              const SizedBox(width: 6),
-                                              Expanded(child: Text(label, style: const TextStyle(fontFamily: _kFont, fontSize: 12))),
-                                              IconButton(
-                                                onPressed: () => _abrirUrl(context, doc.url),
-                                                icon: const Icon(Icons.open_in_new, size: 13, color: kComprasPrimary),
-                                                padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-                                                tooltip: 'Ver documento',
-                                              ),
-                                            ]),
-                                          );
-                                        }),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            );
-                          },
+              ? const Center(
+                  child: Text(
+                    'Seleccione un rango de fechas y presione Buscar',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : lista.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Sin resultados',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: lista.length,
+                  itemBuilder: (_, i) {
+                    final r = lista[i];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 4,
                         ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          14,
+                          0,
+                          14,
+                          14,
+                        ),
+                        title: Text(
+                          r.razonSocial,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${DateFormat('dd/MM/yyyy', 'es').format(r.fecha.toDate())}  •  OC: ${r.ordenCompra.isEmpty ? '—' : r.ordenCompra}${r.bodega.isNotEmpty ? '  •  ${r.bodega}' : ''}  •  ${r.productos.length} producto(s)',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        trailing: const Icon(
+                          Icons.expand_more,
+                          size: 18,
+                          color: Colors.black38,
+                        ),
+                        children: r.productos.map((rp) {
+                          final docsSubidos = rp.documentos.values
+                              .where((d) => d.tieneDoc)
+                              .length;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0F4FF),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: kComprasPrimary.withOpacity(0.15),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        rp.nombre,
+                                        style: const TextStyle(
+                                          fontFamily: _kFont,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                    if (rp.marca.isNotEmpty)
+                                      _Chip(rp.marca, kComprasPrimary),
+                                    const SizedBox(width: 4),
+                                    _Chip(
+                                      rp.origen,
+                                      rp.origen == 'IMPORTADO'
+                                          ? Colors.purple.shade700
+                                          : Colors.green.shade700,
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$docsSubidos doc(s) cargado(s)',
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 11,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                                if (rp.observaciones.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Obs: ${rp.observaciones}',
+                                    style: const TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 8),
+                                ...rp.documentos.entries
+                                    .where((e) => e.value.tieneDoc)
+                                    .map((e) {
+                                      final doc = e.value;
+                                      final label =
+                                          kDocRecepcionLabels[e.key] ?? e.key;
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 4,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              doc.aprobado
+                                                  ? Icons.check_circle
+                                                  : (doc.rechazado
+                                                        ? Icons.cancel
+                                                        : Icons
+                                                              .hourglass_empty),
+                                              size: 13,
+                                              color: doc.aprobado
+                                                  ? kComprasGreen
+                                                  : (doc.rechazado
+                                                        ? kComprasRed
+                                                        : Colors.orange),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    label,
+                                                    style: const TextStyle(
+                                                      fontFamily: _kFont,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                  if (doc.fechaVencimiento !=
+                                                      null)
+                                                    Text(
+                                                      'Vence: ${DateFormat('dd/MM/yyyy').format(doc.fechaVencimiento!.toDate())}',
+                                                      style: TextStyle(
+                                                        fontFamily: _kFont,
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color:
+                                                            (doc.fechaVencimiento!
+                                                                .toDate()
+                                                                .isBefore(
+                                                                  DateTime.now(),
+                                                                ))
+                                                            ? Colors.red
+                                                            : Colors
+                                                                  .orange
+                                                                  .shade800,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                            IconButton(
+                                              onPressed: () =>
+                                                  _abrirUrl(context, doc.url),
+                                              icon: const Icon(
+                                                Icons.open_in_new,
+                                                size: 13,
+                                                color: kComprasPrimary,
+                                              ),
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(
+                                                minWidth: 26,
+                                                minHeight: 26,
+                                              ),
+                                              tooltip: 'Ver documento',
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -7068,17 +8733,30 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
   DateTime? _hasta;
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _buscar() async {
     if (_desde == null || _hasta == null) return;
-    setState(() { _loading = true; _todos = null; });
+    setState(() {
+      _loading = true;
+      _todos = null;
+    });
     try {
       final lista = await widget.svc.getFichasTecnicas(widget.empresaId);
       if (!mounted) return;
-      setState(() { _todos = lista; _loading = false; });
+      setState(() {
+        _todos = lista;
+        _loading = false;
+      });
     } catch (_) {
-      if (mounted) setState(() { _todos = []; _loading = false; });
+      if (mounted)
+        setState(() {
+          _todos = [];
+          _loading = false;
+        });
     }
   }
 
@@ -7088,25 +8766,39 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
     try {
       final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
       final columnas = [
-        'Producto', 'Categoría', 'Marca', 'Proveedor',
-        'Estado Calidad', 'Observación Actualización',
-        'Link Documento Actual', 'Fecha Subida',
+        'Producto',
+        'Categoría',
+        'Marca',
+        'Proveedor',
+        'Estado Calidad',
+        'Observación Actualización',
+        'Link Documento Actual',
+        'Fecha Subida',
         'Versiones en Historial',
       ];
       final q = _searchCtrl.text.toLowerCase();
-      final lista = q.isEmpty ? _todos!
-          : _todos!.where((f) =>
-              f.productoNombre.toLowerCase().contains(q) ||
-              f.marcaNombre.toLowerCase().contains(q) ||
-              f.proveedorNombre.toLowerCase().contains(q)).toList();
+      final lista = q.isEmpty
+          ? _todos!
+          : _todos!
+                .where(
+                  (f) =>
+                      f.productoNombre.toLowerCase().contains(q) ||
+                      f.marcaNombre.toLowerCase().contains(q) ||
+                      f.proveedorNombre.toLowerCase().contains(q),
+                )
+                .toList();
       final filas = lista.map((f) {
         final doc = f.documentoActual;
         String estado = '—';
         if (doc != null) {
-          if (doc.aprobado) estado = 'Aprobado';
-          else if (doc.rechazado) estado = 'Rechazado';
-          else if (doc.pendienteRevisionCalidad) estado = 'Pendiente revisión';
-          else if (doc.tieneDoc) estado = 'Cargado';
+          if (doc.aprobado)
+            estado = 'Aprobado';
+          else if (doc.rechazado)
+            estado = 'Rechazado';
+          else if (doc.pendienteRevisionCalidad)
+            estado = 'Pendiente revisión';
+          else if (doc.tieneDoc)
+            estado = 'Cargado';
         }
         return [
           f.productoNombre,
@@ -7116,14 +8808,25 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
           estado,
           doc?.observacionActualizacion ?? '—',
           doc?.url ?? 'Sin cargar',
-          doc?.fechaSubida != null ? fmt.format(doc!.fechaSubida!.toDate()) : '—',
+          doc?.fechaSubida != null
+              ? fmt.format(doc!.fechaSubida!.toDate())
+              : '—',
           '${f.historial.length}',
         ];
       }).toList();
-      await _exportarExcel(nombreArchivo: 'consulta_fichas_tecnicas', columnas: columnas, filas: filas);
+      await _exportarExcel(
+        nombreArchivo: 'consulta_fichas_tecnicas',
+        columnas: columnas,
+        filas: filas,
+      );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al exportar: $e'), backgroundColor: kComprasRed));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al exportar: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -7133,34 +8836,50 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
   Widget build(BuildContext context) {
     final q = _searchCtrl.text.toLowerCase();
     // Ordenar por fecha de última actualización de la ficha (más reciente primero)
-    final lista = (_todos ?? []).where((f) =>
-        q.isEmpty ||
-        f.productoNombre.toLowerCase().contains(q) ||
-        f.marcaNombre.toLowerCase().contains(q) ||
-        f.proveedorNombre.toLowerCase().contains(q)).toList()
-      ..sort((a, b) {
-        final fa = a.documentoActual?.fechaSubida;
-        final fb = b.documentoActual?.fechaSubida;
-        if (fa == null && fb == null) return 0;
-        if (fa == null) return 1;
-        if (fb == null) return -1;
-        return fb.compareTo(fa);
-      });
+    final lista =
+        (_todos ?? [])
+            .where(
+              (f) =>
+                  q.isEmpty ||
+                  f.productoNombre.toLowerCase().contains(q) ||
+                  f.marcaNombre.toLowerCase().contains(q) ||
+                  f.proveedorNombre.toLowerCase().contains(q),
+            )
+            .toList()
+          ..sort((a, b) {
+            final fa = a.documentoActual?.fechaSubida;
+            final fb = b.documentoActual?.fechaSubida;
+            if (fa == null && fb == null) return 0;
+            if (fa == null) return 1;
+            if (fb == null) return -1;
+            return fb.compareTo(fa);
+          });
 
     // Últimas actualizadas (fichas con doc cargado ordenadas por fecha, top 5)
-    final ultimasActualizadas = (_todos ?? [])
-        .where((f) => f.documentoActual?.fechaSubida != null && f.documentoActual?.tieneDoc == true)
-        .toList()
-      ..sort((a, b) => b.documentoActual!.fechaSubida!.compareTo(a.documentoActual!.fechaSubida!));
+    final ultimasActualizadas =
+        (_todos ?? [])
+            .where(
+              (f) =>
+                  f.documentoActual?.fechaSubida != null &&
+                  f.documentoActual?.tieneDoc == true,
+            )
+            .toList()
+          ..sort(
+            (a, b) => b.documentoActual!.fechaSubida!.compareTo(
+              a.documentoActual!.fechaSubida!,
+            ),
+          );
     final topActualizadas = ultimasActualizadas.take(5).toList();
 
     return Column(
       children: [
         _ConsultasFechaBar(
-          desde: _desde, hasta: _hasta,
+          desde: _desde,
+          hasta: _hasta,
           onDesdeCambiado: (d) => setState(() => _desde = d),
           onHastaCambiado: (h) => setState(() => _hasta = h),
-          onBuscar: _buscar, cargando: _loading,
+          onBuscar: _buscar,
+          cargando: _loading,
         ),
         if (_todos != null) ...[
           _ConsultasToolbar(
@@ -7178,28 +8897,69 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
               decoration: BoxDecoration(
                 color: const Color(0xFF1565C0).withOpacity(0.06),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFF1565C0).withOpacity(0.2)),
+                border: Border.all(
+                  color: const Color(0xFF1565C0).withOpacity(0.2),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(children: [
-                    const Icon(Icons.update, size: 14, color: Color(0xFF1565C0)),
-                    const SizedBox(width: 6),
-                    const Text('Últimas fichas actualizadas', style: TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1565C0))),
-                  ]),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.update,
+                        size: 14,
+                        color: Color(0xFF1565C0),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Últimas fichas actualizadas',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1565C0),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 6),
                   ...topActualizadas.map((f) {
                     final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
-                    final fecha = fmt.format(f.documentoActual!.fechaSubida!.toDate());
+                    final fecha = fmt.format(
+                      f.documentoActual!.fechaSubida!.toDate(),
+                    );
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 3),
-                      child: Row(children: [
-                        const Icon(Icons.circle, size: 6, color: Color(0xFF1565C0)),
-                        const SizedBox(width: 6),
-                        Expanded(child: Text('${f.productoNombre} — ${f.marcaNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
-                        Text(fecha, style: const TextStyle(fontFamily: _kFont, fontSize: 10, color: Colors.black45)),
-                      ]),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.circle,
+                            size: 6,
+                            color: Color(0xFF1565C0),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${f.productoNombre} — ${f.marcaNombre}',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            fecha,
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 10,
+                              color: Colors.black45,
+                            ),
+                          ),
+                        ],
+                      ),
                     );
                   }),
                 ],
@@ -7210,112 +8970,279 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : _todos == null
-                  ? const Center(child: Text('Seleccione un rango de fechas y presione Buscar',
-                      style: TextStyle(fontFamily: _kFont, color: Colors.black45), textAlign: TextAlign.center))
-                  : lista.isEmpty
-                      ? const Center(child: Text('Sin resultados', style: TextStyle(fontFamily: _kFont, color: Colors.black45)))
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(10),
-                          itemCount: lista.length,
-                          itemBuilder: (_, i) {
-                            final f = lista[i];
-                            final doc = f.documentoActual;
-                            final fmtDt = DateFormat('dd/MM/yyyy HH:mm', 'es');
-                            // Marcar como reciente si fue actualizada en los últimos 7 días
-                            final esReciente = doc?.fechaSubida != null &&
-                                DateTime.now().difference(doc!.fechaSubida!.toDate()).inDays <= 7;
-                            Color badgeColor = Colors.grey;
-                            String badgeLabel = 'Sin cargar';
-                            if (doc != null && doc.tieneDoc) {
-                              if (doc.aprobado) { badgeColor = kComprasGreen; badgeLabel = 'Aprobado'; }
-                              else if (doc.rechazado) { badgeColor = kComprasRed; badgeLabel = 'Rechazado'; }
-                              else if (doc.pendienteRevisionCalidad) { badgeColor = Colors.orange; badgeLabel = 'Pendiente'; }
-                              else { badgeColor = Colors.blueGrey; badgeLabel = 'Cargado'; }
-                            }
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              child: ExpansionTile(
-                                tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                                childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                                title: Text(f.productoNombre, style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w600, fontSize: 14)),
-                                subtitle: Text('${f.marcaNombre}  •  ${f.proveedorNombre}', style: const TextStyle(fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
-                                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                                  if (esReciente)
-                                    Container(
-                                      margin: const EdgeInsets.only(right: 4),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.shade50,
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.green.shade400),
-                                      ),
-                                      child: const Text('Reciente', style: TextStyle(fontFamily: _kFont, fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF16A34A))),
-                                    ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                    decoration: BoxDecoration(
-                                      color: badgeColor.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: badgeColor),
-                                    ),
-                                    child: Text(badgeLabel, style: TextStyle(fontFamily: _kFont, fontSize: 11, fontWeight: FontWeight.w600, color: badgeColor)),
-                                  ),
-                                  const Icon(Icons.expand_more, size: 18, color: Colors.black38),
-                                ]),
-                                children: [
-                                  if (doc != null && doc.tieneDoc) ...[
-                                    _InfoRow(Icons.link, 'Documento actual', ''),
-                                    Row(children: [
-                                      const SizedBox(width: 22),
-                                      Expanded(child: Text(doc.nombre ?? '—', style: const TextStyle(fontFamily: _kFont, fontSize: 12), overflow: TextOverflow.ellipsis)),
-                                      IconButton(
-                                        onPressed: () => _abrirUrl(context, doc.url),
-                                        icon: const Icon(Icons.open_in_new, size: 14, color: kComprasPrimary),
-                                        padding: EdgeInsets.zero,
-                                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                                        tooltip: 'Ver documento',
-                                      ),
-                                    ]),
-                                    if (doc.fechaSubida != null)
-                                      _InfoRow(Icons.calendar_today, 'Fecha cargado',
-                                          fmtDt.format(doc.fechaSubida!.toDate())),
-                                    if (doc.observacionActualizacion?.isNotEmpty == true)
-                                      _InfoRow(Icons.note_alt_outlined, 'Observación', doc.observacionActualizacion!),
-                                  ],
-                                  if (f.historial.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text('Historial (${f.historial.length} versiones)', style: const TextStyle(fontFamily: _kFont, fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-                                    const SizedBox(height: 4),
-                                    ...f.historial.map((h) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 4),
-                                      child: Row(children: [
-                                        const Icon(Icons.history, size: 13, color: Colors.black38),
-                                        const SizedBox(width: 6),
-                                        Expanded(child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(h.observacion.isEmpty ? (h.nombre ?? '—') : h.observacion,
-                                                style: const TextStyle(fontFamily: _kFont, fontSize: 11, color: Colors.black54), overflow: TextOverflow.ellipsis),
-                                            Text(fmtDt.format(h.fecha.toDate()),
-                                                style: const TextStyle(fontFamily: _kFont, fontSize: 10, color: Colors.black38)),
-                                          ],
-                                        )),
-                                        if (h.url != null && h.url!.isNotEmpty)
-                                          IconButton(
-                                            onPressed: () => _abrirUrl(context, h.url),
-                                            icon: const Icon(Icons.open_in_new, size: 12, color: kComprasPrimary),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                                          ),
-                                      ]),
-                                    )),
-                                  ],
-                                ],
-                              ),
-                            );
-                          },
+              ? const Center(
+                  child: Text(
+                    'Seleccione un rango de fechas y presione Buscar',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : lista.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Sin resultados',
+                    style: TextStyle(fontFamily: _kFont, color: Colors.black45),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: lista.length,
+                  itemBuilder: (_, i) {
+                    final f = lista[i];
+                    final doc = f.documentoActual;
+                    final fmtDt = DateFormat('dd/MM/yyyy HH:mm', 'es');
+                    // Marcar como reciente si fue actualizada en los últimos 7 días
+                    final esReciente =
+                        doc?.fechaSubida != null &&
+                        DateTime.now()
+                                .difference(doc!.fechaSubida!.toDate())
+                                .inDays <=
+                            7;
+                    Color badgeColor = Colors.grey;
+                    String badgeLabel = 'Sin cargar';
+                    if (doc != null && doc.tieneDoc) {
+                      if (doc.aprobado) {
+                        badgeColor = kComprasGreen;
+                        badgeLabel = 'Aprobado';
+                      } else if (doc.rechazado) {
+                        badgeColor = kComprasRed;
+                        badgeLabel = 'Rechazado';
+                      } else if (doc.pendienteRevisionCalidad) {
+                        badgeColor = Colors.orange;
+                        badgeLabel = 'Pendiente';
+                      } else {
+                        badgeColor = Colors.blueGrey;
+                        badgeLabel = 'Cargado';
+                      }
+                    }
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 4,
                         ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          14,
+                          0,
+                          14,
+                          14,
+                        ),
+                        title: Text(
+                          f.productoNombre,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${f.marcaNombre}  •  ${f.proveedorNombre}',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (esReciente)
+                              Container(
+                                margin: const EdgeInsets.only(right: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: Colors.green.shade400,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Reciente',
+                                  style: TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF16A34A),
+                                  ),
+                                ),
+                              ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: badgeColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: badgeColor),
+                              ),
+                              child: Text(
+                                badgeLabel,
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: badgeColor,
+                                ),
+                              ),
+                            ),
+                            const Icon(
+                              Icons.expand_more,
+                              size: 18,
+                              color: Colors.black38,
+                            ),
+                          ],
+                        ),
+                        children: [
+                          if (doc != null && doc.tieneDoc) ...[
+                            _InfoRow(Icons.link, 'Documento actual', ''),
+                            Row(
+                              children: [
+                                const SizedBox(width: 22),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        doc.nombre ?? '—',
+                                        style: const TextStyle(
+                                          fontFamily: _kFont,
+                                          fontSize: 12,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      if (doc.fechaVencimiento != null)
+                                        Text(
+                                          'Vence: ${DateFormat('dd/MM/yyyy').format(doc.fechaVencimiento!.toDate())}',
+                                          style: TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color:
+                                                (doc.fechaVencimiento!
+                                                    .toDate()
+                                                    .isBefore(DateTime.now()))
+                                                ? Colors.red
+                                                : Colors.orange.shade800,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => _abrirUrl(context, doc.url),
+                                  icon: const Icon(
+                                    Icons.open_in_new,
+                                    size: 14,
+                                    color: kComprasPrimary,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 28,
+                                    minHeight: 28,
+                                  ),
+                                  tooltip: 'Ver documento',
+                                ),
+                              ],
+                            ),
+                            if (doc.fechaSubida != null)
+                              _InfoRow(
+                                Icons.calendar_today,
+                                'Fecha cargado',
+                                fmtDt.format(doc.fechaSubida!.toDate()),
+                              ),
+                            if (doc.observacionActualizacion?.isNotEmpty ==
+                                true)
+                              _InfoRow(
+                                Icons.note_alt_outlined,
+                                'Observación',
+                                doc.observacionActualizacion!,
+                              ),
+                          ],
+                          if (f.historial.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Historial (${f.historial.length} versiones)',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            ...f.historial.map(
+                              (h) => Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.history,
+                                      size: 13,
+                                      color: Colors.black38,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            h.observacion.isEmpty
+                                                ? (h.nombre ?? '—')
+                                                : h.observacion,
+                                            style: const TextStyle(
+                                              fontFamily: _kFont,
+                                              fontSize: 11,
+                                              color: Colors.black54,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          Text(
+                                            fmtDt.format(h.fecha.toDate()),
+                                            style: const TextStyle(
+                                              fontFamily: _kFont,
+                                              fontSize: 10,
+                                              color: Colors.black38,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (h.url != null && h.url!.isNotEmpty)
+                                      IconButton(
+                                        onPressed: () =>
+                                            _abrirUrl(context, h.url),
+                                        icon: const Icon(
+                                          Icons.open_in_new,
+                                          size: 12,
+                                          color: kComprasPrimary,
+                                        ),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(
+                                          minWidth: 24,
+                                          minHeight: 24,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -7342,8 +9269,11 @@ class _ConsultasFechaBar extends StatelessWidget {
     required this.cargando,
   });
 
-  Future<void> _pickDate(BuildContext context, DateTime? initial,
-      void Function(DateTime) onPicked) async {
+  Future<void> _pickDate(
+    BuildContext context,
+    DateTime? initial,
+    void Function(DateTime) onPicked,
+  ) async {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
@@ -7370,23 +9300,33 @@ class _ConsultasFechaBar extends StatelessWidget {
               onTap: () => _pickDate(context, desde, onDesdeCambiado),
               borderRadius: BorderRadius.circular(8),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade300),
                   borderRadius: BorderRadius.circular(8),
                   color: Colors.grey.shade50,
                 ),
-                child: Row(children: [
-                  const Icon(Icons.calendar_today, size: 14, color: Colors.black45),
-                  const SizedBox(width: 6),
-                  Text(
-                    desde != null ? fmt.format(desde!) : 'Desde',
-                    style: TextStyle(
-                      fontFamily: _kFont, fontSize: 12,
-                      color: desde != null ? Colors.black87 : Colors.black38,
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Colors.black45,
                     ),
-                  ),
-                ]),
+                    const SizedBox(width: 6),
+                    Text(
+                      desde != null ? fmt.format(desde!) : 'Desde',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: desde != null ? Colors.black87 : Colors.black38,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -7400,23 +9340,33 @@ class _ConsultasFechaBar extends StatelessWidget {
               onTap: () => _pickDate(context, hasta, onHastaCambiado),
               borderRadius: BorderRadius.circular(8),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.grey.shade300),
                   borderRadius: BorderRadius.circular(8),
                   color: Colors.grey.shade50,
                 ),
-                child: Row(children: [
-                  const Icon(Icons.calendar_today, size: 14, color: Colors.black45),
-                  const SizedBox(width: 6),
-                  Text(
-                    hasta != null ? fmt.format(hasta!) : 'Hasta',
-                    style: TextStyle(
-                      fontFamily: _kFont, fontSize: 12,
-                      color: hasta != null ? Colors.black87 : Colors.black38,
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Colors.black45,
                     ),
-                  ),
-                ]),
+                    const SizedBox(width: 6),
+                    Text(
+                      hasta != null ? fmt.format(hasta!) : 'Hasta',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: hasta != null ? Colors.black87 : Colors.black38,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -7424,15 +9374,26 @@ class _ConsultasFechaBar extends StatelessWidget {
           // Buscar
           cargando
               ? const SizedBox(
-                  width: 36, height: 36,
-                  child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2)))
+                  width: 36,
+                  height: 36,
+                  child: Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
               : FilledButton.icon(
                   onPressed: listo ? onBuscar : null,
                   icon: const Icon(Icons.search, size: 16),
-                  label: const Text('Buscar', style: TextStyle(fontFamily: _kFont, fontSize: 12)),
+                  label: const Text(
+                    'Buscar',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: kComprasPrimary,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     minimumSize: const Size(0, 36),
                   ),
                 ),
@@ -7475,8 +9436,13 @@ class _ConsultasToolbar extends StatelessWidget {
               decoration: InputDecoration(
                 hintText: hint,
                 prefixIcon: const Icon(Icons.search, size: 18),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
                 filled: true,
                 fillColor: Colors.grey.shade50,
                 hintStyle: const TextStyle(fontFamily: _kFont, fontSize: 12),
@@ -7486,17 +9452,34 @@ class _ConsultasToolbar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text('$total', style: const TextStyle(fontFamily: _kFont, fontSize: 13, color: Colors.black45, fontWeight: FontWeight.w600)),
+          Text(
+            '$total',
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 13,
+              color: Colors.black45,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(width: 8),
           exportando
-              ? const SizedBox(width: 36, height: 36, child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2)))
+              ? const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Padding(
+                    padding: EdgeInsets.all(8),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
               : IconButton(
                   onPressed: total == 0 ? null : onExportar,
                   icon: const Icon(Icons.download, color: Color(0xFF283593)),
                   tooltip: 'Exportar a Excel',
                   style: IconButton.styleFrom(
                     backgroundColor: const Color(0xFF283593).withOpacity(0.08),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                 ),
         ],
@@ -7587,16 +9570,21 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
       await widget.svc!.guardarRecepcion(nuevaRecepcion);
       if (mounted) {
         setState(() => _r = nuevaRecepcion);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Documento guardado correctamente'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Documento guardado correctamente'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Error al guardar: $e'),
-            backgroundColor: kComprasRed));
+            backgroundColor: kComprasRed,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _subiendo.remove(subiendoKey));
@@ -7609,7 +9597,8 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
     final hl = widget.highlight != null
         ? r.productos.firstWhere(
             (p) => p.productoId == widget.highlight!.productoId,
-            orElse: () => widget.highlight!)
+            orElse: () => widget.highlight!,
+          )
         : null;
 
     return Card(
@@ -7621,8 +9610,9 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
           // ── Encabezado ───────────────────────────────────
           InkWell(
             borderRadius: BorderRadius.vertical(
-                top: const Radius.circular(14),
-                bottom: Radius.circular(_expandido ? 0 : 14)),
+              top: const Radius.circular(14),
+              bottom: Radius.circular(_expandido ? 0 : 14),
+            ),
             onTap: () => setState(() => _expandido = !_expandido),
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -7637,30 +9627,42 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                           color: kComprasPrimary.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.local_shipping,
-                            size: 18, color: kComprasPrimary),
+                        child: const Icon(
+                          Icons.local_shipping,
+                          size: 18,
+                          color: kComprasPrimary,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(r.razonSocial,
-                                style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14)),
+                            Text(
+                              r.razonSocial,
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
                             const SizedBox(height: 2),
                             Row(
                               children: [
-                                const Icon(Icons.badge,
-                                    size: 12, color: Colors.black38),
+                                const Icon(
+                                  Icons.badge,
+                                  size: 12,
+                                  color: Colors.black38,
+                                ),
                                 const SizedBox(width: 3),
-                                Text('NIT: ${r.nit}',
-                                    style: const TextStyle(
-                                        fontFamily: _kFont,
-                                        fontSize: 11,
-                                        color: Colors.black54)),
+                                Text(
+                                  'NIT: ${r.nit}',
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 11,
+                                    color: Colors.black54,
+                                  ),
+                                ),
                               ],
                             ),
                           ],
@@ -7669,18 +9671,24 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Text(_fmtFecha(r.fecha),
-                              style: const TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: kComprasPrimary)),
+                          Text(
+                            _fmtFecha(r.fecha),
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: kComprasPrimary,
+                            ),
+                          ),
                           if (r.ordenCompra.isNotEmpty)
-                            Text('OC: ${r.ordenCompra}',
-                                style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontSize: 10,
-                                    color: Colors.black45)),
+                            Text(
+                              'OC: ${r.ordenCompra}',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 10,
+                                color: Colors.black45,
+                              ),
+                            ),
                         ],
                       ),
                     ],
@@ -7689,14 +9697,14 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                   Row(
                     children: [
                       _Chip(
-                          '${r.productos.length} producto${r.productos.length == 1 ? '' : 's'}',
-                          kComprasPrimary),
+                        '${r.productos.length} producto${r.productos.length == 1 ? '' : 's'}',
+                        kComprasPrimary,
+                      ),
                       const Spacer(),
                       // Indicador de docs del highlight
                       if (hl != null) ...[
                         ...docsParaCategoria(hl.categoria).map((key) {
-                          final tiene =
-                              hl.documentos[key]?.tieneDoc == true;
+                          final tiene = hl.documentos[key]?.tieneDoc == true;
                           return Tooltip(
                             message: kDocRecepcionLabels[key] ?? key,
                             child: Container(
@@ -7713,26 +9721,31 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                         const SizedBox(width: 6),
                       ],
                       Icon(
-                          _expandido
-                              ? Icons.expand_less
-                              : Icons.expand_more,
-                          size: 18,
-                          color: Colors.black38),
+                        _expandido ? Icons.expand_less : Icons.expand_more,
+                        size: 18,
+                        color: Colors.black38,
+                      ),
                     ],
                   ),
                   if (hl != null && hl.marca.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Icon(Icons.local_offer,
-                            size: 13, color: Colors.black38),
+                        const Icon(
+                          Icons.local_offer,
+                          size: 13,
+                          color: Colors.black38,
+                        ),
                         const SizedBox(width: 4),
-                        Text('Marca: ${hl.marca}',
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 12,
-                                color: Colors.black54,
-                                fontStyle: FontStyle.italic)),
+                        Text(
+                          'Marca: ${hl.marca}',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black54,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -7750,26 +9763,35 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                 children: [
                   Row(
                     children: [
-                      const Text('Productos recibidos',
-                          style: TextStyle(
-                              fontFamily: _kFont,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black54)),
+                      const Text(
+                        'Productos recibidos',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black54,
+                        ),
+                      ),
                       const Spacer(),
                       if (widget.svc != null)
                         const Tooltip(
                           message: 'Toca un documento para cargarlo',
                           child: Row(
                             children: [
-                              Icon(Icons.upload_file,
-                                  size: 13, color: kComprasPrimary),
+                              Icon(
+                                Icons.upload_file,
+                                size: 13,
+                                color: kComprasPrimary,
+                              ),
                               SizedBox(width: 3),
-                              Text('Editable',
-                                  style: TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 10,
-                                      color: kComprasPrimary)),
+                              Text(
+                                'Editable',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 10,
+                                  color: kComprasPrimary,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -7780,226 +9802,252 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                     spacing: 10,
                     runSpacing: 10,
                     children: r.productos.asMap().entries.map((entry) {
-                    final productoIdx = entry.key;
-                    final rp = entry.value;
-                    final docsKeys = docsParaCategoria(rp.categoria);
-                    return ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 200, maxWidth: 320),
-                      child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFFF0F4FF),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: kComprasPrimary.withOpacity(0.15))),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Nombre + categoría
-                          Row(
+                      final productoIdx = entry.key;
+                      final rp = entry.value;
+                      final docsKeys = docsParaCategoria(rp.categoria);
+                      return ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          minWidth: 200,
+                          maxWidth: 320,
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0F4FF),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: kComprasPrimary.withOpacity(0.15),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(rp.nombre,
-                                    style: const TextStyle(
+                              // Nombre + categoría
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      rp.nombre,
+                                      style: const TextStyle(
                                         fontFamily: _kFont,
                                         fontWeight: FontWeight.w600,
-                                        fontSize: 13)),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  _Chip(rp.categoria, kComprasPrimary),
+                                ],
                               ),
-                              _Chip(rp.categoria, kComprasPrimary),
-                            ],
-                          ),
-                          // Marca
-                          if (rp.marca.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                const Icon(Icons.local_offer,
-                                    size: 12, color: Colors.black38),
-                                const SizedBox(width: 4),
-                                Text('Marca: ${rp.marca}',
-                                    style: const TextStyle(
+                              // Marca
+                              if (rp.marca.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.local_offer,
+                                      size: 12,
+                                      color: Colors.black38,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Marca: ${rp.marca}',
+                                      style: const TextStyle(
                                         fontFamily: _kFont,
                                         fontSize: 11,
-                                        color: Colors.black54)),
-                              ],
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                          // Documentos — interactivos si hay svc
-                          ...docsKeys.map((key) {
-                            final doc = rp.documentos[key];
-                            final tiene = doc?.tieneDoc == true;
-                            final subiendo =
-                                _subiendo['${productoIdx}_$key'] == true;
-                            if (widget.svc != null) {
-                              // Modo editable — botones con carga/ver
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: _DocAttachButton(
-                                  label: kDocRecepcionLabels[key] ?? key,
-                                  doc: doc,
-                                  uploading: subiendo,
-                                  onAttach: () => _subirDocProducto(
-                                      productoIdx, key),
-                                  onView: tiene
-                                      ? () => _abrirUrl(
-                                          context, doc!.url)
-                                      : null,
-                                  onWebUpload: (bytes, name) async {
-                                    final ext = name
-                                        .toLowerCase()
-                                        .split('.')
-                                        .last;
-                                    final ct = ext == 'pdf'
-                                        ? 'application/pdf'
-                                        : 'image/$ext';
-                                    final uploadedDoc =
-                                        await widget.svc!.subirBytes(
-                                      bytes: bytes,
-                                      empresaId: widget.empresaId!,
-                                      carpeta: 'recepciones',
-                                      nombre: name,
-                                      contentType: ct,
-                                    );
-                                    final p = _r.productos[productoIdx];
-                                    // Solo la ficha técnica entra a revisión de calidad
-                                    final docFinal = key == 'fichaTecnica'
-                                        ? uploadedDoc.copyWith(
-                                            estadoCalidad:
-                                                'pendiente_revision_calidad',
-                                            observacionActualizacion:
-                                                p.observaciones,
-                                          )
-                                        : uploadedDoc;
-                                    final nuevosProductos =
-                                        List<RecepcionProducto>.from(
-                                            _r.productos);
-                                    nuevosProductos[productoIdx] =
-                                        RecepcionProducto(
-                                      productoId: p.productoId,
-                                      nombre: p.nombre,
-                                      categoria: p.categoria,
-                                      marcaId: p.marcaId,
-                                      marca: p.marca,
-                                      origen: p.origen,
-                                      documentos: {
-                                        ...p.documentos,
-                                        key: docFinal
-                                      },
-                                      observaciones: p.observaciones,
-                                    );
-                                    final nuevaRecepcion = RecepcionDoc(
-                                      id: _r.id,
-                                      empresaId: _r.empresaId,
-                                      fecha: _r.fecha,
-                                      proveedorId: _r.proveedorId,
-                                      nit: _r.nit,
-                                      razonSocial: _r.razonSocial,
-                                      ordenCompra: _r.ordenCompra,
-                                      productos: nuevosProductos,
-                                      productoIds: _r.productoIds,
-                                      creadoPor: _r.creadoPor,
-                                      createdAt: _r.createdAt,
-                                    );
-                                    await widget.svc!
-                                        .guardarRecepcion(nuevaRecepcion);
-                                    if (mounted) {
-                                      setState(() => _r = nuevaRecepcion);
-                                    }
-                                  },
-                                  onDelete: tiene
-                                      ? () async {
-                                          final p =
-                                              _r.productos[productoIdx];
-                                          final nuevaDocs =
-                                              Map<String, DocAdjunto>.from(
-                                                  p.documentos)
-                                                ..remove(key);
-                                          final nuevosProductos =
-                                              List<RecepcionProducto>.from(
-                                                  _r.productos);
-                                          nuevosProductos[productoIdx] =
-                                              RecepcionProducto(
-                                            productoId: p.productoId,
-                                            nombre: p.nombre,
-                                            categoria: p.categoria,
-                                            marcaId: p.marcaId,
-                                            marca: p.marca,
-                                            origen: p.origen,
-                                            documentos: nuevaDocs,
-                                            observaciones: p.observaciones,
-                                          );
-                                          final nuevaRecepcion = RecepcionDoc(
-                                            id: _r.id,
-                                            empresaId: _r.empresaId,
-                                            fecha: _r.fecha,
-                                            proveedorId: _r.proveedorId,
-                                            nit: _r.nit,
-                                            razonSocial: _r.razonSocial,
-                                            ordenCompra: _r.ordenCompra,
-                                            productos: nuevosProductos,
-                                            productoIds: _r.productoIds,
-                                            creadoPor: _r.creadoPor,
-                                            createdAt: _r.createdAt,
-                                          );
-                                          await widget.svc!
-                                              .guardarRecepcion(
-                                                  nuevaRecepcion);
-                                          if (mounted) {
-                                            setState(
-                                                () => _r = nuevaRecepcion);
-                                          }
-                                        }
-                                      : null,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              );
-                            } else {
-                              // Modo solo lectura — chips de estado
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                        tiene
-                                            ? Icons.check_circle
-                                            : Icons.radio_button_unchecked,
-                                        size: 14,
-                                        color: tiene
-                                            ? kComprasGreen
-                                            : Colors.grey.shade400),
-                                    const SizedBox(width: 5),
-                                    Expanded(
-                                      child: Text(
-                                          kDocRecepcionLabels[key] ?? key,
-                                          style: TextStyle(
+                              ],
+                              const SizedBox(height: 8),
+                              // Documentos — interactivos si hay svc
+                              ...docsKeys.map((key) {
+                                final doc = rp.documentos[key];
+                                final tiene = doc?.tieneDoc == true;
+                                final subiendo =
+                                    _subiendo['${productoIdx}_$key'] == true;
+                                if (widget.svc != null) {
+                                  // Modo editable — botones con carga/ver
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: _DocAttachButton(
+                                      label: kDocRecepcionLabels[key] ?? key,
+                                      doc: doc,
+                                      uploading: subiendo,
+                                      onAttach: () =>
+                                          _subirDocProducto(productoIdx, key),
+                                      onView: tiene
+                                          ? () => _abrirUrl(context, doc!.url)
+                                          : null,
+                                      onWebUpload: (bytes, name) async {
+                                        final ext = name
+                                            .toLowerCase()
+                                            .split('.')
+                                            .last;
+                                        final ct = ext == 'pdf'
+                                            ? 'application/pdf'
+                                            : 'image/$ext';
+                                        final uploadedDoc = await widget.svc!
+                                            .subirBytes(
+                                              bytes: bytes,
+                                              empresaId: widget.empresaId!,
+                                              carpeta: 'recepciones',
+                                              nombre: name,
+                                              contentType: ct,
+                                            );
+                                        final p = _r.productos[productoIdx];
+                                        // Solo la ficha técnica entra a revisión de calidad
+                                        final docFinal = key == 'fichaTecnica'
+                                            ? uploadedDoc.copyWith(
+                                                estadoCalidad:
+                                                    'pendiente_revision_calidad',
+                                                observacionActualizacion:
+                                                    p.observaciones,
+                                              )
+                                            : uploadedDoc;
+                                        final nuevosProductos =
+                                            List<RecepcionProducto>.from(
+                                              _r.productos,
+                                            );
+                                        nuevosProductos[productoIdx] =
+                                            RecepcionProducto(
+                                              productoId: p.productoId,
+                                              nombre: p.nombre,
+                                              categoria: p.categoria,
+                                              marcaId: p.marcaId,
+                                              marca: p.marca,
+                                              origen: p.origen,
+                                              documentos: {
+                                                ...p.documentos,
+                                                key: docFinal,
+                                              },
+                                              observaciones: p.observaciones,
+                                            );
+                                        final nuevaRecepcion = RecepcionDoc(
+                                          id: _r.id,
+                                          empresaId: _r.empresaId,
+                                          fecha: _r.fecha,
+                                          proveedorId: _r.proveedorId,
+                                          nit: _r.nit,
+                                          razonSocial: _r.razonSocial,
+                                          ordenCompra: _r.ordenCompra,
+                                          productos: nuevosProductos,
+                                          productoIds: _r.productoIds,
+                                          creadoPor: _r.creadoPor,
+                                          createdAt: _r.createdAt,
+                                        );
+                                        await widget.svc!.guardarRecepcion(
+                                          nuevaRecepcion,
+                                        );
+                                        if (mounted) {
+                                          setState(() => _r = nuevaRecepcion);
+                                        }
+                                      },
+                                      onDelete: tiene
+                                          ? () async {
+                                              final p =
+                                                  _r.productos[productoIdx];
+                                              final nuevaDocs =
+                                                  Map<String, DocAdjunto>.from(
+                                                    p.documentos,
+                                                  )..remove(key);
+                                              final nuevosProductos =
+                                                  List<RecepcionProducto>.from(
+                                                    _r.productos,
+                                                  );
+                                              nuevosProductos[productoIdx] =
+                                                  RecepcionProducto(
+                                                    productoId: p.productoId,
+                                                    nombre: p.nombre,
+                                                    categoria: p.categoria,
+                                                    marcaId: p.marcaId,
+                                                    marca: p.marca,
+                                                    origen: p.origen,
+                                                    documentos: nuevaDocs,
+                                                    observaciones:
+                                                        p.observaciones,
+                                                  );
+                                              final nuevaRecepcion =
+                                                  RecepcionDoc(
+                                                    id: _r.id,
+                                                    empresaId: _r.empresaId,
+                                                    fecha: _r.fecha,
+                                                    proveedorId: _r.proveedorId,
+                                                    nit: _r.nit,
+                                                    razonSocial: _r.razonSocial,
+                                                    ordenCompra: _r.ordenCompra,
+                                                    productos: nuevosProductos,
+                                                    productoIds: _r.productoIds,
+                                                    creadoPor: _r.creadoPor,
+                                                    createdAt: _r.createdAt,
+                                                  );
+                                              await widget.svc!
+                                                  .guardarRecepcion(
+                                                    nuevaRecepcion,
+                                                  );
+                                              if (mounted) {
+                                                setState(
+                                                  () => _r = nuevaRecepcion,
+                                                );
+                                              }
+                                            }
+                                          : null,
+                                    ),
+                                  );
+                                } else {
+                                  // Modo solo lectura — chips de estado
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 4),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          tiene
+                                              ? Icons.check_circle
+                                              : Icons.radio_button_unchecked,
+                                          size: 14,
+                                          color: tiene
+                                              ? kComprasGreen
+                                              : Colors.grey.shade400,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Expanded(
+                                          child: Text(
+                                            kDocRecepcionLabels[key] ?? key,
+                                            style: TextStyle(
                                               fontFamily: _kFont,
                                               fontSize: 11,
                                               color: tiene
                                                   ? kComprasGreen
-                                                  : Colors.grey.shade500)),
-                                    ),
-                                    if (tiene)
-                                      InkWell(
-                                        onTap: () => _abrirUrl(
-                                            context, doc!.url),
-                                        child: const Text('Ver',
-                                            style: TextStyle(
+                                                  : Colors.grey.shade500,
+                                            ),
+                                          ),
+                                        ),
+                                        if (tiene)
+                                          InkWell(
+                                            onTap: () =>
+                                                _abrirUrl(context, doc!.url),
+                                            child: const Text(
+                                              'Ver',
+                                              style: TextStyle(
                                                 fontFamily: _kFont,
                                                 fontSize: 11,
                                                 color: kComprasPrimary,
                                                 decoration:
-                                                    TextDecoration.underline)),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            }
-                          }),
-                        ],
-                      ),
-                    ),
-                    );
-                  }).toList(),
+                                                    TextDecoration.underline,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                }
+                              }),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
@@ -8041,12 +10089,17 @@ class _MarcasScreenState extends State<_MarcasScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => Padding(
         padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom),
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
         child: _MarcaFormSheet(
-            empresaId: widget.empresaId, svc: widget.svc, existing: existing),
+          empresaId: widget.empresaId,
+          svc: widget.svc,
+          existing: existing,
+        ),
       ),
     );
   }
@@ -8055,19 +10108,24 @@ class _MarcasScreenState extends State<_MarcasScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Eliminar marca',
-            style: TextStyle(fontFamily: _kFont)),
+        title: const Text(
+          'Eliminar marca',
+          style: TextStyle(fontFamily: _kFont),
+        ),
         content: Text(
-            '¿Eliminar "${m.descripcion}"? Esta acción no se puede deshacer.',
-            style: const TextStyle(fontFamily: _kFont)),
+          '¿Eliminar "${m.descripcion}"? Esta acción no se puede deshacer.',
+          style: const TextStyle(fontFamily: _kFont),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: kComprasRed),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Eliminar')),
+            style: FilledButton.styleFrom(backgroundColor: kComprasRed),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
         ],
       ),
     );
@@ -8075,14 +10133,18 @@ class _MarcasScreenState extends State<_MarcasScreen> {
       try {
         await widget.svc.eliminarMarca(m.id);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text('Marca eliminada'),
-              backgroundColor: kComprasGreen));
+              backgroundColor: kComprasGreen,
+            ),
+          );
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('Error: $e'), backgroundColor: kComprasRed));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed),
+          );
         }
       }
     }
@@ -8093,8 +10155,10 @@ class _MarcasScreenState extends State<_MarcasScreen> {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: const Text('Marcas',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Marcas',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: const Color(0xFF1976D2),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -8111,27 +10175,26 @@ class _MarcasScreenState extends State<_MarcasScreen> {
           // Buscador
           Container(
             color: const Color(0xFF1976D2),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: TextField(
               controller: _searchCtrl,
-              style:
-                  const TextStyle(fontFamily: _kFont, color: Colors.white),
+              style: const TextStyle(fontFamily: _kFont, color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Buscar marca...',
                 hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-                prefixIcon:
-                    const Icon(Icons.search, color: Colors.white70),
+                prefixIcon: const Icon(Icons.search, color: Colors.white70),
                 filled: true,
                 fillColor: Colors.white.withOpacity(0.15),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none),
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
                 contentPadding: const EdgeInsets.symmetric(
-                    vertical: 8, horizontal: 12),
+                  vertical: 8,
+                  horizontal: 12,
+                ),
               ),
-              onChanged: (v) =>
-                  setState(() => _query = v.toLowerCase()),
+              onChanged: (v) => setState(() => _query = v.toLowerCase()),
             ),
           ),
           // Lista
@@ -8144,33 +10207,41 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                 }
                 if (snap.hasError) {
                   return Center(
-                      child: Text('Error: ${snap.error}',
-                          style: const TextStyle(fontFamily: _kFont)));
+                    child: Text(
+                      'Error: ${snap.error}',
+                      style: const TextStyle(fontFamily: _kFont),
+                    ),
+                  );
                 }
                 final todas = snap.data ?? [];
                 final list = _query.isEmpty
                     ? todas
                     : todas
-                        .where((m) =>
-                            m.descripcion.toLowerCase().contains(_query) ||
-                            m.codigo.toLowerCase().contains(_query))
-                        .toList();
+                          .where(
+                            (m) =>
+                                m.descripcion.toLowerCase().contains(_query) ||
+                                m.codigo.toLowerCase().contains(_query),
+                          )
+                          .toList();
                 if (list.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.label_off,
-                            size: 60,
-                            color: Colors.blueGrey.shade200),
+                        Icon(
+                          Icons.label_off,
+                          size: 60,
+                          color: Colors.blueGrey.shade200,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           _query.isEmpty
                               ? 'No hay marcas registradas'
                               : 'Sin resultados para "$_query"',
                           style: TextStyle(
-                              fontFamily: _kFont,
-                              color: Colors.blueGrey.shade400),
+                            fontFamily: _kFont,
+                            color: Colors.blueGrey.shade400,
+                          ),
                         ),
                       ],
                     ),
@@ -8184,7 +10255,8 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                     return Card(
                       margin: const EdgeInsets.only(bottom: 10),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: ListTile(
                         leading: Container(
                           width: 42,
@@ -8193,31 +10265,45 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                             color: const Color(0xFF1976D2).withOpacity(0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.label,
-                              color: Color(0xFF1976D2), size: 22),
+                          child: const Icon(
+                            Icons.label,
+                            color: Color(0xFF1976D2),
+                            size: 22,
+                          ),
                         ),
-                        title: Text(m.descripcion,
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15)),
-                        subtitle: Text(m.codigo,
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 12,
-                                color: Colors.black54)),
+                        title: Text(
+                          m.descripcion,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          m.codigo,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.black54,
+                          ),
+                        ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.edit_outlined,
-                                  size: 20,
-                                  color: Color(0xFF1976D2)),
+                              icon: const Icon(
+                                Icons.edit_outlined,
+                                size: 20,
+                                color: Color(0xFF1976D2),
+                              ),
                               onPressed: () => _abrirForm(existing: m),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete_outline,
-                                  size: 20, color: Colors.redAccent),
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                size: 20,
+                                color: Colors.redAccent,
+                              ),
                               onPressed: () => _eliminar(m),
                             ),
                           ],
@@ -8245,8 +10331,11 @@ class _MarcaFormSheet extends StatefulWidget {
   final ComprasService svc;
   final MarcaDoc? existing;
 
-  const _MarcaFormSheet(
-      {required this.empresaId, required this.svc, this.existing});
+  const _MarcaFormSheet({
+    required this.empresaId,
+    required this.svc,
+    this.existing,
+  });
 
   @override
   State<_MarcaFormSheet> createState() => _MarcaFormSheetState();
@@ -8264,10 +10353,8 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
   @override
   void initState() {
     super.initState();
-    _codigoCtrl =
-        TextEditingController(text: widget.existing?.codigo ?? '');
-    _descCtrl =
-        TextEditingController(text: widget.existing?.descripcion ?? '');
+    _codigoCtrl = TextEditingController(text: widget.existing?.codigo ?? '');
+    _descCtrl = TextEditingController(text: widget.existing?.descripcion ?? '');
     if (isNew) {
       _generarCodigo();
     }
@@ -8276,8 +10363,7 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
   Future<void> _generarCodigo() async {
     setState(() => _generandoCodigo = true);
     try {
-      final codigo =
-          await widget.svc.generarCodigoMarca(widget.empresaId);
+      final codigo = await widget.svc.generarCodigoMarca(widget.empresaId);
       if (mounted) setState(() => _codigoCtrl.text = codigo);
     } catch (_) {
       // Si falla la generación, el usuario puede escribirlo manualmente
@@ -8306,16 +10392,19 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
       );
       await widget.svc.guardarMarca(m, isNew: isNew);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isNew ? 'Marca creada' : 'Marca actualizada'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isNew ? 'Marca creada' : 'Marca actualizada'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed));
+          SnackBar(content: Text('Error: $e'), backgroundColor: kComprasRed),
+        );
       }
     } finally {
       if (mounted) setState(() => _guardando = false);
@@ -8339,19 +10428,23 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(4)),
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(4),
+                ),
               ),
             ),
             Row(
               children: [
                 const Icon(Icons.label_important, color: Color(0xFF1976D2)),
                 const SizedBox(width: 8),
-                Text(isNew ? 'Nueva Marca' : 'Editar Marca',
-                    style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 17,
-                        fontWeight: FontWeight.bold)),
+                Text(
+                  isNew ? 'Nueva Marca' : 'Editar Marca',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -8364,17 +10457,20 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
                     ? const Padding(
                         padding: EdgeInsets.all(10),
                         child: SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2)))
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
                     : const Icon(Icons.tag, size: 18),
                 helperText: 'Auto-generado, editable si es necesario',
               ),
               style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.1),
+                fontFamily: _kFont,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.1,
+              ),
               textCapitalization: TextCapitalization.characters,
               validator: (v) =>
                   (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
@@ -8383,8 +10479,9 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
             // Descripción
             TextFormField(
               controller: _descCtrl,
-              decoration: _inputDecoration('Descripción / Nombre *')
-                  .copyWith(hintText: 'Ej: Nike, Zenú, Colanta'),
+              decoration: _inputDecoration(
+                'Descripción / Nombre *',
+              ).copyWith(hintText: 'Ej: Nike, Zenú, Colanta'),
               style: const TextStyle(fontFamily: _kFont, fontSize: 14),
               textCapitalization: TextCapitalization.words,
               validator: (v) =>
@@ -8400,13 +10497,19 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.save),
-                label: Text(_guardando ? 'Guardando...' : 'Guardar',
-                    style: const TextStyle(fontFamily: _kFont)),
+                label: Text(
+                  _guardando ? 'Guardando...' : 'Guardar',
+                  style: const TextStyle(fontFamily: _kFont),
+                ),
                 style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF1976D2),
-                    padding: const EdgeInsets.symmetric(vertical: 14)),
+                  backgroundColor: const Color(0xFF1976D2),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -8457,13 +10560,15 @@ class _OrigenButton extends StatelessWidget {
           children: [
             Icon(icon, size: 18, color: selected ? color : Colors.black45),
             const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 13,
-                    fontWeight:
-                        selected ? FontWeight.bold : FontWeight.normal,
-                    color: selected ? color : Colors.black54)),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? color : Colors.black54,
+              ),
+            ),
           ],
         ),
       ),
@@ -8501,18 +10606,29 @@ class _CalidadScreenState extends State<_CalidadScreen> {
   @override
   void initState() {
     super.initState();
-    widget.svc.cargarReqEngine(widget.empresaId).then((engine) {
-      if (mounted) setState(() { _reqEngine = engine; _cargandoReq = false; });
-    }).catchError((_) {
-      if (mounted) setState(() { _cargandoReq = false; });
-    });
+    widget.svc
+        .cargarReqEngine(widget.empresaId)
+        .then((engine) {
+          if (mounted)
+            setState(() {
+              _reqEngine = engine;
+              _cargandoReq = false;
+            });
+        })
+        .catchError((_) {
+          if (mounted)
+            setState(() {
+              _cargandoReq = false;
+            });
+        });
   }
 
   bool _recepcionTieneIncompletos(RecepcionDoc r) {
     // Igual que proveedores: solo aparece si hay al menos un doc
     // subido que todavía no está aprobado. Docs sin cargar no se muestran.
     for (final rp in r.productos) {
-      if (rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado)) return true;
+      if (rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado))
+        return true;
     }
     return false;
   }
@@ -8535,22 +10651,19 @@ class _CalidadScreenState extends State<_CalidadScreen> {
     return Scaffold(
       backgroundColor: kComprasBg,
       appBar: AppBar(
-        title: const Text('Revisión de Calidad',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Revisión de Calidad',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        ),
         backgroundColor: const Color(0xFF15803D),
         foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: Icon(
-              _soloRechazados
-                  ? Icons.filter_list
-                  : Icons.filter_list_off,
+              _soloRechazados ? Icons.filter_list : Icons.filter_list_off,
             ),
-            tooltip: _soloRechazados
-                ? 'Mostrar todos'
-                : 'Solo rechazados',
-            onPressed: () =>
-                setState(() => _soloRechazados = !_soloRechazados),
+            tooltip: _soloRechazados ? 'Mostrar todos' : 'Solo rechazados',
+            onPressed: () => setState(() => _soloRechazados = !_soloRechazados),
           ),
         ],
       ),
@@ -8559,8 +10672,7 @@ class _CalidadScreenState extends State<_CalidadScreen> {
           // ── Filtros ──
           Container(
             color: Colors.white,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
                 Expanded(
@@ -8568,17 +10680,18 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                     controller: _searchCtrl,
                     decoration: InputDecoration(
                       hintText: 'Filtrar por producto...',
-                      prefixIcon:
-                          const Icon(Icons.search, size: 18),
+                      prefixIcon: const Icon(Icons.search, size: 18),
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                       contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8, horizontal: 12),
+                        vertical: 8,
+                        horizontal: 12,
+                      ),
                       filled: true,
                       fillColor: Colors.grey.shade50,
                     ),
-                    style:
-                        const TextStyle(fontFamily: _kFont, fontSize: 13),
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 13),
                     onChanged: (v) =>
                         setState(() => _filtroProducto = v.toLowerCase()),
                   ),
@@ -8616,19 +10729,22 @@ class _CalidadScreenState extends State<_CalidadScreen> {
           if (_filtroFecha != null)
             Container(
               color: Colors.green.shade50,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: Row(
                 children: [
-                  const Icon(Icons.filter_alt,
-                      size: 14, color: Color(0xFF15803D)),
+                  const Icon(
+                    Icons.filter_alt,
+                    size: 14,
+                    color: Color(0xFF15803D),
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     'Fecha: ${DateFormat('dd/MM/yyyy', 'es').format(_filtroFecha!)}',
                     style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: Color(0xFF15803D)),
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Color(0xFF15803D),
+                    ),
                   ),
                 ],
               ),
@@ -8640,8 +10756,9 @@ class _CalidadScreenState extends State<_CalidadScreen> {
               children: [
                 // ── Fichas técnicas pendientes de calidad ──
                 StreamBuilder<List<FichaTecnicaDoc>>(
-                  stream: widget.svc
-                      .streamFichasTecnicasPendientes(widget.empresaId),
+                  stream: widget.svc.streamFichasTecnicasPendientes(
+                    widget.empresaId,
+                  ),
                   builder: (_, fSnap) {
                     final fichas = fSnap.data ?? [];
                     if (fichas.isEmpty) return const SizedBox.shrink();
@@ -8650,25 +10767,31 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.description,
-                                size: 18, color: Color(0xFF0277BD)),
+                            const Icon(
+                              Icons.description,
+                              size: 18,
+                              color: Color(0xFF0277BD),
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               'Fichas Técnicas pendientes (${fichas.length})',
                               style: const TextStyle(
-                                  fontFamily: _kFont,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: Color(0xFF0277BD)),
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color: Color(0xFF0277BD),
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        ...fichas.map((f) => _FichaCalidadCard(
-                              ficha: f,
-                              svc: widget.svc,
-                              userId: widget.userId,
-                            )),
+                        ...fichas.map(
+                          (f) => _FichaCalidadCard(
+                            ficha: f,
+                            svc: widget.svc,
+                            userId: widget.userId,
+                          ),
+                        ),
                         const Divider(height: 24, thickness: 1),
                       ],
                     );
@@ -8692,9 +10815,13 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                           .toList();
                       if (_filtroProducto.isNotEmpty) {
                         lista = lista
-                            .where((r) => r.productos.any((p) => p.nombre
-                                .toLowerCase()
-                                .contains(_filtroProducto)))
+                            .where(
+                              (r) => r.productos.any(
+                                (p) => p.nombre.toLowerCase().contains(
+                                  _filtroProducto,
+                                ),
+                              ),
+                            )
                             .toList();
                       }
                       if (_filtroFecha != null) {
@@ -8711,18 +10838,27 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               const SizedBox(height: 40),
-                              Icon(Icons.verified_user,
-                                  size: 64, color: Colors.green.shade300),
+                              Icon(
+                                Icons.verified_user,
+                                size: 64,
+                                color: Colors.green.shade300,
+                              ),
                               const SizedBox(height: 16),
-                              const Text('Sin documentos de recepción pendientes',
-                                  style: TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600)),
-                              const Text('Todo está al día',
-                                  style: TextStyle(
-                                      fontFamily: _kFont,
-                                      color: Colors.black54)),
+                              const Text(
+                                'Sin documentos de recepción pendientes',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const Text(
+                                'Todo está al día',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  color: Colors.black54,
+                                ),
+                              ),
                             ],
                           ),
                         );
@@ -8756,26 +10892,32 @@ class _CalidadScreenState extends State<_CalidadScreen> {
                           const Divider(height: 24, thickness: 1),
                           Row(
                             children: [
-                              const Icon(Icons.business,
-                                  size: 18, color: Color(0xFF7B3F00)),
+                              const Icon(
+                                Icons.business,
+                                size: 18,
+                                color: Color(0xFF7B3F00),
+                              ),
                               const SizedBox(width: 6),
                               Text(
                                 'Documentos de Proveedores (${provs.length})',
                                 style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                    color: Color(0xFF7B3F00)),
+                                  fontFamily: _kFont,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                  color: Color(0xFF7B3F00),
+                                ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 8),
-                          ...provs.map((p) => _ProveedorCalidadCard(
-                                proveedor: p,
-                                svc: widget.svc,
-                                userId: widget.userId,
-                                reqEngine: _reqEngine,
-                              )),
+                          ...provs.map(
+                            (p) => _ProveedorCalidadCard(
+                              proveedor: p,
+                              svc: widget.svc,
+                              userId: widget.userId,
+                              reqEngine: _reqEngine,
+                            ),
+                          ),
                         ],
                       );
                     },
@@ -8806,17 +10948,26 @@ class _FichaCalidadCard extends StatelessWidget {
 
   Future<void> _aprobar(BuildContext context) async {
     try {
-      await svc.aprobarFichaTecnica(
-          fichaId: ficha.id, revisadoPor: userId);
+      await svc.aprobarFichaTecnica(fichaId: ficha.id, revisadoPor: userId);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ficha técnica aprobada.',
-              style: TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ficha técnica aprobada.',
+            style: TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error: $e',
-              style: const TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error: $e',
+            style: const TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
     }
   }
 
@@ -8825,8 +10976,10 @@ class _FichaCalidadCard extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rechazar ficha técnica',
-            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w700)),
+        title: const Text(
+          'Rechazar ficha técnica',
+          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.w700),
+        ),
         content: TextField(
           controller: motivoCtrl,
           autofocus: true,
@@ -8842,18 +10995,19 @@ class _FichaCalidadCard extends StatelessWidget {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar',
-                  style: TextStyle(fontFamily: _kFont))),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: _kFont)),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: kComprasRed),
             onPressed: () {
               if (motivoCtrl.text.trim().isEmpty) return;
               Navigator.pop(ctx, true);
             },
-            child: const Text('Rechazar',
-                style: TextStyle(
-                    fontFamily: _kFont, color: Colors.white)),
+            child: const Text(
+              'Rechazar',
+              style: TextStyle(fontFamily: _kFont, color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -8871,14 +11025,24 @@ class _FichaCalidadCard extends StatelessWidget {
         proveedorNombre: ficha.proveedorNombre,
       );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Ficha técnica rechazada. Se notificó al usuario.',
-              style: TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Ficha técnica rechazada. Se notificó al usuario.',
+            style: TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Error: $e',
-              style: const TextStyle(fontFamily: _kFont))));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error: $e',
+            style: const TextStyle(fontFamily: _kFont),
+          ),
+        ),
+      );
     }
   }
 
@@ -8888,8 +11052,9 @@ class _FichaCalidadCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: Color(0xFF90CAF9), width: 0.8)),
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF90CAF9), width: 0.8),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -8897,47 +11062,68 @@ class _FichaCalidadCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.description_outlined,
-                    size: 20, color: Color(0xFF0277BD)),
+                const Icon(
+                  Icons.description_outlined,
+                  size: 20,
+                  color: Color(0xFF0277BD),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(ficha.productoNombre,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14)),
+                  child: Text(
+                    ficha.productoNombre,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             if (ficha.marcaNombre.isNotEmpty)
-              Text('Marca: ${ficha.marcaNombre}',
-                  style: const TextStyle(
-                      fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
-            Text('Proveedor: ${ficha.proveedorNombre}',
+              Text(
+                'Marca: ${ficha.marcaNombre}',
                 style: const TextStyle(
-                    fontFamily: _kFont, fontSize: 12, color: Colors.black54)),
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black54,
+                ),
+              ),
+            Text(
+              'Proveedor: ${ficha.proveedorNombre}',
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: Colors.black54,
+              ),
+            ),
             if (doc?.observacionActualizacion?.isNotEmpty == true) ...[
               const SizedBox(height: 6),
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.amber.shade200)),
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.info_outline,
-                        size: 14, color: Color(0xFFB45309)),
+                    const Icon(
+                      Icons.info_outline,
+                      size: 14,
+                      color: Color(0xFFB45309),
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         'Obs. actualización: ${doc!.observacionActualizacion}',
                         style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 12,
-                            color: Color(0xFFB45309)),
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          color: Color(0xFFB45309),
+                        ),
                       ),
                     ),
                   ],
@@ -8951,40 +11137,60 @@ class _FichaCalidadCard extends StatelessWidget {
                   TextButton.icon(
                     onPressed: () => _abrirUrl(context, doc!.url),
                     icon: const Icon(Icons.open_in_new, size: 14),
-                    label: const Text('Ver PDF',
-                        style: TextStyle(fontFamily: _kFont, fontSize: 12)),
+                    label: const Text(
+                      'Ver PDF',
+                      style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                    ),
                     style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                    ),
                   ),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: () => _rechazar(context),
-                  icon: const Icon(Icons.cancel_outlined,
-                      size: 16, color: kComprasRed),
-                  label: const Text('Rechazar',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          color: kComprasRed)),
+                  icon: const Icon(
+                    Icons.cancel_outlined,
+                    size: 16,
+                    color: kComprasRed,
+                  ),
+                  label: const Text(
+                    'Rechazar',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: kComprasRed,
+                    ),
+                  ),
                   style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: kComprasGreen,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8)),
+                    backgroundColor: kComprasGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                  ),
                   onPressed: () => _aprobar(context),
                   icon: const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text('Aprobar',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold)),
+                  label: const Text(
+                    'Aprobar',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -9026,24 +11232,35 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 const Icon(Icons.business, size: 14, color: Colors.black45),
                 const SizedBox(width: 4),
                 Expanded(
-                  child: Text(recepcion.razonSocial,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14)),
-                ),
-                Text(_fmtFecha(recepcion.fecha),
+                  child: Text(
+                    recepcion.razonSocial,
                     style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: Colors.black45)),
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                Text(
+                  _fmtFecha(recepcion.fecha),
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black45,
+                  ),
+                ),
               ],
             ),
             if (recepcion.ordenCompra.isNotEmpty) ...[
               const SizedBox(height: 2),
-              Text('OC: ${recepcion.ordenCompra}',
-                  style: const TextStyle(
-                      fontFamily: _kFont, fontSize: 11, color: Colors.black45)),
+              Text(
+                'OC: ${recepcion.ordenCompra}',
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.black45,
+                ),
+              ),
             ],
             const Divider(height: 16),
             // Productos con todos los docs requeridos
@@ -9067,24 +11284,29 @@ class _RecepcionCalidadCard extends StatelessWidget {
               // Docs subidos que no están en la lista de requeridos (legacy/extra)
               final keysRequeridos = requeridos.map((r) => r.keyApp).toSet();
               final docsExtra = rp.documentos.entries
-                  .where((e) =>
-                      e.value.tieneDoc &&
-                      !e.value.aprobado &&
-                      !keysRequeridos.contains(e.key))
+                  .where(
+                    (e) =>
+                        e.value.tieneDoc &&
+                        !e.value.aprobado &&
+                        !keysRequeridos.contains(e.key),
+                  )
                   .toList();
 
               // ¿Hay algo que mostrar? Solo docs subidos y no aprobados
               final faltantesSet = <String>{};
-              final tieneAlgo =
-                  rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado);
+              final tieneAlgo = rp.documentos.values.any(
+                (d) => d.tieneDoc && !d.aprobado,
+              );
               if (!tieneAlgo) return <Widget>[];
 
               // Contar docs subidos: aprobados vs total subidos
-              final docsSubidos =
-                  rp.documentos.values.where((d) => d.tieneDoc).length;
+              final docsSubidos = rp.documentos.values
+                  .where((d) => d.tieneDoc)
+                  .length;
               final totalReq = docsSubidos;
-              final aprobadosCount =
-                  rp.documentos.values.where((d) => d.aprobado).length;
+              final aprobadosCount = rp.documentos.values
+                  .where((d) => d.aprobado)
+                  .length;
 
               return [
                 Container(
@@ -9096,33 +11318,41 @@ class _RecepcionCalidadCard extends StatelessWidget {
                         : Colors.orange.shade50,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                        color: faltantesSet.isNotEmpty
-                            ? Colors.amber.shade300
-                            : Colors.orange.shade200),
+                      color: faltantesSet.isNotEmpty
+                          ? Colors.amber.shade300
+                          : Colors.orange.shade200,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.inventory_2,
-                              size: 14, color: Colors.black54),
+                          const Icon(
+                            Icons.inventory_2,
+                            size: 14,
+                            color: Colors.black54,
+                          ),
                           const SizedBox(width: 4),
                           Expanded(
-                            child: Text(rp.nombre,
-                                style: const TextStyle(
-                                    fontFamily: _kFont,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13)),
+                            child: Text(
+                              rp.nombre,
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
                           ),
                           if (rp.marca.isNotEmpty)
                             _Chip(rp.marca, kComprasPrimary),
                           const SizedBox(width: 4),
                           _Chip(
-                              rp.origen,
-                              rp.origen == 'IMPORTADO'
-                                  ? Colors.purple.shade700
-                                  : Colors.green.shade700),
+                            rp.origen,
+                            rp.origen == 'IMPORTADO'
+                                ? Colors.purple.shade700
+                                : Colors.green.shade700,
+                          ),
                         ],
                       ),
                       if (totalReq > 0) ...[
@@ -9141,40 +11371,45 @@ class _RecepcionCalidadCard extends StatelessWidget {
                       ],
                       if (rp.observaciones.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text('Obs: ${rp.observaciones}',
-                            style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontSize: 11,
-                                fontStyle: FontStyle.italic,
-                                color: Colors.black54)),
+                        Text(
+                          'Obs: ${rp.observaciones}',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.black54,
+                          ),
+                        ),
                       ],
                       const SizedBox(height: 8),
                       // Docs requeridos (del ReqEngine) — solo los subidos
                       ...requeridos
-                          .where((req) =>
-                              rp.documentos[req.keyApp]?.tieneDoc == true)
+                          .where(
+                            (req) =>
+                                rp.documentos[req.keyApp]?.tieneDoc == true,
+                          )
                           .map((req) {
-                        final docKey = req.keyApp;
-                        final doc = rp.documentos[docKey];
-                        final label =
-                            kDocRecepcionLabels[docKey] ?? req.documentoRequerido;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _buildDocRow(
-                            context: context,
-                            docKey: docKey,
-                            label: label,
-                            doc: doc,
-                            productoIdx: productoIdx,
-                          ),
-                        );
-                      }),
+                            final docKey = req.keyApp;
+                            final doc = rp.documentos[docKey];
+                            final label =
+                                kDocRecepcionLabels[docKey] ??
+                                req.documentoRequerido;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: _buildDocRow(
+                                context: context,
+                                docKey: docKey,
+                                label: label,
+                                doc: doc,
+                                productoIdx: productoIdx,
+                              ),
+                            );
+                          }),
                       // Docs extra subidos (no en la lista de requeridos)
                       ...docsExtra.map((e) {
                         final docKey = e.key;
                         final doc = e.value;
-                        final label =
-                            kDocRecepcionLabels[docKey] ?? docKey;
+                        final label = kDocRecepcionLabels[docKey] ?? docKey;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: _buildDocRow(
@@ -9220,11 +11455,14 @@ class _RecepcionCalidadCard extends StatelessWidget {
             Icon(Icons.upload_outlined, size: 14, color: Colors.amber.shade800),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(label,
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: Colors.amber.shade900)),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.amber.shade900,
+                ),
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -9233,12 +11471,15 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: Colors.amber.shade400),
               ),
-              child: Text('Sin cargar',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.amber.shade900)),
+              child: Text(
+                'Sin cargar',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.amber.shade900,
+                ),
+              ),
             ),
           ],
         ),
@@ -9259,36 +11500,43 @@ class _RecepcionCalidadCard extends StatelessWidget {
             const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: Colors.black87)),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black87,
+                ),
+              ),
             ),
             if (doc.tieneDoc)
               IconButton(
                 onPressed: () => _abrirUrl(context, doc.url),
-                icon: const Icon(Icons.open_in_new,
-                    size: 14, color: Colors.blue),
+                icon: const Icon(
+                  Icons.open_in_new,
+                  size: 14,
+                  color: Colors.blue,
+                ),
                 padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 28, minHeight: 28),
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                 tooltip: 'Ver documento',
               ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.green.shade100,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: Colors.green.shade300),
               ),
-              child: const Text('Aprobado',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: kComprasGreen)),
+              child: const Text(
+                'Aprobado',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: kComprasGreen,
+                ),
+              ),
             ),
           ],
         ),
@@ -9301,8 +11549,7 @@ class _RecepcionCalidadCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.red.shade50,
               borderRadius: BorderRadius.circular(8),
@@ -9313,36 +11560,49 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 const Icon(Icons.cancel, size: 14, color: kComprasRed),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(label,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          color: Colors.black87)),
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black87,
+                    ),
+                  ),
                 ),
                 if (doc.tieneDoc)
                   IconButton(
                     onPressed: () => _abrirUrl(context, doc.url),
-                    icon: const Icon(Icons.open_in_new,
-                        size: 14, color: Colors.blue),
+                    icon: const Icon(
+                      Icons.open_in_new,
+                      size: 14,
+                      color: Colors.blue,
+                    ),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(
-                        minWidth: 28, minHeight: 28),
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
                     tooltip: 'Ver documento',
                   ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.red.shade100,
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: Colors.red.shade300),
                   ),
-                  child: const Text('Rechazado',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: kComprasRed)),
+                  child: const Text(
+                    'Rechazado',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: kComprasRed,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -9353,9 +11613,10 @@ class _RecepcionCalidadCard extends StatelessWidget {
               child: Text(
                 'Motivo: ${doc.observacionCalidad}',
                 style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 11,
-                    color: Colors.red.shade700),
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.red.shade700,
+                ),
               ),
             ),
         ],
@@ -9368,23 +11629,78 @@ class _RecepcionCalidadCard extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.hourglass_empty,
-                size: 14, color: Colors.orange),
+            const Icon(Icons.hourglass_empty, size: 14, color: Colors.orange),
             const SizedBox(width: 4),
             Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontFamily: _kFont, fontSize: 12)),
+              child: Text(
+                label,
+                style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
             ),
+            if (doc.fechaVencimiento != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color:
+                        (doc.fechaVencimiento!.toDate().isBefore(
+                          DateTime.now(),
+                        ))
+                        ? Colors.red.withOpacity(0.1)
+                        : Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color:
+                          (doc.fechaVencimiento!.toDate().isBefore(
+                            DateTime.now(),
+                          ))
+                          ? Colors.red.withOpacity(0.3)
+                          : Colors.blue.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.calendar_today,
+                        size: 10,
+                        color:
+                            (doc.fechaVencimiento!.toDate().isBefore(
+                              DateTime.now(),
+                            ))
+                            ? Colors.red
+                            : Colors.blue,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Vence: ${DateFormat('dd/MM/yyyy').format(doc.fechaVencimiento!.toDate())}',
+                        style: TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color:
+                              (doc.fechaVencimiento!.toDate().isBefore(
+                                DateTime.now(),
+                              ))
+                              ? Colors.red
+                              : Colors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (doc.tieneDoc)
               IconButton(
                 onPressed: () => _abrirUrl(context, doc.url),
-                icon: const Icon(Icons.search,
-                    size: 18, color: Colors.blue),
+                icon: const Icon(Icons.search, size: 18, color: Colors.blue),
                 tooltip: 'Ver documento',
                 padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 32, minHeight: 32),
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               ),
           ],
         ),
@@ -9392,8 +11708,7 @@ class _RecepcionCalidadCard extends StatelessWidget {
           const SizedBox(height: 4),
           Container(
             width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.orange.shade50,
               borderRadius: BorderRadius.circular(8),
@@ -9402,9 +11717,10 @@ class _RecepcionCalidadCard extends StatelessWidget {
             child: Text(
               'Obs. actualización: ${doc.observacionActualizacion!.trim()}',
               style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 11,
-                  color: Colors.black87),
+                fontFamily: _kFont,
+                fontSize: 11,
+                color: Colors.black87,
+              ),
             ),
           ),
         ],
@@ -9413,15 +11729,20 @@ class _RecepcionCalidadCard extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () =>
-                    _aprobarDoc(context, productoIdx, docKey),
-                icon: const Icon(Icons.check_circle,
-                    size: 16, color: kComprasGreen),
-                label: const Text('Aprobar',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: kComprasGreen)),
+                onPressed: () => _aprobarDoc(context, productoIdx, docKey),
+                icon: const Icon(
+                  Icons.check_circle,
+                  size: 16,
+                  color: kComprasGreen,
+                ),
+                label: const Text(
+                  'Aprobar',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: kComprasGreen,
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: kComprasGreen),
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -9431,15 +11752,16 @@ class _RecepcionCalidadCard extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () =>
-                    _rechazarDoc(context, productoIdx, docKey),
-                icon: const Icon(Icons.cancel,
-                    size: 16, color: kComprasRed),
-                label: const Text('Rechazar',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: kComprasRed)),
+                onPressed: () => _rechazarDoc(context, productoIdx, docKey),
+                icon: const Icon(Icons.cancel, size: 16, color: kComprasRed),
+                label: const Text(
+                  'Rechazar',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: kComprasRed,
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: kComprasRed),
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -9453,7 +11775,10 @@ class _RecepcionCalidadCard extends StatelessWidget {
   }
 
   Future<void> _aprobarDoc(
-      BuildContext context, int productoIdx, String docKey) async {
+    BuildContext context,
+    int productoIdx,
+    String docKey,
+  ) async {
     try {
       await svc.aprobarDocRecepcion(
         recepcion: recepcion,
@@ -9462,27 +11787,35 @@ class _RecepcionCalidadCard extends StatelessWidget {
         revisadoPor: userId,
       );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Documento aprobado'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Documento aprobado'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
 
   Future<void> _rechazarDoc(
-      BuildContext context, int productoIdx, String docKey) async {
+    BuildContext context,
+    int productoIdx,
+    String docKey,
+  ) async {
     final motivoCtrl = TextEditingController();
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Rechazar documento',
-            style: TextStyle(fontFamily: _kFont)),
+        title: const Text(
+          'Rechazar documento',
+          style: TextStyle(fontFamily: _kFont),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -9498,7 +11831,8 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 labelText: 'Motivo del rechazo *',
                 labelStyle: const TextStyle(fontFamily: _kFont),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               maxLines: 3,
               autofocus: true,
@@ -9508,19 +11842,18 @@ class _RecepcionCalidadCard extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child:
-                const Text('Cancelar', style: TextStyle(fontFamily: _kFont)),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: _kFont)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: kComprasRed,
-                foregroundColor: Colors.white),
+              backgroundColor: kComprasRed,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () {
               if (motivoCtrl.text.trim().isEmpty) return;
               Navigator.pop(context, true);
             },
-            child: const Text('Rechazar',
-                style: TextStyle(fontFamily: _kFont)),
+            child: const Text('Rechazar', style: TextStyle(fontFamily: _kFont)),
           ),
         ],
       ),
@@ -9535,15 +11868,18 @@ class _RecepcionCalidadCard extends StatelessWidget {
         revisadoPor: userId,
       );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Documento rechazado. Se notificará al usuario.'),
-          backgroundColor: kComprasRed,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Documento rechazado. Se notificará al usuario.'),
+            backgroundColor: kComprasRed,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
@@ -9576,10 +11912,12 @@ class _ProveedorCalidadCard extends StatelessWidget {
     // Docs subidos no en la lista de requeridos
     final keysRequeridos = requeridos.map((r) => r.keyApp).toSet();
     final docsExtra = proveedor.documentos.entries
-        .where((e) =>
-            e.value.tieneDoc &&
-            !e.value.aprobado &&
-            !keysRequeridos.contains(e.key))
+        .where(
+          (e) =>
+              e.value.tieneDoc &&
+              !e.value.aprobado &&
+              !keysRequeridos.contains(e.key),
+        )
         .toList();
 
     // Contar aprobados vs requeridos
@@ -9591,8 +11929,9 @@ class _ProveedorCalidadCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: Colors.brown.shade200, width: 0.8)),
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.brown.shade200, width: 0.8),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -9603,20 +11942,26 @@ class _ProveedorCalidadCard extends StatelessWidget {
                 const Icon(Icons.business, size: 18, color: Color(0xFF7B3F00)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(proveedor.razonSocial,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14)),
+                  child: Text(
+                    proveedor.razonSocial,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 2),
-            Text('NIT: ${proveedor.nit}',
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: Colors.black54)),
+            Text(
+              'NIT: ${proveedor.nit}',
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: Colors.black54,
+              ),
+            ),
             if (totalReq > 0) ...[
               const SizedBox(height: 4),
               Text(
@@ -9636,11 +11981,16 @@ class _ProveedorCalidadCard extends StatelessWidget {
             ...requeridos.map((req) {
               final docKey = req.keyApp;
               final doc = proveedor.documentos[docKey];
-              final label = kDocProveedorLabels[docKey] ?? req.documentoRequerido;
+              final label =
+                  kDocProveedorLabels[docKey] ?? req.documentoRequerido;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _buildDocRow(
-                    context: context, docKey: docKey, label: label, doc: doc),
+                  context: context,
+                  docKey: docKey,
+                  label: label,
+                  doc: doc,
+                ),
               );
             }),
             // Docs extra subidos
@@ -9651,7 +12001,11 @@ class _ProveedorCalidadCard extends StatelessWidget {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _buildDocRow(
-                    context: context, docKey: docKey, label: label, doc: doc),
+                  context: context,
+                  docKey: docKey,
+                  label: label,
+                  doc: doc,
+                ),
               );
             }),
           ],
@@ -9678,30 +12032,34 @@ class _ProveedorCalidadCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.upload_outlined,
-                size: 14, color: Colors.amber.shade800),
+            Icon(Icons.upload_outlined, size: 14, color: Colors.amber.shade800),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(label,
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: Colors.amber.shade900)),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.amber.shade900,
+                ),
+              ),
             ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.amber.shade100,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: Colors.amber.shade400),
               ),
-              child: Text('Sin cargar',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.amber.shade900)),
+              child: Text(
+                'Sin cargar',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.amber.shade900,
+                ),
+              ),
             ),
           ],
         ),
@@ -9721,34 +12079,38 @@ class _ProveedorCalidadCard extends StatelessWidget {
             const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: Colors.black87)),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black87,
+                ),
+              ),
             ),
             IconButton(
               onPressed: () => _abrirUrl(context, doc.url),
-              icon:
-                  const Icon(Icons.open_in_new, size: 14, color: Colors.blue),
+              icon: const Icon(Icons.open_in_new, size: 14, color: Colors.blue),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
               tooltip: 'Ver documento',
             ),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: Colors.green.shade100,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: Colors.green.shade300),
               ),
-              child: const Text('Aprobado',
-                  style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: kComprasGreen)),
+              child: const Text(
+                'Aprobado',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: kComprasGreen,
+                ),
+              ),
             ),
           ],
         ),
@@ -9760,8 +12122,7 @@ class _ProveedorCalidadCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.red.shade50,
               borderRadius: BorderRadius.circular(8),
@@ -9772,35 +12133,48 @@ class _ProveedorCalidadCard extends StatelessWidget {
                 const Icon(Icons.cancel, size: 14, color: kComprasRed),
                 const SizedBox(width: 6),
                 Expanded(
-                  child: Text(label,
-                      style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 12,
-                          color: Colors.black87)),
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black87,
+                    ),
+                  ),
                 ),
                 IconButton(
                   onPressed: () => _abrirUrl(context, doc.url),
-                  icon: const Icon(Icons.open_in_new,
-                      size: 14, color: Colors.blue),
+                  icon: const Icon(
+                    Icons.open_in_new,
+                    size: 14,
+                    color: Colors.blue,
+                  ),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
-                      minWidth: 28, minHeight: 28),
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                   tooltip: 'Ver documento',
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.red.shade100,
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: Colors.red.shade300),
                   ),
-                  child: const Text('Rechazado',
-                      style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: kComprasRed)),
+                  child: const Text(
+                    'Rechazado',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: kComprasRed,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -9811,9 +12185,10 @@ class _ProveedorCalidadCard extends StatelessWidget {
               child: Text(
                 'Motivo: ${doc.observacionCalidad}',
                 style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 11,
-                    color: Colors.red.shade700),
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.red.shade700,
+                ),
               ),
             ),
         ],
@@ -9826,22 +12201,20 @@ class _ProveedorCalidadCard extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.hourglass_empty,
-                size: 14, color: Colors.orange),
+            const Icon(Icons.hourglass_empty, size: 14, color: Colors.orange),
             const SizedBox(width: 4),
             Expanded(
-              child: Text(label,
-                  style: const TextStyle(
-                      fontFamily: _kFont, fontSize: 12)),
+              child: Text(
+                label,
+                style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
             ),
             IconButton(
               onPressed: () => _abrirUrl(context, doc.url),
-              icon: const Icon(Icons.search,
-                  size: 18, color: Colors.blue),
+              icon: const Icon(Icons.search, size: 18, color: Colors.blue),
               tooltip: 'Ver documento',
               padding: EdgeInsets.zero,
-              constraints:
-                  const BoxConstraints(minWidth: 32, minHeight: 32),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
           ],
         ),
@@ -9851,13 +12224,19 @@ class _ProveedorCalidadCard extends StatelessWidget {
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => _aprobarDoc(context, docKey),
-                icon: const Icon(Icons.check_circle,
-                    size: 16, color: kComprasGreen),
-                label: const Text('Aprobar',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: kComprasGreen)),
+                icon: const Icon(
+                  Icons.check_circle,
+                  size: 16,
+                  color: kComprasGreen,
+                ),
+                label: const Text(
+                  'Aprobar',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: kComprasGreen,
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: kComprasGreen),
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -9868,13 +12247,15 @@ class _ProveedorCalidadCard extends StatelessWidget {
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () => _rechazarDoc(context, docKey),
-                icon: const Icon(Icons.cancel,
-                    size: 16, color: kComprasRed),
-                label: const Text('Rechazar',
-                    style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 12,
-                        color: kComprasRed)),
+                icon: const Icon(Icons.cancel, size: 16, color: kComprasRed),
+                label: const Text(
+                  'Rechazar',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: kComprasRed,
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: kComprasRed),
                   padding: const EdgeInsets.symmetric(vertical: 6),
@@ -9895,15 +12276,18 @@ class _ProveedorCalidadCard extends StatelessWidget {
         revisadoPor: userId,
       );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Documento aprobado'),
-          backgroundColor: kComprasGreen,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Documento aprobado'),
+            backgroundColor: kComprasGreen,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
@@ -9913,8 +12297,10 @@ class _ProveedorCalidadCard extends StatelessWidget {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Rechazar documento',
-            style: TextStyle(fontFamily: _kFont)),
+        title: const Text(
+          'Rechazar documento',
+          style: TextStyle(fontFamily: _kFont),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -9930,7 +12316,8 @@ class _ProveedorCalidadCard extends StatelessWidget {
                 labelText: 'Motivo del rechazo *',
                 labelStyle: const TextStyle(fontFamily: _kFont),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               maxLines: 3,
               autofocus: true,
@@ -9940,19 +12327,18 @@ class _ProveedorCalidadCard extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar',
-                style: TextStyle(fontFamily: _kFont)),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: _kFont)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: kComprasRed,
-                foregroundColor: Colors.white),
+              backgroundColor: kComprasRed,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () {
               if (motivoCtrl.text.trim().isEmpty) return;
               Navigator.pop(context, true);
             },
-            child: const Text('Rechazar',
-                style: TextStyle(fontFamily: _kFont)),
+            child: const Text('Rechazar', style: TextStyle(fontFamily: _kFont)),
           ),
         ],
       ),
@@ -9966,15 +12352,18 @@ class _ProveedorCalidadCard extends StatelessWidget {
         revisadoPor: userId,
       );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Documento rechazado.'),
-          backgroundColor: kComprasRed,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Documento rechazado.'),
+            backgroundColor: kComprasRed,
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
@@ -9992,38 +12381,47 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        children: [
-          Container(
-              width: 4,
-              height: 20,
-              decoration: BoxDecoration(
-                  color: color, borderRadius: BorderRadius.circular(2))),
-          const SizedBox(width: 8),
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: 6),
-          Text(titulo,
-              style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                  color: color)),
-        ],
-      );
+    children: [
+      Container(
+        width: 4,
+        height: 20,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      const SizedBox(width: 8),
+      Icon(icon, size: 16, color: color),
+      const SizedBox(width: 6),
+      Text(
+        titulo,
+        style: TextStyle(
+          fontFamily: _kFont,
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          color: color,
+        ),
+      ),
+    ],
+  );
 }
 
 Widget _Chip(String label, Color color) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(label,
-          style: TextStyle(
-              fontFamily: _kFont,
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: color)),
-    );
+  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+  decoration: BoxDecoration(
+    color: color.withOpacity(0.12),
+    borderRadius: BorderRadius.circular(12),
+  ),
+  child: Text(
+    label,
+    style: TextStyle(
+      fontFamily: _kFont,
+      fontSize: 11,
+      fontWeight: FontWeight.w500,
+      color: color,
+    ),
+  ),
+);
 
 class _StatusDot extends StatelessWidget {
   final bool ok;
@@ -10032,36 +12430,43 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-        message: ok ? 'Documentos completos' : 'Documentos pendientes',
-        child: Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-              color: ok ? kComprasGreen : kComprasRed,
-              shape: BoxShape.circle),
-        ),
-      );
+    message: ok ? 'Documentos completos' : 'Documentos pendientes',
+    child: Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        color: ok ? kComprasGreen : kComprasRed,
+        shape: BoxShape.circle,
+      ),
+    ),
+  );
 }
 
 Widget _InfoRow(IconData icon, String label, String value) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 14, color: Colors.black38),
-          const SizedBox(width: 6),
-          Text('$label: ',
-              style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  color: Colors.black45)),
-          Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: Colors.black87)),
-          ),
-        ],
+  padding: const EdgeInsets.symmetric(vertical: 3),
+  child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Icon(icon, size: 14, color: Colors.black38),
+      const SizedBox(width: 6),
+      Text(
+        '$label: ',
+        style: const TextStyle(
+          fontFamily: _kFont,
+          fontSize: 12,
+          color: Colors.black45,
+        ),
       ),
-    );
+      Expanded(
+        child: Text(
+          value,
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontSize: 12,
+            color: Colors.black87,
+          ),
+        ),
+      ),
+    ],
+  ),
+);
