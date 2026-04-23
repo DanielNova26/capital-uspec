@@ -41,6 +41,7 @@ class PpExcelParser {
       }
 
       final headerRowIndex = _findHeaderRowIndex(sheet);
+      final sheetTitle = _extractSheetTitle(sheet, headerRowIndex);
       final rawHeaders = sheet.rows[headerRowIndex]
           .map((c) => _cellText(sheet, headerRowIndex, c?.columnIndex ?? 0))
           .toList(growable: false);
@@ -49,6 +50,7 @@ class PpExcelParser {
       final filas = <PpExcelFila>[];
       var omitidas = 0;
       var internalRowIndex = 0;
+      var lastNombre = ''; // carry-forward para filas sub-entrada sin "No"
 
       for (var i = headerRowIndex + 1; i < sheet.rows.length; i++) {
         final row = sheet.rows[i];
@@ -65,20 +67,30 @@ class PpExcelParser {
           map[key] = j < row.length ? _cellText(sheet, i, j).trim() : '';
         }
 
-        final nombre = _pick(map, [
+        var nombre = _pick(map, [
           'consolidado',
           'planilla',
           'nombre_planilla',
           'n_planilla',
           'numero_planilla',
           'nombre',
+          'no', // formato Alimentar Capital: columna "No" = N° Consecutivo
         ]);
+        // Carry-forward: sub-filas del mismo planilla tienen "No" en blanco
+        if (nombre.isEmpty && lastNombre.isNotEmpty) {
+          nombre = lastNombre;
+        } else if (nombre.isNotEmpty) {
+          lastNombre = nombre;
+        }
+
         final fechaRaw = _pick(map, [
           'fecha_programada',
           'fecha',
           'fecha_planilla',
           'fecha_pago',
           'fecha_banco',
+          'fecha_entrega', // formato Alimentar Capital
+          'fecha_de_cargue', // formato Alimentar Capital
         ]);
         final valorRaw = _pick(map, [
           'valor_a_pagar',
@@ -100,12 +112,15 @@ class PpExcelParser {
         }
 
         final extras = Map<String, String>.from(map)
+          ..remove('no')
           ..remove('nombre_planilla')
           ..remove('planilla')
           ..remove('nombre')
           ..remove('fecha')
           ..remove('fecha_planilla')
           ..remove('fecha_pago')
+          ..remove('fecha_entrega')
+          ..remove('fecha_de_cargue')
           ..remove('valor')
           ..remove('monto')
           ..remove('total')
@@ -114,6 +129,30 @@ class PpExcelParser {
           ..remove('pdf')
           ..remove('nombre_archivo')
           ..remove('archivo');
+
+        // Normalizar columna revisado_* → revisado para el PDF
+        final revisadoKey = extras.keys.firstWhere(
+          (k) => k.startsWith('revisado') && k != 'revisado',
+          orElse: () => '',
+        );
+        if (revisadoKey.isNotEmpty && !extras.containsKey('revisado')) {
+          extras['revisado'] = extras[revisadoKey]!;
+          extras.remove(revisadoKey);
+        }
+
+        // Normalizar n_factura_* → no_factura_orden_de_compra (alias histórico)
+        if (!extras.containsKey('no_factura_orden_de_compra') &&
+            extras.containsKey('n_factura_orden_de_compra')) {
+          extras['no_factura_orden_de_compra'] =
+              extras['n_factura_orden_de_compra']!;
+          extras.remove('n_factura_orden_de_compra');
+        }
+        // Normalizar n_cuenta → no_cuenta (alias histórico)
+        if (!extras.containsKey('no_cuenta') &&
+            extras.containsKey('n_cuenta')) {
+          extras['no_cuenta'] = extras['n_cuenta']!;
+          extras.remove('n_cuenta');
+        }
 
         filas.add(
           PpExcelFila(
@@ -133,6 +172,7 @@ class PpExcelParser {
         columnas: rawHeaders.where((h) => h.isNotEmpty).toList(),
         headerRowNumber: headerRowIndex + 1,
         filasOmitidas: omitidas,
+        sheetTitle: sheetTitle,
       );
     } catch (e) {
       return PpExcelParseResult(
@@ -197,6 +237,10 @@ class PpExcelParser {
       }
       if (normalized.contains('proveedor')) score += 2;
       if (normalized.contains('banco')) score += 1;
+      // Alimentar Capital format indicators
+      if (normalized.contains('nit')) score += 2;
+      if (normalized.contains('dv')) score += 1;
+      if (normalized.contains('cte') || normalized.contains('aho')) score += 1;
 
       if (score > bestScore) {
         bestScore = score;
@@ -205,6 +249,24 @@ class PpExcelParser {
     }
 
     return bestIndex;
+  }
+
+  /// Extrae el título del bloque de portada (filas antes del encabezado).
+  /// Busca la primera celda con texto en mayúsculas de más de 5 caracteres.
+  String? _extractSheetTitle(Sheet sheet, int headerRowIndex) {
+    for (var i = 0; i < headerRowIndex; i++) {
+      final row = sheet.rows[i];
+      for (var j = 0; j < row.length; j++) {
+        final text = _cellText(sheet, i, j).trim();
+        if (text.length > 5 &&
+            text == text.toUpperCase() &&
+            RegExp(r'[A-Z]{2}').hasMatch(text) &&
+            !RegExp(r'^\d').hasMatch(text)) {
+          return text;
+        }
+      }
+    }
+    return null;
   }
 
   String _pick(Map<String, String> map, List<String> keys) {

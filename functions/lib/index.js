@@ -23,12 +23,19 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.icd11Search = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.icd11Search = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 // ICD-11 token broker + proxy (Fase B)
 var icd11_1 = require("./icd11");
 Object.defineProperty(exports, "icd11Search", { enumerable: true, get: function () { return icd11_1.icd11Search; } });
+// Planillas de Pago — notificaciones programadas (08:00, 12:00, 16:00 hora Colombia)
+var pp_notifications_1 = require("./pp_notifications");
+Object.defineProperty(exports, "ppNotificaciones0800", { enumerable: true, get: function () { return pp_notifications_1.ppNotificaciones0800; } });
+Object.defineProperty(exports, "ppNotificaciones1200", { enumerable: true, get: function () { return pp_notifications_1.ppNotificaciones1200; } });
+Object.defineProperty(exports, "ppNotificaciones1600", { enumerable: true, get: function () { return pp_notifications_1.ppNotificaciones1600; } });
+var pp_stamp_pdf_1 = require("./pp_stamp_pdf");
+Object.defineProperty(exports, "ppStampDirectPdf", { enumerable: true, get: function () { return pp_stamp_pdf_1.ppStampDirectPdf; } });
 const admin = __importStar(require("firebase-admin"));
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 admin.initializeApp();

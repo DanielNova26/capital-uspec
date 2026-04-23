@@ -107,6 +107,7 @@ class GdRoles {
     'marcar_vigente':  {firmante, aprobador, adminDoc, desarrollador},
     'subir_pdf':       {redactor, adminDoc, desarrollador},
     'nueva_version':   {redactor, adminDoc, desarrollador},
+    'eliminar_documento': {adminDoc, desarrollador},
   };
 
   static bool puedeEjecutar(String accion, String? rol) {

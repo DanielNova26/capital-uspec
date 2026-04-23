@@ -18,8 +18,8 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 
-const db = admin.firestore();
-const fcm = admin.messaging();
+const getDb = () => admin.firestore();
+const getFcm = () => admin.messaging();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -31,6 +31,7 @@ async function pushNotificationToUser(
   body: string,
   empresaId: string
 ): Promise<void> {
+  const db = getDb();
   const notifRef = db
     .collection("TBL_NOTIFICACIONES")
     .doc(userId)
@@ -54,7 +55,7 @@ async function pushNotificationToUser(
     const tokenSnap = await db.collection("TBL_USUARIOS").doc(userId).get();
     const token: string | undefined = tokenSnap.data()?.fcmToken;
     if (token) {
-      await fcm.send({
+      await getFcm().send({
         token,
         notification: { title, body },
         data: { type: "planillas_pago_resumen", empresaId },
@@ -68,6 +69,7 @@ async function pushNotificationToUser(
 }
 
 async function notificarResumen(hora: string): Promise<void> {
+  const db = getDb();
   // 1. Obtener todas las empresas activas
   const empresasSnap = await db.collection("TBL_EMPRESAS").get();
 
@@ -109,8 +111,9 @@ async function notificarResumen(hora: string): Promise<void> {
       const globalRol = data.rolPlanillas ?? "";
       const rol = (scopedRol || globalRol) as string;
 
-      if (!rol || !["auditoria", "gerencia", "admin_doc"].includes(rol))
+      if (!rol || !["auditoria", "gerencia", "admin_doc"].includes(rol)) {
         continue;
+      }
 
       usuariosMap.set(doc.id, {
         rol,
@@ -119,7 +122,7 @@ async function notificarResumen(hora: string): Promise<void> {
     }
 
     // 3. Para cada usuario, contar planillas pendientes
-    for (const [userId, { rol, nombre }] of usuariosMap.entries()) {
+    for (const [userId, { rol }] of usuariosMap.entries()) {
       let estadoPendiente: string | null = null;
       let rolLabel = "";
 

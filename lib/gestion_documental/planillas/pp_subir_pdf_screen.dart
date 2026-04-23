@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 
 import '../widgets/gd_ui_widgets.dart';
 import '../../widgets/internal_module_layout.dart';
-import 'pp_models.dart';
 import 'pp_service.dart';
 
 class PpSubirPdfScreen extends StatefulWidget {
@@ -36,6 +35,8 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
   final List<({String nombre, Uint8List bytes})> _pdfs = [];
   bool _uploading = false;
   bool _isDragging = false;
+  int _pdfsProcesados = 0;
+  int _pdfsTotales = 0;
   String? _error;
 
   Future<void> _pickPdfs() async {
@@ -94,7 +95,12 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
 
   Future<void> _submit() async {
     if (_pdfs.isEmpty) return;
-    setState(() { _uploading = true; _error = null; });
+    setState(() {
+      _uploading = true;
+      _error = null;
+      _pdfsProcesados = 0;
+      _pdfsTotales = _pdfs.length;
+    });
 
     try {
       final n = await _service.subirPdfsDirectos(
@@ -103,6 +109,13 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
         rolPlanillas: widget.rolPlanillas,
         nombreActor: widget.nombreActor,
         pdfs: _pdfs,
+        onProgress: (procesados, total) {
+          if (!mounted) return;
+          setState(() {
+            _pdfsProcesados = procesados;
+            _pdfsTotales = total;
+          });
+        },
       );
       if (!mounted) return;
       widget.onSubido(n);
@@ -118,6 +131,10 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
   @override
   Widget build(BuildContext context) {
     final isWeb = MediaQuery.of(context).size.width >= 900;
+    final progress = _pdfsTotales == 0
+        ? null
+        : (_pdfsProcesados / _pdfsTotales).clamp(0, 1).toDouble();
+    final progressPct = progress == null ? 0 : (progress * 100).round();
 
     return Scaffold(
       backgroundColor: GdPalette.background,
@@ -140,7 +157,10 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
               icon: const Icon(Icons.cloud_upload_outlined),
               label: Text(
                 'SUBIR ${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'}',
-                style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           const SizedBox(width: 8),
@@ -154,11 +174,25 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const CircularProgressIndicator(),
+                      SizedBox(
+                        width: isWeb ? 360 : 280,
+                        child: LinearProgressIndicator(value: progress),
+                      ),
                       const SizedBox(height: 16),
                       Text(
-                        'Subiendo ${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'}…',
-                        style: const TextStyle(fontFamily: kArial),
+                        'Cargados $_pdfsProcesados de $_pdfsTotales PDF${_pdfsTotales == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$progressPct% completado',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          color: GdPalette.muted,
+                        ),
                       ),
                     ],
                   ),
@@ -174,24 +208,31 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.picture_as_pdf_outlined,
-                                    color: GdPalette.accent, size: 20),
+                                const Icon(
+                                  Icons.picture_as_pdf_outlined,
+                                  color: GdPalette.accent,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 10),
-                                const Text('Archivos PDF',
-                                    style: TextStyle(
-                                        fontFamily: kArial,
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                        color: GdPalette.primary)),
+                                const Text(
+                                  'Archivos PDF',
+                                  style: TextStyle(
+                                    fontFamily: kArial,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    color: GdPalette.primary,
+                                  ),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 4),
                             const Text(
                               'Cada PDF se convierte en una planilla individual lista para el flujo de firma.',
                               style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontSize: 12,
-                                  color: GdPalette.muted),
+                                fontFamily: kArial,
+                                fontSize: 12,
+                                color: GdPalette.muted,
+                              ),
                             ),
                             const SizedBox(height: 16),
                             _buildDropZone(),
@@ -209,9 +250,13 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                             const Icon(Icons.error_outline, color: Colors.red),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: Text(_error!,
-                                  style: const TextStyle(
-                                      fontFamily: kArial, color: Colors.red)),
+                              child: Text(
+                                _error!,
+                                style: const TextStyle(
+                                  fontFamily: kArial,
+                                  color: Colors.red,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -223,20 +268,24 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: _submit,
-                          icon: const Icon(Icons.cloud_upload_outlined,
-                              color: Colors.white),
+                          icon: const Icon(
+                            Icons.cloud_upload_outlined,
+                            color: Colors.white,
+                          ),
                           label: Text(
                             'SUBIR ${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'}',
                             style: const TextStyle(
-                                fontFamily: kArial,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white),
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                            ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: GdPalette.accent,
                             padding: const EdgeInsets.symmetric(vertical: 18),
                             shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
                         ),
                       ),
@@ -286,8 +335,9 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                     fontFamily: kArial,
                     fontSize: 13,
                     color: _isDragging ? GdPalette.accent : GdPalette.muted,
-                    fontWeight:
-                        _isDragging ? FontWeight.w700 : FontWeight.normal,
+                    fontWeight: _isDragging
+                        ? FontWeight.w700
+                        : FontWeight.normal,
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -297,15 +347,20 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
                   label: Text(
                     _pdfs.isEmpty ? 'Seleccionar PDFs' : 'Agregar más PDFs',
                     style: const TextStyle(
-                        fontFamily: kArial, fontWeight: FontWeight.w700),
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: GdPalette.accent,
                     side: const BorderSide(color: GdPalette.border),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ],
@@ -324,7 +379,10 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
               child: Text(
                 '${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'} seleccionado${_pdfs.length == 1 ? '' : 's'}',
                 style: const TextStyle(
-                    fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: GdPalette.muted,
+                ),
               ),
             ),
           ],
@@ -346,9 +404,11 @@ class _PpSubirPdfScreenState extends State<PpSubirPdfScreen> {
           const Icon(Icons.picture_as_pdf, size: 18, color: GdPalette.accent),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(nombre,
-                style: const TextStyle(fontFamily: kArial, fontSize: 13),
-                overflow: TextOverflow.ellipsis),
+            child: Text(
+              nombre,
+              style: const TextStyle(fontFamily: kArial, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.close, size: 16),

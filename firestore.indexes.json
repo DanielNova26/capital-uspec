@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "TBL_PP_FLUJO",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "planillaId", "order": "ASCENDING" },
+        { "fieldPath": "realizadoEn", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "TBL_PP_PLANILLAS",
       "queryScope": "COLLECTION",
       "fields": [

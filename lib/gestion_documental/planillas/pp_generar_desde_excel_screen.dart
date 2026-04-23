@@ -50,7 +50,10 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   PpExcelParseResult? _excelResult;
 
   Uint8List? _logoBytes;
-  String? _logoNombre;
+  List<Map<String, String>> _logos = const [];
+  Map<String, String>? _logoSeleccionado;
+  bool _guardandoLogo = false;
+  static const _kSinLogo = {'nombre': 'Sin logo', 'path': '', 'url': ''};
   List<String> _consolidadosIndexados = const <String>[];
   Map<String, List<PpExcelFila>> _filasPorConsolidado =
       const <String, List<PpExcelFila>>{};
@@ -62,6 +65,153 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
   String? _error;
   String? _progreso;
   String? _exito;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarLogoEmpresa();
+  }
+
+  Future<void> _cargarLogoEmpresa() async {
+    try {
+      final config = await _service.getLogoConfig(widget.empresaId);
+      if (!mounted) return;
+      final seleccionado = config.logos.isNotEmpty
+          ? config.logos.firstWhere(
+              (l) => l['path'] == config.logoActivoPath,
+              orElse: () => config.logos.first,
+            )
+          : _kSinLogo;
+      setState(() {
+        _logos = config.logos;
+        _logoSeleccionado = seleccionado;
+        _logoBytes = (seleccionado['path'] ?? '').isEmpty ? Uint8List(0) : null;
+      });
+      // Precargar bytes del logo activo en la UI para pasarlos directamente al servicio
+      if ((seleccionado['path'] ?? '').isNotEmpty) {
+        final bytes = await _service.cargarLogoBytes(
+          path: seleccionado['path']!,
+          url: seleccionado['url'],
+        );
+        if (mounted && bytes != null && bytes.isNotEmpty) {
+          setState(() => _logoBytes = bytes);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<
+    ({
+      Uint8List? bytes,
+      String? path,
+      String? url,
+      String? nombre,
+      bool sinLogo,
+    })
+  >
+  _resolverLogoSeleccionadoParaGenerar() async {
+    final path = _logoPathSeleccionado;
+    final url = (_logoSeleccionado?['url'] ?? '').trim();
+    final nombre = (_logoSeleccionado?['nombre'] ?? '').trim();
+
+    if (path.isEmpty) {
+      return (
+        bytes: Uint8List(0),
+        path: null,
+        url: null,
+        nombre: nombre.isEmpty ? 'Sin logo' : nombre,
+        sinLogo: true,
+      );
+    }
+
+    Uint8List? bytes = _logoBytes;
+    if (bytes == null || bytes.isEmpty) {
+      bytes = await _service.cargarLogoBytes(
+        path: path,
+        url: url.isEmpty ? null : url,
+      );
+    }
+    if (bytes == null || bytes.isEmpty) {
+      throw PpException(
+        'No se pudo cargar el logo seleccionado "${nombre.isEmpty ? path : nombre}". '
+        'No se generó la planilla para evitar usar un logo incorrecto.',
+      );
+    }
+
+    return (
+      bytes: bytes,
+      path: path,
+      url: url.isEmpty ? null : url,
+      nombre: nombre.isEmpty ? null : nombre,
+      sinLogo: false,
+    );
+  }
+
+  Future<void> _eliminarLogoSeleccionado() async {
+    if (!_puedeEliminarLogo || !_tieneLogoSeleccionado) return;
+
+    final nombre = (_logoSeleccionado?['nombre'] ?? 'este logo').trim();
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Eliminar logo',
+          style: TextStyle(fontFamily: kArial),
+        ),
+        content: Text(
+          '¿Deseas eliminar "$nombre" de los logos precargados de la empresa?',
+          style: const TextStyle(fontFamily: kArial),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(fontFamily: kArial, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    setState(() => _guardandoLogo = true);
+    try {
+      await _service.eliminarLogo(
+        empresaId: widget.empresaId,
+        logoPath: _logoPathSeleccionado,
+        rolPlanillas: widget.rolPlanillas,
+      );
+      await _cargarLogoEmpresa();
+      if (!mounted) return;
+      setState(() => _guardandoLogo = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Logo eliminado.',
+            style: TextStyle(fontFamily: kArial),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _guardandoLogo = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error al eliminar logo: $e',
+            style: const TextStyle(fontFamily: kArial),
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -101,6 +251,13 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     if (consolidado == null || consolidado.isEmpty) return 0;
     return _totalesPorConsolidado[consolidado] ?? 0;
   }
+
+  bool get _puedeEliminarLogo =>
+      PpRoles.puedeEjecutar('eliminar_logo', widget.rolPlanillas);
+
+  String get _logoPathSeleccionado => (_logoSeleccionado?['path'] ?? '').trim();
+
+  bool get _tieneLogoSeleccionado => _logoPathSeleccionado.isNotEmpty;
 
   void _cargarExcel(Uint8List bytes, String nombre) {
     final parsed = _parser.parse(bytes);
@@ -185,10 +342,93 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     if (result == null || result.files.isEmpty) return;
     final file = result.files.first;
     if (file.bytes == null) return;
-    setState(() {
-      _logoBytes = file.bytes!;
-      _logoNombre = file.name;
-    });
+
+    if (!mounted) return;
+    final nombreCtrl = TextEditingController(
+      text: file.name.replaceAll(
+        RegExp(r'\.(png|jpg|jpeg)$', caseSensitive: false),
+        '',
+      ),
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guardar logo', style: TextStyle(fontFamily: kArial)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Asigna un nombre al logo. Quedará guardado para todos los usuarios de la empresa.',
+              style: TextStyle(fontFamily: kArial, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: nombreCtrl,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del logo',
+                border: OutlineInputBorder(),
+                labelStyle: TextStyle(fontFamily: kArial),
+              ),
+              style: const TextStyle(fontFamily: kArial),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: GdPalette.accent),
+            child: const Text(
+              'Guardar',
+              style: TextStyle(fontFamily: kArial, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    final nombre = nombreCtrl.text.trim().isEmpty
+        ? file.name
+        : nombreCtrl.text.trim();
+    final ext = file.name.split('.').last.toLowerCase();
+
+    setState(() => _guardandoLogo = true);
+    try {
+      await _service.guardarLogo(
+        empresaId: widget.empresaId,
+        bytes: file.bytes!,
+        nombre: nombre,
+        extension: ext,
+      );
+      final config = await _service.getLogoConfig(widget.empresaId);
+      if (!mounted) return;
+      setState(() {
+        _logos = config.logos;
+        _logoBytes = file.bytes!; // ya tenemos los bytes en memoria
+        _logoSeleccionado = config.logos.firstWhere(
+          (l) => l['path'] == config.logoActivoPath,
+          orElse: () => config.logos.first,
+        );
+        _guardandoLogo = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _guardandoLogo = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error al guardar logo: $e',
+            style: const TextStyle(fontFamily: kArial),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _generar() async {
@@ -237,6 +477,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
     } catch (_) {}
 
     try {
+      final resolvedLogo = await _resolverLogoSeleccionadoParaGenerar();
       final loteId = await _service.crearPlanillaConsolidadaDesdeExcel(
         empresaId: widget.empresaId,
         actorId: widget.userId,
@@ -246,11 +487,16 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
         filas: filas,
         excelBytes: _excelBytes,
         excelNombre: _excelNombre,
-        logoBytes: _logoBytes,
+        logoBytes: resolvedLogo.bytes,
+        logoPath: resolvedLogo.path,
+        logoUrl: resolvedLogo.url,
+        logoNombre: resolvedLogo.nombre,
+        sinLogo: resolvedLogo.sinLogo,
         firmaElaboradoBlob: firmaBlob,
         descripcion: _descCtrl.text.trim().isEmpty
             ? null
             : _descCtrl.text.trim(),
+        sheetTitle: _excelResult?.sheetTitle,
       );
 
       widget.onLoteCreado?.call(loteId);
@@ -879,49 +1125,177 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
               style: const TextStyle(fontFamily: kArial),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _logoNombre == null
-                        ? 'Usando el logo por defecto del sistema.'
-                        : 'Logo seleccionado: $_logoNombre',
-                    style: const TextStyle(
-                      fontFamily: kArial,
-                      fontSize: 12,
-                      color: GdPalette.muted,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                OutlinedButton.icon(
-                  onPressed: _pickLogo,
-                  icon: const Icon(Icons.image_outlined, size: 18),
-                  label: const Text(
-                    'Subir logo',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (_logoNombre != null)
-                  IconButton(
-                    onPressed: () => setState(() {
-                      _logoBytes = null;
-                      _logoNombre = null;
-                    }),
-                    icon: const Icon(
-                      Icons.close,
-                      size: 18,
-                      color: GdPalette.muted,
-                    ),
-                  ),
-              ],
-            ),
+            _buildLogoSelector(),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLogoSelector() {
+    if (_guardandoLogo) {
+      return const Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 10),
+          Text(
+            'Guardando logo...',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: GdPalette.muted,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.image_outlined, size: 16, color: GdPalette.accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<Map<String, String>>(
+                  isExpanded: true,
+                  value: _logoSeleccionado ?? _kSinLogo,
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 13,
+                    color: GdPalette.primary,
+                  ),
+                  items: [
+                    const DropdownMenuItem<Map<String, String>>(
+                      value: _kSinLogo,
+                      child: Text(
+                        'Sin logo',
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 13,
+                          color: GdPalette.muted,
+                        ),
+                      ),
+                    ),
+                    ..._logos.map(
+                      (logo) => DropdownMenuItem<Map<String, String>>(
+                        value: logo,
+                        child: Text(
+                          logo['nombre'] ?? '',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 13,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged: (selected) async {
+                    if (selected == null) return;
+                    final path = selected['path'] ?? '';
+                    if (path.isEmpty) {
+                      setState(() {
+                        _logoSeleccionado = selected;
+                        _logoBytes = Uint8List(0);
+                      });
+                      return;
+                    }
+
+                    final anteriorSeleccion = _logoSeleccionado;
+                    final anteriorBytes = _logoBytes;
+                    setState(() => _guardandoLogo = true);
+                    try {
+                      final bytes = await _service.cargarLogoBytes(
+                        path: path,
+                        url: selected['url'],
+                      );
+                      if (bytes == null || bytes.isEmpty) {
+                        throw const PpException(
+                          'No se pudo leer el logo seleccionado desde almacenamiento.',
+                        );
+                      }
+                      await _service.setLogoActivo(widget.empresaId, path);
+                      if (!mounted) return;
+                      setState(() {
+                        _logoSeleccionado = selected;
+                        _logoBytes = bytes;
+                        _guardandoLogo = false;
+                      });
+                    } catch (e) {
+                      if (!mounted) return;
+                      setState(() {
+                        _logoSeleccionado = anteriorSeleccion;
+                        _logoBytes = anteriorBytes;
+                        _guardandoLogo = false;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'No se pudo activar ese logo: $e',
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                ),
+              ),
+            ),
+            if (_puedeEliminarLogo && _tieneLogoSeleccionado)
+              IconButton(
+                tooltip: 'Eliminar logo seleccionado',
+                onPressed: _eliminarLogoSeleccionado,
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: Colors.red,
+                  size: 20,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            if (_tieneLogoSeleccionado &&
+                _logoBytes != null &&
+                _logoBytes!.isNotEmpty)
+              Container(
+                width: 92,
+                height: 46,
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: GdPalette.border),
+                  color: Colors.white,
+                ),
+                child: Image.memory(_logoBytes!, fit: BoxFit.contain),
+              ),
+            if (_tieneLogoSeleccionado &&
+                _logoBytes != null &&
+                _logoBytes!.isNotEmpty)
+              const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: _pickLogo,
+              icon: const Icon(Icons.upload_outlined, size: 18),
+              label: const Text(
+                'Subir logo',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

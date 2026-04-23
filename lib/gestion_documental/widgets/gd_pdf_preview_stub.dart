@@ -7,7 +7,9 @@ Widget buildGdPdfPreview({
   required String url,
   required Future<Uint8List> pdfFuture,
   required String fileName,
+  String? refreshKey,
 }) {
+  final _ = refreshKey;
   return FutureBuilder<Uint8List>(
     future: pdfFuture,
     builder: (context, pdfSnap) {
@@ -30,18 +32,13 @@ Widget buildGdPdfPreview({
                 const Text(
                   'No se pudo renderizar la vista previa',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   pdfSnap.error.toString(),
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ],
             ),
@@ -52,9 +49,7 @@ Widget buildGdPdfPreview({
       final bytes = pdfSnap.data;
       if (bytes == null || bytes.isEmpty) {
         return const Center(
-          child: Text(
-            'El PDF no contiene datos para vista previa.',
-          ),
+          child: Text('El PDF no contiene datos para vista previa.'),
         );
       }
 

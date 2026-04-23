@@ -10,6 +10,7 @@ export {
   ppNotificaciones1200,
   ppNotificaciones1600,
 } from "./pp_notifications";
+export { ppStampDirectPdf } from "./pp_stamp_pdf";
 import * as admin from "firebase-admin";
 
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");

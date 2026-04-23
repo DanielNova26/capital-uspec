@@ -30,6 +30,9 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   final _service = GdService();
   String _searchQuery = '';
   String? _selectedCategory;
+  bool _selectionMode = false;
+  bool _deletingSelection = false;
+  final Set<String> _selectedDocIds = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +51,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         builder: (context, userSnap) {
           final rolDocumental = _resolveRolDocumental(userSnap.data?.data(), widget.empresaId);
           final canCreate = GdRoles.puedeEjecutar('subir_pdf', rolDocumental);
+          final canDelete = GdRoles.puedeEjecutar('eliminar_documento', rolDocumental);
 
           return InternalModuleLayout(
             userId: widget.userId,
@@ -99,6 +103,72 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   onPressed: _openPlanillas,
                   tooltip: 'Planillas de Pago',
                 ),
+              if (isWeb && canDelete)
+                OutlinedButton.icon(
+                  onPressed: _deletingSelection ? null : _toggleSelectionMode,
+                  icon: Icon(
+                    _selectionMode ? Icons.close : Icons.checklist_rounded,
+                    size: 20,
+                  ),
+                  label: Text(
+                    _selectionMode ? 'CANCELAR SELECCIÓN' : 'SELECCIONAR',
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _selectionMode
+                        ? Colors.redAccent
+                        : GdPalette.primary,
+                    side: BorderSide(
+                      color: _selectionMode
+                          ? Colors.redAccent.withOpacity(0.35)
+                          : GdPalette.border,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 22,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                )
+              else if (!isWeb && canDelete)
+                IconButton(
+                  icon: Icon(
+                    _selectionMode ? Icons.close : Icons.checklist_rounded,
+                  ),
+                  onPressed: _deletingSelection ? null : _toggleSelectionMode,
+                  tooltip: _selectionMode
+                      ? 'Cancelar selección'
+                      : 'Seleccionar documentos',
+                ),
+              if (isWeb && canDelete && _selectionMode && _selectedDocIds.isNotEmpty)
+                ElevatedButton.icon(
+                  onPressed: _deletingSelection
+                      ? null
+                      : () => _confirmDeleteSelected(rolDocumental!),
+                  icon: const Icon(Icons.delete_forever, size: 20, color: Colors.white),
+                  label: Text(
+                    'ELIMINAR (${_selectedDocIds.length})',
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
               if (isWeb && canCreate)
                 ElevatedButton.icon(
                   onPressed: () => _showCreateDialog(rolDocumental!),
@@ -117,22 +187,76 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                 ),
             ],
             floatingActionButton: !isWeb && canCreate
-                ? FloatingActionButton.extended(
-                    onPressed: () => _showCreateDialog(rolDocumental!),
-                    backgroundColor: GdPalette.accent,
-                    icon: const Icon(Icons.add_task),
-                    label: const Text(
-                      'Nuevo Documento',
-                      style: TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  )
-                : null,
+                ? (_selectionMode && canDelete
+                    ? FloatingActionButton.extended(
+                        onPressed: _selectedDocIds.isEmpty || _deletingSelection
+                            ? null
+                            : () => _confirmDeleteSelected(rolDocumental!),
+                        backgroundColor: Colors.redAccent,
+                        icon: _deletingSelection
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.delete_forever),
+                        label: Text(
+                          _selectedDocIds.isEmpty
+                              ? 'Selecciona archivos'
+                              : 'Eliminar (${_selectedDocIds.length})',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    : FloatingActionButton.extended(
+                        onPressed: () => _showCreateDialog(rolDocumental!),
+                        backgroundColor: GdPalette.accent,
+                        icon: const Icon(Icons.add_task),
+                        label: const Text(
+                          'Nuevo Documento',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ))
+                : (!isWeb && canDelete && _selectionMode)
+                    ? FloatingActionButton.extended(
+                        onPressed: _selectedDocIds.isEmpty || _deletingSelection
+                            ? null
+                            : () => _confirmDeleteSelected(rolDocumental!),
+                        backgroundColor: Colors.redAccent,
+                        icon: _deletingSelection
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.delete_forever),
+                        label: Text(
+                          _selectedDocIds.isEmpty
+                              ? 'Selecciona archivos'
+                              : 'Eliminar (${_selectedDocIds.length})',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      )
+                    : null,
             child: Column(
               children: [
                 _buildFilters(isWeb),
+                if (_selectionMode && canDelete)
+                  _buildSelectionBanner(isWeb),
                 if (userSnap.hasData && rolDocumental == null)
                   _buildRolDocumentalNotice(isWeb),
                 Expanded(
@@ -168,7 +292,9 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                         return _buildEmptyState(canCreate, rolDocumental);
                       }
 
-                      return isWeb ? _buildWebView(docs) : _buildMobileView(docs);
+                      return isWeb
+                          ? _buildWebView(docs)
+                          : _buildMobileView(docs);
                     },
                   ),
                 ),
@@ -364,6 +490,38 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     );
   }
 
+  Widget _buildSelectionBanner(bool isWeb) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(isWeb ? 28 : 16, 0, isWeb ? 28 : 16, 16),
+      child: InternalModuleViewport(
+        maxWidth: 1280,
+        padding: EdgeInsets.zero,
+        child: ModuleCard(
+          color: Colors.redAccent.withOpacity(0.05),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.delete_sweep_outlined, color: Colors.redAccent, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _selectedDocIds.isEmpty
+                      ? 'Selecciona uno o varios documentos para eliminarlos de la biblioteca.'
+                      : '${_selectedDocIds.length} documento(s) seleccionado(s) para eliminación.',
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 13,
+                    color: GdPalette.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildCategoryFilter(bool isWeb) {
     final categories = ['Procedimiento', 'Politica', 'Formato', 'Instructivo'];
     return Container(
@@ -409,13 +567,29 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: docs.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, index) => const SizedBox(height: 12),
       itemBuilder: (_, i) =>
-          _DocumentListItem(doc: docs[i], onTap: () => _openDetail(docs[i])),
+          _DocumentListItem(
+            doc: docs[i],
+            selectionMode: _selectionMode,
+            selected: _selectedDocIds.contains(docs[i].docId),
+            onSelectionChanged: (selected) =>
+                _toggleDocSelection(docs[i].docId, selected: selected),
+            onTap: () {
+              if (_selectionMode) {
+                _toggleDocSelection(docs[i].docId);
+                return;
+              }
+              _openDetail(docs[i]);
+            },
+          ),
     );
   }
 
   Widget _buildWebView(List<DocumentoDoc> docs) {
+    final allSelected = docs.isNotEmpty && docs.every((d) => _selectedDocIds.contains(d.docId));
+    final someSelected = docs.any((d) => _selectedDocIds.contains(d.docId));
+
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
       child: InternalModuleViewport(
@@ -424,13 +598,14 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         child: GdCard(
           padding: EdgeInsets.zero,
           child: Table(
-            columnWidths: const {
-              0: FlexColumnWidth(1.5),
-              1: FlexColumnWidth(4),
-              2: FlexColumnWidth(2),
-              3: FlexColumnWidth(2),
-              4: FlexColumnWidth(2),
-              5: IntrinsicColumnWidth(),
+            columnWidths: {
+              if (_selectionMode) 0: const IntrinsicColumnWidth(),
+              _selectionMode ? 1 : 0: const FlexColumnWidth(1.5),
+              _selectionMode ? 2 : 1: const FlexColumnWidth(4),
+              _selectionMode ? 3 : 2: const FlexColumnWidth(2),
+              _selectionMode ? 4 : 3: const FlexColumnWidth(2),
+              _selectionMode ? 5 : 4: const FlexColumnWidth(2),
+              _selectionMode ? 6 : 5: const IntrinsicColumnWidth(),
             },
             children: [
               TableRow(
@@ -439,6 +614,18 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
                 ),
                 children: [
+                  if (_selectionMode)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Checkbox(
+                        value: allSelected
+                            ? true
+                            : (someSelected ? null : false),
+                        tristate: true,
+                        onChanged: (value) =>
+                            _toggleVisibleSelection(docs, value ?? false),
+                      ),
+                    ),
                   _buildTableHeader('CODIGO'),
                   _buildTableHeader('TITULO'),
                   _buildTableHeader('CATEGORIA'),
@@ -449,7 +636,21 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
               ),
               ...docs.map(
                 (d) => TableRow(
+                  decoration: BoxDecoration(
+                    color: _selectedDocIds.contains(d.docId)
+                        ? GdPalette.accent.withOpacity(0.06)
+                        : Colors.transparent,
+                  ),
                   children: [
+                    if (_selectionMode)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Checkbox(
+                          value: _selectedDocIds.contains(d.docId),
+                          onChanged: (value) =>
+                              _toggleDocSelection(d.docId, selected: value),
+                        ),
+                      ),
                     _buildTableCell(d.codigo, isBold: true),
                     _buildTableCell(d.titulo),
                     _buildTableCell(d.categoria ?? '-'),
@@ -627,13 +828,124 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
       ),
     );
   }
+
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      if (!_selectionMode) {
+        _selectedDocIds.clear();
+      }
+    });
+  }
+
+  void _toggleDocSelection(String docId, {bool? selected}) {
+    setState(() {
+      final shouldSelect = selected ?? !_selectedDocIds.contains(docId);
+      if (shouldSelect) {
+        _selectedDocIds.add(docId);
+      } else {
+        _selectedDocIds.remove(docId);
+      }
+    });
+  }
+
+  void _toggleVisibleSelection(List<DocumentoDoc> docs, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedDocIds.addAll(docs.map((d) => d.docId));
+      } else {
+        _selectedDocIds.removeAll(docs.map((d) => d.docId));
+      }
+    });
+  }
+
+  Future<void> _confirmDeleteSelected(String rolDocumental) async {
+    if (_selectedDocIds.isEmpty) return;
+
+    final total = _selectedDocIds.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Eliminar documentos',
+          style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+        ),
+        content: Text(
+          total == 1
+              ? 'Se eliminará el documento seleccionado junto con sus versiones, historial y archivo PDF. Esta acción no se puede deshacer.'
+              : 'Se eliminarán $total documentos seleccionados junto con sus versiones, historial y archivos PDF. Esta acción no se puede deshacer.',
+          style: const TextStyle(fontFamily: kArial),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    setState(() => _deletingSelection = true);
+    try {
+      final ids = _selectedDocIds.toList(growable: false);
+      for (final docId in ids) {
+        await _service.eliminarDocumento(
+          docId: docId,
+          empresaId: widget.empresaId,
+          actorId: widget.userId,
+          rolDocumental: rolDocumental,
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _deletingSelection = false;
+        _selectionMode = false;
+        _selectedDocIds.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            total == 1
+                ? 'Documento eliminado correctamente.'
+                : '$total documentos eliminados correctamente.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deletingSelection = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al eliminar: $e')),
+      );
+    }
+  }
 }
 
 class _DocumentListItem extends StatelessWidget {
   final DocumentoDoc doc;
   final VoidCallback onTap;
+  final bool selectionMode;
+  final bool selected;
+  final ValueChanged<bool?>? onSelectionChanged;
 
-  const _DocumentListItem({required this.doc, required this.onTap});
+  const _DocumentListItem({
+    required this.doc,
+    required this.onTap,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -644,6 +956,14 @@ class _DocumentListItem extends StatelessWidget {
         children: [
           Row(
             children: [
+              if (selectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: onSelectionChanged,
+                  ),
+                ),
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(

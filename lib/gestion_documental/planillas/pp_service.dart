@@ -15,17 +15,20 @@
 //
 // Regla crítica: TBL_PP_FLUJO es append-only. Nunca se modifica ni elimina.
 
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../services/task_service.dart';
+import '../../utils/url_binary_loader.dart';
 import 'pp_excel_parser.dart';
 import 'pp_models.dart';
 
@@ -54,24 +57,56 @@ class _PdfStampBlock {
   });
 }
 
+class _ResolvedLogo {
+  final Uint8List bytes;
+  final String? path;
+  final String? url;
+  final String? nombre;
+  final bool sinLogo;
+
+  const _ResolvedLogo({
+    required this.bytes,
+    this.path,
+    this.url,
+    this.nombre,
+    this.sinLogo = false,
+  });
+}
+
+typedef _RenderedPdfPage = ({
+  Uint8List pngBytes,
+  double widthPx,
+  double heightPx,
+});
+
 class PpService {
   static const String _colLotes = 'TBL_PP_LOTES';
   static const String _colPlanillas = 'TBL_PP_PLANILLAS';
   static const String _colFlujo = 'TBL_PP_FLUJO';
   static const String _colUsuarios = 'TBL_USUARIOS';
+  static const String _colConfig = 'TBL_PP_CONFIG';
+  static const String _colEmpresas = 'TBL_EMPRESAS';
+  static const int _maxStorageDownloadBytes = 50 * 1024 * 1024;
+  static const double _renderCacheDpi = 120.0;
+  static const int _maxFirestorePdfChunkBytes = 700 * 1024;
+  static const int _maxInlinePdfDocBytes = 900 * 1024;
 
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
+  final FirebaseFunctions _functions;
   final TaskService _taskService;
   final PpExcelParser _excelParser;
 
   PpService({
     FirebaseFirestore? db,
     FirebaseStorage? storage,
+    FirebaseFunctions? functions,
     TaskService? taskService,
     PpExcelParser? excelParser,
   }) : _db = db ?? FirebaseFirestore.instance,
        _storage = storage ?? FirebaseStorage.instance,
+       _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: 'us-central1'),
        _taskService = taskService ?? TaskService(),
        _excelParser = excelParser ?? PpExcelParser();
 
@@ -83,6 +118,459 @@ class PpService {
       _db.collection(_colFlujo);
   CollectionReference<Map<String, dynamic>> get _users =>
       _db.collection(_colUsuarios);
+
+  bool _esPdfDirectoTipo(String tipoGeneracion) =>
+      tipoGeneracion == 'pdf_directo' || tipoGeneracion == 'pdf_cargado';
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LOGO CONFIG
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Returns all logos and the active path for the company.
+  Future<({List<Map<String, String>> logos, String? logoActivoPath})>
+  getLogoConfig(String empresaId) async {
+    try {
+      final doc = await _db.collection(_colConfig).doc(empresaId).get();
+      if (!doc.exists) {
+        return (logos: <Map<String, String>>[], logoActivoPath: null);
+      }
+      final data = doc.data()!;
+      final rawLogos = data['logos'];
+      final logos = rawLogos is List
+          ? rawLogos
+                .whereType<Map>()
+                .map<Map<String, String>>((m) {
+                  final rawPath = _cleanString(m['path']);
+                  final rawUrl =
+                      _normalizeStorageUrl(m['url']) ??
+                      _normalizeStorageUrl(rawPath);
+                  final resolvedPath =
+                      _normalizeStoragePath(rawPath) ??
+                      _normalizeStoragePath(rawUrl);
+                  return {
+                    'nombre': (m['nombre'] ?? '').toString(),
+                    'path': resolvedPath ?? '',
+                    'url': rawUrl ?? '',
+                  };
+                })
+                .where(
+                  (logo) => logo['path']!.isNotEmpty || logo['url']!.isNotEmpty,
+                )
+                .toList()
+          : <Map<String, String>>[];
+      // Backwards-compat: single logo stored with old schema
+      if (logos.isEmpty) {
+        final oldPath =
+            _normalizeStoragePath(data['logoPath']) ??
+            _normalizeStoragePath(data['logoUrl']);
+        final oldNombre = data['logoNombre'] as String?;
+        if (oldPath != null && oldPath.isNotEmpty) {
+          logos.add({
+            'nombre': oldNombre ?? 'Logo',
+            'path': oldPath,
+            'url':
+                _normalizeStorageUrl(data['logoUrl']) ??
+                _normalizeStorageUrl(data['logoPath']) ??
+                '',
+          });
+        }
+      }
+      return (
+        logos: logos,
+        logoActivoPath:
+            _normalizeStoragePath(data['logoActivoPath']) ??
+            _normalizeStoragePath(data['logoPath']) ??
+            logos.firstOrNull?['path'],
+      );
+    } catch (_) {
+      return (logos: <Map<String, String>>[], logoActivoPath: null);
+    }
+  }
+
+  Future<Map<String, String>?> getLogoActivoMeta(String empresaId) async {
+    final config = await getLogoConfig(empresaId);
+    if (config.logos.isEmpty) return null;
+
+    final activePath = _cleanString(config.logoActivoPath);
+    if (activePath == null) return config.logos.first;
+
+    for (final logo in config.logos) {
+      if (_cleanString(logo['path']) == activePath) {
+        return logo;
+      }
+    }
+    return config.logos.first;
+  }
+
+  Future<String> _resolverNombreEmpresaPlanilla({
+    required String empresaId,
+    String? nombreLogoPreferido,
+    Map<String, dynamic>? planillaData,
+  }) async {
+    final datosExcel = planillaData?['datosExcel'];
+    final desdePlanilla =
+        _cleanString(planillaData?['empresaNombre']) ??
+        _cleanString(datosExcel is Map ? datosExcel['empresa_nombre'] : null) ??
+        _cleanString(planillaData?['logoNombre']) ??
+        _cleanString(datosExcel is Map ? datosExcel['logo_nombre'] : null) ??
+        _cleanString(nombreLogoPreferido);
+    if (desdePlanilla != null) return desdePlanilla;
+
+    final logoActivo = await getLogoActivoMeta(empresaId);
+    final desdeLogoActivo = _cleanString(logoActivo?['nombre']);
+    if (desdeLogoActivo != null) return desdeLogoActivo;
+
+    try {
+      final empresaSnap = await _db
+          .collection(_colEmpresas)
+          .doc(empresaId)
+          .get();
+      final data = empresaSnap.data();
+      final nombre =
+          _cleanString(data?['nombre']) ??
+          _cleanString(data?['empresaNombre']) ??
+          _cleanString(data?['razonSocial']);
+      if (nombre != null) return nombre;
+    } catch (_) {}
+
+    return empresaId.trim();
+  }
+
+  Future<Uint8List?> cargarLogoBytes({required String path, String? url}) =>
+      _loadBinary(path: path, url: url);
+
+  Future<void> guardarLogo({
+    required String empresaId,
+    required Uint8List bytes,
+    required String nombre,
+    required String extension,
+  }) async {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final path = 'planillas_pago/$empresaId/config/logo_$ts.$extension';
+    final ref = _storage.ref(path);
+    final normalizedExt = extension.toLowerCase();
+    final contentType = switch (normalizedExt) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      _ => 'image/$normalizedExt',
+    };
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    final url = await ref.getDownloadURL();
+    final entry = {'nombre': nombre, 'path': path, 'url': url};
+    final doc = await _db.collection(_colConfig).doc(empresaId).get();
+    List<dynamic> logos = [];
+    if (doc.exists) {
+      final raw = doc.data()?['logos'];
+      if (raw is List) logos = List<dynamic>.from(raw);
+    }
+    logos.add(entry);
+    await _db.collection(_colConfig).doc(empresaId).set({
+      'logos': logos,
+      'logoActivoPath': path,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> setLogoActivo(String empresaId, String path) async {
+    final safePath = _normalizeStoragePath(path);
+    if (safePath == null) {
+      throw const PpException('Selecciona un logo válido.');
+    }
+    await _db.collection(_colConfig).doc(empresaId).set({
+      'logoActivoPath': safePath,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> eliminarLogo({
+    required String empresaId,
+    required String logoPath,
+    required String rolPlanillas,
+  }) async {
+    _validarRol('eliminar_logo', rolPlanillas);
+    final safePath = _normalizeStoragePath(logoPath);
+    if (safePath == null) {
+      throw const PpException('Selecciona un logo válido para eliminar.');
+    }
+
+    final ref = _db.collection(_colConfig).doc(empresaId);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? <String, dynamic>{};
+      final rawLogos = data['logos'];
+      final logos = rawLogos is List
+          ? rawLogos
+                .whereType<Map>()
+                .map<Map<String, dynamic>>((m) {
+                  final rawPath = _cleanString(m['path']);
+                  final rawUrl =
+                      _normalizeStorageUrl(m['url']) ??
+                      _normalizeStorageUrl(rawPath);
+                  final resolvedPath =
+                      _normalizeStoragePath(rawPath) ??
+                      _normalizeStoragePath(rawUrl);
+                  return <String, dynamic>{
+                    'nombre': (m['nombre'] ?? '').toString(),
+                    'path': resolvedPath ?? '',
+                    'url': rawUrl ?? '',
+                  };
+                })
+                .where(
+                  (logo) =>
+                      ((logo['path'] ?? '').toString().trim().isNotEmpty) ||
+                      ((logo['url'] ?? '').toString().trim().isNotEmpty),
+                )
+                .toList()
+          : <Map<String, dynamic>>[];
+
+      logos.removeWhere(
+        (logo) => _normalizeStoragePath(logo['path']) == safePath,
+      );
+
+      final activePath = _normalizeStoragePath(data['logoActivoPath']);
+      final nextActivePath = logos.isEmpty
+          ? null
+          : activePath == safePath
+          ? _normalizeStoragePath(logos.first['path'])
+          : (activePath ?? _normalizeStoragePath(logos.first['path']));
+
+      final update = <String, dynamic>{
+        'logos': logos,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'logoPath': FieldValue.delete(),
+        'logoUrl': FieldValue.delete(),
+        'logoNombre': FieldValue.delete(),
+        'logoActivoPath': nextActivePath ?? FieldValue.delete(),
+      };
+
+      tx.set(ref, update, SetOptions(merge: true));
+    });
+
+    try {
+      await _storage.ref(safePath).delete();
+    } catch (_) {}
+  }
+
+  String? _cleanString(dynamic value) {
+    final text = (value ?? '').toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  String? _normalizeStorageUrl(dynamic value) {
+    final raw = _cleanString(value);
+    if (raw == null) return null;
+    final lower = raw.toLowerCase();
+    if (lower.startsWith('http://') ||
+        lower.startsWith('https://') ||
+        lower.startsWith('gs://')) {
+      return raw;
+    }
+    return null;
+  }
+
+  String? _normalizeStoragePath(dynamic value) {
+    final raw = _cleanString(value);
+    if (raw == null) return null;
+
+    if (raw.startsWith('gs://')) {
+      final slashIndex = raw.indexOf('/', 5);
+      if (slashIndex < 0 || slashIndex + 1 >= raw.length) return null;
+      return _normalizeRelativeStoragePath(raw.substring(slashIndex + 1));
+    }
+
+    final lower = raw.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      return _extractStoragePathFromUrl(raw);
+    }
+
+    return _normalizeRelativeStoragePath(raw);
+  }
+
+  String? _normalizeRelativeStoragePath(dynamic value) {
+    final raw = _cleanString(value);
+    if (raw == null) return null;
+    var normalized = raw.replaceAll('\\', '/').trim();
+    while (normalized.startsWith('/')) {
+      normalized = normalized.substring(1);
+    }
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  String? _extractStoragePathFromUrl(String url) {
+    try {
+      final marker = '/o/';
+      final markerIndex = url.indexOf(marker);
+      if (markerIndex >= 0) {
+        final tail = url.substring(markerIndex + marker.length);
+        final encodedPath = tail.split('?').first;
+        return _normalizeRelativeStoragePath(Uri.decodeFull(encodedPath));
+      }
+
+      final uri = Uri.parse(url);
+      final fromName = _cleanString(uri.queryParameters['name']);
+      if (fromName != null) {
+        return _normalizeRelativeStoragePath(Uri.decodeFull(fromName));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  _ResolvedLogo _logoMetaDesdePlanilla(Map<String, dynamic>? planillaData) {
+    final datosExcel = planillaData?['datosExcel'];
+    final sinLogoRaw =
+        planillaData?['sinLogo'] ??
+        (datosExcel is Map ? datosExcel['sin_logo'] : null);
+    final sinLogo =
+        sinLogoRaw == true ||
+        sinLogoRaw.toString().trim().toLowerCase() == 'true';
+
+    return _ResolvedLogo(
+      bytes: Uint8List(0),
+      path:
+          _normalizeStoragePath(
+            planillaData?['logoPath'] ??
+                (datosExcel is Map ? datosExcel['logo_path'] : null),
+          ) ??
+          _normalizeStoragePath(
+            planillaData?['logoUrl'] ??
+                (datosExcel is Map ? datosExcel['logo_url'] : null),
+          ),
+      url:
+          _normalizeStorageUrl(
+            planillaData?['logoUrl'] ??
+                (datosExcel is Map ? datosExcel['logo_url'] : null),
+          ) ??
+          _normalizeStorageUrl(
+            planillaData?['logoPath'] ??
+                (datosExcel is Map ? datosExcel['logo_path'] : null),
+          ),
+      nombre: _cleanString(
+        planillaData?['logoNombre'] ??
+            (datosExcel is Map ? datosExcel['logo_nombre'] : null),
+      ),
+      sinLogo: sinLogo,
+    );
+  }
+
+  Future<_ResolvedLogo> _resolverLogoGeneracion({
+    required String empresaId,
+    Uint8List? logoBytes,
+    String? logoPath,
+    String? logoUrl,
+    String? logoNombre,
+    bool sinLogo = false,
+    Map<String, dynamic>? planillaData,
+  }) async {
+    final fromPlanilla = _logoMetaDesdePlanilla(planillaData);
+    final resolvedSinLogo = sinLogo || fromPlanilla.sinLogo;
+    final resolvedPath = _normalizeStoragePath(logoPath) ?? fromPlanilla.path;
+    final resolvedUrl =
+        _normalizeStorageUrl(logoUrl) ??
+        _normalizeStorageUrl(logoPath) ??
+        fromPlanilla.url;
+    final resolvedNombre = _cleanString(logoNombre) ?? fromPlanilla.nombre;
+    final requestedLogo =
+        (resolvedPath?.isNotEmpty ?? false) ||
+        (resolvedUrl?.isNotEmpty ?? false) ||
+        (resolvedNombre?.isNotEmpty ?? false);
+
+    if (resolvedSinLogo) {
+      return _ResolvedLogo(
+        bytes: Uint8List(0),
+        path: resolvedPath,
+        url: resolvedUrl,
+        nombre: resolvedNombre,
+        sinLogo: true,
+      );
+    }
+
+    if (logoBytes != null && logoBytes.isNotEmpty) {
+      return _ResolvedLogo(
+        bytes: logoBytes,
+        path: resolvedPath,
+        url: resolvedUrl,
+        nombre: resolvedNombre,
+      );
+    }
+
+    if ((resolvedPath?.isNotEmpty ?? false) ||
+        (resolvedUrl?.isNotEmpty ?? false)) {
+      final bytes = await _loadBinary(url: resolvedUrl, path: resolvedPath);
+      if (bytes != null && bytes.isNotEmpty) {
+        return _ResolvedLogo(
+          bytes: bytes,
+          path: resolvedPath,
+          url: resolvedUrl,
+          nombre: resolvedNombre,
+        );
+      }
+      throw PpException(
+        'No se pudo cargar el logo "${resolvedNombre ?? resolvedPath ?? 'seleccionado'}". '
+        'No se generó el documento para evitar usar un logo incorrecto.',
+      );
+    }
+
+    final fallback = await _cargarLogoEmpresa(empresaId);
+    if (fallback.isNotEmpty) {
+      return _ResolvedLogo(
+        bytes: fallback,
+        path: resolvedPath,
+        url: resolvedUrl,
+        nombre: resolvedNombre,
+        sinLogo: false,
+      );
+    }
+    if (requestedLogo) {
+      throw PpException(
+        'No se encontró un logo válido para "${resolvedNombre ?? empresaId}".',
+      );
+    }
+    return _ResolvedLogo(bytes: Uint8List(0), sinLogo: true);
+  }
+
+  Future<Uint8List> _cargarLogoEmpresa(String empresaId) async {
+    try {
+      final doc = await _db.collection(_colConfig).doc(empresaId).get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        final activePathField = _normalizeStoragePath(data['logoActivoPath']);
+        final rawLogos = data['logos'];
+
+        String? logoPath;
+        String? logoUrl;
+
+        if (rawLogos is List && rawLogos.isNotEmpty) {
+          final match = rawLogos.whereType<Map>().firstWhere(
+            (m) => _normalizeStoragePath(m['path']) == activePathField,
+            orElse: () => rawLogos.whereType<Map>().first,
+          );
+          logoPath =
+              _normalizeStoragePath(match['path']) ??
+              _normalizeStoragePath(match['url']);
+          logoUrl =
+              _normalizeStorageUrl(match['url']) ??
+              _normalizeStorageUrl(match['path']);
+        } else {
+          // backwards compat: old single-logo schema
+          logoPath =
+              activePathField ??
+              _normalizeStoragePath(data['logoPath']) ??
+              _normalizeStoragePath(data['logoUrl']);
+          logoUrl =
+              _normalizeStorageUrl(data['logoUrl']) ??
+              _normalizeStorageUrl(data['logoPath']);
+        }
+
+        if ((logoPath?.isNotEmpty ?? false) || (logoUrl?.isNotEmpty ?? false)) {
+          final bytes = await _loadBinary(url: logoUrl, path: logoPath);
+          if (bytes != null && bytes.isNotEmpty) return bytes;
+        }
+      }
+    } catch (_) {}
+    return Uint8List(0);
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // CARGA MASIVA: crear lote + subir Excel + crear planillas individuales
@@ -169,17 +657,29 @@ class PpService {
           matchEstado: PpMatchEstado.sin_coincidencia,
         ),
       );
+      final planillaRef = _planillas.doc();
+      final (pdfBaseUrl, pdfBasePath) = await _subirPdfBase(
+        empresaId: empresaId,
+        loteId: loteId,
+        planillaId: planillaRef.id,
+        bytes: pdf.bytes,
+        nombre: pdf.nombre,
+      );
+      final pdfFirmadoCarga = await _aplicarFirmaCargaInicial(
+        pdfBytes: pdf.bytes,
+        actorSnapshot: actorSnapshot,
+      );
 
       final (pdfUrl, pdfPath) = await _subirPdf(
         empresaId: empresaId,
         loteId: loteId,
-        bytes: pdf.bytes,
+        bytes: pdfFirmadoCarga,
         nombre: pdf.nombre,
       );
 
-      final planillaRef = _planillas.doc();
       final datosExcel = match.filaExcel != null
           ? <String, dynamic>{
+              'tipo_generacion': 'pdf_cargado',
               ...match.filaExcel!.extras,
               if (match.filaExcel!.nombrePlanilla != null)
                 'nombre_planilla': match.filaExcel!.nombrePlanilla!,
@@ -188,7 +688,7 @@ class PpService {
               if (match.filaExcel!.valor != null)
                 'valor': match.filaExcel!.valor!,
             }
-          : <String, dynamic>{};
+          : <String, dynamic>{'tipo_generacion': 'pdf_cargado'};
 
       final ahora = FieldValue.serverTimestamp();
       await planillaRef.set({
@@ -203,18 +703,23 @@ class PpService {
         'nombreCargado': actorSnapshot.nombre,
         'cargoCargado': actorSnapshot.cargo,
         'urlFirmaCargado': actorSnapshot.urlFirma,
+        'pathFirmaCargado': actorSnapshot.pathFirma,
         'revisadoPor': null,
         'revisadoEn': null,
         'firmadoPor': null,
         'firmadoEn': null,
         'urlFirmaAuditoria': null,
+        'pathFirmaAuditoria': null,
         'nombreAuditorFirmante': null,
         'cargoAuditorFirmante': null,
         'urlFirmaUsada': null,
+        'pathFirmaUsada': null,
         'nombreFirmante': null,
         'cargoFirmante': null,
         'urlPdf': pdfUrl,
         'pathPdf': pdfPath,
+        'urlPdfBase': pdfBaseUrl,
+        'pathPdfBase': pdfBasePath,
         'datosExcel': datosExcel,
         'matchEstado': match.matchEstado.valor,
         'excelRowIndex': match.filaExcel?.rowIndex,
@@ -228,6 +733,21 @@ class PpService {
         'createdAt': ahora,
         'updatedAt': ahora,
       });
+      await _guardarRenderPdfBase(
+        planillaId: planillaRef.id,
+        empresaId: empresaId,
+        pdfBytes: pdf.bytes,
+      );
+      await _guardarPdfBaseFirestore(
+        planillaId: planillaRef.id,
+        empresaId: empresaId,
+        pdfBytes: pdf.bytes,
+      );
+      await _guardarPdfBaseInlineDoc(
+        planillaId: planillaRef.id,
+        empresaId: empresaId,
+        pdfBytes: pdf.bytes,
+      );
 
       await _registrarEventoLote(
         planillaId: planillaRef.id,
@@ -267,61 +787,118 @@ class PpService {
     required String rolPlanillas,
     String? nombreActor,
     required List<({String nombre, Uint8List bytes})> pdfs,
+    void Function(int procesados, int total)? onProgress,
   }) async {
     if (pdfs.isEmpty) throw const PpException('Selecciona al menos un PDF.');
     _validarRol('confirmar_carga', rolPlanillas);
 
-    final actorSnapshot = await _getActorSnapshot(actorId, empresaId, nombreActor);
+    final actorSnapshot = await _getActorSnapshot(
+      actorId,
+      empresaId,
+      nombreActor,
+    );
+    final logoActivo = await getLogoActivoMeta(empresaId);
+    final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
+      empresaId: empresaId,
+      nombreLogoPreferido: logoActivo?['nombre'],
+    );
     var creadas = 0;
+    onProgress?.call(0, pdfs.length);
 
     for (final pdf in pdfs) {
       final planillaRef = _planillas.doc();
       final planillaId = planillaRef.id;
       final ahora = FieldValue.serverTimestamp();
+      final (pdfBaseUrl, pdfBasePath) = await _subirPdfBase(
+        empresaId: empresaId,
+        loteId: '',
+        planillaId: planillaId,
+        bytes: pdf.bytes,
+        nombre: pdf.nombre,
+      );
+      final pdfFirmadoCarga = await _aplicarFirmaCargaInicial(
+        pdfBytes: pdf.bytes,
+        actorSnapshot: actorSnapshot,
+      );
 
       final ts = DateTime.now().millisecondsSinceEpoch;
       final safe = pdf.nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
       final path = 'planillas_pago/$empresaId/directos/$planillaId/${ts}_$safe';
       final ref = _storage.ref(path);
-      await ref.putData(pdf.bytes, SettableMetadata(contentType: 'application/pdf'));
+      await ref.putData(
+        pdfFirmadoCarga,
+        SettableMetadata(contentType: 'application/pdf'),
+      );
       final url = await ref.getDownloadURL();
 
       await planillaRef.set({
         'empresaId': empresaId,
+        'empresaNombre': empresaNombrePlanilla,
         'loteId': null,
         'nombreArchivoOriginal': pdf.nombre,
         'nombrePlanillaDetectado': null,
         'fechaPlanillaDetectada': null,
         'valorDetectado': null,
+        'logoPath': logoActivo?['path'],
+        'logoUrl': logoActivo?['url'],
+        'logoNombre': logoActivo?['nombre'],
+        'sinLogo': logoActivo == null,
         'estado': PpEstado.cargada.valor,
         'cargadoPor': actorId,
         'nombreCargado': actorSnapshot.nombre,
         'cargoCargado': actorSnapshot.cargo,
         'urlFirmaCargado': actorSnapshot.urlFirma,
-        'firmaCargadoBlob': actorSnapshot.firmaBlob,
+        'pathFirmaCargado': actorSnapshot.pathFirma,
         'revisadoPor': null,
         'revisadoEn': null,
         'firmadoPor': null,
         'firmadoEn': null,
         'urlFirmaAuditoria': null,
+        'pathFirmaAuditoria': null,
         'nombreAuditorFirmante': null,
         'cargoAuditorFirmante': null,
         'urlFirmaUsada': null,
+        'pathFirmaUsada': null,
         'nombreFirmante': null,
         'cargoFirmante': null,
         'urlPdf': url,
         'pathPdf': path,
-        'datosExcel': <String, dynamic>{'tipo_generacion': 'pdf_directo'},
+        'urlPdfBase': pdfBaseUrl,
+        'pathPdfBase': pdfBasePath,
+        'datosExcel': <String, dynamic>{
+          'tipo_generacion': 'pdf_directo',
+          'empresa_nombre': empresaNombrePlanilla,
+          'logo_path': logoActivo?['path'],
+          'logo_url': logoActivo?['url'],
+          'logo_nombre': logoActivo?['nombre'],
+          'sin_logo': logoActivo == null,
+        },
         'matchEstado': null,
         'excelRowIndex': null,
         'metadatosExtraccion': {
           'metodo': 'pdf_directo',
+          'empresaNombre': empresaNombrePlanilla,
           'cargadoEn': DateTime.now().toIso8601String(),
         },
         'observaciones': [],
         'createdAt': ahora,
         'updatedAt': ahora,
       });
+      await _guardarRenderPdfBase(
+        planillaId: planillaId,
+        empresaId: empresaId,
+        pdfBytes: pdf.bytes,
+      );
+      await _guardarPdfBaseFirestore(
+        planillaId: planillaId,
+        empresaId: empresaId,
+        pdfBytes: pdf.bytes,
+      );
+      await _guardarPdfBaseInlineDoc(
+        planillaId: planillaId,
+        empresaId: empresaId,
+        pdfBytes: pdf.bytes,
+      );
 
       await _registrarEventoLote(
         planillaId: planillaId,
@@ -334,6 +911,7 @@ class PpService {
       );
 
       creadas++;
+      onProgress?.call(creadas, pdfs.length);
     }
 
     debugPrint('[PpService] $creadas planillas creadas desde PDFs directos');
@@ -379,6 +957,7 @@ class PpService {
       final stamped = await _stampearTrazabilidadEnPdf(
         originalPdfUrl: pdfUrlActual,
         originalPdfPath: pdfPathActual,
+        estado: PpEstado.pendiente_validacion,
         bloques: [
           _PdfStampBlock(
             titulo: 'CARGADO POR',
@@ -497,6 +1076,7 @@ class PpService {
       camposExtra: {
         'revisadoPor': actorId,
         'revisadoEn': FieldValue.serverTimestamp(),
+        'nombreAuditorFirmante': nombreActor,
       },
     );
 
@@ -571,8 +1151,16 @@ class PpService {
       empresaId,
       nombreActor,
     );
+    final (pdfBaseUrl, pdfBasePath) = await _subirPdfBase(
+      empresaId: empresaId,
+      loteId: loteId,
+      planillaId: planillaId,
+      bytes: pdfBytes,
+      nombre: nombrePdf,
+    );
     final stamped = await _stampearTrazabilidadEnPdf(
       originalPdfBytes: pdfBytes,
+      estado: PpEstado.en_revision_auditoria,
       bloques: [
         _PdfStampBlock(
           titulo: 'CARGADO POR',
@@ -597,6 +1185,14 @@ class PpService {
       nombre: nombrePdf,
     );
 
+    // Preserve existing datosExcel but force tipo_generacion = 'pdf_cargado'
+    // so aprobarAuditoria treats this as a direct PDF (not an Excel-generated
+    // one), preventing _regenerarPdfExcelConFirmas from overwriting it.
+    final datosExcelActual = data['datosExcel'] is Map
+        ? Map<String, dynamic>.from(data['datosExcel'] as Map)
+        : <String, dynamic>{};
+    datosExcelActual['tipo_generacion'] = 'pdf_cargado';
+
     await _transicionar(
       planillaId: planillaId,
       loteId: loteId,
@@ -611,13 +1207,257 @@ class PpService {
         'nombreArchivoOriginal': nombrePdf,
         'urlPdf': pdfUrl,
         'pathPdf': pdfPath,
+        'urlPdfBase': pdfBaseUrl,
+        'pathPdfBase': pdfBasePath,
+        'datosExcel': datosExcelActual,
         'cargadoPor': actorId,
         'nombreCargado': actorSnapshot.nombre,
         'cargoCargado': actorSnapshot.cargo,
         'urlFirmaCargado': actorSnapshot.urlFirma,
+        'pathFirmaCargado': actorSnapshot.pathFirma,
         'revisadoPor': null,
         'revisadoEn': null,
         'urlFirmaAuditoria': null,
+        'pathFirmaAuditoria': null,
+        'nombreAuditorFirmante': null,
+        'cargoAuditorFirmante': null,
+      },
+    );
+    await _guardarRenderPdfBase(
+      planillaId: planillaId,
+      empresaId: empresaId,
+      pdfBytes: pdfBytes,
+    );
+    await _guardarPdfBaseFirestore(
+      planillaId: planillaId,
+      empresaId: empresaId,
+      pdfBytes: pdfBytes,
+    );
+    await _guardarPdfBaseInlineDoc(
+      planillaId: planillaId,
+      empresaId: empresaId,
+      pdfBytes: pdfBytes,
+    );
+  }
+
+  Future<void> reemplazarPlanillaObservadaDesdeExcel({
+    required String planillaId,
+    required String empresaId,
+    required String loteId,
+    required String actorId,
+    required String rolPlanillas,
+    required Uint8List excelBytes,
+    required String nombreExcel,
+    String? nombreActor,
+    String? comentario,
+    String? consolidadoSeleccionado,
+  }) async {
+    _validarRol('reenviar', rolPlanillas);
+    if (excelBytes.isEmpty) {
+      throw const PpException('Debes seleccionar un Excel válido.');
+    }
+
+    final snap = await _planillas.doc(planillaId).get();
+    if (!snap.exists) throw const PpException('Planilla no encontrada.');
+    final data = snap.data() ?? {};
+    final estadoActual = PpEstadoX.deString((data['estado'] ?? '').toString());
+    if (estadoActual != PpEstado.observada) {
+      throw const PpException(
+        'Solo puedes corregir desde Excel cuando la planilla está observada.',
+      );
+    }
+
+    final parse = _excelParser.parse(excelBytes);
+    if (!parse.exitoso) {
+      throw PpException(
+        parse.error ?? 'No se pudo leer el Excel seleccionado.',
+      );
+    }
+    if (parse.filas.isEmpty) {
+      throw const PpException(
+        'El Excel no tiene filas válidas para generar la planilla.',
+      );
+    }
+
+    final actorSnapshot = await _getActorSnapshot(
+      actorId,
+      empresaId,
+      nombreActor,
+    );
+
+    final resolvedLogo = await _resolverLogoGeneracion(
+      empresaId: empresaId,
+      planillaData: data,
+    );
+    final logoBytes = resolvedLogo.bytes;
+
+    final storageScopeId = loteId.trim().isNotEmpty ? loteId : planillaId;
+    final excelUpload = await _subirExcel(
+      empresaId: empresaId,
+      loteId: storageScopeId,
+      bytes: excelBytes,
+      nombre: nombreExcel,
+    );
+
+    final ({bool esConsolidado, List<PpExcelFila> filas}) resolved;
+    if (consolidadoSeleccionado != null &&
+        consolidadoSeleccionado.trim().isNotEmpty) {
+      final nombreNorm = _normalizeLookup(consolidadoSeleccionado.trim());
+      final filasSeleccionadas = parse.filas
+          .where(
+            (f) =>
+                _normalizeLookup((f.nombrePlanilla ?? '').trim()) == nombreNorm,
+          )
+          .toList();
+      resolved = (
+        esConsolidado: true,
+        filas: filasSeleccionadas.isNotEmpty ? filasSeleccionadas : parse.filas,
+      );
+    } else {
+      resolved = _resolverReemplazoObservadoDesdeExcel(
+        planillaData: data,
+        filasExcel: parse.filas,
+      );
+    }
+
+    late final Uint8List pdfBytes;
+    late final String nombreArchivo;
+    late final String? nombrePlanilla;
+    late final String? fechaPlanilla;
+    late final double? valorPlanilla;
+    late final Map<String, dynamic> datosExcelActualizados;
+    late final int? excelRowIndex;
+
+    if (resolved.esConsolidado) {
+      final filas = resolved.filas;
+      final consolidado =
+          (data['nombrePlanillaDetectado'] ??
+                  (data['datosExcel'] is Map
+                      ? (data['datosExcel']['consolidado'] ??
+                            data['datosExcel']['nombre_planilla'])
+                      : null) ??
+                  filas.first.nombrePlanilla ??
+                  'Consolidado')
+              .toString()
+              .trim();
+      pdfBytes = await _generarPdfConsolidadoDesdeFilas(
+        consolidado: consolidado,
+        filas: filas,
+        logoBytes: logoBytes,
+        nombreElaborado: actorSnapshot.nombre,
+        cargoElaborado: actorSnapshot.cargo,
+        firmaElaboradoUrl: actorSnapshot.urlFirma,
+        firmaElaboradoPath: actorSnapshot.pathFirma,
+        firmaElaboradoBlob: actorSnapshot.firmaBlob,
+      );
+      nombreArchivo = _nombreArchivoConsolidado(consolidado, filas);
+      nombrePlanilla = consolidado;
+      fechaPlanilla = _firstNonEmptyDate(filas);
+      valorPlanilla = _sumarValores(filas);
+      final pagador = _firstNonEmptyExtra(filas, const ['pagador', 'banco']);
+      final banco = _firstNonEmptyExtra(filas, const ['banco']);
+      datosExcelActualizados = {
+        'tipo_generacion': 'excel_consolidado',
+        'consolidado': consolidado,
+        'pagador': pagador,
+        ...?banco == null ? null : {'banco': banco},
+        'logo_path': resolvedLogo.path,
+        'logo_url': resolvedLogo.url,
+        'logo_nombre': resolvedLogo.nombre,
+        'sin_logo': resolvedLogo.sinLogo,
+        'filas_consolidadas': filas.length,
+        'rango_filas_excel': _rangoFilasExcel(filas),
+        'filas_rows': filas.map((f) => f.toMap()).toList(),
+      };
+      excelRowIndex = filas.first.rowIndex;
+    } else {
+      final fila = resolved.filas.first;
+      pdfBytes = await _generarPdfDesdeFila(
+        fila: fila,
+        logoBytes: logoBytes,
+        nombreElaborado: actorSnapshot.nombre,
+        cargoElaborado: actorSnapshot.cargo,
+        firmaElaboradoUrl: actorSnapshot.urlFirma,
+        firmaElaboradoPath: actorSnapshot.pathFirma,
+        firmaElaboradoBlob: actorSnapshot.firmaBlob,
+      );
+      nombreArchivo = _nombreArchivoFila(fila);
+      nombrePlanilla = fila.nombrePlanilla;
+      fechaPlanilla = fila.fecha;
+      valorPlanilla = fila.valor;
+      datosExcelActualizados = {
+        ...fila.extras,
+        if (fila.nombrePlanilla != null)
+          'nombre_planilla': fila.nombrePlanilla!,
+        if (fila.fecha != null) 'fecha': fila.fecha!,
+        if (fila.valor != null) 'valor': fila.valor!,
+        'tipo_generacion': 'excel_generado',
+        'logo_path': resolvedLogo.path,
+        'logo_url': resolvedLogo.url,
+        'logo_nombre': resolvedLogo.nombre,
+        'sin_logo': resolvedLogo.sinLogo,
+        'fila_row': fila.toMap(),
+      };
+      excelRowIndex = fila.rowIndex;
+    }
+
+    final (pdfUrl, pdfPath) = await _subirPdf(
+      empresaId: empresaId,
+      loteId: storageScopeId,
+      bytes: pdfBytes,
+      nombre: nombreArchivo,
+    );
+
+    if (loteId.trim().isNotEmpty) {
+      await _lotes.doc(loteId).set({
+        'excelUrl': excelUpload.$1,
+        'excelPath': excelUpload.$2,
+        'excelNombre': nombreExcel,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await _transicionar(
+      planillaId: planillaId,
+      loteId: loteId,
+      empresaId: empresaId,
+      desde: PpEstado.observada,
+      hacia: PpEstado.en_revision_auditoria,
+      accion: PpAccion.reenviado,
+      actorId: actorId,
+      nombreActor: nombreActor,
+      observacion:
+          comentario ?? 'Se regeneró la planilla desde Excel: $nombreExcel',
+      camposExtra: {
+        'nombreArchivoOriginal': nombreArchivo,
+        'nombrePlanillaDetectado': nombrePlanilla,
+        'fechaPlanillaDetectada': fechaPlanilla,
+        'valorDetectado': valorPlanilla,
+        'urlPdf': pdfUrl,
+        'pathPdf': pdfPath,
+        'urlPdfBase': null,
+        'pathPdfBase': null,
+        'logoPath': resolvedLogo.path,
+        'logoUrl': resolvedLogo.url,
+        'logoNombre': resolvedLogo.nombre,
+        'sinLogo': resolvedLogo.sinLogo,
+        'datosExcel': datosExcelActualizados,
+        'matchEstado': PpMatchEstado.coincidencia_exacta.valor,
+        'excelRowIndex': excelRowIndex,
+        'metadatosExtraccion': {
+          'metodo': 'corregido_desde_excel',
+          'excelNombre': nombreExcel,
+          'cargadoEn': DateTime.now().toIso8601String(),
+        },
+        'cargadoPor': actorId,
+        'nombreCargado': actorSnapshot.nombre,
+        'cargoCargado': actorSnapshot.cargo,
+        'urlFirmaCargado': actorSnapshot.urlFirma,
+        'pathFirmaCargado': actorSnapshot.pathFirma,
+        'revisadoPor': null,
+        'revisadoEn': null,
+        'urlFirmaAuditoria': null,
+        'pathFirmaAuditoria': null,
         'nombreAuditorFirmante': null,
         'cargoAuditorFirmante': null,
       },
@@ -636,6 +1476,7 @@ class PpService {
     required String rolPlanillas,
     String? nombreActor,
     String? comentario,
+    Uint8List? currentPdfBytes,
   }) async {
     _validarRol('aprobar_auditoria', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
@@ -648,41 +1489,112 @@ class PpService {
     String? pdfPathActual;
     String? pdfUrlSellado;
     String? pdfPathSellado;
+    String? pdfBaseUrl;
+    String? pdfBasePath;
+    final firmaAuditoriaBytes =
+        actorSnapshot.firmaBlob ??
+        await _loadBinary(
+          url: actorSnapshot.urlFirma,
+          path: actorSnapshot.pathFirma,
+        );
     try {
       final snap = await _planillas.doc(planillaId).get();
       planillaData = snap.data() ?? {};
       pdfUrlActual = planillaData['urlPdf'] as String?;
       pdfPathActual = planillaData['pathPdf'] as String?;
+      pdfBaseUrl = planillaData['urlPdfBase'] as String?;
+      pdfBasePath = planillaData['pathPdfBase'] as String?;
     } catch (_) {}
-
-    final stamped =
-        await _regenerarPdfExcelConFirmas(
-          planillaId: planillaId,
-          empresaId: empresaId,
-          loteId: loteId,
-          planillaData: planillaData,
-          auditorSnapshot: actorSnapshot,
-        ) ??
-        await _stampearTrazabilidadEnPdf(
-          originalPdfUrl: pdfUrlActual,
-          originalPdfPath: pdfPathActual,
-          bloques: [
-            _PdfStampBlock(
-              titulo: 'APROBADO - AUDITORIA',
-              color: PdfColors.green700,
-              firmaBytes:
-                  actorSnapshot.firmaBlob ??
-                  await _loadBinary(
-                    url: actorSnapshot.urlFirma,
-                    path: actorSnapshot.pathFirma,
-                  ),
-              nombre: actorSnapshot.nombre,
-              cargo: actorSnapshot.cargo,
-              fecha: DateFormat('dd/MM/yyyy').format(DateTime.now()),
+    final datosExcel = planillaData['datosExcel'];
+    final tipoGeneracion = datosExcel is Map
+        ? (datosExcel['tipo_generacion'] ?? '').toString().trim()
+        : '';
+    final esPdfDirecto = _esPdfDirectoTipo(tipoGeneracion);
+    final sourcePdfUrl = esPdfDirecto
+        ? (pdfBaseUrl ?? pdfUrlActual)
+        : pdfUrlActual;
+    final sourcePdfPath = esPdfDirecto
+        ? (pdfBasePath ?? pdfPathActual)
+        : pdfPathActual;
+    final pdfBaseBytes = esPdfDirecto
+        ? await _cargarPdfBaseInlineDoc(planillaId) ??
+              await _cargarPdfBaseFirestore(planillaId)
+        : null;
+    final renderedPages = esPdfDirecto
+        ? await _cargarRenderPdfBase(planillaId)
+        : const <_RenderedPdfPage>[];
+    final blocks = _buildBlocksForStampedPdf(
+      planillaData: {
+        ...planillaData,
+        'firmaCargadoBlob':
+            planillaData['firmaCargadoBlob'] ??
+            await _loadBinary(
+              url: planillaData['urlFirmaCargado'] as String?,
+              path: planillaData['pathFirmaCargado'] as String?,
             ),
-          ],
-        );
-    if (stamped != null) {
+      },
+      auditorSnapshot: (
+        nombre: actorSnapshot.nombre,
+        cargo: actorSnapshot.cargo,
+        urlFirma: actorSnapshot.urlFirma,
+        pathFirma: actorSnapshot.pathFirma,
+        firmaBlob: firmaAuditoriaBytes,
+      ),
+    );
+
+    if (esPdfDirecto) {
+      final backendStamped = await _sellarPdfDirectoEnBackend(
+        planillaId: planillaId,
+        empresaId: empresaId,
+        estado: PpEstado.aprobada_auditoria,
+        sourcePdfUrl: sourcePdfUrl,
+        sourcePdfPath: sourcePdfPath,
+        bloques: _buildDirectPdfBlocksPayload(
+          blocks,
+          planillaData: planillaData,
+          auditorSnapshot: (
+            nombre: actorSnapshot.nombre,
+            cargo: actorSnapshot.cargo,
+            urlFirma: actorSnapshot.urlFirma,
+            pathFirma: actorSnapshot.pathFirma,
+            firmaBlob: firmaAuditoriaBytes,
+          ),
+        ),
+      );
+      if (backendStamped != null) {
+        pdfUrlSellado = backendStamped.$1;
+        pdfPathSellado = backendStamped.$2;
+      }
+    }
+
+    final stamped = pdfPathSellado != null
+        ? null
+        : await _regenerarPdfExcelConFirmas(
+                planillaId: planillaId,
+                empresaId: empresaId,
+                loteId: loteId,
+                planillaData: planillaData,
+                auditorSnapshot: actorSnapshot,
+              ) ??
+              await _stampearTrazabilidadEnPdf(
+                originalPdfBytes: esPdfDirecto
+                    ? (pdfBaseBytes ??
+                          (renderedPages.isNotEmpty ? null : currentPdfBytes))
+                    : currentPdfBytes,
+                originalPdfUrl: sourcePdfUrl,
+                originalPdfPath: sourcePdfPath,
+                renderedPages: renderedPages,
+                estado: PpEstado.aprobada_auditoria,
+                bloques: blocks,
+              );
+    if (esPdfDirecto &&
+        (pdfPathSellado ?? '').trim().isEmpty &&
+        (stamped == null || stamped.isEmpty)) {
+      throw const PpException(
+        'No se pudo regenerar el PDF con la firma de auditoria.',
+      );
+    }
+    if ((pdfPathSellado ?? '').trim().isEmpty && stamped != null) {
       final (url, path) = await _subirPdfFirmado(
         empresaId: empresaId,
         planillaId: planillaId,
@@ -690,6 +1602,27 @@ class PpService {
       );
       pdfUrlSellado = url;
       pdfPathSellado = path;
+    }
+
+    final camposExtra = <String, dynamic>{
+      'revisadoPor': actorId,
+      'revisadoEn': FieldValue.serverTimestamp(),
+      'urlFirmaAuditoria': actorSnapshot.urlFirma,
+      'pathFirmaAuditoria': actorSnapshot.pathFirma,
+      'nombreAuditorFirmante': actorSnapshot.nombre,
+      'cargoAuditorFirmante': actorSnapshot.cargo,
+    };
+    if (pdfUrlSellado != null && pdfUrlSellado.trim().isNotEmpty) {
+      camposExtra['urlPdf'] = pdfUrlSellado;
+      if (pdfUrlActual != null && pdfUrlActual.trim().isNotEmpty) {
+        camposExtra['urlPdfOriginal'] = pdfUrlActual;
+      }
+    }
+    if (pdfPathSellado != null && pdfPathSellado.trim().isNotEmpty) {
+      camposExtra['pathPdf'] = pdfPathSellado;
+      if (pdfPathActual != null && pdfPathActual.trim().isNotEmpty) {
+        camposExtra['pathPdfOriginal'] = pdfPathActual;
+      }
     }
 
     await _transicionar(
@@ -702,15 +1635,7 @@ class PpService {
       actorId: actorId,
       nombreActor: nombreActor,
       observacion: comentario,
-      camposExtra: {
-        'revisadoPor': actorId,
-        'revisadoEn': FieldValue.serverTimestamp(),
-        'urlFirmaAuditoria': actorSnapshot.urlFirma,
-        'nombreAuditorFirmante': actorSnapshot.nombre,
-        'cargoAuditorFirmante': actorSnapshot.cargo,
-        ...?pdfUrlSellado == null ? null : {'urlPdf': pdfUrlSellado},
-        ...?pdfPathSellado == null ? null : {'pathPdf': pdfPathSellado},
-      },
+      camposExtra: camposExtra,
     );
   }
 
@@ -762,6 +1687,7 @@ class PpService {
     required String rolPlanillas,
     String? nombreActor,
     String? comentario,
+    Uint8List? currentPdfBytes,
   }) async {
     _validarRol('firmar', rolPlanillas);
     final actorSnapshot = await _getActorSnapshot(
@@ -774,6 +1700,8 @@ class PpService {
     Map<String, dynamic> planillaData = const {};
     String? urlPdfOriginal;
     String? pathPdfOriginal;
+    String? urlPdfBase;
+    String? pathPdfBase;
     ({
       String? nombre,
       String? cargo,
@@ -787,12 +1715,26 @@ class PpService {
       planillaData = snap.data() ?? {};
       urlPdfOriginal = planillaData['urlPdf'] as String?;
       pathPdfOriginal = planillaData['pathPdf'] as String?;
+      urlPdfBase = planillaData['urlPdfBase'] as String?;
+      pathPdfBase = planillaData['pathPdfBase'] as String?;
       final revisadoPor = (planillaData['revisadoPor'] ?? '').toString().trim();
       if (revisadoPor.isNotEmpty) {
-        auditorSnapshot = await _getActorSnapshot(
+        final auditorActor = await _getActorSnapshot(
           revisadoPor,
           empresaId,
           planillaData['nombreAuditorFirmante'] as String?,
+        );
+        auditorSnapshot = (
+          nombre: auditorActor.nombre,
+          cargo: auditorActor.cargo,
+          urlFirma: auditorActor.urlFirma,
+          pathFirma: auditorActor.pathFirma,
+          firmaBlob:
+              auditorActor.firmaBlob ??
+              await _loadBinary(
+                url: auditorActor.urlFirma,
+                path: auditorActor.pathFirma,
+              ),
         );
       }
     } catch (_) {}
@@ -800,37 +1742,107 @@ class PpService {
     // Estampar la firma final de gerencia sobre el PDF vigente.
     String? urlPdfFirmado;
     String? pathPdfFirmado;
-    if (urlPdfOriginal != null || pathPdfOriginal != null) {
+    final datosExcel = planillaData['datosExcel'];
+    final tipoGeneracion = datosExcel is Map
+        ? (datosExcel['tipo_generacion'] ?? '').toString().trim()
+        : '';
+    final esPdfDirecto = _esPdfDirectoTipo(tipoGeneracion);
+    final sourcePdfUrl = esPdfDirecto
+        ? (urlPdfBase ?? urlPdfOriginal)
+        : urlPdfOriginal;
+    final sourcePdfPath = esPdfDirecto
+        ? (pathPdfBase ?? pathPdfOriginal)
+        : pathPdfOriginal;
+    final pdfBaseBytes = esPdfDirecto
+        ? await _cargarPdfBaseInlineDoc(planillaId) ??
+              await _cargarPdfBaseFirestore(planillaId)
+        : null;
+    final renderedPages = esPdfDirecto
+        ? await _cargarRenderPdfBase(planillaId)
+        : const <_RenderedPdfPage>[];
+    final firmaGerenciaBytes =
+        actorSnapshot.firmaBlob ??
+        await _loadBinary(
+          url: actorSnapshot.urlFirma,
+          path: actorSnapshot.pathFirma,
+        );
+    final blocks = _buildBlocksForStampedPdf(
+      planillaData: {
+        ...planillaData,
+        'firmaCargadoBlob':
+            planillaData['firmaCargadoBlob'] ??
+            await _loadBinary(
+              url: planillaData['urlFirmaCargado'] as String?,
+              path: planillaData['pathFirmaCargado'] as String?,
+            ),
+      },
+      auditorSnapshot: auditorSnapshot,
+      gerenciaSnapshot: (
+        nombre: actorSnapshot.nombre,
+        cargo: actorSnapshot.cargo,
+        urlFirma: actorSnapshot.urlFirma,
+        pathFirma: actorSnapshot.pathFirma,
+        firmaBlob: firmaGerenciaBytes,
+      ),
+    );
+    if (esPdfDirecto) {
+      final backendStamped = await _sellarPdfDirectoEnBackend(
+        planillaId: planillaId,
+        empresaId: empresaId,
+        estado: PpEstado.firmada,
+        sourcePdfUrl: sourcePdfUrl,
+        sourcePdfPath: sourcePdfPath,
+        bloques: _buildDirectPdfBlocksPayload(
+          blocks,
+          planillaData: planillaData,
+          auditorSnapshot: auditorSnapshot,
+          gerenciaSnapshot: (
+            nombre: actorSnapshot.nombre,
+            cargo: actorSnapshot.cargo,
+            urlFirma: actorSnapshot.urlFirma,
+            pathFirma: actorSnapshot.pathFirma,
+            firmaBlob: firmaGerenciaBytes,
+          ),
+        ),
+      );
+      if (backendStamped != null) {
+        urlPdfFirmado = backendStamped.$1;
+        pathPdfFirmado = backendStamped.$2;
+      }
+    }
+    if (sourcePdfUrl != null || sourcePdfPath != null) {
       try {
-        final stamped =
-            await _regenerarPdfExcelConFirmas(
-              planillaId: planillaId,
-              empresaId: empresaId,
-              loteId: loteId,
-              planillaData: planillaData,
-              auditorSnapshot: auditorSnapshot,
-              gerenciaSnapshot: actorSnapshot,
-            ) ??
-            await _stampearTrazabilidadEnPdf(
-              originalPdfUrl: urlPdfOriginal,
-              originalPdfPath: pathPdfOriginal,
-              bloques: [
-                _PdfStampBlock(
-                  titulo: 'APROBADO PARA PAGO - GERENCIA',
-                  color: PdfColors.blue700,
-                  firmaBytes:
-                      actorSnapshot.firmaBlob ??
-                      await _loadBinary(
-                        url: actorSnapshot.urlFirma,
-                        path: actorSnapshot.pathFirma,
-                      ),
-                  nombre: actorSnapshot.nombre,
-                  cargo: actorSnapshot.cargo,
-                  fecha: DateFormat('dd/MM/yyyy').format(DateTime.now()),
-                ),
-              ],
-            );
-        if (stamped != null) {
+        final stamped = pathPdfFirmado != null
+            ? null
+            : await _regenerarPdfExcelConFirmas(
+                    planillaId: planillaId,
+                    empresaId: empresaId,
+                    loteId: loteId,
+                    planillaData: planillaData,
+                    auditorSnapshot: auditorSnapshot,
+                    gerenciaSnapshot: actorSnapshot,
+                  ) ??
+                  await _stampearTrazabilidadEnPdf(
+                    originalPdfBytes: esPdfDirecto
+                        ? (pdfBaseBytes ??
+                              (renderedPages.isNotEmpty
+                                  ? null
+                                  : currentPdfBytes))
+                        : currentPdfBytes,
+                    originalPdfUrl: sourcePdfUrl,
+                    originalPdfPath: sourcePdfPath,
+                    renderedPages: renderedPages,
+                    estado: PpEstado.firmada,
+                    bloques: blocks,
+                  );
+        if (esPdfDirecto &&
+            (pathPdfFirmado ?? '').trim().isEmpty &&
+            (stamped == null || stamped.isEmpty)) {
+          throw const PpException(
+            'No se pudo regenerar el PDF con la firma final.',
+          );
+        }
+        if ((pathPdfFirmado ?? '').trim().isEmpty && stamped != null) {
           final (url, path) = await _subirPdfFirmado(
             empresaId: empresaId,
             planillaId: planillaId,
@@ -841,10 +1853,39 @@ class PpService {
         }
       } catch (e) {
         debugPrint('[PpService] No se pudo estampar firma: $e');
+        if (esPdfDirecto) rethrow;
       }
+    }
+    if (esPdfDirecto &&
+        ((urlPdfFirmado ?? '').trim().isEmpty ||
+            (pathPdfFirmado ?? '').trim().isEmpty)) {
+      throw const PpException(
+        'No se pudo guardar el PDF final firmado en este flujo.',
+      );
     }
 
     final ahora = FieldValue.serverTimestamp();
+    final camposExtra = <String, dynamic>{
+      'firmadoPor': actorId,
+      'firmadoEn': ahora,
+      'urlFirmaUsada': actorSnapshot.urlFirma,
+      'pathFirmaUsada': actorSnapshot.pathFirma,
+      'nombreFirmante': actorSnapshot.nombre,
+      'cargoFirmante': actorSnapshot.cargo,
+    };
+    if (urlPdfFirmado != null && urlPdfFirmado.trim().isNotEmpty) {
+      camposExtra['urlPdf'] = urlPdfFirmado;
+      if (urlPdfOriginal != null && urlPdfOriginal.trim().isNotEmpty) {
+        camposExtra['urlPdfOriginal'] = urlPdfOriginal;
+      }
+    }
+    if (pathPdfFirmado != null && pathPdfFirmado.trim().isNotEmpty) {
+      camposExtra['pathPdf'] = pathPdfFirmado;
+      if (pathPdfOriginal != null && pathPdfOriginal.trim().isNotEmpty) {
+        camposExtra['pathPdfOriginal'] = pathPdfOriginal;
+      }
+    }
+
     await _transicionar(
       planillaId: planillaId,
       loteId: loteId,
@@ -855,23 +1896,12 @@ class PpService {
       actorId: actorId,
       nombreActor: nombreActor,
       observacion: comentario,
-      camposExtra: {
-        'firmadoPor': actorId,
-        'firmadoEn': ahora,
-        'urlFirmaUsada': actorSnapshot.urlFirma,
-        'nombreFirmante': actorSnapshot.nombre,
-        'cargoFirmante': actorSnapshot.cargo,
-        // PDF con firma estampada (reemplaza urlPdf); originals se preservan
-        ...?urlPdfFirmado == null ? null : {'urlPdf': urlPdfFirmado},
-        ...?pathPdfFirmado == null ? null : {'pathPdf': pathPdfFirmado},
-        ...?urlPdfOriginal == null ? null : {'urlPdfOriginal': urlPdfOriginal},
-        ...?pathPdfOriginal == null
-            ? null
-            : {'pathPdfOriginal': pathPdfOriginal},
-      },
+      camposExtra: camposExtra,
     );
 
-    await _actualizarContadorLote(loteId, empresaId);
+    if (loteId.trim().isNotEmpty) {
+      await _actualizarContadorLote(loteId, empresaId);
+    }
     debugPrint('[PpService] Planilla firmada: $planillaId');
   }
 
@@ -930,7 +1960,55 @@ class PpService {
       );
     }
 
-    await _actualizarContadorLote(loteId, empresaId);
+    if (loteId.trim().isNotEmpty) {
+      await _actualizarContadorLote(loteId, empresaId);
+    }
+  }
+
+  Future<void> eliminarPlanilla({
+    required String planillaId,
+    required String empresaId,
+    required String actorId,
+    required String rolPlanillas,
+  }) async {
+    _validarRol('eliminar_planilla', rolPlanillas);
+
+    final snap = await _planillas.doc(planillaId).get();
+    if (!snap.exists) {
+      throw const PpException('Planilla no encontrada.');
+    }
+
+    final data = snap.data() ?? const <String, dynamic>{};
+    final empresaPlanilla = (data['empresaId'] ?? '').toString().trim();
+    if (empresaPlanilla != empresaId.trim()) {
+      throw const PpException('La planilla no pertenece a la empresa activa.');
+    }
+
+    final loteId = (data['loteId'] ?? '').toString().trim();
+    final storagePaths = <String>{
+      (data['pathPdf'] ?? '').toString().trim(),
+      (data['pathPdfBase'] ?? '').toString().trim(),
+      (data['pathPdfOriginal'] ?? '').toString().trim(),
+    }..removeWhere((path) => path.isEmpty);
+
+    await _eliminarSubcoleccionPlanilla(planillaId, '_render_pages');
+    await _eliminarSubcoleccionPlanilla(planillaId, '_pdf_base_chunks');
+    await _eliminarSubcoleccionPlanilla(planillaId, '_pdf_base_inline');
+
+    for (final path in storagePaths) {
+      await _storage.ref(path).delete().catchError((_) {});
+    }
+
+    await _planillas.doc(planillaId).delete();
+
+    if (loteId.isNotEmpty) {
+      await _reconciliarLoteTrasEliminarPlanilla(
+        loteId: loteId,
+        empresaId: empresaId,
+      );
+    }
+
+    debugPrint('[PpService] Planilla eliminada por $actorId: $planillaId');
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -973,6 +2051,321 @@ class PpService {
       observacion: nota,
       metadatos: {'datosExcel': datosExcel},
     );
+  }
+
+  Future<void> actualizarNombrePlanilla({
+    required String planillaId,
+    required String empresaId,
+    required String actorId,
+    required String rolPlanillas,
+    required String nombrePlanilla,
+    String? nombreActor,
+  }) async {
+    _validarRol('editar_nombre_planilla', rolPlanillas);
+    final safeNombre = _cleanString(nombrePlanilla);
+    if (safeNombre == null) {
+      throw const PpException('Escribe un nombre valido para la planilla.');
+    }
+
+    final snap = await _planillas.doc(planillaId).get();
+    if (!snap.exists) {
+      throw const PpException('Planilla no encontrada.');
+    }
+
+    final data = snap.data() ?? const <String, dynamic>{};
+    final empresaPlanilla = _cleanString(data['empresaId']) ?? '';
+    if (empresaPlanilla != empresaId.trim()) {
+      throw const PpException('La planilla no pertenece a la empresa activa.');
+    }
+
+    final estadoActual = PpEstadoX.deString((data['estado'] ?? '').toString());
+    if (estadoActual != PpEstado.cargada) {
+      throw const PpException(
+        'Solo puedes editar el nombre mientras la planilla este en estado Cargada.',
+      );
+    }
+
+    final nombreAnterior = _cleanString(data['nombrePlanillaDetectado']);
+    if (nombreAnterior == safeNombre) return;
+
+    final datosExcel = data['datosExcel'] is Map
+        ? Map<String, dynamic>.from(data['datosExcel'] as Map)
+        : <String, dynamic>{};
+    final tipoGeneracion = (datosExcel['tipo_generacion'] ?? '')
+        .toString()
+        .trim();
+    datosExcel['nombre_planilla'] = safeNombre;
+    if (tipoGeneracion == 'excel_consolidado' ||
+        datosExcel.containsKey('consolidado')) {
+      datosExcel['consolidado'] = safeNombre;
+    }
+
+    await _planillas.doc(planillaId).update({
+      'nombrePlanillaDetectado': safeNombre,
+      'datosExcel': datosExcel,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'metadatosExtraccion.nombreEditadoPor': actorId,
+      'metadatosExtraccion.nombreEditadoEn': DateTime.now().toIso8601String(),
+    });
+
+    final loteId = _cleanString(data['loteId']) ?? planillaId;
+    await _registrarEventoLote(
+      planillaId: planillaId,
+      loteId: loteId,
+      empresaId: empresaId,
+      accion: PpAccion.metadatos_actualizados,
+      actorId: actorId,
+      nombreActor: nombreActor,
+      metadatos: {
+        'campo': 'nombrePlanillaDetectado',
+        'valorAnterior': nombreAnterior,
+        'valorNuevo': safeNombre,
+      },
+    );
+
+    if (loteId.isNotEmpty && loteId != planillaId) {
+      await _lotes.doc(loteId).set({
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+  }
+
+  Future<void> limpiarCamposFirmaBinaria({
+    required String empresaId,
+    String? planillaId,
+  }) async {
+    try {
+      final docs = <DocumentSnapshot<Map<String, dynamic>>>[];
+      if (planillaId != null && planillaId.trim().isNotEmpty) {
+        final snap = await _planillas.doc(planillaId.trim()).get();
+        if (snap.exists) docs.add(snap);
+      } else {
+        final snap = await _planillas
+            .where('empresaId', isEqualTo: empresaId)
+            .get();
+        docs.addAll(snap.docs);
+      }
+
+      WriteBatch batch = _db.batch();
+      var ops = 0;
+
+      Future<void> commitBatch() async {
+        if (ops == 0) return;
+        await batch.commit();
+        batch = _db.batch();
+        ops = 0;
+      }
+
+      for (final doc in docs) {
+        final data = doc.data() ?? const <String, dynamic>{};
+        final hasLegacyBlobFields =
+            data.containsKey('firmaCargadoBlob') ||
+            data.containsKey('firmaAuditoriaBlob') ||
+            data.containsKey('firmaGerenciaBlob');
+        if (!hasLegacyBlobFields) continue;
+
+        batch.update(doc.reference, {
+          'firmaCargadoBlob': FieldValue.delete(),
+          'firmaAuditoriaBlob': FieldValue.delete(),
+          'firmaGerenciaBlob': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        ops++;
+        if (ops >= 400) {
+          await commitBatch();
+        }
+      }
+
+      await commitBatch();
+    } catch (e) {
+      debugPrint(
+        '[PpService] No se pudieron limpiar campos binarios de firma: $e',
+      );
+    }
+  }
+
+  Future<void> repararPdfFirmadoSiHaceFalta({
+    required String planillaId,
+    required String empresaId,
+  }) async {
+    try {
+      final snap = await _planillas.doc(planillaId).get();
+      if (!snap.exists) return;
+      final data = snap.data() ?? const <String, dynamic>{};
+      final estado = PpEstadoX.deString((data['estado'] ?? '').toString());
+      if (estado != PpEstado.aprobada_auditoria &&
+          estado != PpEstado.pendiente_firma_gerencia &&
+          estado != PpEstado.firmada) {
+        return;
+      }
+
+      final datosExcel = data['datosExcel'];
+      final tipoGeneracion = datosExcel is Map
+          ? (datosExcel['tipo_generacion'] ?? '').toString().trim()
+          : '';
+      if (tipoGeneracion != 'pdf_directo' && tipoGeneracion != 'pdf_cargado') {
+        return;
+      }
+
+      final currentUrl = (data['urlPdf'] ?? '').toString().trim();
+      final currentPath = (data['pathPdf'] ?? '').toString().trim();
+      final baseUrl = ((data['urlPdfBase'] ?? data['urlPdfOriginal']) ?? '')
+          .toString()
+          .trim();
+      final basePath = ((data['pathPdfBase'] ?? data['pathPdfOriginal']) ?? '')
+          .toString()
+          .trim();
+      final yaFirmado =
+          currentPath.contains('/firmados/') ||
+          currentPath.contains('\\firmados\\') ||
+          currentUrl.contains('/firmados/');
+      if (yaFirmado) return;
+
+      final firmaCargado = await _loadBinary(
+        url: data['urlFirmaCargado'] as String?,
+        path: data['pathFirmaCargado'] as String?,
+      );
+      final firmaAuditoria =
+          ((data['revisadoPor'] ?? '').toString().trim().isNotEmpty ||
+              (data['nombreAuditorFirmante'] ?? '')
+                  .toString()
+                  .trim()
+                  .isNotEmpty)
+          ? await _loadBinary(
+              url: data['urlFirmaAuditoria'] as String?,
+              path: data['pathFirmaAuditoria'] as String?,
+            )
+          : null;
+      final firmaGerencia =
+          ((data['firmadoPor'] ?? '').toString().trim().isNotEmpty ||
+              (data['nombreFirmante'] ?? '').toString().trim().isNotEmpty)
+          ? await _loadBinary(
+              url: data['urlFirmaUsada'] as String?,
+              path: data['pathFirmaUsada'] as String?,
+            )
+          : null;
+      final pdfBaseBytes =
+          await _cargarPdfBaseInlineDoc(planillaId) ??
+          await _cargarPdfBaseFirestore(planillaId);
+      final renderedPages = await _cargarRenderPdfBase(planillaId);
+      final blocks = _buildBlocksForStampedPdf(
+        planillaData: {...data, 'firmaCargadoBlob': firmaCargado},
+        auditorSnapshot:
+            firmaAuditoria == null &&
+                (data['nombreAuditorFirmante'] ?? '').toString().trim().isEmpty
+            ? null
+            : (
+                nombre: data['nombreAuditorFirmante']?.toString().trim(),
+                cargo: data['cargoAuditorFirmante']?.toString().trim(),
+                urlFirma: data['urlFirmaAuditoria'] as String?,
+                pathFirma: data['pathFirmaAuditoria'] as String?,
+                firmaBlob: firmaAuditoria,
+              ),
+        gerenciaSnapshot:
+            firmaGerencia == null &&
+                (data['nombreFirmante'] ?? '').toString().trim().isEmpty
+            ? null
+            : (
+                nombre: data['nombreFirmante']?.toString().trim(),
+                cargo: data['cargoFirmante']?.toString().trim(),
+                urlFirma: data['urlFirmaUsada'] as String?,
+                pathFirma: data['pathFirmaUsada'] as String?,
+                firmaBlob: firmaGerencia,
+              ),
+      );
+
+      final backendStamped = await _sellarPdfDirectoEnBackend(
+        planillaId: planillaId,
+        empresaId: empresaId,
+        estado: estado,
+        sourcePdfUrl: (baseUrl.isEmpty ? currentUrl : baseUrl).isEmpty
+            ? null
+            : (baseUrl.isEmpty ? currentUrl : baseUrl),
+        sourcePdfPath: (basePath.isEmpty ? currentPath : basePath).isEmpty
+            ? null
+            : (basePath.isEmpty ? currentPath : basePath),
+        bloques: _buildDirectPdfBlocksPayload(
+          blocks,
+          planillaData: data,
+          auditorSnapshot:
+              firmaAuditoria == null &&
+                  (data['nombreAuditorFirmante'] ?? '')
+                      .toString()
+                      .trim()
+                      .isEmpty
+              ? null
+              : (
+                  nombre: data['nombreAuditorFirmante']?.toString().trim(),
+                  cargo: data['cargoAuditorFirmante']?.toString().trim(),
+                  urlFirma: data['urlFirmaAuditoria'] as String?,
+                  pathFirma: data['pathFirmaAuditoria'] as String?,
+                  firmaBlob: firmaAuditoria,
+                ),
+          gerenciaSnapshot:
+              firmaGerencia == null &&
+                  (data['nombreFirmante'] ?? '').toString().trim().isEmpty
+              ? null
+              : (
+                  nombre: data['nombreFirmante']?.toString().trim(),
+                  cargo: data['cargoFirmante']?.toString().trim(),
+                  urlFirma: data['urlFirmaUsada'] as String?,
+                  pathFirma: data['pathFirmaUsada'] as String?,
+                  firmaBlob: firmaGerencia,
+                ),
+        ),
+      );
+      if (backendStamped != null) {
+        await _planillas.doc(planillaId).update({
+          'urlPdf': backendStamped.$1,
+          'pathPdf': backendStamped.$2,
+          if (baseUrl.isEmpty && currentUrl.isNotEmpty)
+            'urlPdfBase': currentUrl,
+          if (basePath.isEmpty && currentPath.isNotEmpty)
+            'pathPdfBase': currentPath,
+          if (currentUrl.isNotEmpty && !data.containsKey('urlPdfOriginal'))
+            'urlPdfOriginal': currentUrl,
+          if (currentPath.isNotEmpty && !data.containsKey('pathPdfOriginal'))
+            'pathPdfOriginal': currentPath,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+
+      final stamped = await _stampearTrazabilidadEnPdf(
+        originalPdfBytes: pdfBaseBytes,
+        originalPdfUrl: (baseUrl.isEmpty ? currentUrl : baseUrl).isEmpty
+            ? null
+            : (baseUrl.isEmpty ? currentUrl : baseUrl),
+        originalPdfPath: (basePath.isEmpty ? currentPath : basePath).isEmpty
+            ? null
+            : (basePath.isEmpty ? currentPath : basePath),
+        renderedPages: renderedPages,
+        estado: estado,
+        bloques: blocks,
+      );
+      if (stamped == null || stamped.isEmpty) return;
+
+      final (url, path) = await _subirPdfFirmado(
+        empresaId: empresaId,
+        planillaId: planillaId,
+        bytes: stamped,
+      );
+
+      await _planillas.doc(planillaId).update({
+        'urlPdf': url,
+        'pathPdf': path,
+        if (baseUrl.isEmpty && currentUrl.isNotEmpty) 'urlPdfBase': currentUrl,
+        if (basePath.isEmpty && currentPath.isNotEmpty)
+          'pathPdfBase': currentPath,
+        if (currentUrl.isNotEmpty && !data.containsKey('urlPdfOriginal'))
+          'urlPdfOriginal': currentUrl,
+        if (currentPath.isNotEmpty && !data.containsKey('pathPdfOriginal'))
+          'pathPdfOriginal': currentPath,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('[PpService] No se pudo reparar PDF firmado: $e');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1027,6 +2420,92 @@ class PpService {
     final snap = await _lotes.doc(loteId).get();
     if (!snap.exists) return null;
     return PpLote.fromMap(snap.id, snap.data()!);
+  }
+
+  Future<void> _eliminarSubcoleccionPlanilla(
+    String planillaId,
+    String nombreSubcoleccion,
+  ) async {
+    try {
+      final col = _planillas.doc(planillaId).collection(nombreSubcoleccion);
+      final snap = await col.get();
+      if (snap.docs.isEmpty) return;
+
+      WriteBatch batch = _db.batch();
+      var ops = 0;
+
+      Future<void> commitBatch() async {
+        if (ops == 0) return;
+        await batch.commit();
+        batch = _db.batch();
+        ops = 0;
+      }
+
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+        ops++;
+        if (ops >= 400) {
+          await commitBatch();
+        }
+      }
+
+      await commitBatch();
+    } catch (e) {
+      debugPrint(
+        '[PpService] No se pudo limpiar $nombreSubcoleccion de $planillaId: $e',
+      );
+    }
+  }
+
+  Future<void> _reconciliarLoteTrasEliminarPlanilla({
+    required String loteId,
+    required String empresaId,
+  }) async {
+    final loteRef = _lotes.doc(loteId);
+    final loteSnap = await loteRef.get();
+    if (!loteSnap.exists) return;
+
+    final planillasSnap = await _planillas
+        .where('loteId', isEqualTo: loteId)
+        .get();
+    if (planillasSnap.docs.isEmpty) {
+      final loteData = loteSnap.data() ?? const <String, dynamic>{};
+      final excelPath = (loteData['excelPath'] ?? '').toString().trim();
+      if (excelPath.isNotEmpty) {
+        await _storage.ref(excelPath).delete().catchError((_) {});
+      }
+      await loteRef.delete();
+      return;
+    }
+
+    final estados = planillasSnap.docs
+        .map((doc) => (doc.data()['estado'] ?? '').toString())
+        .toList();
+    final firmadas = estados.where((s) => s == PpEstado.firmada.valor).length;
+    final rechazadas = estados
+        .where((s) => s == PpEstado.rechazada.valor)
+        .length;
+    final completado =
+        (firmadas + rechazadas) == estados.length && estados.isNotEmpty;
+    final algunAvance = estados.any(
+      (s) =>
+          s != PpEstado.cargada.valor &&
+          s != PpEstado.pendiente_validacion.valor,
+    );
+
+    await loteRef.set({
+      'empresaId': empresaId,
+      'totalPlanillas': planillasSnap.docs.length,
+      'totalPdfs': planillasSnap.docs.length,
+      'planillasFirmadas': firmadas,
+      'planillasRechazadas': rechazadas,
+      'estado': completado
+          ? PpLoteEstado.completado.valor
+          : (algunAvance
+                ? PpLoteEstado.en_proceso.valor
+                : PpLoteEstado.listo.valor),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Cuenta planillas pendientes por rol (para badge/notificaciones).
@@ -1169,16 +2648,274 @@ class PpService {
     return (url, path);
   }
 
+  Future<(String, String)> _subirPdfBase({
+    required String empresaId,
+    required String loteId,
+    required String planillaId,
+    required Uint8List bytes,
+    required String nombre,
+  }) async {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final safe = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
+    final path = loteId.trim().isNotEmpty
+        ? 'planillas_pago/$empresaId/$loteId/originales/${planillaId}_${ts}_$safe'
+        : 'planillas_pago/$empresaId/directos_base/$planillaId/${ts}_$safe';
+    final ref = _storage.ref(path);
+    await ref.putData(bytes, SettableMetadata(contentType: 'application/pdf'));
+    final url = await ref.getDownloadURL();
+    return (url, path);
+  }
+
+  Future<void> _guardarRenderPdfBase({
+    required String planillaId,
+    required String empresaId,
+    required Uint8List pdfBytes,
+  }) async {
+    try {
+      final pages = await Printing.raster(
+        pdfBytes,
+        dpi: _renderCacheDpi,
+      ).toList();
+      if (pages.isEmpty) return;
+
+      final col = _planillas.doc(planillaId).collection('_render_pages');
+      final existing = await col.get();
+      WriteBatch batch = _db.batch();
+      var ops = 0;
+
+      Future<void> commitBatch() async {
+        if (ops == 0) return;
+        await batch.commit();
+        batch = _db.batch();
+        ops = 0;
+      }
+
+      for (final doc in existing.docs) {
+        batch.delete(doc.reference);
+        ops++;
+        if (ops >= 400) {
+          await commitBatch();
+        }
+      }
+
+      for (var i = 0; i < pages.length; i++) {
+        final page = pages[i];
+        batch.set(col.doc(i.toString().padLeft(4, '0')), {
+          'empresaId': empresaId,
+          'index': i,
+          'png': await page.toPng(),
+          'width': page.width.toDouble(),
+          'height': page.height.toDouble(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        ops++;
+        if (ops >= 400) {
+          await commitBatch();
+        }
+      }
+
+      await commitBatch();
+    } catch (e) {
+      debugPrint('[PpService] No se pudo guardar render base del PDF: $e');
+    }
+  }
+
+  Future<List<_RenderedPdfPage>> _cargarRenderPdfBase(String planillaId) async {
+    try {
+      final snap = await _planillas
+          .doc(planillaId)
+          .collection('_render_pages')
+          .orderBy('index')
+          .get();
+      return snap.docs
+          .map((doc) {
+            final data = doc.data();
+            final pngBytes = _coerceBinary(data['png']) ?? Uint8List(0);
+            final widthPx = (data['width'] as num?)?.toDouble() ?? 0;
+            final heightPx = (data['height'] as num?)?.toDouble() ?? 0;
+            return (pngBytes: pngBytes, widthPx: widthPx, heightPx: heightPx);
+          })
+          .where((page) {
+            return page.pngBytes.isNotEmpty &&
+                page.widthPx > 0 &&
+                page.heightPx > 0;
+          })
+          .toList(growable: false);
+    } catch (e) {
+      debugPrint('[PpService] No se pudo cargar render base del PDF: $e');
+      return const [];
+    }
+  }
+
+  Future<void> _guardarPdfBaseFirestore({
+    required String planillaId,
+    required String empresaId,
+    required Uint8List pdfBytes,
+  }) async {
+    try {
+      if (pdfBytes.isEmpty) return;
+      final col = _planillas.doc(planillaId).collection('_pdf_base_chunks');
+      final existing = await col.get();
+      WriteBatch batch = _db.batch();
+      var ops = 0;
+
+      Future<void> commitBatch() async {
+        if (ops == 0) return;
+        await batch.commit();
+        batch = _db.batch();
+        ops = 0;
+      }
+
+      for (final doc in existing.docs) {
+        batch.delete(doc.reference);
+        ops++;
+        if (ops >= 400) {
+          await commitBatch();
+        }
+      }
+
+      var index = 0;
+      for (
+        var offset = 0;
+        offset < pdfBytes.length;
+        offset += _maxFirestorePdfChunkBytes
+      ) {
+        final end = (offset + _maxFirestorePdfChunkBytes) < pdfBytes.length
+            ? offset + _maxFirestorePdfChunkBytes
+            : pdfBytes.length;
+        final chunk = Uint8List.sublistView(pdfBytes, offset, end);
+        batch.set(col.doc(index.toString().padLeft(4, '0')), {
+          'empresaId': empresaId,
+          'index': index,
+          'bytes': chunk,
+          'size': chunk.length,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        index++;
+        ops++;
+        if (ops >= 400) {
+          await commitBatch();
+        }
+      }
+
+      await commitBatch();
+    } catch (e) {
+      debugPrint('[PpService] No se pudo guardar PDF base en Firestore: $e');
+    }
+  }
+
+  Future<void> _guardarPdfBaseInlineDoc({
+    required String planillaId,
+    required String empresaId,
+    required Uint8List pdfBytes,
+  }) async {
+    try {
+      final ref = _planillas
+          .doc(planillaId)
+          .collection('_pdf_base_inline')
+          .doc('base');
+      if (pdfBytes.isEmpty || pdfBytes.length > _maxInlinePdfDocBytes) {
+        await ref.delete().catchError((_) {});
+        return;
+      }
+      await ref.set({
+        'empresaId': empresaId,
+        'bytes': pdfBytes,
+        'size': pdfBytes.length,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('[PpService] No se pudo guardar PDF inline base: $e');
+    }
+  }
+
+  Future<Uint8List?> _cargarPdfBaseInlineDoc(String planillaId) async {
+    try {
+      final snap = await _planillas
+          .doc(planillaId)
+          .collection('_pdf_base_inline')
+          .doc('base')
+          .get();
+      if (!snap.exists) return null;
+      final data = snap.data() ?? const <String, dynamic>{};
+      final bytes = _coerceBinary(data['bytes']);
+      if (bytes == null || bytes.isEmpty) return null;
+      return bytes;
+    } catch (e) {
+      debugPrint('[PpService] No se pudo cargar PDF inline base: $e');
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _cargarPdfBaseFirestore(String planillaId) async {
+    try {
+      final snap = await _planillas
+          .doc(planillaId)
+          .collection('_pdf_base_chunks')
+          .orderBy('index')
+          .get();
+      if (snap.docs.isEmpty) return null;
+
+      final bytes = BytesBuilder(copy: false);
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final chunk = _coerceBinary(data['bytes']);
+        if (chunk == null || chunk.isEmpty) {
+          return null;
+        }
+        bytes.add(chunk);
+      }
+
+      final merged = bytes.takeBytes();
+      return merged.isEmpty ? null : merged;
+    } catch (e) {
+      debugPrint('[PpService] No se pudo cargar PDF base desde Firestore: $e');
+      return null;
+    }
+  }
+
+  Future<Uint8List> _aplicarFirmaCargaInicial({
+    required Uint8List pdfBytes,
+    required ({
+      String? nombre,
+      String? cargo,
+      String? urlFirma,
+      String? pathFirma,
+      Uint8List? firmaBlob,
+    })
+    actorSnapshot,
+  }) async {
+    final stamped = await _stampearTrazabilidadEnPdf(
+      originalPdfBytes: pdfBytes,
+      estado: PpEstado.cargada,
+      bloques: [
+        _PdfStampBlock(
+          titulo: 'ELABORADO',
+          color: PdfColors.orange700,
+          firmaBytes:
+              actorSnapshot.firmaBlob ??
+              await _loadBinary(
+                url: actorSnapshot.urlFirma,
+                path: actorSnapshot.pathFirma,
+              ),
+          nombre: actorSnapshot.nombre,
+          cargo: actorSnapshot.cargo,
+          fecha: DateFormat('dd/MM/yyyy').format(DateTime.now()),
+        ),
+      ],
+    );
+    return stamped ?? pdfBytes;
+  }
+
   Future<Uint8List?> _stampearTrazabilidadEnPdf({
     Uint8List? originalPdfBytes,
     String? originalPdfUrl,
     String? originalPdfPath,
+    List<_RenderedPdfPage>? renderedPages,
     required List<_PdfStampBlock> bloques,
+    PpEstado? estado,
   }) async {
     const dpi = 150.0;
-    final pdfBytes =
-        originalPdfBytes ??
-        await _loadBinary(url: originalPdfUrl, path: originalPdfPath);
     final bloquesValidos = bloques
         .where((b) {
           return (b.firmaBytes != null && b.firmaBytes!.isNotEmpty) ||
@@ -1187,7 +2924,21 @@ class PpService {
               ((b.fecha ?? '').trim().isNotEmpty);
         })
         .toList(growable: false);
-    if (pdfBytes == null || pdfBytes.isEmpty || bloquesValidos.isEmpty) {
+    final renderedPagesValidas = (renderedPages ?? const <_RenderedPdfPage>[])
+        .where(
+          (page) =>
+              page.pngBytes.isNotEmpty && page.widthPx > 0 && page.heightPx > 0,
+        )
+        .toList(growable: false);
+    final pdfBytes = renderedPagesValidas.isNotEmpty
+        ? null
+        : originalPdfBytes ??
+              await _loadBinary(url: originalPdfUrl, path: originalPdfPath);
+    if ((pdfBytes == null || pdfBytes.isEmpty) &&
+        renderedPagesValidas.isEmpty) {
+      return null;
+    }
+    if (bloquesValidos.isEmpty) {
       return null;
     }
 
@@ -1205,25 +2956,49 @@ class PpService {
           color: color,
         );
 
-    final pages = await Printing.raster(pdfBytes, dpi: dpi).toList();
+    final pages = <_RenderedPdfPage>[];
+    if (renderedPagesValidas.isNotEmpty) {
+      pages.addAll(renderedPagesValidas);
+    } else {
+      final rasterPages = await Printing.raster(pdfBytes!, dpi: dpi).toList();
+      if (rasterPages.isEmpty) return null;
+      for (final page in rasterPages) {
+        pages.add((
+          pngBytes: await page.toPng(),
+          widthPx: page.width.toDouble(),
+          heightPx: page.height.toDouble(),
+        ));
+      }
+    }
     if (pages.isEmpty) return null;
 
     final doc = pw.Document();
 
     for (int i = 0; i < pages.length; i++) {
       final page = pages[i];
-      final pageImage = pw.MemoryImage(await page.toPng());
-      final pageWidthPts = page.width * 72.0 / dpi;
-      final pageHeightPts = page.height * 72.0 / dpi;
+      final pageImage = pw.MemoryImage(page.pngBytes);
+      final pageDpi = renderedPagesValidas.isNotEmpty ? _renderCacheDpi : dpi;
+      final pageWidthPts = page.widthPx * 72.0 / pageDpi;
+      final pageHeightPts = page.heightPx * 72.0 / pageDpi;
       final isLast = i == pages.length - 1;
-      final stampTop = pageHeightPts * 0.72;
-      final leftPadding = pageWidthPts * 0.03;
-      final gap = pageWidthPts * 0.02;
-      final colW =
-          (pageWidthPts -
-              (leftPadding * 2) -
-              (gap * (bloquesValidos.length - 1))) /
-          bloquesValidos.length;
+      final stampTop = pageHeightPts * 0.80;
+      final blockWidth = switch (bloquesValidos.length) {
+        1 => pageWidthPts * 0.26,
+        2 => pageWidthPts * 0.24,
+        _ => pageWidthPts * 0.20,
+      };
+      final leftPositions = switch (bloquesValidos.length) {
+        1 => <double>[pageWidthPts * 0.06],
+        2 => <double>[
+          pageWidthPts * 0.06,
+          pageWidthPts - (pageWidthPts * 0.06) - blockWidth,
+        ],
+        _ => <double>[
+          pageWidthPts * 0.04,
+          (pageWidthPts - blockWidth) / 2,
+          pageWidthPts - (pageWidthPts * 0.04) - blockWidth,
+        ],
+      };
 
       doc.addPage(
         pw.Page(
@@ -1232,6 +3007,20 @@ class PpService {
           build: (_) => pw.Stack(
             children: [
               pw.Image(pageImage, fit: pw.BoxFit.fill),
+              if (estado != null)
+                pw.Positioned(
+                  left: pageWidthPts - 44,
+                  top: pageHeightPts - 44,
+                  child: pw.SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: pw.CustomPaint(
+                      size: const PdfPoint(36, 36),
+                      painter: (canvas, size) =>
+                          _paintEstadoIcon(canvas, size, estado),
+                    ),
+                  ),
+                ),
               if (isLast)
                 ...List.generate(bloquesValidos.length, (index) {
                   final bloque = bloquesValidos[index];
@@ -1240,21 +3029,12 @@ class PpService {
                       ? pw.MemoryImage(bloque.firmaBytes!)
                       : null;
                   return pw.Positioned(
-                    left: leftPadding + (index * (colW + gap)),
+                    left: leftPositions[index],
                     top: stampTop,
                     child: pw.SizedBox(
-                      width: colW,
+                      width: blockWidth,
                       child: pw.Container(
                         padding: const pw.EdgeInsets.all(5),
-                        decoration: pw.BoxDecoration(
-                          border: pw.Border.all(
-                            color: bloque.color,
-                            width: 0.8,
-                          ),
-                          borderRadius: const pw.BorderRadius.all(
-                            pw.Radius.circular(4),
-                          ),
-                        ),
                         child: pw.Column(
                           crossAxisAlignment: pw.CrossAxisAlignment.center,
                           mainAxisSize: pw.MainAxisSize.min,
@@ -1348,12 +3128,13 @@ class PpService {
       nombreActor,
     );
 
-    // Logo para el PDF
-    Uint8List logoBytes = Uint8List(0);
-    try {
-      final data = await rootBundle.load('assets/logo.png');
-      logoBytes = data.buffer.asUint8List();
-    } catch (_) {}
+    // Logo activo y nombre de empresa para el PDF
+    final logoActivo = await getLogoActivoMeta(empresaId);
+    final logoBytes = await _cargarLogoEmpresa(empresaId);
+    final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
+      empresaId: empresaId,
+      nombreLogoPreferido: logoActivo?['nombre'],
+    );
 
     final loteRef = _lotes.doc();
     final loteId = loteRef.id;
@@ -1388,6 +3169,10 @@ class PpService {
       'planillasRechazadas': 0,
       'descripcion': descripcion,
       'origen': 'excel_generado',
+      'empresaNombre': empresaNombrePlanilla,
+      'logoPath': logoActivo?['path'],
+      'logoUrl': logoActivo?['url'],
+      'logoNombre': logoActivo?['nombre'],
     });
 
     await _registrarEventoLote(
@@ -1408,6 +3193,7 @@ class PpService {
       final pdfBytes = await _generarPdfDesdeFila(
         fila: fila,
         logoBytes: logoBytes,
+        empresaNombre: empresaNombrePlanilla,
         nombreElaborado: actorSnapshot.nombre,
         cargoElaborado: actorSnapshot.cargo,
         firmaElaboradoUrl: actorSnapshot.urlFirma,
@@ -1427,11 +3213,16 @@ class PpService {
       final ahora = FieldValue.serverTimestamp();
       await planillaRef.set({
         'empresaId': empresaId,
+        'empresaNombre': empresaNombrePlanilla,
         'loteId': loteId,
         'nombreArchivoOriginal': nombre,
         'nombrePlanillaDetectado': fila.nombrePlanilla,
         'fechaPlanillaDetectada': fila.fecha,
         'valorDetectado': fila.valor,
+        'logoPath': logoActivo?['path'],
+        'logoUrl': logoActivo?['url'],
+        'logoNombre': logoActivo?['nombre'],
+        'sinLogo': logoActivo == null,
         'estado': PpEstado.cargada.valor,
         'cargadoPor': actorId,
         'nombreCargado': actorSnapshot.nombre,
@@ -1451,6 +3242,11 @@ class PpService {
         'pathPdf': pdfPath,
         'datosExcel': {
           ...fila.extras,
+          'empresa_nombre': empresaNombrePlanilla,
+          'logo_path': logoActivo?['path'],
+          'logo_url': logoActivo?['url'],
+          'logo_nombre': logoActivo?['nombre'],
+          'sin_logo': logoActivo == null,
           if (fila.nombrePlanilla != null)
             'nombre_planilla': fila.nombrePlanilla!,
           if (fila.fecha != null) 'fecha': fila.fecha!,
@@ -1464,6 +3260,7 @@ class PpService {
         'metadatosExtraccion': {
           'metodo': 'generado_desde_excel',
           'rowIndex': fila.rowIndex,
+          'empresaNombre': empresaNombrePlanilla,
           'cargadoEn': DateTime.now().toIso8601String(),
         },
         'observaciones': [],
@@ -1505,8 +3302,13 @@ class PpService {
     Uint8List? excelBytes,
     String? excelNombre,
     Uint8List? logoBytes,
+    String? logoPath,
+    String? logoUrl,
+    String? logoNombre,
+    bool sinLogo = false,
     Uint8List? firmaElaboradoBlob,
     String? descripcion,
+    String? sheetTitle,
   }) async {
     if (filas.isEmpty) {
       throw const PpException(
@@ -1521,14 +3323,19 @@ class PpService {
     );
     // Use blob passed from caller (loaded in UI layer) — fallback to snapshot blob.
     final firmaBlob = firmaElaboradoBlob ?? actorSnapshot.firmaBlob;
-
-    Uint8List logoFinal = logoBytes ?? Uint8List(0);
-    if (logoFinal.isEmpty) {
-      try {
-        final data = await rootBundle.load('assets/logo.png');
-        logoFinal = data.buffer.asUint8List();
-      } catch (_) {}
-    }
+    final resolvedLogo = await _resolverLogoGeneracion(
+      empresaId: empresaId,
+      logoBytes: logoBytes,
+      logoPath: logoPath,
+      logoUrl: logoUrl,
+      logoNombre: logoNombre,
+      sinLogo: sinLogo,
+    );
+    final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
+      empresaId: empresaId,
+      nombreLogoPreferido: resolvedLogo.nombre,
+    );
+    final logoFinal = resolvedLogo.bytes;
 
     final loteRef = _lotes.doc();
     final loteId = loteRef.id;
@@ -1567,6 +3374,11 @@ class PpService {
       'planillasRechazadas': 0,
       'descripcion': descripcion,
       'origen': 'excel_consolidado',
+      'empresaNombre': empresaNombrePlanilla,
+      'logoPath': resolvedLogo.path,
+      'logoUrl': resolvedLogo.url,
+      'logoNombre': resolvedLogo.nombre,
+      'sinLogo': resolvedLogo.sinLogo,
     });
 
     await _registrarEventoLote(
@@ -1587,6 +3399,8 @@ class PpService {
       consolidado: consolidado,
       filas: filas,
       logoBytes: logoFinal,
+      empresaNombre: empresaNombrePlanilla,
+      sheetTitle: sheetTitle,
       nombreElaborado: actorSnapshot.nombre,
       cargoElaborado: actorSnapshot.cargo,
       firmaElaboradoUrl: actorSnapshot.urlFirma,
@@ -1594,7 +3408,7 @@ class PpService {
       firmaElaboradoBlob: firmaBlob,
     );
 
-    final nombreArchivo = _nombreArchivoConsolidado(consolidado);
+    final nombreArchivo = _nombreArchivoConsolidado(consolidado, filas);
     final (pdfUrl, pdfPath) = await _subirPdf(
       empresaId: empresaId,
       loteId: loteId,
@@ -1606,11 +3420,16 @@ class PpService {
     final ahora = FieldValue.serverTimestamp();
     await planillaRef.set({
       'empresaId': empresaId,
+      'empresaNombre': empresaNombrePlanilla,
       'loteId': loteId,
       'nombreArchivoOriginal': nombreArchivo,
       'nombrePlanillaDetectado': consolidado,
       'fechaPlanillaDetectada': fechaPlanilla,
       'valorDetectado': totalPlanilla,
+      'logoPath': resolvedLogo.path,
+      'logoUrl': resolvedLogo.url,
+      'logoNombre': resolvedLogo.nombre,
+      'sinLogo': resolvedLogo.sinLogo,
       'estado': PpEstado.cargada.valor,
       'cargadoPor': actorId,
       'nombreCargado': actorSnapshot.nombre,
@@ -1630,9 +3449,14 @@ class PpService {
       'pathPdf': pdfPath,
       'datosExcel': {
         'tipo_generacion': 'excel_consolidado',
+        'empresa_nombre': empresaNombrePlanilla,
         'consolidado': consolidado,
         'pagador': pagador,
         ...?banco == null ? null : {'banco': banco},
+        'logo_path': resolvedLogo.path,
+        'logo_url': resolvedLogo.url,
+        'logo_nombre': resolvedLogo.nombre,
+        'sin_logo': resolvedLogo.sinLogo,
         'filas_consolidadas': filas.length,
         'rango_filas_excel': _rangoFilasExcel(filas),
         // Stored so PDF can be regenerated from Firestore without Storage reads.
@@ -1643,6 +3467,7 @@ class PpService {
       'metadatosExtraccion': {
         'metodo': 'generado_desde_excel_consolidado',
         'excelRows': filas.map((f) => f.excelRowNumber).toList(),
+        'empresaNombre': empresaNombrePlanilla,
         'cargadoEn': DateTime.now().toIso8601String(),
       },
       'observaciones': [],
@@ -1680,6 +3505,7 @@ class PpService {
   Future<Uint8List> _generarPdfDesdeFila({
     required PpExcelFila fila,
     required Uint8List logoBytes,
+    String? empresaNombre,
     String? nombreElaborado,
     String? cargoElaborado,
     String? firmaElaboradoUrl,
@@ -1695,7 +3521,7 @@ class PpService {
     String? firmaGerenciaUrl,
     String? firmaGerenciaPath,
     Uint8List? firmaGerenciaBlob,
-    bool firmada = false,
+    PpEstado? estado,
   }) async {
     final doc = pw.Document();
     final logo = logoBytes.isNotEmpty ? pw.MemoryImage(logoBytes) : null;
@@ -1727,6 +3553,8 @@ class PpService {
     );
 
     final numeroPlanilla = fila.nombrePlanilla ?? '';
+    final empresaTitulo =
+        _cleanString(empresaNombre) ?? 'UNION TEMPORAL CAPITAL USPEC 2025';
     final fechaDisplay = _fechaDisplay(fila.fecha);
     final pagador = fila.extras['banco'] ?? fila.extras['pagador'] ?? '';
     final totalFmt = fila.valor != null
@@ -1739,7 +3567,9 @@ class PpService {
         pageTheme: pw.PageTheme(
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(18),
-          buildForeground: firmada ? (_) => _buildWatermark() : null,
+          buildForeground: estado != null
+              ? (_) => _buildEstadoBadge(estado)
+              : null,
         ),
         build: (_) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1759,10 +3589,7 @@ class PpService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(
-                        'UNION TEMPORAL CAPITAL USPEC 2025',
-                        style: ts(9, bold: true),
-                      ),
+                      pw.Text(empresaTitulo, style: ts(9, bold: true)),
                       pw.Text('Seguimiento o Transferencias', style: ts(8)),
                     ],
                   ),
@@ -1852,6 +3679,8 @@ class PpService {
     required String consolidado,
     required List<PpExcelFila> filas,
     required Uint8List logoBytes,
+    String? empresaNombre,
+    String? sheetTitle,
     String? nombreElaborado,
     String? cargoElaborado,
     String? firmaElaboradoUrl,
@@ -1867,7 +3696,7 @@ class PpService {
     String? firmaGerenciaUrl,
     String? firmaGerenciaPath,
     Uint8List? firmaGerenciaBlob,
-    bool firmada = false,
+    PpEstado? estado,
   }) async {
     final doc = pw.Document();
     final logo = logoBytes.isNotEmpty ? pw.MemoryImage(logoBytes) : null;
@@ -1897,59 +3726,101 @@ class PpService {
       fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
     );
 
+    final empresaTitulo =
+        _cleanString(empresaNombre) ?? 'UNION TEMPORAL CAPITAL USPEC 2025';
     final fechaDisplay = _fechaDisplay(_firstNonEmptyDate(filas));
     final pagador =
         _firstNonEmptyExtra(filas, const ['pagador', 'banco']) ?? '';
     final total = _sumarValores(filas);
     final totalFmt = _formatMontoPdf(total);
     final columns = _pdfColumnsForConsolidado(filas);
+    final esAlimentarCapital = sheetTitle != null && sheetTitle.isNotEmpty;
 
     doc.addPage(
       pw.MultiPage(
         pageTheme: pw.PageTheme(
           pageFormat: PdfPageFormat.a4.landscape,
           margin: const pw.EdgeInsets.fromLTRB(10, 10, 10, 14),
-          buildForeground: firmada ? (_) => _buildWatermark() : null,
+          buildForeground: estado != null
+              ? (_) => _buildEstadoBadge(estado)
+              : null,
         ),
         build: (_) => [
-          pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              if (logo != null)
-                pw.SizedBox(
-                  width: 86,
-                  height: 34,
-                  child: pw.Image(logo, fit: pw.BoxFit.contain),
-                ),
-              pw.SizedBox(width: 8),
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'UNION TEMPORAL CAPITAL USPEC 2025',
-                      style: ts(10, bold: true),
+          if (esAlimentarCapital)
+            // Layout Alimentar Capital: logo izq, título centrado, info box der
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                if (logo != null)
+                  pw.SizedBox(
+                    width: 86,
+                    height: 40,
+                    child: pw.Image(logo, fit: pw.BoxFit.contain),
+                  )
+                else
+                  pw.SizedBox(width: 86),
+                pw.SizedBox(width: 8),
+                pw.Expanded(
+                  child: pw.Center(
+                    child: pw.Text(
+                      sheetTitle,
+                      style: ts(13, bold: true),
+                      textAlign: pw.TextAlign.center,
                     ),
-                    pw.SizedBox(height: 1),
-                    pw.Text('Seguimiento o Transferecias', style: ts(8)),
+                  ),
+                ),
+                pw.SizedBox(width: 8),
+                pw.Table(
+                  border: pw.TableBorder.all(width: 0.5),
+                  columnWidths: {
+                    0: const pw.FixedColumnWidth(60),
+                    1: const pw.FixedColumnWidth(88),
+                  },
+                  children: [
+                    _pdfInfoRow('N CONSECUTIVO', consolidado, ts),
+                    _pdfInfoRow('Fecha', fechaDisplay, ts),
+                    _pdfInfoRow('TOTAL', '\$$totalFmt', ts),
                   ],
                 ),
-              ),
-              pw.Table(
-                border: pw.TableBorder.all(width: 0.5),
-                columnWidths: {
-                  0: const pw.FixedColumnWidth(46),
-                  1: const pw.FixedColumnWidth(84),
-                },
-                children: [
-                  _pdfInfoRow('N° Planilla', consolidado, ts),
-                  _pdfInfoRow('Fecha', fechaDisplay, ts),
-                  _pdfInfoRow('Pagador', pagador, ts),
-                  _pdfInfoRow('Total', totalFmt, ts),
-                ],
-              ),
-            ],
-          ),
+              ],
+            )
+          else
+            // Layout estándar
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                if (logo != null)
+                  pw.SizedBox(
+                    width: 86,
+                    height: 34,
+                    child: pw.Image(logo, fit: pw.BoxFit.contain),
+                  ),
+                pw.SizedBox(width: 8),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(empresaTitulo, style: ts(10, bold: true)),
+                      pw.SizedBox(height: 1),
+                      pw.Text('Seguimiento o Transferecias', style: ts(8)),
+                    ],
+                  ),
+                ),
+                pw.Table(
+                  border: pw.TableBorder.all(width: 0.5),
+                  columnWidths: {
+                    0: const pw.FixedColumnWidth(46),
+                    1: const pw.FixedColumnWidth(84),
+                  },
+                  children: [
+                    _pdfInfoRow('N° Planilla', consolidado, ts),
+                    _pdfInfoRow('Fecha', fechaDisplay, ts),
+                    _pdfInfoRow('Pagador', pagador, ts),
+                    _pdfInfoRow('Total', totalFmt, ts),
+                  ],
+                ),
+              ],
+            ),
           pw.SizedBox(height: 8),
           pw.Table(
             border: pw.TableBorder.all(width: 0.5),
@@ -1992,6 +3863,40 @@ class PpService {
                   }).toList(),
                 );
               }),
+              // Fila de total (formato Alimentar Capital)
+              if (esAlimentarCapital)
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                  children: columns.map((column) {
+                    if (column == 'valor_a_pagar') {
+                      return pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 2,
+                          vertical: 3,
+                        ),
+                        child: pw.Text(
+                          '\$$totalFmt',
+                          style: ts(4.8, bold: true),
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      );
+                    }
+                    if (column == 'no') {
+                      return pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 2,
+                          vertical: 3,
+                        ),
+                        child: pw.Text(
+                          'PAGO TOTAL',
+                          style: ts(4.8, bold: true),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      );
+                    }
+                    return pw.SizedBox();
+                  }).toList(),
+                ),
             ],
           ),
           pw.SizedBox(height: 12),
@@ -2059,22 +3964,52 @@ class PpService {
     return '${parts[2]} de ${mes > 0 && mes <= 12 ? meses[mes] : parts[1]} de ${parts[0]}';
   }
 
+  static const _utNombre = 'UNION TEMPORAL CAPITAL USPEC 2025';
+
+  String _sanitizeFilePart(String s) =>
+      s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim();
+
   String _nombreArchivoFila(PpExcelFila fila) {
-    final base =
-        fila.nombrePlanilla
-            ?.replaceAll(RegExp(r'[^\w\s\-]'), '')
-            .trim()
-            .replaceAll(RegExp(r'\s+'), '_') ??
-        'planilla_${fila.rowIndex + 1}';
-    return '$base.pdf';
+    final consolidado = _sanitizeFilePart(
+      fila.nombrePlanilla ?? 'planilla_${fila.rowIndex + 1}',
+    );
+    final detalle = _sanitizeFilePart(
+      fila.extras['detalle'] ??
+          fila.extras['no_factura_orden_de_compra'] ??
+          fila.extras['observaciones'] ??
+          '',
+    );
+    final parts = [
+      'PL',
+      consolidado,
+      if (detalle.isNotEmpty) detalle,
+      _utNombre,
+    ];
+    return '${parts.join('-')}.pdf';
   }
 
-  String _nombreArchivoConsolidado(String consolidado) {
-    final cleaned = consolidado
-        .replaceAll(RegExp(r'[^\w\s\-]'), '')
-        .trim()
-        .replaceAll(RegExp(r'\s+'), '_');
-    return '${cleaned.isEmpty ? 'planilla_consolidada' : cleaned}.pdf';
+  String _nombreArchivoConsolidado(
+    String consolidado,
+    List<PpExcelFila> filas,
+  ) {
+    final consolidadoClean = _sanitizeFilePart(
+      consolidado.isEmpty ? 'consolidado' : consolidado,
+    );
+    final detalle = _sanitizeFilePart(
+      _firstNonEmptyExtra(filas, const [
+            'detalle',
+            'no_factura_orden_de_compra',
+            'observaciones',
+          ]) ??
+          '',
+    );
+    final parts = [
+      'PL',
+      consolidadoClean,
+      if (detalle.isNotEmpty) detalle,
+      _utNombre,
+    ];
+    return '${parts.join('-')}.pdf';
   }
 
   String? _firstNonEmptyDate(List<PpExcelFila> filas) {
@@ -2108,6 +4043,134 @@ class PpService {
         : '${ordered.first}-${ordered.last}';
   }
 
+  ({bool esConsolidado, List<PpExcelFila> filas})
+  _resolverReemplazoObservadoDesdeExcel({
+    required Map<String, dynamic> planillaData,
+    required List<PpExcelFila> filasExcel,
+  }) {
+    final datosExcel = planillaData['datosExcel'];
+    final datosMap = datosExcel is Map<String, dynamic>
+        ? datosExcel
+        : (datosExcel is Map
+              ? Map<String, dynamic>.from(datosExcel)
+              : const <String, dynamic>{});
+    final tipoGeneracion = (datosMap['tipo_generacion'] ?? '')
+        .toString()
+        .trim();
+    final esperaConsolidado =
+        tipoGeneracion == 'excel_consolidado' ||
+        (datosMap['consolidado'] ?? '').toString().trim().isNotEmpty ||
+        datosMap['filas_rows'] is List;
+
+    final targetNombre =
+        (datosMap['consolidado'] ??
+                planillaData['nombrePlanillaDetectado'] ??
+                datosMap['nombre_planilla'] ??
+                '')
+            .toString()
+            .trim();
+    final targetFecha = (planillaData['fechaPlanillaDetectada'] ?? '')
+        .toString()
+        .trim();
+    final targetValor = (planillaData['valorDetectado'] as num?)?.toDouble();
+    final targetArchivo = (planillaData['nombreArchivoOriginal'] ?? '')
+        .toString()
+        .trim();
+
+    if (esperaConsolidado) {
+      final grupos = <String, List<PpExcelFila>>{};
+      for (final fila in filasExcel) {
+        final key = (fila.nombrePlanilla ?? '').trim();
+        if (key.isEmpty) continue;
+        grupos.putIfAbsent(key, () => <PpExcelFila>[]).add(fila);
+      }
+
+      if (targetNombre.isNotEmpty) {
+        for (final entry in grupos.entries) {
+          if (_normalizeLookup(entry.key) == _normalizeLookup(targetNombre)) {
+            return (esConsolidado: true, filas: entry.value);
+          }
+        }
+      }
+
+      if (targetValor != null) {
+        for (final entry in grupos.entries) {
+          final total = _sumarValores(entry.value);
+          final fecha = _firstNonEmptyDate(entry.value) ?? '';
+          final sameValue = (total - targetValor).abs() < 1;
+          final sameDate = targetFecha.isEmpty || fecha == targetFecha;
+          if (sameValue && sameDate) {
+            return (esConsolidado: true, filas: entry.value);
+          }
+        }
+      }
+
+      if (grupos.length == 1) {
+        return (esConsolidado: true, filas: grupos.values.first);
+      }
+
+      throw const PpException(
+        'No pude identificar en el Excel la planilla consolidada observada. '
+        'Usa el mismo número o consolidado del documento, o corrígela subiendo PDF.',
+      );
+    }
+
+    if (targetNombre.isNotEmpty) {
+      for (final fila in filasExcel) {
+        if (_normalizeLookup(fila.nombrePlanilla) ==
+            _normalizeLookup(targetNombre)) {
+          return (esConsolidado: false, filas: [fila]);
+        }
+      }
+    }
+
+    if (targetArchivo.isNotEmpty) {
+      final targetArchivoNorm = _normalizeLookup(
+        _basenameWithoutExtension(targetArchivo),
+      );
+      for (final fila in filasExcel) {
+        final filaArchivo = fila.nombreArchivoPdf;
+        if (_normalizeLookup(_basenameWithoutExtension(filaArchivo)) ==
+            targetArchivoNorm) {
+          return (esConsolidado: false, filas: [fila]);
+        }
+      }
+    }
+
+    if (targetValor != null || targetFecha.isNotEmpty) {
+      for (final fila in filasExcel) {
+        final sameValue =
+            targetValor == null ||
+            (fila.valor != null && (fila.valor! - targetValor).abs() < 1);
+        final sameDate =
+            targetFecha.isEmpty || ((fila.fecha ?? '').trim() == targetFecha);
+        if (sameValue && sameDate) {
+          return (esConsolidado: false, filas: [fila]);
+        }
+      }
+    }
+
+    if (filasExcel.length == 1) {
+      return (esConsolidado: false, filas: [filasExcel.first]);
+    }
+
+    throw const PpException(
+      'No pude identificar en el Excel la fila correcta para esta planilla observada. '
+      'Usa el mismo número de planilla o vuelve a cargar el PDF corregido.',
+    );
+  }
+
+  String _normalizeLookup(String? value) =>
+      (value ?? '').toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  String _basenameWithoutExtension(String? value) {
+    final raw = (value ?? '').trim();
+    if (raw.isEmpty) return '';
+    final parts = raw.split(RegExp(r'[\\/]'));
+    final fileName = parts.isNotEmpty ? parts.last : raw;
+    return fileName.replaceFirst(RegExp(r'\.[^.]+$'), '');
+  }
+
   String _formatMontoPdf(double value) {
     final decimals = value.truncateToDouble() == value ? 0 : 2;
     return NumberFormat.currency(
@@ -2118,6 +4181,31 @@ class PpService {
   }
 
   List<String> _pdfColumnsForConsolidado(List<PpExcelFila> filas) {
+    // Detectar formato Alimentar Capital: tiene columnas nit/dv/cte/aho
+    final esAlimentarCapital = filas.any(
+      (f) =>
+          (f.extras['nit'] ?? '').isNotEmpty ||
+          (f.extras['dv'] ?? '').isNotEmpty ||
+          (f.extras['cte'] ?? '').isNotEmpty ||
+          (f.extras['aho'] ?? '').isNotEmpty,
+    );
+
+    if (esAlimentarCapital) {
+      return [
+        'no',
+        'revisado',
+        'nit',
+        'dv',
+        'proveedor',
+        'no_factura_orden_de_compra',
+        'no_cuenta',
+        'cte',
+        'aho',
+        'banco',
+        'valor_a_pagar',
+      ];
+    }
+
     const preferred = <String>[
       'fecha_programada',
       'fecha_banco',
@@ -2150,12 +4238,20 @@ class PpService {
         case 'fecha_programada':
         case 'fecha_banco':
           widths[i] = const pw.FixedColumnWidth(48);
+        case 'no':
         case 'planilla':
-          widths[i] = const pw.FixedColumnWidth(28);
+          widths[i] = const pw.FixedColumnWidth(22);
         case 'nit':
-          widths[i] = const pw.FixedColumnWidth(45);
+          widths[i] = const pw.FixedColumnWidth(48);
+        case 'dv':
+          widths[i] = const pw.FixedColumnWidth(12);
+        case 'revisado':
+          widths[i] = const pw.FixedColumnWidth(22);
+        case 'cte':
+        case 'aho':
+          widths[i] = const pw.FixedColumnWidth(14);
         case 'valor_a_pagar':
-          widths[i] = const pw.FixedColumnWidth(54);
+          widths[i] = const pw.FixedColumnWidth(58);
         case 'tipo_de_cuenta':
           widths[i] = const pw.FixedColumnWidth(44);
         case 'no_cuenta':
@@ -2183,14 +4279,19 @@ class PpService {
   String _pdfColumnLabel(String column) => switch (column) {
     'fecha_programada' => 'Fecha programada',
     'fecha_banco' => 'Fecha banco',
+    'no' => 'No',
     'planilla' => 'Planilla',
-    'nit' => 'Nit',
-    'proveedor' => 'Proveedor',
-    'no_factura_orden_de_compra' => 'No Factura /Orden de Compra',
-    'valor_a_pagar' => 'Valor a Pagar',
+    'nit' => 'NIT',
+    'dv' => 'DV',
+    'revisado' => 'REVISADO',
+    'cte' => 'CTE',
+    'aho' => 'AHO',
+    'proveedor' => 'PROVEEDOR',
+    'no_factura_orden_de_compra' => 'N Factura /Orden de Compra',
+    'valor_a_pagar' => 'VALOR A PAGAR',
     'tipo_de_cuenta' => 'Tipo de Cuenta',
-    'no_cuenta' => 'No Cuenta',
-    'banco' => 'Banco',
+    'no_cuenta' => 'N CUENTA',
+    'banco' => 'BANCO',
     'detalle' => 'Detalle',
     'pagador' => 'Pagador',
     'observaciones' => 'Observaciones',
@@ -2208,6 +4309,7 @@ class PpService {
         return _formatDateShort(
           column == 'fecha_programada' ? fila.fecha : fila.extras[column],
         );
+      case 'no':
       case 'planilla':
         return fila.nombrePlanilla ?? '';
       case 'valor_a_pagar':
@@ -2306,22 +4408,27 @@ class PpService {
   }
 
   Future<Uint8List?> _loadBinary({String? url, String? path}) async {
-    if (path != null && path.trim().isNotEmpty) {
+    final safePath = _normalizeStoragePath(path) ?? _normalizeStoragePath(url);
+    final safeUrl = _normalizeStorageUrl(url) ?? _normalizeStorageUrl(path);
+
+    if (safePath != null) {
       // Priority 1: Storage SDK getData() — works on web for authenticated users
       // without CORS issues (uses Firebase SDK channel, not browser fetch).
       try {
-        final bytes = await _storage.ref(path).getData();
+        final bytes = await _storage
+            .ref(safePath)
+            .getData(_maxStorageDownloadBytes);
         if (bytes != null && bytes.isNotEmpty) return bytes;
       } catch (e) {
         debugPrint('[PpService] _loadBinary.getData error: $e');
       }
 
-      // Priority 2: fresh download URL + http.get (works on native/desktop).
+      // Priority 2: fresh download URL using platform-specific loader.
       try {
-        final freshUrl = await _storage.ref(path).getDownloadURL();
-        final resp = await http.get(Uri.parse(freshUrl));
-        if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
-          return resp.bodyBytes;
+        final freshUrl = await _storage.ref(safePath).getDownloadURL();
+        final bytes = await loadBinaryFromUrl(freshUrl);
+        if (bytes != null && bytes.isNotEmpty) {
+          return bytes;
         }
       } catch (e) {
         debugPrint('[PpService] _loadBinary.freshUrl error: $e');
@@ -2329,11 +4436,22 @@ class PpService {
     }
 
     // Priority 3: stored URL as last resort.
-    if (url != null && url.trim().isNotEmpty) {
+    if (safeUrl != null) {
       try {
-        final resp = await http.get(Uri.parse(url));
-        if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
-          return resp.bodyBytes;
+        final bytes = await _storage
+            .refFromURL(safeUrl)
+            .getData(_maxStorageDownloadBytes);
+        if (bytes != null && bytes.isNotEmpty) {
+          return bytes;
+        }
+      } catch (e) {
+        debugPrint('[PpService] _loadBinary.refFromURL error: $e');
+      }
+
+      try {
+        final bytes = await loadBinaryFromUrl(safeUrl);
+        if (bytes != null && bytes.isNotEmpty) {
+          return bytes;
         }
       } catch (e) {
         debugPrint('[PpService] _loadBinary.storedUrl error: $e');
@@ -2375,11 +4493,11 @@ class PpService {
       return null;
     }
 
-    Uint8List logoBytes = Uint8List(0);
-    try {
-      final data = await rootBundle.load('assets/logo.png');
-      logoBytes = data.buffer.asUint8List();
-    } catch (_) {}
+    final logoBytes = await _cargarLogoEmpresa(empresaId);
+    final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
+      empresaId: empresaId,
+      planillaData: planillaData,
+    );
 
     final cargadoPor = (planillaData['cargadoPor'] ?? '').toString();
     final cargadorSnapshot = await _getActorSnapshot(
@@ -2425,8 +4543,8 @@ class PpService {
                   .where((f) => excelRows.contains(f.excelRowNumber))
                   .toList()
             : parse.filas.where((f) {
-                final c =
-                    (f.nombrePlanilla ?? f.extras['consolidado'] ?? '').trim();
+                final c = (f.nombrePlanilla ?? f.extras['consolidado'] ?? '')
+                    .trim();
                 return c ==
                     ((datosExcel['consolidado'] ??
                                 planillaData['nombrePlanillaDetectado']) ??
@@ -2446,6 +4564,7 @@ class PpService {
                 .toString(),
         filas: filas,
         logoBytes: logoBytes,
+        empresaNombre: empresaNombrePlanilla,
         nombreElaborado: cargadorSnapshot.nombre,
         cargoElaborado: cargadorSnapshot.cargo,
         firmaElaboradoUrl: cargadorSnapshot.urlFirma,
@@ -2461,7 +4580,9 @@ class PpService {
         firmaGerenciaUrl: gerenciaSnapshot?.urlFirma,
         firmaGerenciaPath: gerenciaSnapshot?.pathFirma,
         firmaGerenciaBlob: gerenciaSnapshot?.firmaBlob,
-        firmada: gerenciaSnapshot != null,
+        estado: gerenciaSnapshot != null
+            ? PpEstado.firmada
+            : PpEstado.aprobada_auditoria,
       );
     }
 
@@ -2501,6 +4622,7 @@ class PpService {
     return _generarPdfDesdeFila(
       fila: fila,
       logoBytes: logoBytes,
+      empresaNombre: empresaNombrePlanilla,
       nombreElaborado: cargadorSnapshot.nombre,
       cargoElaborado: cargadorSnapshot.cargo,
       firmaElaboradoUrl: cargadorSnapshot.urlFirma,
@@ -2516,33 +4638,300 @@ class PpService {
       firmaGerenciaUrl: gerenciaSnapshot?.urlFirma,
       firmaGerenciaPath: gerenciaSnapshot?.pathFirma,
       firmaGerenciaBlob: gerenciaSnapshot?.firmaBlob,
-      firmada: gerenciaSnapshot != null,
+      estado: gerenciaSnapshot != null
+          ? PpEstado.firmada
+          : PpEstado.aprobada_auditoria,
     );
   }
 
-  // Watermark: gray checkmark centered on the page, drawn with PDF canvas.
-  pw.Widget _buildWatermark() {
-    return pw.Center(
-      child: pw.Transform.rotate(
-        angle: -0.42, // ≈ -24 degrees
-        child: pw.CustomPaint(
-          size: const PdfPoint(230, 230),
-          painter: (PdfGraphics canvas, PdfPoint size) {
-            // PdfColor values are 0.0–1.0. No alpha channel needed — use a
-            // very light gray so it doesn't obscure the document content.
-            canvas.setStrokeColor(const PdfColor(0.80, 0.80, 0.80));
-            canvas.setLineWidth(24);
-            // ✓ shape in PDF coordinates (y=0 at bottom-left):
-            // left arm: left-center → bottom-pivot
-            canvas.moveTo(size.x * 0.10, size.y * 0.52);
-            canvas.lineTo(size.x * 0.40, size.y * 0.18);
-            // right arm: bottom-pivot → top-right
-            canvas.lineTo(size.x * 0.92, size.y * 0.84);
-            canvas.strokePath();
-          },
+  Uint8List? _coerceBinary(dynamic raw) {
+    if (raw is Uint8List && raw.isNotEmpty) return raw;
+    if (raw is Blob && raw.bytes.isNotEmpty) return raw.bytes;
+    if (raw is List && raw.isNotEmpty) {
+      return Uint8List.fromList(raw.cast<int>());
+    }
+    return null;
+  }
+
+  List<_PdfStampBlock> _buildBlocksForStampedPdf({
+    required Map<String, dynamic> planillaData,
+    ({
+      String? nombre,
+      String? cargo,
+      String? urlFirma,
+      String? pathFirma,
+      Uint8List? firmaBlob,
+    })?
+    auditorSnapshot,
+    ({
+      String? nombre,
+      String? cargo,
+      String? urlFirma,
+      String? pathFirma,
+      Uint8List? firmaBlob,
+    })?
+    gerenciaSnapshot,
+  }) {
+    final cargadoBlob = _coerceBinary(planillaData['firmaCargadoBlob']);
+    final auditorBlob =
+        auditorSnapshot?.firmaBlob ??
+        _coerceBinary(planillaData['firmaAuditoriaBlob']);
+    final gerenciaBlob =
+        gerenciaSnapshot?.firmaBlob ??
+        _coerceBinary(planillaData['firmaGerenciaBlob']);
+
+    final blocks = <_PdfStampBlock>[
+      _PdfStampBlock(
+        titulo: 'ELABORADO',
+        color: PdfColors.orange700,
+        firmaBytes: cargadoBlob,
+        nombre: (planillaData['nombreCargado'] ?? '').toString().trim(),
+        cargo: (planillaData['cargoCargado'] ?? '').toString().trim(),
+      ),
+    ];
+
+    if (auditorSnapshot != null) {
+      blocks.add(
+        _PdfStampBlock(
+          titulo: 'APROBADO - AUDITORIA',
+          color: PdfColors.blue700,
+          firmaBytes: auditorBlob,
+          nombre:
+              (auditorSnapshot.nombre ??
+                      planillaData['nombreAuditorFirmante']?.toString())
+                  ?.trim(),
+          cargo:
+              (auditorSnapshot.cargo ??
+                      planillaData['cargoAuditorFirmante']?.toString())
+                  ?.trim(),
+          fecha: DateFormat('dd/MM/yyyy').format(DateTime.now()),
+        ),
+      );
+    } else if (((planillaData['nombreAuditorFirmante'] ?? '').toString().trim())
+        .isNotEmpty) {
+      blocks.add(
+        _PdfStampBlock(
+          titulo: 'APROBADO - AUDITORIA',
+          color: PdfColors.blue700,
+          firmaBytes: auditorBlob,
+          nombre: planillaData['nombreAuditorFirmante']?.toString().trim(),
+          cargo: planillaData['cargoAuditorFirmante']?.toString().trim(),
+        ),
+      );
+    }
+
+    if (gerenciaSnapshot != null) {
+      blocks.add(
+        _PdfStampBlock(
+          titulo: 'APROBADO PARA PAGO - GERENCIA',
+          color: PdfColors.green700,
+          firmaBytes: gerenciaBlob,
+          nombre:
+              (gerenciaSnapshot.nombre ??
+                      planillaData['nombreFirmante']?.toString())
+                  ?.trim(),
+          cargo:
+              (gerenciaSnapshot.cargo ??
+                      planillaData['cargoFirmante']?.toString())
+                  ?.trim(),
+          fecha: DateFormat('dd/MM/yyyy').format(DateTime.now()),
+        ),
+      );
+    } else if (((planillaData['nombreFirmante'] ?? '').toString().trim())
+        .isNotEmpty) {
+      blocks.add(
+        _PdfStampBlock(
+          titulo: 'APROBADO PARA PAGO - GERENCIA',
+          color: PdfColors.green700,
+          firmaBytes: gerenciaBlob,
+          nombre: planillaData['nombreFirmante']?.toString().trim(),
+          cargo: planillaData['cargoFirmante']?.toString().trim(),
+        ),
+      );
+    }
+
+    return blocks;
+  }
+
+  String _colorToHex(PdfColor color) {
+    int toChannel(double value) {
+      final normalized = value.clamp(0, 1).toDouble();
+      return (normalized * 255).round().clamp(0, 255);
+    }
+
+    final r = toChannel(color.red).toRadixString(16).padLeft(2, '0');
+    final g = toChannel(color.green).toRadixString(16).padLeft(2, '0');
+    final b = toChannel(color.blue).toRadixString(16).padLeft(2, '0');
+    return '#$r$g$b'.toUpperCase();
+  }
+
+  List<Map<String, dynamic>> _buildDirectPdfBlocksPayload(
+    List<_PdfStampBlock> blocks, {
+    required Map<String, dynamic> planillaData,
+    ({
+      String? nombre,
+      String? cargo,
+      String? urlFirma,
+      String? pathFirma,
+      Uint8List? firmaBlob,
+    })?
+    auditorSnapshot,
+    ({
+      String? nombre,
+      String? cargo,
+      String? urlFirma,
+      String? pathFirma,
+      Uint8List? firmaBlob,
+    })?
+    gerenciaSnapshot,
+  }) {
+    final payload = <Map<String, dynamic>>[];
+
+    for (final block in blocks) {
+      String? firmaPath;
+      String? firmaUrl;
+      if (block.titulo == 'ELABORADO') {
+        firmaPath = planillaData['pathFirmaCargado'] as String?;
+        firmaUrl = planillaData['urlFirmaCargado'] as String?;
+      } else if (block.titulo == 'APROBADO - AUDITORIA') {
+        firmaPath =
+            auditorSnapshot?.pathFirma ??
+            planillaData['pathFirmaAuditoria'] as String?;
+        firmaUrl =
+            auditorSnapshot?.urlFirma ??
+            planillaData['urlFirmaAuditoria'] as String?;
+      } else if (block.titulo == 'APROBADO PARA PAGO - GERENCIA') {
+        firmaPath =
+            gerenciaSnapshot?.pathFirma ??
+            planillaData['pathFirmaUsada'] as String?;
+        firmaUrl =
+            gerenciaSnapshot?.urlFirma ??
+            planillaData['urlFirmaUsada'] as String?;
+      }
+
+      payload.add({
+        'titulo': block.titulo,
+        'colorHex': _colorToHex(block.color),
+        'nombre': block.nombre,
+        'cargo': block.cargo,
+        'fecha': block.fecha,
+        'firmaPath': firmaPath,
+        'firmaUrl': firmaUrl,
+      });
+    }
+
+    return payload;
+  }
+
+  Future<(String, String)?> _sellarPdfDirectoEnBackend({
+    required String planillaId,
+    required String empresaId,
+    required PpEstado estado,
+    required String? sourcePdfUrl,
+    required String? sourcePdfPath,
+    required List<Map<String, dynamic>> bloques,
+  }) async {
+    try {
+      final callable = _functions.httpsCallable('ppStampDirectPdf');
+      final response = await callable.call({
+        'planillaId': planillaId,
+        'empresaId': empresaId,
+        'estado': estado.valor,
+        'sourcePdfUrl': sourcePdfUrl,
+        'sourcePdfPath': sourcePdfPath,
+        'bloques': bloques,
+      });
+      final data = Map<String, dynamic>.from(response.data as Map);
+      final path = (data['pathPdf'] ?? '').toString().trim();
+      if (path.isEmpty) return null;
+      final url = await _storage.ref(path).getDownloadURL();
+      return (url, path);
+    } catch (e) {
+      debugPrint('[PpService] Sellado backend PDF directo falló: $e');
+      return null;
+    }
+  }
+
+  // Small status badge in the bottom-right corner of each PDF page.
+  pw.Widget _buildEstadoBadge(PpEstado estado) {
+    return pw.Align(
+      alignment: pw.Alignment.bottomRight,
+      child: pw.Padding(
+        padding: const pw.EdgeInsets.all(10),
+        child: pw.SizedBox(
+          width: 36,
+          height: 36,
+          child: pw.CustomPaint(
+            size: const PdfPoint(36, 36),
+            painter: (canvas, size) => _paintEstadoIcon(canvas, size, estado),
+          ),
         ),
       ),
     );
+  }
+
+  // Draws a colored circle with a state icon. PDF canvas: y=0 at bottom-left.
+  void _paintEstadoIcon(PdfGraphics canvas, PdfPoint size, PpEstado estado) {
+    final r = size.x / 2;
+    final cx = r;
+    final cy = r; // center: (r, r) from bottom-left
+
+    final bgColor = switch (estado) {
+      PpEstado.firmada => const PdfColor(0.15, 0.55, 0.15),
+      PpEstado.aprobada_auditoria => const PdfColor(0.10, 0.40, 0.72),
+      PpEstado.rechazada => const PdfColor(0.72, 0.12, 0.12),
+      PpEstado.anulada => const PdfColor(0.45, 0.45, 0.45),
+      PpEstado.cargada => const PdfColor(0.30, 0.50, 0.60),
+      PpEstado.observada => const PdfColor(0.50, 0.15, 0.62),
+      _ => const PdfColor(0.76, 0.50, 0.10),
+    };
+    canvas.setFillColor(bgColor);
+    canvas.drawEllipse(cx, cy, r * 0.96, r * 0.96);
+    canvas.fillPath();
+
+    canvas.setStrokeColor(PdfColors.white);
+    canvas.setLineWidth(2.2);
+
+    switch (estado) {
+      case PpEstado.firmada:
+      case PpEstado.aprobada_auditoria:
+        // ✓ checkmark (PDF: y=0 at bottom, high y = upper part)
+        canvas.moveTo(cx - r * 0.50, cy + r * 0.05);
+        canvas.lineTo(cx - r * 0.10, cy - r * 0.30);
+        canvas.lineTo(cx + r * 0.52, cy + r * 0.38);
+        canvas.strokePath();
+      case PpEstado.rechazada:
+      case PpEstado.anulada:
+        // ✕ cross
+        canvas.moveTo(cx - r * 0.38, cy - r * 0.38);
+        canvas.lineTo(cx + r * 0.38, cy + r * 0.38);
+        canvas.strokePath();
+        canvas.moveTo(cx + r * 0.38, cy - r * 0.38);
+        canvas.lineTo(cx - r * 0.38, cy + r * 0.38);
+        canvas.strokePath();
+      case PpEstado.cargada:
+        // ↑ upload arrow (tip at high y = top of circle)
+        canvas.moveTo(cx, cy + r * 0.42);
+        canvas.lineTo(cx - r * 0.32, cy + r * 0.08);
+        canvas.moveTo(cx, cy + r * 0.42);
+        canvas.lineTo(cx + r * 0.32, cy + r * 0.08);
+        canvas.strokePath();
+        canvas.moveTo(cx, cy + r * 0.42);
+        canvas.lineTo(cx, cy - r * 0.38);
+        canvas.strokePath();
+      default:
+        // ⏳ hourglass (two triangles sharing center)
+        canvas.moveTo(cx - r * 0.40, cy + r * 0.44);
+        canvas.lineTo(cx + r * 0.40, cy + r * 0.44);
+        canvas.lineTo(cx, cy);
+        canvas.lineTo(cx - r * 0.40, cy + r * 0.44);
+        canvas.strokePath();
+        canvas.moveTo(cx - r * 0.40, cy - r * 0.44);
+        canvas.lineTo(cx + r * 0.40, cy - r * 0.44);
+        canvas.lineTo(cx, cy);
+        canvas.lineTo(cx - r * 0.40, cy - r * 0.44);
+        canvas.strokePath();
+    }
   }
 
   pw.Widget _buildElaboradoBlock({
@@ -2551,20 +4940,13 @@ class PpService {
     required pw.MemoryImage? firma,
     required pw.TextStyle Function(double, {bool bold}) ts,
   }) {
-    final safeNombre = (nombre ?? '').trim();
-    final safeCargo = (cargo ?? '').trim();
-
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text('Elaborado:', style: ts(8, bold: true)),
-        pw.SizedBox(height: 4),
-        if (firma != null)
-          pw.Image(firma, width: 120, height: 46, fit: pw.BoxFit.contain),
-        if (safeNombre.isNotEmpty)
-          pw.Text(safeNombre, style: ts(8, bold: true)),
-        if (safeCargo.isNotEmpty) pw.Text(safeCargo, style: ts(7)),
-      ],
+    return _buildFirmaEstadoBlock(
+      titulo: 'ELABORADO',
+      nombre: nombre,
+      cargo: cargo,
+      firma: firma,
+      ts: ts,
+      color: PdfColors.orange700,
     );
   }
 
@@ -2603,6 +4985,7 @@ class PpService {
             cargo: cargoAuditoria,
             firma: firmaAuditoria,
             ts: ts,
+            color: PdfColors.blue700,
           ),
         ),
       );
@@ -2615,11 +4998,12 @@ class PpService {
       widgets.add(
         pw.Expanded(
           child: _buildFirmaEstadoBlock(
-            titulo: 'Aprobado gerencia:',
+            titulo: 'APROBADO PARA PAGO - GERENCIA',
             nombre: nombreGerencia,
             cargo: cargoGerencia,
             firma: firmaGerencia,
             ts: ts,
+            color: PdfColors.green700,
           ),
         ),
       );
@@ -2637,21 +5021,44 @@ class PpService {
     required String? cargo,
     required pw.MemoryImage? firma,
     required pw.TextStyle Function(double, {bool bold}) ts,
+    required PdfColor color,
   }) {
     final safeNombre = (nombre ?? '').trim();
     final safeCargo = (cargo ?? '').trim();
+    final rawTitulo = titulo.trim();
+    final normalizedTitle = rawTitulo.toLowerCase().contains('auditor')
+        ? 'APROBADO - AUDITORIA'
+        : rawTitulo.toLowerCase().contains('gerencia')
+        ? 'APROBADO PARA PAGO - GERENCIA'
+        : rawTitulo.toUpperCase();
 
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(titulo, style: ts(8, bold: true)),
-        pw.SizedBox(height: 4),
-        if (firma != null)
-          pw.Image(firma, width: 120, height: 46, fit: pw.BoxFit.contain),
-        if (safeNombre.isNotEmpty)
-          pw.Text(safeNombre, style: ts(8, bold: true)),
-        if (safeCargo.isNotEmpty) pw.Text(safeCargo, style: ts(7)),
-      ],
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(6),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        mainAxisSize: pw.MainAxisSize.min,
+        children: [
+          pw.Text(
+            normalizedTitle,
+            style: ts(7, bold: true).copyWith(color: color),
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 3),
+          if (firma != null)
+            pw.Image(firma, width: 80, height: 40, fit: pw.BoxFit.contain)
+          else
+            pw.SizedBox(height: 14),
+          pw.SizedBox(height: 3),
+          if (safeNombre.isNotEmpty)
+            pw.Text(
+              safeNombre,
+              style: ts(6.5, bold: true),
+              textAlign: pw.TextAlign.center,
+            ),
+          if (safeCargo.isNotEmpty)
+            pw.Text(safeCargo, style: ts(6), textAlign: pw.TextAlign.center),
+        ],
+      ),
     );
   }
 

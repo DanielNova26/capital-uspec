@@ -634,6 +634,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             nombreActor: nombreActor,
           ));
     } else {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No se seleccionó ningún archivo o hubo un error al leer el PDF.'),
@@ -677,6 +678,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     final puedeFirmar = currentVersionId != null && GdRoles.puedeEjecutar('firmar', rolDocumental);
     final puedeMarcarVigente = currentVersionId != null && GdRoles.puedeEjecutar('marcar_vigente', rolDocumental);
     final puedeNuevaVersion = GdRoles.puedeEjecutar('nueva_version', rolDocumental);
+    final puedeEliminar = GdRoles.puedeEjecutar('eliminar_documento', rolDocumental);
 
     return ListView(
       padding: const EdgeInsets.all(24),
@@ -815,6 +817,16 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               ),
             ),
           ),
+        if (puedeEliminar) ...[
+          if (doc.estado == GdEstado.vigente && puedeNuevaVersion)
+            const SizedBox(height: 16),
+          _buildActionButton(
+            label: 'ELIMINAR DOCUMENTO',
+            icon: Icons.delete_forever,
+            color: Colors.redAccent,
+            onPressed: () => _confirmDeleteDocument(doc, rolDocumental!),
+          ),
+        ],
         if (rolDocumental == null ||
             (!puedeEnviar &&
                 !puedeAprobar &&
@@ -822,7 +834,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 !puedeReenviar &&
                 !puedeFirmar &&
                 !puedeMarcarVigente &&
-                !puedeNuevaVersion))
+                !puedeNuevaVersion &&
+                !puedeEliminar))
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -1011,7 +1024,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     return ListView.separated(
       padding: const EdgeInsets.all(24),
       itemCount: versions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, index) => const SizedBox(height: 12),
       itemBuilder: (_, i) {
         final v = versions[i];
         return ModuleCard(
@@ -1184,6 +1197,56 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     ).then((_) {
       focusNode.dispose();
       controller.dispose();
+    });
+  }
+
+  Future<void> _confirmDeleteDocument(
+    DocumentoDoc doc,
+    String rolDocumental,
+  ) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Eliminar documento',
+          style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+        ),
+        content: Text(
+          'Se eliminará "${doc.titulo}" junto con todas sus versiones, historial y archivo PDF. Esta acción no se puede deshacer.',
+          style: const TextStyle(fontFamily: kArial),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Eliminar',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    await _handleAction(() async {
+      final messenger = ScaffoldMessenger.of(context);
+      await _service.eliminarDocumento(
+        docId: doc.docId,
+        empresaId: widget.empresaId,
+        actorId: widget.userId,
+        rolDocumental: rolDocumental,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Documento eliminado correctamente.')),
+      );
+      Navigator.of(context).pop();
     });
   }
 

@@ -2,6 +2,7 @@
 
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:signature/signature.dart';
 import 'package:file_picker/file_picker.dart';
 import '../widgets/internal_module_layout.dart';
@@ -429,6 +430,25 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
     );
   }
 
+  Uint8List _comprimirFirma(Uint8List bytes) {
+    try {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return bytes;
+      // Redimensionar a máx 300x150 — suficiente para una firma en PDF
+      final resized = img.copyResize(
+        decoded,
+        width: 300,
+        maintainAspect: true,
+        interpolation: img.Interpolation.average,
+      );
+      // Escala de grises reduce tamaño drásticamente
+      final gray = img.grayscale(resized);
+      return Uint8List.fromList(img.encodePng(gray, level: 9));
+    } catch (_) {
+      return bytes;
+    }
+  }
+
   Future<void> _pickAndUpload() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -438,7 +458,7 @@ class _GdFirmasScreenState extends State<GdFirmasScreen> {
       );
 
       if (result != null && result.files.single.bytes != null) {
-        final bytes = result.files.single.bytes!;
+        final bytes = _comprimirFirma(result.files.single.bytes!);
         _saveData(firmaBytes: bytes);
       }
     } catch (e) {

@@ -671,6 +671,75 @@ class GdService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // ELIMINAR DOCUMENTO
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Elimina completamente un documento de la biblioteca documental:
+  /// - documento maestro
+  /// - todas sus versiones
+  /// - todo su historial
+  /// - archivos PDF asociados en Firebase Storage
+  ///
+  /// Solo disponible para admin_doc y desarrollador.
+  Future<void> eliminarDocumento({
+    required String docId,
+    required String empresaId,
+    required String actorId,
+    required String rolDocumental,
+  }) async {
+    _validarRol('eliminar_documento', rolDocumental);
+
+    final docRef = _docCol.doc(docId);
+    final docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      throw const GdException('El documento ya no existe o fue eliminado.');
+    }
+
+    final docData = docSnap.data() ?? <String, dynamic>{};
+    final empresaDocumento = (docData['empresaId'] ?? '').toString();
+    if (empresaDocumento != empresaId) {
+      throw const GdException(
+        'El documento no pertenece a la empresa activa.',
+      );
+    }
+
+    final versionesSnap = await _verCol.where('docId', isEqualTo: docId).get();
+    final flujoSnap = await _flujoCol.where('docId', isEqualTo: docId).get();
+
+    for (final versionDoc in versionesSnap.docs) {
+      final pathPdf = (versionDoc.data()['pathPdf'] ?? '').toString().trim();
+      if (pathPdf.isEmpty) continue;
+      try {
+        await _storage.ref(pathPdf).delete();
+      } catch (e) {
+        debugPrint(
+          '[GdService] No fue posible eliminar archivo de Storage '
+          '($pathPdf) para $docId: $e',
+        );
+      }
+    }
+
+    final refsAEliminar = <DocumentReference<Map<String, dynamic>>>[
+      ...versionesSnap.docs.map((d) => d.reference),
+      ...flujoSnap.docs.map((d) => d.reference),
+      docRef,
+    ];
+
+    for (var i = 0; i < refsAEliminar.length; i += 400) {
+      final batch = _db.batch();
+      final chunk = refsAEliminar.skip(i).take(400);
+      for (final ref in chunk) {
+        batch.delete(ref);
+      }
+      await batch.commit();
+    }
+
+    debugPrint(
+      '[GdService] Documento eliminado: docId=$docId actorId=$actorId',
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // FIRMAS DE USUARIOS — TBL_USUARIOS
   // ─────────────────────────────────────────────────────────────────────────
 

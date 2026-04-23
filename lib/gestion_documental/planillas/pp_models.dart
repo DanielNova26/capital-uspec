@@ -44,6 +44,7 @@ class PpRoles {
     'confirmar_carga': {tesoreria, adminDoc, desarrollador},
     'enviar_auditoria': {tesoreria, adminDoc, desarrollador},
     'reenviar': {tesoreria, adminDoc, desarrollador},
+    'editar_nombre_planilla': {tesoreria, adminDoc, desarrollador},
     'observar': {auditoria, adminDoc, desarrollador},
     'aprobar_auditoria': {auditoria, adminDoc, desarrollador},
     'rechazar_auditoria': {auditoria, adminDoc, desarrollador},
@@ -52,6 +53,8 @@ class PpRoles {
     'rechazar_gerencia': {gerencia, adminDoc, desarrollador},
     // admin_doc puede hacer todo lo anterior más:
     'anular': {adminDoc, desarrollador},
+    'eliminar_planilla': {adminDoc, desarrollador},
+    'eliminar_logo': {adminDoc},
     'ver_lote': {tesoreria, auditoria, gerencia, adminDoc, desarrollador},
   };
 
@@ -199,7 +202,7 @@ extension PpAccionX on PpAccion {
       case PpAccion.observado:
         return 'Observaciones registradas';
       case PpAccion.reenviado:
-        return 'Nuevo PDF cargado y reenviado a auditoría';
+        return 'Planilla corregida y reenviada a auditoría';
       case PpAccion.aprobado_auditoria:
         return 'Aprobado por auditoría';
       case PpAccion.rechazado_auditoria:
@@ -333,6 +336,7 @@ class PpLote {
 class PpPlanilla {
   final String planillaId;
   final String empresaId;
+  final String? empresaNombre;
   final String loteId;
 
   // Origen del archivo
@@ -389,6 +393,7 @@ class PpPlanilla {
   const PpPlanilla({
     required this.planillaId,
     required this.empresaId,
+    this.empresaNombre,
     required this.loteId,
     required this.nombreArchivoOriginal,
     this.nombrePlanillaDetectado,
@@ -428,10 +433,22 @@ class PpPlanilla {
               .map((e) => Map<String, dynamic>.from(e))
               .toList()
         : [];
+    final datosExcel = m['datosExcel'] is Map
+        ? Map<String, dynamic>.from(m['datosExcel'] as Map)
+        : <String, dynamic>{};
+    final empresaNombre =
+        (m['empresaNombre'] ??
+                datosExcel['empresa_nombre'] ??
+                datosExcel['logo_nombre'])
+            ?.toString()
+            .trim();
 
     return PpPlanilla(
       planillaId: planillaId,
       empresaId: (m['empresaId'] ?? '').toString(),
+      empresaNombre: empresaNombre == null || empresaNombre.isEmpty
+          ? null
+          : empresaNombre,
       loteId: (m['loteId'] ?? '').toString(),
       nombreArchivoOriginal: (m['nombreArchivoOriginal'] ?? '').toString(),
       nombrePlanillaDetectado: m['nombrePlanillaDetectado'] as String?,
@@ -454,9 +471,7 @@ class PpPlanilla {
       cargoFirmante: m['cargoFirmante'] as String?,
       urlPdf: m['urlPdf'] as String?,
       pathPdf: m['pathPdf'] as String?,
-      datosExcel: m['datosExcel'] is Map
-          ? Map<String, dynamic>.from(m['datosExcel'] as Map)
-          : {},
+      datosExcel: datosExcel,
       matchEstado: PpMatchEstadoX.deString(
         (m['matchEstado'] ?? 'sin_coincidencia').toString(),
       ),
@@ -472,6 +487,7 @@ class PpPlanilla {
 
   Map<String, dynamic> toMap() => {
     'empresaId': empresaId,
+    'empresaNombre': empresaNombre,
     'loteId': loteId,
     'nombreArchivoOriginal': nombreArchivoOriginal,
     'nombrePlanillaDetectado': nombrePlanillaDetectado,
@@ -505,6 +521,7 @@ class PpPlanilla {
 
   PpPlanilla copyWith({
     PpEstado? estado,
+    String? empresaNombre,
     String? nombrePlanillaDetectado,
     String? fechaPlanillaDetectada,
     double? valorDetectado,
@@ -532,6 +549,7 @@ class PpPlanilla {
   }) => PpPlanilla(
     planillaId: planillaId,
     empresaId: empresaId,
+    empresaNombre: empresaNombre ?? this.empresaNombre,
     loteId: loteId,
     nombreArchivoOriginal: nombreArchivoOriginal,
     nombrePlanillaDetectado:
@@ -679,6 +697,7 @@ class PpExcelParseResult {
   final int headerRowNumber; // fila real del encabezado en Excel (1-based)
   final int filasOmitidas;
   final String? error;
+  final String? sheetTitle; // título extraído del bloque de portada (ej. "ANTICIPO ALIMENTAR CAPITAL")
 
   const PpExcelParseResult({
     required this.filas,
@@ -686,6 +705,7 @@ class PpExcelParseResult {
     this.headerRowNumber = 1,
     this.filasOmitidas = 0,
     this.error,
+    this.sheetTitle,
   });
 
   bool get exitoso => error == null;
