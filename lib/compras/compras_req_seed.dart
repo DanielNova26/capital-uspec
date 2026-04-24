@@ -4,6 +4,7 @@
 // 76 filas de requisitos documentales.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'compras_models.dart' show kDocFichaTecnicaProv;
 import 'compras_req_engine.dart';
 import 'compras_service.dart';
 
@@ -69,7 +70,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_PLANTA',
     'keyApp': 'actaIvcPlanta',
-    'documentoRequerido': 'Acta IVC planta de producción (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC planta de producción (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Decreto 1500 de 2007; Resolución 240 de 2013',
@@ -84,7 +86,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_VEHICULO',
     'keyApp': 'actaIvcVehiculo',
-    'documentoRequerido': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Decreto 1500 de 2007; Resolución 240 de 2013',
@@ -99,7 +102,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_EXAMEN_MEDICO_CONDUCTOR',
     'keyApp': 'examenMedico',
-    'documentoRequerido': 'Examen médico del conductor con énfasis en alimentos',
+    'documentoRequerido':
+        'Examen médico del conductor con énfasis en alimentos',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Decreto 1500 de 2007; Resolución 240 de 2013',
@@ -191,7 +195,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'ROTULADO',
     'codDoc': 'ROT_EVIDENCIA_ETIQUETA',
     'keyApp': 'evidenciaEtiqueta',
-    'documentoRequerido': 'Evidencia fotográfica del rótulo/etiqueta del empaque',
+    'documentoRequerido':
+        'Evidencia fotográfica del rótulo/etiqueta del empaque',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Decreto 1500 de 2007; Resolución 240 de 2013',
@@ -413,7 +418,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_PLANTA',
     'keyApp': 'actaIvcPlanta',
-    'documentoRequerido': 'Acta IVC planta de producción (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC planta de producción (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013',
@@ -428,7 +434,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_VEHICULO',
     'keyApp': 'actaIvcVehiculo',
-    'documentoRequerido': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013',
@@ -443,7 +450,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_EXAMEN_MEDICO_CONDUCTOR',
     'keyApp': 'examenMedico',
-    'documentoRequerido': 'Examen médico del conductor con énfasis en alimentos',
+    'documentoRequerido':
+        'Examen médico del conductor con énfasis en alimentos',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013',
@@ -520,7 +528,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'CADA_PEDIDO',
     'codDoc': 'PED_FICHA_TECNICA_RS',
     'keyApp': 'fichaTecnica',
-    'documentoRequerido': 'Ficha técnica con registro sanitario (copia vigente)',
+    'documentoRequerido':
+        'Ficha técnica con registro sanitario (copia vigente)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013',
@@ -597,7 +606,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'ROTULADO',
     'codDoc': 'ROT_REG_SANITARIO_INVIMA',
     'keyApp': 'rotuladoRegistroInvima',
-    'documentoRequerido': 'Registro sanitario INVIMA visible en etiqueta (evidencia)',
+    'documentoRequerido':
+        'Registro sanitario INVIMA visible en etiqueta (evidencia)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013',
@@ -658,7 +668,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_PLANTA',
     'keyApp': 'actaIvcPlanta',
-    'documentoRequerido': 'Acta IVC planta de producción (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC planta de producción (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013; Resolución 810 de 2021',
@@ -688,7 +699,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_VEHICULO',
     'keyApp': 'actaIvcVehiculo',
-    'documentoRequerido': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013; Resolución 810 de 2021',
@@ -703,7 +715,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_EXAMEN_MEDICO_CONDUCTOR',
     'keyApp': 'examenMedico',
-    'documentoRequerido': 'Examen médico del conductor con énfasis en alimentos',
+    'documentoRequerido':
+        'Examen médico del conductor con énfasis en alimentos',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013; Resolución 810 de 2021',
@@ -750,7 +763,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'CADA_PEDIDO',
     'codDoc': 'PED_FICHA_TECNICA_RS',
     'keyApp': 'fichaTecnica',
-    'documentoRequerido': 'Ficha técnica con registro sanitario (copia vigente)',
+    'documentoRequerido':
+        'Ficha técnica con registro sanitario (copia vigente)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2013; Resolución 810 de 2021',
@@ -874,7 +888,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_PLANTA',
     'keyApp': 'actaIvcPlanta',
-    'documentoRequerido': 'Acta IVC planta de producción (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC planta de producción (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2014; Resolución 810 de 2021',
@@ -889,7 +904,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_VEHICULO',
     'keyApp': 'actaIvcVehiculo',
-    'documentoRequerido': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2014; Resolución 810 de 2021',
@@ -904,7 +920,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_EXAMEN_MEDICO_CONDUCTOR',
     'keyApp': 'examenMedico',
-    'documentoRequerido': 'Examen médico del conductor con énfasis en alimentos',
+    'documentoRequerido':
+        'Examen médico del conductor con énfasis en alimentos',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2014; Resolución 810 de 2021',
@@ -936,7 +953,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'CADA_PEDIDO',
     'codDoc': 'PED_FICHA_TECNICA_RS',
     'keyApp': 'fichaTecnica',
-    'documentoRequerido': 'Ficha técnica con registro sanitario (copia vigente)',
+    'documentoRequerido':
+        'Ficha técnica con registro sanitario (copia vigente)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Resolución 2674 de 2014; Resolución 810 de 2021',
@@ -1060,7 +1078,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_PLANTA',
     'keyApp': 'actaIvcPlanta',
-    'documentoRequerido': 'Acta IVC planta de producción (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC planta de producción (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Ley 55 de 1993; Decreto 1496 de 2018',
@@ -1075,7 +1094,8 @@ const List<Map<String, String>> kReqDocumentosData = [
     'etapa': 'INICIAL',
     'codDoc': 'PROV_ACTA_IVC_VEHICULO',
     'keyApp': 'actaIvcVehiculo',
-    'documentoRequerido': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+    'documentoRequerido':
+        'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
     'obligatorio': 'SI',
     'condicion': '',
     'norma': 'Ley 55 de 1993; Decreto 1496 de 2018',
@@ -1202,17 +1222,12 @@ const List<Map<String, String>> kReqDocumentosData = [
 /// Sube los [kReqDocumentosData] a TBL_COMPRAS_REQ_DOCUMENTOS para la empresa.
 /// Primero elimina todos los documentos existentes de la empresa, luego
 /// inserta los 76 registros de la parametrización v3.
-Future<void> sembrarReqDocumentos(
-  String empresaId,
-  ComprasService svc,
-) async {
+Future<void> sembrarReqDocumentos(String empresaId, ComprasService svc) async {
   final db = FirebaseFirestore.instance;
   final col = db.collection('TBL_COMPRAS_REQ_DOCUMENTOS');
 
   // 1. Eliminar existentes de la empresa
-  final existentes = await col
-      .where('empresaId', isEqualTo: empresaId)
-      .get();
+  final existentes = await col.where('empresaId', isEqualTo: empresaId).get();
 
   // Borrar en lotes de 500
   const batchSize = 499;
@@ -1227,26 +1242,29 @@ Future<void> sembrarReqDocumentos(
   }
 
   // 2. Insertar nuevos en lotes de 500
-  final nuevos = kReqDocumentosData.map((m) {
-    final doc = ReqDocumentoDoc(
-      empresaId: empresaId,
-      categoriaApp: m['categoriaApp'] ?? '',
-      materiaPrima: m['materiaPrima'] ?? '',
-      origen: m['origen'] ?? 'AMBOS',
-      nivel: m['nivel'] ?? 'RECEPCION',
-      etapa: m['etapa'] ?? 'CADA_PEDIDO',
-      codDoc: m['codDoc'] ?? '',
-      keyApp: m['keyApp'] ?? '',
-      documentoRequerido: m['documentoRequerido'] ?? '',
-      obligatorio: m['obligatorio'] ?? 'SI',
-      condicion: m['condicion'] ?? '',
-      norma: m['norma'] ?? '',
-      entidad: m['entidad'] ?? '',
-      frecuencia: m['frecuencia'] ?? '',
-      activo: true,
-    );
-    return doc;
-  }).toList();
+  final nuevos = kReqDocumentosData
+      .where((m) => m['keyApp'] != kDocFichaTecnicaProv)
+      .map((m) {
+        final doc = ReqDocumentoDoc(
+          empresaId: empresaId,
+          categoriaApp: m['categoriaApp'] ?? '',
+          materiaPrima: m['materiaPrima'] ?? '',
+          origen: m['origen'] ?? 'AMBOS',
+          nivel: m['nivel'] ?? 'RECEPCION',
+          etapa: m['etapa'] ?? 'CADA_PEDIDO',
+          codDoc: m['codDoc'] ?? '',
+          keyApp: m['keyApp'] ?? '',
+          documentoRequerido: m['documentoRequerido'] ?? '',
+          obligatorio: m['obligatorio'] ?? 'SI',
+          condicion: m['condicion'] ?? '',
+          norma: m['norma'] ?? '',
+          entidad: m['entidad'] ?? '',
+          frecuencia: m['frecuencia'] ?? '',
+          activo: true,
+        );
+        return doc;
+      })
+      .toList();
 
   for (int i = 0; i < nuevos.length; i += batchSize) {
     final batch = db.batch();

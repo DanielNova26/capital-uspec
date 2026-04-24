@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.icd11Search = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.comprasLimpiarRechazadosVencidos = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.icd11Search = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 // ICD-11 token broker + proxy (Fase B)
@@ -36,6 +36,8 @@ Object.defineProperty(exports, "ppNotificaciones1200", { enumerable: true, get: 
 Object.defineProperty(exports, "ppNotificaciones1600", { enumerable: true, get: function () { return pp_notifications_1.ppNotificaciones1600; } });
 var pp_stamp_pdf_1 = require("./pp_stamp_pdf");
 Object.defineProperty(exports, "ppStampDirectPdf", { enumerable: true, get: function () { return pp_stamp_pdf_1.ppStampDirectPdf; } });
+var compras_quality_cleanup_1 = require("./compras_quality_cleanup");
+Object.defineProperty(exports, "comprasLimpiarRechazadosVencidos", { enumerable: true, get: function () { return compras_quality_cleanup_1.comprasLimpiarRechazadosVencidos; } });
 const admin = __importStar(require("firebase-admin"));
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
 admin.initializeApp();

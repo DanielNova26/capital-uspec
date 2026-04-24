@@ -15,6 +15,7 @@
 //
 // Regla crítica: TBL_PP_FLUJO es append-only. Nunca se modifica ni elimina.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -147,10 +148,12 @@ class PpService {
                   final resolvedPath =
                       _normalizeStoragePath(rawPath) ??
                       _normalizeStoragePath(rawUrl);
+                  final b64 = (m['b64'] ?? '').toString();
                   return {
                     'nombre': (m['nombre'] ?? '').toString(),
                     'path': resolvedPath ?? '',
                     'url': rawUrl ?? '',
+                    if (b64.isNotEmpty) 'b64': b64,
                   };
                 })
                 .where(
@@ -236,8 +239,21 @@ class PpService {
     return empresaId.trim();
   }
 
-  Future<Uint8List?> cargarLogoBytes({required String path, String? url}) =>
-      _loadBinary(path: path, url: url);
+  Future<Uint8List?> cargarLogoBytes({
+    required String path,
+    String? url,
+    String? b64,
+  }) async {
+    // Prioridad 1: bytes guardados en Firestore (sin CORS, funciona en web)
+    if (b64 != null && b64.isNotEmpty) {
+      try {
+        final decoded = base64Decode(b64);
+        if (decoded.isNotEmpty) return decoded;
+      } catch (_) {}
+    }
+    // Fallback: Storage (puede fallar en web si no hay CORS configurado)
+    return _loadBinary(path: path, url: url);
+  }
 
   Future<void> guardarLogo({
     required String empresaId,
@@ -256,7 +272,8 @@ class PpService {
     };
     await ref.putData(bytes, SettableMetadata(contentType: contentType));
     final url = await ref.getDownloadURL();
-    final entry = {'nombre': nombre, 'path': path, 'url': url};
+    final b64 = base64Encode(bytes);
+    final entry = {'nombre': nombre, 'path': path, 'url': url, 'b64': b64};
     final doc = await _db.collection(_colConfig).doc(empresaId).get();
     List<dynamic> logos = [];
     if (doc.exists) {
@@ -3459,6 +3476,7 @@ class PpService {
         'sin_logo': resolvedLogo.sinLogo,
         'filas_consolidadas': filas.length,
         'rango_filas_excel': _rangoFilasExcel(filas),
+        if (sheetTitle != null) 'sheet_title': sheetTitle,
         // Stored so PDF can be regenerated from Firestore without Storage reads.
         'filas_rows': filas.map((f) => f.toMap()).toList(),
       },
@@ -3728,18 +3746,25 @@ class PpService {
 
     final empresaTitulo =
         _cleanString(empresaNombre) ?? 'UNION TEMPORAL CAPITAL USPEC 2025';
-    final fechaDisplay = _fechaDisplay(_firstNonEmptyDate(filas));
+    final esAlimentarCapital = sheetTitle != null && sheetTitle.isNotEmpty;
+    final fechaDisplay = esAlimentarCapital
+        ? _fechaDisplay(() {
+            final n = DateTime.now();
+            return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
+          }())
+        : _fechaDisplay(_firstNonEmptyDate(filas));
     final pagador =
         _firstNonEmptyExtra(filas, const ['pagador', 'banco']) ?? '';
     final total = _sumarValores(filas);
     final totalFmt = _formatMontoPdf(total);
-    final columns = _pdfColumnsForConsolidado(filas);
-    final esAlimentarCapital = sheetTitle != null && sheetTitle.isNotEmpty;
+    final columns = _pdfColumnsForConsolidado(filas, esAlimentarCapital: esAlimentarCapital);
 
     doc.addPage(
       pw.MultiPage(
         pageTheme: pw.PageTheme(
-          pageFormat: PdfPageFormat.a4.landscape,
+          pageFormat: esAlimentarCapital
+              ? PdfPageFormat.letter.landscape
+              : PdfPageFormat.a4.landscape,
           margin: const pw.EdgeInsets.fromLTRB(10, 10, 10, 14),
           buildForeground: estado != null
               ? (_) => _buildEstadoBadge(estado)
@@ -3824,7 +3849,7 @@ class PpService {
           pw.SizedBox(height: 8),
           pw.Table(
             border: pw.TableBorder.all(width: 0.5),
-            columnWidths: _pdfColumnWidths(columns),
+            columnWidths: _pdfColumnWidths(columns, esAlimentarCapital: esAlimentarCapital),
             children: [
               pw.TableRow(
                 decoration: const pw.BoxDecoration(color: PdfColors.grey300),
@@ -3836,7 +3861,7 @@ class PpService {
                     ),
                     child: pw.Text(
                       _pdfColumnLabel(column),
-                      style: ts(4.8, bold: true),
+                      style: ts(esAlimentarCapital ? 6.5 : 4.8, bold: true),
                       textAlign: pw.TextAlign.center,
                     ),
                   );
@@ -3846,15 +3871,21 @@ class PpService {
                 return pw.TableRow(
                   children: columns.map((column) {
                     final value = _pdfColumnValue(fila, column);
-                    final alignRight = column == 'valor_a_pagar';
+                    final isValor = column == 'valor_a_pagar';
+                    final displayValue = isValor &&
+                            esAlimentarCapital &&
+                            value.isNotEmpty
+                        ? '\$ $value'
+                        : value;
+                    final alignRight = isValor;
                     return pw.Padding(
                       padding: const pw.EdgeInsets.symmetric(
                         horizontal: 2,
                         vertical: 3,
                       ),
                       child: pw.Text(
-                        value,
-                        style: ts(4.7),
+                        displayValue,
+                        style: ts(esAlimentarCapital ? 6.0 : 4.7),
                         textAlign: alignRight
                             ? pw.TextAlign.right
                             : pw.TextAlign.center,
@@ -3863,55 +3894,78 @@ class PpService {
                   }).toList(),
                 );
               }),
-              // Fila de total (formato Alimentar Capital)
-              if (esAlimentarCapital)
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                  children: columns.map((column) {
-                    if (column == 'valor_a_pagar') {
-                      return pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 3,
-                        ),
-                        child: pw.Text(
-                          '\$$totalFmt',
-                          style: ts(4.8, bold: true),
-                          textAlign: pw.TextAlign.right,
-                        ),
-                      );
-                    }
-                    if (column == 'no') {
-                      return pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 2,
-                          vertical: 3,
-                        ),
-                        child: pw.Text(
-                          'PAGO TOTAL',
-                          style: ts(4.8, bold: true),
-                          textAlign: pw.TextAlign.center,
-                        ),
-                      );
-                    }
-                    return pw.SizedBox();
-                  }).toList(),
-                ),
             ],
           ),
+          // Fila PAGO TOTAL fuera de la tabla para que "PAGO TOTAL" abarque todas las celdas
+          if (esAlimentarCapital)
+            pw.Container(
+              decoration: const pw.BoxDecoration(
+                color: PdfColors.grey200,
+                border: pw.Border(
+                  left: pw.BorderSide(width: 0.5),
+                  right: pw.BorderSide(width: 0.5),
+                  bottom: pw.BorderSide(width: 0.5),
+                ),
+              ),
+              child: pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 3,
+                      ),
+                      child: pw.Text(
+                        'PAGO TOTAL',
+                        style: ts(6.5, bold: true),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    ),
+                  ),
+                  pw.Container(
+                    width: 74,
+                    decoration: const pw.BoxDecoration(
+                      border: pw.Border(left: pw.BorderSide(width: 0.5)),
+                    ),
+                    padding: const pw.EdgeInsets.symmetric(
+                      horizontal: 2,
+                      vertical: 3,
+                    ),
+                    child: pw.Text(
+                      '\$ $totalFmt',
+                      style: ts(6.5, bold: true),
+                      textAlign: pw.TextAlign.right,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           pw.SizedBox(height: 12),
-          _buildFooterFirmas(
-            ts: ts,
-            nombreElaborado: nombreElaborado,
-            cargoElaborado: cargoElaborado,
-            firmaElaborado: firmaElaborado,
-            nombreAuditoria: nombreAuditoria,
-            cargoAuditoria: cargoAuditoria,
-            firmaAuditoria: firmaAuditoria,
-            nombreGerencia: nombreGerencia,
-            cargoGerencia: cargoGerencia,
-            firmaGerencia: firmaGerencia,
-          ),
+          if (esAlimentarCapital)
+            pw.Center(
+              child: pw.SizedBox(
+                width: 220,
+                child: _buildElaboradoBlock(
+                  nombre: nombreElaborado,
+                  cargo: cargoElaborado,
+                  firma: firmaElaborado,
+                  ts: ts,
+                ),
+              ),
+            )
+          else
+            _buildFooterFirmas(
+              ts: ts,
+              nombreElaborado: nombreElaborado,
+              cargoElaborado: cargoElaborado,
+              firmaElaborado: firmaElaborado,
+              nombreAuditoria: nombreAuditoria,
+              cargoAuditoria: cargoAuditoria,
+              firmaAuditoria: firmaAuditoria,
+              nombreGerencia: nombreGerencia,
+              cargoGerencia: cargoGerencia,
+              firmaGerencia: firmaGerencia,
+            ),
         ],
       ),
     );
@@ -4180,15 +4234,10 @@ class PpService {
     ).format(value).trim();
   }
 
-  List<String> _pdfColumnsForConsolidado(List<PpExcelFila> filas) {
-    // Detectar formato Alimentar Capital: tiene columnas nit/dv/cte/aho
-    final esAlimentarCapital = filas.any(
-      (f) =>
-          (f.extras['nit'] ?? '').isNotEmpty ||
-          (f.extras['dv'] ?? '').isNotEmpty ||
-          (f.extras['cte'] ?? '').isNotEmpty ||
-          (f.extras['aho'] ?? '').isNotEmpty,
-    );
+  List<String> _pdfColumnsForConsolidado(
+    List<PpExcelFila> filas, {
+    bool esAlimentarCapital = false,
+  }) {
 
     if (esAlimentarCapital) {
       return [
@@ -4231,46 +4280,77 @@ class PpService {
     }).toList();
   }
 
-  Map<int, pw.TableColumnWidth> _pdfColumnWidths(List<String> columns) {
+  Map<int, pw.TableColumnWidth> _pdfColumnWidths(
+    List<String> columns, {
+    bool esAlimentarCapital = false,
+  }) {
     final widths = <int, pw.TableColumnWidth>{};
     for (var i = 0; i < columns.length; i++) {
-      switch (columns[i]) {
-        case 'fecha_programada':
-        case 'fecha_banco':
-          widths[i] = const pw.FixedColumnWidth(48);
-        case 'no':
-        case 'planilla':
-          widths[i] = const pw.FixedColumnWidth(22);
-        case 'nit':
-          widths[i] = const pw.FixedColumnWidth(48);
-        case 'dv':
-          widths[i] = const pw.FixedColumnWidth(12);
-        case 'revisado':
-          widths[i] = const pw.FixedColumnWidth(22);
-        case 'cte':
-        case 'aho':
-          widths[i] = const pw.FixedColumnWidth(14);
-        case 'valor_a_pagar':
-          widths[i] = const pw.FixedColumnWidth(58);
-        case 'tipo_de_cuenta':
-          widths[i] = const pw.FixedColumnWidth(44);
-        case 'no_cuenta':
-          widths[i] = const pw.FixedColumnWidth(62);
-        case 'banco':
-          widths[i] = const pw.FixedColumnWidth(36);
-        case 'pagado_mafe':
-        case 'contabilizado':
-        case 'revisado_karen':
-          widths[i] = const pw.FixedColumnWidth(42);
-        case 'detalle':
-        case 'no_factura_orden_de_compra':
-        case 'observaciones':
-        case 'comentarios':
-          widths[i] = const pw.FixedColumnWidth(86);
-        case 'pagador':
-          widths[i] = const pw.FixedColumnWidth(58);
-        default:
-          widths[i] = const pw.FlexColumnWidth();
+      if (esAlimentarCapital) {
+        switch (columns[i]) {
+          case 'no':
+            widths[i] = const pw.FixedColumnWidth(28);
+          case 'revisado':
+            widths[i] = const pw.FixedColumnWidth(44);
+          case 'nit':
+            widths[i] = const pw.FixedColumnWidth(64);
+          case 'dv':
+            widths[i] = const pw.FixedColumnWidth(16);
+          case 'proveedor':
+            widths[i] = const pw.FlexColumnWidth(1.0);
+          case 'no_factura_orden_de_compra':
+            widths[i] = const pw.FlexColumnWidth(1.5);
+          case 'no_cuenta':
+            widths[i] = const pw.FixedColumnWidth(72);
+          case 'cte':
+          case 'aho':
+            widths[i] = const pw.FixedColumnWidth(22);
+          case 'banco':
+            widths[i] = const pw.FixedColumnWidth(58);
+          case 'valor_a_pagar':
+            widths[i] = const pw.FixedColumnWidth(74);
+          default:
+            widths[i] = const pw.FlexColumnWidth();
+        }
+      } else {
+        switch (columns[i]) {
+          case 'fecha_programada':
+          case 'fecha_banco':
+            widths[i] = const pw.FixedColumnWidth(48);
+          case 'no':
+          case 'planilla':
+            widths[i] = const pw.FixedColumnWidth(22);
+          case 'nit':
+            widths[i] = const pw.FixedColumnWidth(48);
+          case 'dv':
+            widths[i] = const pw.FixedColumnWidth(12);
+          case 'revisado':
+            widths[i] = const pw.FixedColumnWidth(22);
+          case 'cte':
+          case 'aho':
+            widths[i] = const pw.FixedColumnWidth(14);
+          case 'valor_a_pagar':
+            widths[i] = const pw.FixedColumnWidth(58);
+          case 'tipo_de_cuenta':
+            widths[i] = const pw.FixedColumnWidth(44);
+          case 'no_cuenta':
+            widths[i] = const pw.FixedColumnWidth(62);
+          case 'banco':
+            widths[i] = const pw.FixedColumnWidth(36);
+          case 'pagado_mafe':
+          case 'contabilizado':
+          case 'revisado_karen':
+            widths[i] = const pw.FixedColumnWidth(42);
+          case 'detalle':
+          case 'no_factura_orden_de_compra':
+          case 'observaciones':
+          case 'comentarios':
+            widths[i] = const pw.FixedColumnWidth(86);
+          case 'pagador':
+            widths[i] = const pw.FixedColumnWidth(58);
+          default:
+            widths[i] = const pw.FlexColumnWidth();
+        }
       }
     }
     return widths;
@@ -4565,6 +4645,7 @@ class PpService {
         filas: filas,
         logoBytes: logoBytes,
         empresaNombre: empresaNombrePlanilla,
+        sheetTitle: datosExcel['sheet_title'] as String?,
         nombreElaborado: cargadorSnapshot.nombre,
         cargoElaborado: cargadorSnapshot.cargo,
         firmaElaboradoUrl: cargadorSnapshot.urlFirma,

@@ -14,8 +14,8 @@ class ComprasService {
   final FirebaseStorage _storage;
 
   ComprasService({FirebaseFirestore? db, FirebaseStorage? storage})
-      : _db = db ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+    : _db = db ?? FirebaseFirestore.instance,
+      _storage = storage ?? FirebaseStorage.instance;
 
   // ─── PRODUCTOS ──────────────────────────────────────────────────────────────
 
@@ -24,8 +24,9 @@ class ComprasService {
       .where('empresaId', isEqualTo: empresaId)
       .snapshots()
       .map((s) {
-        final list =
-            s.docs.map((d) => ProductoDoc.fromMap(d.id, d.data())).toList();
+        final list = s.docs
+            .map((d) => ProductoDoc.fromMap(d.id, d.data()))
+            .toList();
         list.sort((a, b) => a.nombre.compareTo(b.nombre));
         return list;
       });
@@ -48,8 +49,9 @@ class ComprasService {
       .where('empresaId', isEqualTo: empresaId)
       .snapshots()
       .map((s) {
-        final list =
-            s.docs.map((d) => ProveedorDoc.fromMap(d.id, d.data())).toList();
+        final list = s.docs
+            .map((d) => ProveedorDoc.fromMap(d.id, d.data()))
+            .toList();
         list.sort((a, b) => a.razonSocial.compareTo(b.razonSocial));
         return list;
       });
@@ -77,7 +79,7 @@ class ComprasService {
         .where('empresaId', isEqualTo: empresaId)
         .get();
     final nitsExistentes = {
-      for (final d in snap.docs) (d.data()['nit'] as String? ?? ''): d.id
+      for (final d in snap.docs) (d.data()['nit'] as String? ?? ''): d.id,
     };
 
     var imported = 0;
@@ -166,8 +168,9 @@ class ComprasService {
       .where('empresaId', isEqualTo: empresaId)
       .snapshots()
       .map((s) {
-        final list =
-            s.docs.map((d) => RecepcionDoc.fromMap(d.id, d.data())).toList();
+        final list = s.docs
+            .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+            .toList();
         list.sort((a, b) => b.fecha.compareTo(a.fecha));
         return list;
       });
@@ -175,65 +178,61 @@ class ComprasService {
   Stream<List<RecepcionDoc>> streamRecepcionesByProveedor(
     String empresaId,
     String proveedorId,
-  ) =>
-      _db
-          .collection('TBL_COMPRAS_RECEPCIONES')
-          .where('empresaId', isEqualTo: empresaId)
-          .where('proveedorId', isEqualTo: proveedorId)
-          .snapshots()
-          .map((s) {
-            final list = s.docs
-                .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
-                .toList();
-            list.sort((a, b) => b.fecha.compareTo(a.fecha));
-            return list;
-          });
+  ) => _db
+      .collection('TBL_COMPRAS_RECEPCIONES')
+      .where('empresaId', isEqualTo: empresaId)
+      .where('proveedorId', isEqualTo: proveedorId)
+      .snapshots()
+      .map((s) {
+        final list = s.docs
+            .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+            .toList();
+        list.sort((a, b) => b.fecha.compareTo(a.fecha));
+        return list;
+      });
 
   // Filtra client-side para evitar índice compuesto con arrayContains
   Stream<List<RecepcionDoc>> streamRecepcionesByProducto(
     String empresaId,
     String productoId,
-  ) =>
-      _db
-          .collection('TBL_COMPRAS_RECEPCIONES')
-          .where('empresaId', isEqualTo: empresaId)
-          .snapshots()
-          .map((s) {
-            final list = s.docs
-                .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
-                .where((r) => r.productoIds.contains(productoId))
-                .toList();
-            list.sort((a, b) => b.fecha.compareTo(a.fecha));
-            return list;
-          });
+  ) => _db
+      .collection('TBL_COMPRAS_RECEPCIONES')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((s) {
+        final list = s.docs
+            .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+            .where((r) => r.productoIds.contains(productoId))
+            .toList();
+        list.sort((a, b) => b.fecha.compareTo(a.fecha));
+        return list;
+      });
 
   /// Stream de recepciones con al menos un documento por revisar en calidad.
   /// Incluye documentos con estado 'pendiente' y documentos históricos con
   /// archivo adjunto pero sin estadoCalidad explícito.
-  Stream<List<RecepcionDoc>> streamPendientesRevision(String empresaId) =>
-      _db
-          .collection('TBL_COMPRAS_RECEPCIONES')
-          .where('empresaId', isEqualTo: empresaId)
-          .snapshots()
-          .map((s) {
-            final list = s.docs
-                .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
-                .where(
-                  (r) => r.productos.any(
-                    (p) => p.documentos.values.any(
-                        (d) =>
-                    d.tieneDoc &&
-                        (d.estadoCalidad.isEmpty ||
-                            d.estadoCalidad == 'pendiente' ||
-                            d.estadoCalidad ==
-                                'pendiente_revision_calidad')
+  Stream<List<RecepcionDoc>> streamPendientesRevision(String empresaId) => _db
+      .collection('TBL_COMPRAS_RECEPCIONES')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((s) {
+        final list = s.docs
+            .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+            .where(
+              (r) => r.productos.any(
+                (p) => p.documentos.values.any(
+                  (d) =>
+                      d.tieneDoc &&
+                      (d.estadoCalidad.isEmpty ||
+                          d.estadoCalidad == 'pendiente' ||
+                          d.estadoCalidad == 'pendiente_revision_calidad'),
                 ),
               ),
             )
-                .toList();
-            list.sort((a, b) => b.fecha.compareTo(a.fecha));
-            return list;
-          });
+            .toList();
+        list.sort((a, b) => b.fecha.compareTo(a.fecha));
+        return list;
+      });
 
   Future<String> guardarRecepcion(RecepcionDoc r) async {
     final ref = r.id.isEmpty
@@ -266,10 +265,9 @@ class ComprasService {
       ..[docKey] = docActualizado;
     productos[productoIdx] = rp.copyWith(documentos: docsActualizados);
 
-    await _db
-        .collection('TBL_COMPRAS_RECEPCIONES')
-        .doc(recepcion.id)
-        .update({'productos': productos.map((p) => p.toMap()).toList()});
+    await _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcion.id).update({
+      'productos': productos.map((p) => p.toMap()).toList(),
+    });
   }
 
   /// Rechaza un documento específico en una recepción y crea notificación.
@@ -296,10 +294,9 @@ class ComprasService {
       ..[docKey] = docActualizado;
     productos[productoIdx] = rp.copyWith(documentos: docsActualizados);
 
-    await _db
-        .collection('TBL_COMPRAS_RECEPCIONES')
-        .doc(recepcion.id)
-        .update({'productos': productos.map((p) => p.toMap()).toList()});
+    await _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcion.id).update({
+      'productos': productos.map((p) => p.toMap()).toList(),
+    });
 
     // Crear notificación al usuario que creó la recepción
     if (recepcion.creadoPor.isNotEmpty) {
@@ -324,8 +321,9 @@ class ComprasService {
       .where('empresaId', isEqualTo: empresaId)
       .snapshots()
       .map((s) {
-        final list =
-            s.docs.map((d) => MarcaDoc.fromMap(d.id, d.data())).toList();
+        final list = s.docs
+            .map((d) => MarcaDoc.fromMap(d.id, d.data()))
+            .toList();
         list.sort((a, b) => a.descripcion.compareTo(b.descripcion));
         return list;
       });
@@ -360,6 +358,7 @@ class ComprasService {
     required String carpeta,
     required String nombre,
     required String contentType,
+
     /// Si es true, el doc se marca como 'pendiente' de revisión calidad
     bool pendienteCalidad = false,
   }) async {
@@ -384,26 +383,171 @@ class ComprasService {
     } catch (_) {}
   }
 
+  Future<int> limpiarRechazadosExpirados(
+    String empresaId, {
+    Duration maxAge = const Duration(days: 8),
+  }) async {
+    final limite = DateTime.now().subtract(maxAge);
+    var eliminados = 0;
+
+    eliminados += await _limpiarRecepcionesRechazadasExpiradas(
+      empresaId,
+      limite,
+    );
+    eliminados += await _limpiarProveedoresRechazadosExpirados(
+      empresaId,
+      limite,
+    );
+    eliminados += await _limpiarFichasRechazadasExpiradas(empresaId, limite);
+
+    return eliminados;
+  }
+
+  bool _esRechazadoExpirado(DocAdjunto? doc, DateTime limite) {
+    if (doc == null || !doc.tieneDoc || !doc.rechazado) return false;
+    final fechaRevision = doc.fechaRevision?.toDate();
+    if (fechaRevision == null) return false;
+    return !fechaRevision.isAfter(limite);
+  }
+
+  Future<int> _limpiarRecepcionesRechazadasExpiradas(
+    String empresaId,
+    DateTime limite,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_RECEPCIONES')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+
+    var eliminados = 0;
+    for (final doc in snap.docs) {
+      final recepcion = RecepcionDoc.fromMap(doc.id, doc.data());
+      var huboCambios = false;
+      final productosActualizados = <RecepcionProducto>[];
+
+      for (final producto in recepcion.productos) {
+        var cambioProducto = false;
+        final docsActualizados = <String, DocAdjunto>{};
+
+        for (final entry in producto.documentos.entries) {
+          final actual = entry.value;
+          if (_esRechazadoExpirado(actual, limite)) {
+            if (actual.path?.isNotEmpty == true) {
+              await eliminarArchivo(actual.path!);
+            }
+            docsActualizados[entry.key] = const DocAdjunto();
+            cambioProducto = true;
+            eliminados++;
+          } else {
+            docsActualizados[entry.key] = actual;
+          }
+        }
+
+        productosActualizados.add(
+          cambioProducto
+              ? producto.copyWith(documentos: docsActualizados)
+              : producto,
+        );
+        if (cambioProducto) huboCambios = true;
+      }
+
+      if (huboCambios) {
+        await doc.reference.update({
+          'productos': productosActualizados.map((p) => p.toMap()).toList(),
+        });
+      }
+    }
+
+    return eliminados;
+  }
+
+  Future<int> _limpiarProveedoresRechazadosExpirados(
+    String empresaId,
+    DateTime limite,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_PROVEEDORES')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+
+    var eliminados = 0;
+    for (final doc in snap.docs) {
+      final proveedor = ProveedorDoc.fromMap(doc.id, doc.data());
+      var huboCambios = false;
+      final docsActualizados = <String, DocAdjunto>{};
+
+      for (final entry in proveedor.documentos.entries) {
+        final actual = entry.value;
+        if (_esRechazadoExpirado(actual, limite)) {
+          if (actual.path?.isNotEmpty == true) {
+            await eliminarArchivo(actual.path!);
+          }
+          docsActualizados[entry.key] = const DocAdjunto();
+          huboCambios = true;
+          eliminados++;
+        } else {
+          docsActualizados[entry.key] = actual;
+        }
+      }
+
+      if (huboCambios) {
+        await doc.reference.update({
+          'documentos': docsActualizados.map((k, v) => MapEntry(k, v.toMap())),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    return eliminados;
+  }
+
+  Future<int> _limpiarFichasRechazadasExpiradas(
+    String empresaId,
+    DateTime limite,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+
+    var eliminados = 0;
+    for (final doc in snap.docs) {
+      final ficha = FichaTecnicaDoc.fromMap(doc.id, doc.data());
+      final actual = ficha.documentoActual;
+      if (!_esRechazadoExpirado(actual, limite)) continue;
+
+      if (actual?.path?.isNotEmpty == true) {
+        await eliminarArchivo(actual!.path!);
+      }
+      await doc.reference.update({
+        'documentoActual': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      eliminados++;
+    }
+
+    return eliminados;
+  }
+
   // ─── ROLES COMPRAS ───────────────────────────────────────────────────────────
 
   Stream<List<ComprasRolDoc>> streamComprasRoles(String empresaId) => _db
       .collection('TBL_COMPRAS_ROLES')
       .where('empresaId', isEqualTo: empresaId)
       .snapshots()
-      .map((s) => s.docs
-          .map((d) => ComprasRolDoc.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => a.nombre.compareTo(b.nombre)));
+      .map(
+        (s) =>
+            s.docs.map((d) => ComprasRolDoc.fromMap(d.id, d.data())).toList()
+              ..sort((a, b) => a.nombre.compareTo(b.nombre)),
+      );
 
-  Future<ComprasRolDoc?> getRolUsuario(
-      String empresaId, String userId) async {
+  Future<ComprasRolDoc?> getRolUsuario(String empresaId, String userId) async {
     // Query single-field only (no composite index needed) + client filter
     final snap = await _db
         .collection('TBL_COMPRAS_ROLES')
         .where('empresaId', isEqualTo: empresaId)
         .get();
-    final match =
-        snap.docs.where((d) => d.data()['userId'] == userId);
+    final match = snap.docs.where((d) => d.data()['userId'] == userId);
     if (match.isEmpty) return null;
     return ComprasRolDoc.fromMap(match.first.id, match.first.data());
   }
@@ -417,8 +561,10 @@ class ComprasService {
           .doc(docId)
           .set(r.toMap(), SetOptions(merge: true));
     } else {
-      await _db.collection('TBL_COMPRAS_ROLES').doc(r.id).set(
-          r.toMap(), SetOptions(merge: true));
+      await _db
+          .collection('TBL_COMPRAS_ROLES')
+          .doc(r.id)
+          .set(r.toMap(), SetOptions(merge: true));
     }
   }
 
@@ -428,17 +574,21 @@ class ComprasService {
   // ─── NOTIFICACIONES ──────────────────────────────────────────────────────────
 
   Stream<List<NotificacionComprasDoc>> streamNotificaciones(
-      String empresaId, String userId) =>
-      _db
-          .collection('TBL_COMPRAS_NOTIFICACIONES')
-          .where('empresaId', isEqualTo: empresaId)
-          .where('userId', isEqualTo: userId)
-          .where('leida', isEqualTo: false)
-          .snapshots()
-          .map((s) => s.docs
-              .map((d) => NotificacionComprasDoc.fromMap(d.id, d.data()))
-              .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)));
+    String empresaId,
+    String userId,
+  ) => _db
+      .collection('TBL_COMPRAS_NOTIFICACIONES')
+      .where('empresaId', isEqualTo: empresaId)
+      .where('userId', isEqualTo: userId)
+      .where('leida', isEqualTo: false)
+      .snapshots()
+      .map(
+        (s) =>
+            s.docs
+                .map((d) => NotificacionComprasDoc.fromMap(d.id, d.data()))
+                .toList()
+              ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+      );
 
   Future<void> marcarNotificacionLeida(String id) => _db
       .collection('TBL_COMPRAS_NOTIFICACIONES')
@@ -481,9 +631,10 @@ class ComprasService {
       .where('empresaId', isEqualTo: empresaId)
       .where('activo', isEqualTo: true)
       .snapshots()
-      .map((s) => s.docs
-          .map((d) => ReqDocumentoDoc.fromMap(d.id, d.data()))
-          .toList());
+      .map(
+        (s) =>
+            s.docs.map((d) => ReqDocumentoDoc.fromMap(d.id, d.data())).toList(),
+      );
 
   /// Reemplaza todos los requisitos documentales de la empresa con [docs].
   /// Elimina los existentes (batch) y sube los nuevos (batch de 499).
@@ -495,9 +646,7 @@ class ComprasService {
     final col = _db.collection('TBL_COMPRAS_REQ_DOCUMENTOS');
 
     // Eliminar existentes
-    final existentes = await col
-        .where('empresaId', isEqualTo: empresaId)
-        .get();
+    final existentes = await col.where('empresaId', isEqualTo: empresaId).get();
 
     for (int i = 0; i < existentes.docs.length; i += batchSize) {
       final batch = _db.batch();
@@ -534,23 +683,23 @@ class ComprasService {
 
   /// Fichas con documentoActual pendiente de revisión de calidad.
   Stream<List<FichaTecnicaDoc>> streamFichasTecnicasPendientes(
-      String empresaId) =>
-      _db
-          .collection('TBL_COMPRAS_FICHAS_TECNICAS')
-          .where('empresaId', isEqualTo: empresaId)
-          .snapshots()
-          .map((s) {
-            return s.docs
-                .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
-                .where((f) {
+    String empresaId,
+  ) => _db
+      .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((s) {
+        return s.docs.map((d) => FichaTecnicaDoc.fromMap(d.id, d.data())).where(
+            (f) {
               final doc = f.documentoActual;
               if (doc == null || !doc.tieneDoc) return false;
               return doc.estadoCalidad.isEmpty ||
                   doc.estadoCalidad == 'pendiente' ||
                   doc.estadoCalidad == 'pendiente_revision_calidad';
-            }).toList()
-              ..sort((a, b) => a.productoNombre.compareTo(b.productoNombre));
-          });
+            },
+          ).toList()
+          ..sort((a, b) => a.productoNombre.compareTo(b.productoNombre));
+      });
 
   /// Carga (one-time) todas las fichas técnicas para lookup en recepción.
   Future<List<FichaTecnicaDoc>> getFichasTecnicas(String empresaId) async {
@@ -587,9 +736,7 @@ class ComprasService {
         fecha: Timestamp.now(),
         estadoCalidadFinal: anterior.estadoCalidad,
       );
-      fichaFinal = ficha.copyWith(
-        historial: [...ficha.historial, entrada],
-      );
+      fichaFinal = ficha.copyWith(historial: [...ficha.historial, entrada]);
     }
 
     // Marcar el nuevo documentoActual como pendiente de calidad
@@ -628,10 +775,7 @@ class ComprasService {
       }
     }
     // 3. Eliminar documento de Firestore
-    await _db
-        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
-        .doc(ficha.id)
-        .delete();
+    await _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(ficha.id).delete();
   }
 
   /// Aprueba la ficha técnica (documentoActual.estadoCalidad = 'aprobado').
@@ -666,11 +810,10 @@ class ComprasService {
     required String proveedorId,
     required String docKey,
     required DocAdjunto doc,
-  }) =>
-      _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
-        'documentos.$docKey': doc.toMap(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+  }) => _db.collection('TBL_COMPRAS_PROVEEDORES').doc(proveedorId).update({
+    'documentos.$docKey': doc.toMap(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
 
   /// Aprueba un documento del proveedor (estadoCalidad = 'aprobado').
   Future<void> aprobarDocProveedor({
@@ -696,8 +839,8 @@ class ComprasService {
     });
   }
 
-  /// Rechaza un documento del proveedor: elimina el archivo de Storage,
-  /// limpia el doc (vuelve a "Sin cargar") y envía notificación al subidor.
+  /// Rechaza un documento del proveedor, lo deja visible en Calidad y
+  /// notifica al usuario que debe reemplazarlo.
   Future<void> rechazarDocProveedor({
     required String proveedorId,
     required String docKey,
@@ -711,29 +854,26 @@ class ComprasService {
     final docActual = prov.documentos[docKey];
     if (docActual == null || !docActual.tieneDoc) return;
 
-    // 1. Eliminar el archivo de Firebase Storage
-    if (docActual.path != null && docActual.path!.isNotEmpty) {
-      try {
-        await _storage.ref(docActual.path!).delete();
-      } catch (_) {
-        // Si el archivo ya no existe en Storage, continuar igual
-      }
-    }
-
-    // 2. Resetear el documento a vacío (vuelve a "Sin cargar")
+    // Lo conservamos como rechazado para que Calidad lo muestre en su
+    // pestaña dedicada y el proveedor pueda entender qué debe reemplazar.
     final actualizado = Map<String, DocAdjunto>.from(prov.documentos)
-      ..[docKey] = const DocAdjunto();
+      ..[docKey] = docActual.copyWith(
+        estadoCalidad: 'rechazado',
+        observacionCalidad: motivo,
+        revisadoPor: revisadoPor,
+        fechaRevision: Timestamp.now(),
+      );
     await ref.update({
       'documentos': actualizado.map((k, v) => MapEntry(k, v.toMap())),
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    // 3. Notificar al usuario que subió el documento
+    // Notificar al usuario que subió el documento
     final subidoPor = docActual.subidoPor ?? '';
     if (subidoPor.isNotEmpty) {
       final label = kDocProveedorLabels[docKey] ?? docKey;
 
-      // 3a. Notificación en el módulo Compras (campana del dashboard compras)
+      // Notificación en el módulo Compras (campana del dashboard compras)
       final notif = NotificacionComprasDoc(
         empresaId: prov.empresaId,
         userId: subidoPor,
@@ -746,7 +886,7 @@ class ComprasService {
       );
       await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
 
-      // 3b. Notificación estándar (campana del Home / TBL_NOTIFICACIONES)
+      // Notificación estándar (campana del Home / TBL_NOTIFICACIONES)
       final notifRef = _db
           .collection('TBL_NOTIFICACIONES')
           .doc(subidoPor)
@@ -825,7 +965,8 @@ class ComprasService {
         await notifRef.set({
           'id': notifRef.id,
           'title': 'Ficha técnica rechazada',
-          'description': 'El documento "$label" fue rechazado. Motivo: $motivo. Por favor corrígelo y vuelve a cargarlo.',
+          'description':
+              'El documento "$label" fue rechazado. Motivo: $motivo. Por favor corrígelo y vuelve a cargarlo.',
           'type': 'ficha_rechazada',
           'taskId': 'ficha:$fichaId',
           'fromId': revisadoPor,

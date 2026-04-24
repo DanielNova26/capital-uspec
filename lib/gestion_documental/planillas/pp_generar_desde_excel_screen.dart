@@ -92,6 +92,7 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
         final bytes = await _service.cargarLogoBytes(
           path: seleccionado['path']!,
           url: seleccionado['url'],
+          b64: seleccionado['b64'],
         );
         if (mounted && bytes != null && bytes.isNotEmpty) {
           setState(() => _logoBytes = bytes);
@@ -126,9 +127,11 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
 
     Uint8List? bytes = _logoBytes;
     if (bytes == null || bytes.isEmpty) {
+      final b64 = (_logoSeleccionado?['b64'] ?? '').trim();
       bytes = await _service.cargarLogoBytes(
         path: path,
         url: url.isEmpty ? null : url,
+        b64: b64.isEmpty ? null : b64,
       );
     }
     if (bytes == null || bytes.isEmpty) {
@@ -1215,10 +1218,12 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
                       final bytes = await _service.cargarLogoBytes(
                         path: path,
                         url: selected['url'],
+                        b64: selected['b64'],
                       );
                       if (bytes == null || bytes.isEmpty) {
                         throw const PpException(
-                          'No se pudo leer el logo seleccionado desde almacenamiento.',
+                          'No se pudo leer el logo seleccionado. '
+                          'Elimínalo y vuelve a subirlo para actualizar los datos.',
                         );
                       }
                       await _service.setLogoActivo(widget.empresaId, path);

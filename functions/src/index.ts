@@ -11,6 +11,7 @@ export {
   ppNotificaciones1600,
 } from "./pp_notifications";
 export { ppStampDirectPdf } from "./pp_stamp_pdf";
+export { comprasLimpiarRechazadosVencidos } from "./compras_quality_cleanup";
 import * as admin from "firebase-admin";
 
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");

@@ -10596,48 +10596,473 @@ class _CalidadScreen extends StatefulWidget {
 }
 
 class _CalidadScreenState extends State<_CalidadScreen> {
+  static const int _diasRetencionRechazados = 8;
   String _filtroProducto = '';
   DateTime? _filtroFecha;
   final _searchCtrl = TextEditingController();
-  bool _soloRechazados = false;
   ReqEngine? _reqEngine;
   bool _cargandoReq = true;
+  bool _depurandoRechazados = false;
 
   @override
   void initState() {
     super.initState();
+    _cargarReqEngine();
+    _depurarRechazadosExpirados();
+  }
+
+  void _cargarReqEngine() {
     widget.svc
         .cargarReqEngine(widget.empresaId)
         .then((engine) {
-          if (mounted)
+          if (mounted) {
             setState(() {
               _reqEngine = engine;
               _cargandoReq = false;
             });
+          }
         })
         .catchError((_) {
-          if (mounted)
+          if (mounted) {
             setState(() {
               _cargandoReq = false;
             });
+          }
         });
   }
 
-  bool _recepcionTieneIncompletos(RecepcionDoc r) {
-    // Igual que proveedores: solo aparece si hay al menos un doc
-    // subido que todavía no está aprobado. Docs sin cargar no se muestran.
-    for (final rp in r.productos) {
-      if (rp.documentos.values.any((d) => d.tieneDoc && !d.aprobado))
-        return true;
+  Future<void> _depurarRechazadosExpirados() async {
+    if (mounted) setState(() => _depurandoRechazados = true);
+    try {
+      final eliminados = await widget.svc.limpiarRechazadosExpirados(
+        widget.empresaId,
+        maxAge: const Duration(days: _diasRetencionRechazados),
+      );
+      if (!mounted || eliminados <= 0) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Se limpiaron $eliminados rechazados vencidos de Calidad.',
+            style: const TextStyle(fontFamily: _kFont),
+          ),
+          backgroundColor: const Color(0xFF0F766E),
+        ),
+      );
+    } catch (_) {
+      // Si la limpieza falla, no interrumpimos la revisión manual.
+    } finally {
+      if (mounted) setState(() => _depurandoRechazados = false);
+    }
+  }
+
+  DateTime get _limiteRechazados =>
+      DateTime.now().subtract(const Duration(days: _diasRetencionRechazados));
+
+  bool _docPendiente(DocAdjunto? doc) =>
+      doc != null && doc.tieneDoc && !doc.aprobado && !doc.rechazado;
+
+  bool _docRechazadoVisible(DocAdjunto? doc) {
+    if (doc == null || !doc.tieneDoc || !doc.rechazado) return false;
+    final fechaRevision = doc.fechaRevision?.toDate();
+    if (fechaRevision == null) return true;
+    return !fechaRevision.isBefore(_limiteRechazados);
+  }
+
+  bool _recepcionTieneDocsPorEstado(
+    RecepcionDoc recepcion, {
+    required bool showRejectedOnly,
+  }) {
+    for (final producto in recepcion.productos) {
+      final tiene = producto.documentos.values.any(
+        (doc) =>
+            showRejectedOnly ? _docRechazadoVisible(doc) : _docPendiente(doc),
+      );
+      if (tiene) return true;
     }
     return false;
   }
 
-  bool _proveedorTieneIncompletos(ProveedorDoc p) {
-    // Solo mostrar en Revisión de Calidad si el proveedor tiene al menos
-    // un documento cargado que aún no está aprobado (pendiente o rechazado).
-    // Proveedores sin ningún documento subido NO aparecen aquí.
-    return p.documentos.values.any((d) => d.tieneDoc && !d.aprobado);
+  bool _proveedorTieneDocsPorEstado(
+    ProveedorDoc proveedor, {
+    required bool showRejectedOnly,
+  }) {
+    return proveedor.documentos.entries.any(
+      (entry) =>
+          !kDocProveedorOcultos.contains(entry.key) &&
+          (showRejectedOnly
+              ? _docRechazadoVisible(entry.value)
+              : _docPendiente(entry.value)),
+    );
+  }
+
+  bool _fichaTieneDocPorEstado(
+    FichaTecnicaDoc ficha, {
+    required bool showRejectedOnly,
+  }) {
+    final doc = ficha.documentoActual;
+    return showRejectedOnly ? _docRechazadoVisible(doc) : _docPendiente(doc);
+  }
+
+  bool _textoContiene(String value) {
+    final filtro = _filtroProducto.trim().toLowerCase();
+    if (filtro.isEmpty) return true;
+    return value.toLowerCase().contains(filtro);
+  }
+
+  bool _coincideRecepcion(RecepcionDoc recepcion) {
+    if (_filtroProducto.trim().isEmpty) return true;
+    return _textoContiene(recepcion.razonSocial) ||
+        _textoContiene(recepcion.nit) ||
+        _textoContiene(recepcion.ordenCompra) ||
+        recepcion.productos.any(
+          (producto) =>
+              _textoContiene(producto.nombre) || _textoContiene(producto.marca),
+        );
+  }
+
+  bool _coincideProveedor(ProveedorDoc proveedor) {
+    if (_filtroProducto.trim().isEmpty) return true;
+    return _textoContiene(proveedor.razonSocial) ||
+        _textoContiene(proveedor.nit) ||
+        proveedor.categorias.any(_textoContiene);
+  }
+
+  bool _coincideFicha(FichaTecnicaDoc ficha) {
+    if (_filtroProducto.trim().isEmpty) return true;
+    return _textoContiene(ficha.productoNombre) ||
+        _textoContiene(ficha.proveedorNombre) ||
+        _textoContiene(ficha.marcaNombre);
+  }
+
+  Widget _buildFiltros() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Filtrar por proveedor, producto, marca o NIT...',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
+                filled: true,
+                fillColor: Colors.grey.shade50,
+              ),
+              style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+              onChanged: (v) =>
+                  setState(() => _filtroProducto = v.toLowerCase()),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(
+              Icons.calendar_today,
+              color: _filtroFecha != null
+                  ? const Color(0xFF15803D)
+                  : Colors.black45,
+            ),
+            tooltip: 'Filtrar por fecha de recepción',
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: _filtroFecha ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) {
+                setState(() => _filtroFecha = picked);
+              }
+            },
+          ),
+          if (_filtroFecha != null)
+            IconButton(
+              icon: const Icon(Icons.clear, color: Colors.red),
+              tooltip: 'Limpiar fecha',
+              onPressed: () => setState(() => _filtroFecha = null),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFechaFiltradaBanner() {
+    if (_filtroFecha == null) return const SizedBox.shrink();
+    return Container(
+      color: Colors.green.shade50,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.filter_alt, size: 14, color: Color(0xFF15803D)),
+          const SizedBox(width: 4),
+          Text(
+            'Fecha de recepción: ${DateFormat('dd/MM/yyyy', 'es').format(_filtroFecha!)}',
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 12,
+              color: Color(0xFF15803D),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendientesTab() {
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        _buildProveedoresSection(showRejectedOnly: false),
+        const SizedBox(height: 14),
+        _buildFichasSection(showRejectedOnly: false),
+        const SizedBox(height: 14),
+        _buildRecepcionesSection(showRejectedOnly: false),
+      ],
+    );
+  }
+
+  Widget _buildRechazadosTab() {
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF4E5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.schedule, color: Color(0xFFB45309), size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Los documentos rechazados se muestran aparte y se eliminan automáticamente después de $_diasRetencionRechazados días.',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Color(0xFF92400E),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildProveedoresSection(showRejectedOnly: true),
+        const SizedBox(height: 14),
+        _buildFichasSection(showRejectedOnly: true),
+        const SizedBox(height: 14),
+        _buildRecepcionesSection(showRejectedOnly: true),
+      ],
+    );
+  }
+
+  Widget _buildProveedoresSection({required bool showRejectedOnly}) {
+    final color = const Color(0xFF7B3F00);
+    return StreamBuilder<List<ProveedorDoc>>(
+      stream: widget.svc.streamProveedores(widget.empresaId),
+      builder: (_, snap) {
+        final proveedores = (snap.data ?? [])
+            .where(
+              (p) => _proveedorTieneDocsPorEstado(
+                p,
+                showRejectedOnly: showRejectedOnly,
+              ),
+            )
+            .where(_coincideProveedor)
+            .toList();
+
+        Widget child;
+        if (_cargandoReq) {
+          child = const _CalidadLoadingState(
+            message: 'Cargando reglas de proveedores...',
+          );
+        } else if (proveedores.isEmpty) {
+          child = _CalidadEmptyState(
+            icon: Icons.business_center_outlined,
+            message: showRejectedOnly
+                ? 'No hay rechazados vigentes de proveedores.'
+                : 'No hay documentos de proveedores pendientes.',
+          );
+        } else {
+          child = Column(
+            children: [
+              for (var i = 0; i < proveedores.length; i++) ...[
+                _ProveedorCalidadCard(
+                  proveedor: proveedores[i],
+                  svc: widget.svc,
+                  userId: widget.userId,
+                  reqEngine: _reqEngine,
+                  showRejectedOnly: showRejectedOnly,
+                  retentionDays: _diasRetencionRechazados,
+                ),
+                if (i < proveedores.length - 1) const SizedBox(height: 10),
+              ],
+            ],
+          );
+        }
+
+        return _CalidadSectionPanel(
+          titulo: showRejectedOnly
+              ? 'Proveedores rechazados'
+              : 'Proveedores en revisión',
+          subtitulo: showRejectedOnly
+              ? 'Los archivos rechazados se mantienen aparte para no mezclar la revisión activa.'
+              : 'Todo lo que suben los proveedores queda agrupado aquí en un solo bloque.',
+          icon: Icons.business,
+          color: color,
+          count: proveedores.length,
+          child: child,
+        );
+      },
+    );
+  }
+
+  Widget _buildFichasSection({required bool showRejectedOnly}) {
+    final color = const Color(0xFF0277BD);
+    final stream = showRejectedOnly
+        ? widget.svc.streamFichasTecnicas(widget.empresaId)
+        : widget.svc.streamFichasTecnicasPendientes(widget.empresaId);
+
+    return StreamBuilder<List<FichaTecnicaDoc>>(
+      stream: stream,
+      builder: (_, snap) {
+        final fichas = (snap.data ?? [])
+            .where(
+              (f) => _fichaTieneDocPorEstado(
+                f,
+                showRejectedOnly: showRejectedOnly,
+              ),
+            )
+            .where(_coincideFicha)
+            .toList();
+
+        final child = fichas.isEmpty
+            ? _CalidadEmptyState(
+                icon: Icons.description_outlined,
+                message: showRejectedOnly
+                    ? 'No hay fichas técnicas rechazadas vigentes.'
+                    : 'No hay fichas técnicas pendientes.',
+              )
+            : Column(
+                children: [
+                  for (var i = 0; i < fichas.length; i++) ...[
+                    _FichaCalidadCard(
+                      ficha: fichas[i],
+                      svc: widget.svc,
+                      userId: widget.userId,
+                      showRejectedOnly: showRejectedOnly,
+                      retentionDays: _diasRetencionRechazados,
+                    ),
+                    if (i < fichas.length - 1) const SizedBox(height: 10),
+                  ],
+                ],
+              );
+
+        return _CalidadSectionPanel(
+          titulo: showRejectedOnly
+              ? 'Fichas rechazadas'
+              : 'Fichas técnicas pendientes',
+          subtitulo: showRejectedOnly
+              ? 'Se muestran separadas hasta que sean reemplazadas o se eliminen solas.'
+              : 'Fichas cargadas para revisión de Calidad.',
+          icon: Icons.description,
+          color: color,
+          count: fichas.length,
+          child: child,
+        );
+      },
+    );
+  }
+
+  Widget _buildRecepcionesSection({required bool showRejectedOnly}) {
+    final color = showRejectedOnly ? kComprasRed : kComprasPrimary;
+
+    Widget child;
+    if (_cargandoReq) {
+      child = const _CalidadLoadingState(
+        message: 'Cargando reglas de recepciones...',
+      );
+    } else {
+      child = StreamBuilder<List<RecepcionDoc>>(
+        stream: widget.svc.streamRecepciones(widget.empresaId),
+        builder: (_, snap) {
+          var recepciones = (snap.data ?? [])
+              .where(
+                (r) => _recepcionTieneDocsPorEstado(
+                  r,
+                  showRejectedOnly: showRejectedOnly,
+                ),
+              )
+              .where(_coincideRecepcion)
+              .toList();
+
+          if (_filtroFecha != null) {
+            recepciones = recepciones.where((r) {
+              final fecha = r.fecha.toDate();
+              return fecha.year == _filtroFecha!.year &&
+                  fecha.month == _filtroFecha!.month &&
+                  fecha.day == _filtroFecha!.day;
+            }).toList();
+          }
+
+          if (recepciones.isEmpty) {
+            return _CalidadEmptyState(
+              icon: showRejectedOnly
+                  ? Icons.playlist_remove_outlined
+                  : Icons.verified_user,
+              message: showRejectedOnly
+                  ? 'No hay documentos de recepción rechazados vigentes.'
+                  : 'No hay documentos de recepción pendientes.',
+            );
+          }
+
+          return Column(
+            children: [
+              for (var i = 0; i < recepciones.length; i++) ...[
+                _RecepcionCalidadCard(
+                  recepcion: recepciones[i],
+                  svc: widget.svc,
+                  userId: widget.userId,
+                  filtroProducto: _filtroProducto,
+                  reqEngine: _reqEngine,
+                  showRejectedOnly: showRejectedOnly,
+                  retentionDays: _diasRetencionRechazados,
+                ),
+                if (i < recepciones.length - 1) const SizedBox(height: 10),
+              ],
+            ],
+          );
+        },
+      );
+    }
+
+    return _CalidadSectionPanel(
+      titulo: showRejectedOnly
+          ? 'Recepciones rechazadas'
+          : 'Recepciones pendientes',
+      subtitulo: showRejectedOnly
+          ? 'Documentos rechazados separados del flujo activo.'
+          : 'Recepciones con archivos listos para aprobar o rechazar.',
+      icon: showRejectedOnly
+          ? Icons.report_gmailerrorred
+          : Icons.local_shipping,
+      color: color,
+      child: child,
+    );
   }
 
   @override
@@ -10648,284 +11073,63 @@ class _CalidadScreenState extends State<_CalidadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kComprasBg,
-      appBar: AppBar(
-        title: const Text(
-          'Revisión de Calidad',
-          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: const Color(0xFF15803D),
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: Icon(
-              _soloRechazados ? Icons.filter_list : Icons.filter_list_off,
-            ),
-            tooltip: _soloRechazados ? 'Mostrar todos' : 'Solo rechazados',
-            onPressed: () => setState(() => _soloRechazados = !_soloRechazados),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: kComprasBg,
+        appBar: AppBar(
+          title: const Text(
+            'Revisión de Calidad',
+            style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
           ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // ── Filtros ──
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchCtrl,
-                    decoration: InputDecoration(
-                      hintText: 'Filtrar por producto...',
-                      prefixIcon: const Icon(Icons.search, size: 18),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 8,
-                        horizontal: 12,
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey.shade50,
-                    ),
-                    style: const TextStyle(fontFamily: _kFont, fontSize: 13),
-                    onChanged: (v) =>
-                        setState(() => _filtroProducto = v.toLowerCase()),
+          backgroundColor: const Color(0xFF15803D),
+          foregroundColor: Colors.white,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(54),
+            child: Container(
+              decoration: const BoxDecoration(color: Color(0xFF126E35)),
+              child: TabBar(
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  border: const Border(
+                    bottom: BorderSide(color: Colors.white, width: 3),
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(
-                    Icons.calendar_today,
-                    color: _filtroFecha != null
-                        ? const Color(0xFF15803D)
-                        : Colors.black45,
-                  ),
-                  tooltip: 'Filtrar por fecha',
-                  onPressed: () async {
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _filtroFecha ?? DateTime.now(),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime.now(),
-                    );
-                    if (picked != null) {
-                      setState(() => _filtroFecha = picked);
-                    }
-                  },
+                labelColor: Colors.white,
+                unselectedLabelColor: const Color(0xFFD7F2DE),
+                labelPadding: const EdgeInsets.symmetric(vertical: 10),
+                labelStyle: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
                 ),
-                if (_filtroFecha != null)
-                  IconButton(
-                    icon: const Icon(Icons.clear, color: Colors.red),
-                    tooltip: 'Limpiar fecha',
-                    onPressed: () => setState(() => _filtroFecha = null),
-                  ),
-              ],
-            ),
-          ),
-          if (_filtroFecha != null)
-            Container(
-              color: Colors.green.shade50,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.filter_alt,
-                    size: 14,
-                    color: Color(0xFF15803D),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Fecha: ${DateFormat('dd/MM/yyyy', 'es').format(_filtroFecha!)}',
-                    style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: Color(0xFF15803D),
-                    ),
-                  ),
+                unselectedLabelStyle: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+                tabs: const [
+                  Tab(text: 'Pendientes'),
+                  Tab(text: 'Rechazados'),
                 ],
               ),
             ),
-          // ── Lista combinada: fichas técnicas + recepciones ──
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                // ── Fichas técnicas pendientes de calidad ──
-                StreamBuilder<List<FichaTecnicaDoc>>(
-                  stream: widget.svc.streamFichasTecnicasPendientes(
-                    widget.empresaId,
-                  ),
-                  builder: (_, fSnap) {
-                    final fichas = fSnap.data ?? [];
-                    if (fichas.isEmpty) return const SizedBox.shrink();
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.description,
-                              size: 18,
-                              color: Color(0xFF0277BD),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Fichas Técnicas pendientes (${fichas.length})',
-                              style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                                color: Color(0xFF0277BD),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        ...fichas.map(
-                          (f) => _FichaCalidadCard(
-                            ficha: f,
-                            svc: widget.svc,
-                            userId: widget.userId,
-                          ),
-                        ),
-                        const Divider(height: 24, thickness: 1),
-                      ],
-                    );
-                  },
-                ),
-                // ── Recepciones (todas, filtradas por incompletos) ──
-                if (_cargandoReq)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else
-                  StreamBuilder<List<RecepcionDoc>>(
-                    stream: widget.svc.streamRecepciones(widget.empresaId),
-                    builder: (ctx, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      var lista = (snap.data ?? [])
-                          .where(_recepcionTieneIncompletos)
-                          .toList();
-                      if (_filtroProducto.isNotEmpty) {
-                        lista = lista
-                            .where(
-                              (r) => r.productos.any(
-                                (p) => p.nombre.toLowerCase().contains(
-                                  _filtroProducto,
-                                ),
-                              ),
-                            )
-                            .toList();
-                      }
-                      if (_filtroFecha != null) {
-                        lista = lista.where((r) {
-                          final d = r.fecha.toDate();
-                          return d.year == _filtroFecha!.year &&
-                              d.month == _filtroFecha!.month &&
-                              d.day == _filtroFecha!.day;
-                        }).toList();
-                      }
-                      if (lista.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const SizedBox(height: 40),
-                              Icon(
-                                Icons.verified_user,
-                                size: 64,
-                                color: Colors.green.shade300,
-                              ),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'Sin documentos de recepción pendientes',
-                                style: TextStyle(
-                                  fontFamily: _kFont,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const Text(
-                                'Todo está al día',
-                                style: TextStyle(
-                                  fontFamily: _kFont,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-                      return Column(
-                        children: List.generate(
-                          lista.length,
-                          (i) => _RecepcionCalidadCard(
-                            recepcion: lista[i],
-                            svc: widget.svc,
-                            userId: widget.userId,
-                            filtroProducto: _filtroProducto,
-                            reqEngine: _reqEngine,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                // ── Proveedores con documentación incompleta ──
-                if (!_cargandoReq)
-                  StreamBuilder<List<ProveedorDoc>>(
-                    stream: widget.svc.streamProveedores(widget.empresaId),
-                    builder: (_, pSnap) {
-                      final provs = (pSnap.data ?? [])
-                          .where(_proveedorTieneIncompletos)
-                          .toList();
-                      if (provs.isEmpty) return const SizedBox.shrink();
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Divider(height: 24, thickness: 1),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.business,
-                                size: 18,
-                                color: Color(0xFF7B3F00),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Documentos de Proveedores (${provs.length})',
-                                style: const TextStyle(
-                                  fontFamily: _kFont,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: Color(0xFF7B3F00),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          ...provs.map(
-                            (p) => _ProveedorCalidadCard(
-                              proveedor: p,
-                              svc: widget.svc,
-                              userId: widget.userId,
-                              reqEngine: _reqEngine,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-              ],
-            ),
           ),
-        ],
+        ),
+        body: Column(
+          children: [
+            _buildFiltros(),
+            _buildFechaFiltradaBanner(),
+            if (_depurandoRechazados)
+              const LinearProgressIndicator(minHeight: 2),
+            Expanded(
+              child: TabBarView(
+                children: [_buildPendientesTab(), _buildRechazadosTab()],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -10939,12 +11143,31 @@ class _FichaCalidadCard extends StatelessWidget {
   final FichaTecnicaDoc ficha;
   final ComprasService svc;
   final String userId;
+  final bool showRejectedOnly;
+  final int retentionDays;
 
   const _FichaCalidadCard({
     required this.ficha,
     required this.svc,
     required this.userId,
+    this.showRejectedOnly = false,
+    this.retentionDays = 8,
   });
+
+  String? _fechaEliminacion(DocAdjunto? doc) {
+    final fecha = doc?.fechaRevision?.toDate();
+    if (fecha == null) return null;
+    return DateFormat(
+      'dd/MM/yyyy',
+      'es',
+    ).format(fecha.add(Duration(days: retentionDays)));
+  }
+
+  String? _fechaRevision(DocAdjunto? doc) {
+    final fecha = doc?.fechaRevision?.toDate();
+    if (fecha == null) return null;
+    return DateFormat('dd/MM/yyyy', 'es').format(fecha);
+  }
 
   Future<void> _aprobar(BuildContext context) async {
     try {
@@ -11049,6 +11272,8 @@ class _FichaCalidadCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final doc = ficha.documentoActual;
+    final fechaRechazo = _fechaRevision(doc);
+    final fechaEliminacion = _fechaEliminacion(doc);
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(
@@ -11098,6 +11323,24 @@ class _FichaCalidadCard extends StatelessWidget {
                 color: Colors.black54,
               ),
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (showRejectedOnly)
+                  _Chip('Rechazada', kComprasRed)
+                else
+                  _Chip('Pendiente', const Color(0xFFB45309)),
+                if (fechaRechazo != null && showRejectedOnly)
+                  _Chip('Revisada: $fechaRechazo', const Color(0xFFB91C1C)),
+                if (fechaEliminacion != null && showRejectedOnly)
+                  _Chip(
+                    'Se elimina: $fechaEliminacion',
+                    const Color(0xFFB45309),
+                  ),
+              ],
+            ),
             if (doc?.observacionActualizacion?.isNotEmpty == true) ...[
               const SizedBox(height: 6),
               Container(
@@ -11130,39 +11373,38 @@ class _FichaCalidadCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (showRejectedOnly &&
+                doc?.observacionCalidad?.trim().isNotEmpty == true) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(
+                  'Motivo del rechazo: ${doc!.observacionCalidad!.trim()}',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.red.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 10),
-            Row(
-              children: [
-                if (doc?.tieneDoc == true)
-                  TextButton.icon(
-                    onPressed: () => _abrirUrl(context, doc!.url),
-                    icon: const Icon(Icons.open_in_new, size: 14),
-                    label: const Text(
-                      'Ver PDF',
-                      style: TextStyle(fontFamily: _kFont, fontSize: 12),
-                    ),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                    ),
-                  ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () => _rechazar(context),
-                  icon: const Icon(
-                    Icons.cancel_outlined,
-                    size: 16,
-                    color: kComprasRed,
-                  ),
+            if (doc?.tieneDoc == true)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => _abrirUrl(context, doc!.url),
+                  icon: const Icon(Icons.open_in_new, size: 14),
                   label: const Text(
-                    'Rechazar',
-                    style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      color: kComprasRed,
-                    ),
+                    'Ver PDF',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 12),
                   ),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
@@ -11171,30 +11413,86 @@ class _FichaCalidadCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kComprasGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  onPressed: () => _aprobar(context),
-                  icon: const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text(
-                    'Aprobar',
-                    style: TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            if (!showRejectedOnly) ...[
+              if (doc?.tieneDoc == true) const SizedBox(height: 10),
+              _CalidadDecisionButtons(
+                onApprove: () => _aprobar(context),
+                onReject: () => _rechazar(context),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CalidadDecisionButtons extends StatelessWidget {
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
+  const _CalidadDecisionButtons({
+    required this.onApprove,
+    required this.onReject,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _CalidadActionButton(
+            label: 'Aprobar',
+            icon: Icons.check_circle,
+            color: kComprasGreen,
+            onPressed: onApprove,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _CalidadActionButton(
+            label: 'Rechazar',
+            icon: Icons.cancel,
+            color: kComprasRed,
+            onPressed: onReject,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CalidadActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+
+  const _CalidadActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        backgroundColor: color.withValues(alpha: 0.05),
+        side: BorderSide(color: color.withValues(alpha: 0.85)),
+        minimumSize: const Size.fromHeight(42),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(
+          fontFamily: _kFont,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -11207,6 +11505,8 @@ class _RecepcionCalidadCard extends StatelessWidget {
   final String userId;
   final String filtroProducto;
   final ReqEngine? reqEngine;
+  final bool showRejectedOnly;
+  final int retentionDays;
 
   const _RecepcionCalidadCard({
     required this.recepcion,
@@ -11214,7 +11514,28 @@ class _RecepcionCalidadCard extends StatelessWidget {
     required this.userId,
     required this.filtroProducto,
     this.reqEngine,
+    this.showRejectedOnly = false,
+    this.retentionDays = 8,
   });
+
+  bool _matchesDocFilter(DocAdjunto? doc) {
+    if (doc == null || !doc.tieneDoc) return false;
+    if (!showRejectedOnly) return !doc.aprobado && !doc.rechazado;
+    if (!doc.rechazado) return false;
+    final fecha = doc.fechaRevision?.toDate();
+    if (fecha == null) return true;
+    final limite = DateTime.now().subtract(Duration(days: retentionDays));
+    return !fecha.isBefore(limite);
+  }
+
+  String? _fechaEliminacion(DocAdjunto doc) {
+    final fecha = doc.fechaRevision?.toDate();
+    if (fecha == null) return null;
+    return DateFormat(
+      'dd/MM/yyyy',
+      'es',
+    ).format(fecha.add(Duration(days: retentionDays)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -11286,17 +11607,12 @@ class _RecepcionCalidadCard extends StatelessWidget {
               final docsExtra = rp.documentos.entries
                   .where(
                     (e) =>
-                        e.value.tieneDoc &&
-                        !e.value.aprobado &&
+                        _matchesDocFilter(e.value) &&
                         !keysRequeridos.contains(e.key),
                   )
                   .toList();
 
-              // ¿Hay algo que mostrar? Solo docs subidos y no aprobados
-              final faltantesSet = <String>{};
-              final tieneAlgo = rp.documentos.values.any(
-                (d) => d.tieneDoc && !d.aprobado,
-              );
+              final tieneAlgo = rp.documentos.values.any(_matchesDocFilter);
               if (!tieneAlgo) return <Widget>[];
 
               // Contar docs subidos: aprobados vs total subidos
@@ -11307,86 +11623,100 @@ class _RecepcionCalidadCard extends StatelessWidget {
               final aprobadosCount = rp.documentos.values
                   .where((d) => d.aprobado)
                   .length;
+              final rechazadosCount = rp.documentos.values
+                  .where(_matchesDocFilter)
+                  .length;
 
               return [
                 Container(
                   margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: faltantesSet.isNotEmpty
-                        ? Colors.amber.shade50
+                    color: showRejectedOnly
+                        ? Colors.red.shade50
                         : Colors.orange.shade50,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: faltantesSet.isNotEmpty
-                          ? Colors.amber.shade300
+                      color: showRejectedOnly
+                          ? Colors.red.shade200
                           : Colors.orange.shade200,
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.inventory_2,
-                            size: 14,
-                            color: Colors.black54,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              rp.nombre,
-                              style: const TextStyle(
-                                fontFamily: _kFont,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.inventory_2,
+                                  size: 14,
+                                  color: Colors.black54,
+                                ),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    rp.nombre,
+                                    style: const TextStyle(
+                                      fontFamily: _kFont,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                                if (rp.marca.isNotEmpty)
+                                  _Chip(rp.marca, kComprasPrimary),
+                                const SizedBox(width: 4),
+                                _Chip(
+                                  rp.origen,
+                                  rp.origen == 'IMPORTADO'
+                                      ? Colors.purple.shade700
+                                      : Colors.green.shade700,
+                                ),
+                              ],
                             ),
-                          ),
-                          if (rp.marca.isNotEmpty)
-                            _Chip(rp.marca, kComprasPrimary),
-                          const SizedBox(width: 4),
-                          _Chip(
-                            rp.origen,
-                            rp.origen == 'IMPORTADO'
-                                ? Colors.purple.shade700
-                                : Colors.green.shade700,
-                          ),
-                        ],
+                            if (totalReq > 0) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                showRejectedOnly
+                                    ? '$rechazadosCount rechazado(s) vigente(s)'
+                                    : '$aprobadosCount/$totalReq docs aprobados',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 11,
+                                  color: showRejectedOnly
+                                      ? kComprasRed
+                                      : aprobadosCount == totalReq
+                                      ? kComprasGreen
+                                      : Colors.orange.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            if (rp.observaciones.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Obs: ${rp.observaciones}',
+                                style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                          ],
+                        ),
                       ),
-                      if (totalReq > 0) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          '$aprobadosCount/$totalReq docs aprobados',
-                          style: TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 11,
-                            color: aprobadosCount == totalReq
-                                ? kComprasGreen
-                                : Colors.orange.shade800,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      if (rp.observaciones.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Obs: ${rp.observaciones}',
-                          style: const TextStyle(
-                            fontFamily: _kFont,
-                            fontSize: 11,
-                            fontStyle: FontStyle.italic,
-                            color: Colors.black54,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
                       // Docs requeridos (del ReqEngine) — solo los subidos
                       ...requeridos
                           .where(
                             (req) =>
-                                rp.documentos[req.keyApp]?.tieneDoc == true,
+                                _matchesDocFilter(rp.documentos[req.keyApp]),
                           )
                           .map((req) {
                             final docKey = req.keyApp;
@@ -11619,6 +11949,19 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 ),
               ),
             ),
+          if (_fechaEliminacion(doc) != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
+              child: Text(
+                'Se elimina: ${_fechaEliminacion(doc)}',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.orange.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
         ],
       );
     }
@@ -11627,61 +11970,49 @@ class _RecepcionCalidadCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Icon(Icons.hourglass_empty, size: 14, color: Colors.orange),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.hourglass_empty, size: 14, color: Colors.orange),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
               ),
-            ),
-            if (doc.fechaVencimiento != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color:
-                        (doc.fechaVencimiento!.toDate().isBefore(
-                          DateTime.now(),
-                        ))
-                        ? Colors.red.withOpacity(0.1)
-                        : Colors.blue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
+              if (doc.fechaVencimiento != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
                       color:
                           (doc.fechaVencimiento!.toDate().isBefore(
                             DateTime.now(),
                           ))
-                          ? Colors.red.withOpacity(0.3)
-                          : Colors.blue.withOpacity(0.3),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.calendar_today,
-                        size: 10,
+                          ? Colors.red.withOpacity(0.1)
+                          : Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
                         color:
                             (doc.fechaVencimiento!.toDate().isBefore(
                               DateTime.now(),
                             ))
-                            ? Colors.red
-                            : Colors.blue,
+                            ? Colors.red.withOpacity(0.3)
+                            : Colors.blue.withOpacity(0.3),
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Vence: ${DateFormat('dd/MM/yyyy').format(doc.fechaVencimiento!.toDate())}',
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 10,
                           color:
                               (doc.fechaVencimiento!.toDate().isBefore(
                                 DateTime.now(),
@@ -11689,86 +12020,66 @@ class _RecepcionCalidadCard extends StatelessWidget {
                               ? Colors.red
                               : Colors.blue,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 4),
+                        Text(
+                          'Vence: ${DateFormat('dd/MM/yyyy').format(doc.fechaVencimiento!.toDate())}',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color:
+                                (doc.fechaVencimiento!.toDate().isBefore(
+                                  DateTime.now(),
+                                ))
+                                ? Colors.red
+                                : Colors.blue,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            if (doc.tieneDoc)
-              IconButton(
-                onPressed: () => _abrirUrl(context, doc.url),
-                icon: const Icon(Icons.search, size: 18, color: Colors.blue),
-                tooltip: 'Ver documento',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              ),
-          ],
+              if (doc.tieneDoc)
+                IconButton(
+                  onPressed: () => _abrirUrl(context, doc.url),
+                  icon: const Icon(Icons.search, size: 18, color: Colors.blue),
+                  tooltip: 'Ver documento',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+            ],
+          ),
         ),
         if (doc.observacionActualizacion?.trim().isNotEmpty == true) ...[
           const SizedBox(height: 4),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange.shade200),
-            ),
-            child: Text(
-              'Obs. actualización: ${doc.observacionActualizacion!.trim()}',
-              style: const TextStyle(
-                fontFamily: _kFont,
-                fontSize: 11,
-                color: Colors.black87,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Text(
+                'Obs. actualización: ${doc.observacionActualizacion!.trim()}',
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.black87,
+                ),
               ),
             ),
           ),
         ],
         const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _aprobarDoc(context, productoIdx, docKey),
-                icon: const Icon(
-                  Icons.check_circle,
-                  size: 16,
-                  color: kComprasGreen,
-                ),
-                label: const Text(
-                  'Aprobar',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: kComprasGreen,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: kComprasGreen),
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _rechazarDoc(context, productoIdx, docKey),
-                icon: const Icon(Icons.cancel, size: 16, color: kComprasRed),
-                label: const Text(
-                  'Rechazar',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: kComprasRed,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: kComprasRed),
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                ),
-              ),
-            ),
-          ],
+        _CalidadDecisionButtons(
+          onApprove: () => _aprobarDoc(context, productoIdx, docKey),
+          onReject: () => _rechazarDoc(context, productoIdx, docKey),
         ),
       ],
     );
@@ -11894,13 +12205,36 @@ class _ProveedorCalidadCard extends StatelessWidget {
   final ComprasService svc;
   final String userId;
   final ReqEngine? reqEngine;
+  final bool showRejectedOnly;
+  final int retentionDays;
 
   const _ProveedorCalidadCard({
     required this.proveedor,
     required this.svc,
     required this.userId,
     this.reqEngine,
+    this.showRejectedOnly = false,
+    this.retentionDays = 8,
   });
+
+  bool _matchesDocFilter(DocAdjunto? doc) {
+    if (doc == null || !doc.tieneDoc) return false;
+    if (!showRejectedOnly) return !doc.aprobado && !doc.rechazado;
+    if (!doc.rechazado) return false;
+    final fecha = doc.fechaRevision?.toDate();
+    if (fecha == null) return true;
+    final limite = DateTime.now().subtract(Duration(days: retentionDays));
+    return !fecha.isBefore(limite);
+  }
+
+  String? _fechaEliminacion(DocAdjunto doc) {
+    final fecha = doc.fechaRevision?.toDate();
+    if (fecha == null) return null;
+    return DateFormat(
+      'dd/MM/yyyy',
+      'es',
+    ).format(fecha.add(Duration(days: retentionDays)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -11914,9 +12248,9 @@ class _ProveedorCalidadCard extends StatelessWidget {
     final docsExtra = proveedor.documentos.entries
         .where(
           (e) =>
-              e.value.tieneDoc &&
-              !e.value.aprobado &&
-              !keysRequeridos.contains(e.key),
+              _matchesDocFilter(e.value) &&
+              !keysRequeridos.contains(e.key) &&
+              !kDocProveedorOcultos.contains(e.key),
         )
         .toList();
 
@@ -11924,6 +12258,13 @@ class _ProveedorCalidadCard extends StatelessWidget {
     final totalReq = requeridos.length;
     final aprobadosCount = requeridos
         .where((r) => proveedor.documentos[r.keyApp]?.aprobado == true)
+        .length;
+    final rechazadosCount = proveedor.documentos.entries
+        .where(
+          (entry) =>
+              !kDocProveedorOcultos.contains(entry.key) &&
+              _matchesDocFilter(entry.value),
+        )
         .length;
 
     return Card(
@@ -11965,11 +12306,15 @@ class _ProveedorCalidadCard extends StatelessWidget {
             if (totalReq > 0) ...[
               const SizedBox(height: 4),
               Text(
-                '$aprobadosCount/$totalReq docs aprobados',
+                showRejectedOnly
+                    ? '$rechazadosCount rechazado(s) vigente(s)'
+                    : '$aprobadosCount/$totalReq docs aprobados',
                 style: TextStyle(
                   fontFamily: _kFont,
                   fontSize: 11,
-                  color: aprobadosCount == totalReq
+                  color: showRejectedOnly
+                      ? kComprasRed
+                      : aprobadosCount == totalReq
                       ? kComprasGreen
                       : Colors.orange.shade800,
                   fontWeight: FontWeight.w600,
@@ -11983,6 +12328,9 @@ class _ProveedorCalidadCard extends StatelessWidget {
               final doc = proveedor.documentos[docKey];
               final label =
                   kDocProveedorLabels[docKey] ?? req.documentoRequerido;
+              if (!_matchesDocFilter(doc)) {
+                return const SizedBox.shrink();
+              }
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _buildDocRow(
@@ -12191,6 +12539,19 @@ class _ProveedorCalidadCard extends StatelessWidget {
                 ),
               ),
             ),
+          if (_fechaEliminacion(doc) != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
+              child: Text(
+                'Se elimina: ${_fechaEliminacion(doc)}',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Colors.orange.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
         ],
       );
     }
@@ -12219,50 +12580,9 @@ class _ProveedorCalidadCard extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _aprobarDoc(context, docKey),
-                icon: const Icon(
-                  Icons.check_circle,
-                  size: 16,
-                  color: kComprasGreen,
-                ),
-                label: const Text(
-                  'Aprobar',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: kComprasGreen,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: kComprasGreen),
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _rechazarDoc(context, docKey),
-                icon: const Icon(Icons.cancel, size: 16, color: kComprasRed),
-                label: const Text(
-                  'Rechazar',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 12,
-                    color: kComprasRed,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: kComprasRed),
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                ),
-              ),
-            ),
-          ],
+        _CalidadDecisionButtons(
+          onApprove: () => _aprobarDoc(context, docKey),
+          onReject: () => _rechazarDoc(context, docKey),
         ),
       ],
     );
@@ -12371,6 +12691,183 @@ class _ProveedorCalidadCard extends StatelessWidget {
 
 // WIDGETS DE APOYO
 // ══════════════════════════════════════════════════════════════════════════════
+
+class _CalidadSectionPanel extends StatelessWidget {
+  final String titulo;
+  final String subtitulo;
+  final IconData icon;
+  final Color color;
+  final int? count;
+  final Widget child;
+
+  const _CalidadSectionPanel({
+    required this.titulo,
+    required this.subtitulo,
+    required this.icon,
+    required this.color,
+    required this.child,
+    this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      titulo,
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitulo,
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (count != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _CalidadEmptyState extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _CalidadEmptyState({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: Colors.grey.shade500, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: Colors.black54,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CalidadLoadingState extends StatelessWidget {
+  final String message;
+
+  const _CalidadLoadingState({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: Colors.black54,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SectionHeader extends StatelessWidget {
   final String titulo;

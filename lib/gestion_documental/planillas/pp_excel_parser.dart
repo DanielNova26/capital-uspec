@@ -47,10 +47,15 @@ class PpExcelParser {
           .toList(growable: false);
       final headers = rawHeaders.map(_normalize).toList(growable: false);
 
+      // Detectar formato Alimentar Capital: encabezados contienen 'cte' y 'aho'
+      final isAcFormat = headers.contains('cte') || headers.contains('aho');
+      final acConsecutivo = isAcFormat
+          ? _extractAcConsecutivo(sheet, headerRowIndex)
+          : null;
+
       final filas = <PpExcelFila>[];
       var omitidas = 0;
       var internalRowIndex = 0;
-      var lastNombre = ''; // carry-forward para filas sub-entrada sin "No"
 
       for (var i = headerRowIndex + 1; i < sheet.rows.length; i++) {
         final row = sheet.rows[i];
@@ -67,20 +72,21 @@ class PpExcelParser {
           map[key] = j < row.length ? _cellText(sheet, i, j).trim() : '';
         }
 
-        var nombre = _pick(map, [
-          'consolidado',
-          'planilla',
-          'nombre_planilla',
-          'n_planilla',
-          'numero_planilla',
-          'nombre',
-          'no', // formato Alimentar Capital: columna "No" = N° Consecutivo
-        ]);
-        // Carry-forward: sub-filas del mismo planilla tienen "No" en blanco
-        if (nombre.isEmpty && lastNombre.isNotEmpty) {
-          nombre = lastNombre;
-        } else if (nombre.isNotEmpty) {
-          lastNombre = nombre;
+        // Formato AC: el identificador viene de la columna "No" (columna A del Excel).
+        // Filas con el mismo valor en "No" → mismo PDF consolidado.
+        // Formato estándar: cada fila tiene su propio identificador de planilla.
+        final String nombre;
+        if (isAcFormat) {
+          nombre = map['no'] ?? '';
+        } else {
+          nombre = _pick(map, [
+            'consolidado',
+            'planilla',
+            'nombre_planilla',
+            'n_planilla',
+            'numero_planilla',
+            'nombre',
+          ]);
         }
 
         final fechaRaw = _pick(map, [
@@ -89,8 +95,8 @@ class PpExcelParser {
           'fecha_planilla',
           'fecha_pago',
           'fecha_banco',
-          'fecha_entrega', // formato Alimentar Capital
-          'fecha_de_cargue', // formato Alimentar Capital
+          'fecha_entrega',
+          'fecha_de_cargue',
         ]);
         final valorRaw = _pick(map, [
           'valor_a_pagar',
@@ -113,8 +119,11 @@ class PpExcelParser {
 
         final extras = Map<String, String>.from(map)
           ..remove('no')
+          ..remove('consolidado')
           ..remove('nombre_planilla')
           ..remove('planilla')
+          ..remove('n_planilla')
+          ..remove('numero_planilla')
           ..remove('nombre')
           ..remove('fecha')
           ..remove('fecha_planilla')
@@ -130,7 +139,7 @@ class PpExcelParser {
           ..remove('nombre_archivo')
           ..remove('archivo');
 
-        // Normalizar columna revisado_* → revisado para el PDF
+        // Normalizar revisado_* → revisado
         final revisadoKey = extras.keys.firstWhere(
           (k) => k.startsWith('revisado') && k != 'revisado',
           orElse: () => '',
@@ -140,14 +149,14 @@ class PpExcelParser {
           extras.remove(revisadoKey);
         }
 
-        // Normalizar n_factura_* → no_factura_orden_de_compra (alias histórico)
+        // Normalizar n_factura_* → no_factura_orden_de_compra
         if (!extras.containsKey('no_factura_orden_de_compra') &&
             extras.containsKey('n_factura_orden_de_compra')) {
           extras['no_factura_orden_de_compra'] =
               extras['n_factura_orden_de_compra']!;
           extras.remove('n_factura_orden_de_compra');
         }
-        // Normalizar n_cuenta → no_cuenta (alias histórico)
+        // Normalizar n_cuenta → no_cuenta
         if (!extras.containsKey('no_cuenta') &&
             extras.containsKey('n_cuenta')) {
           extras['no_cuenta'] = extras['n_cuenta']!;
@@ -172,7 +181,8 @@ class PpExcelParser {
         columnas: rawHeaders.where((h) => h.isNotEmpty).toList(),
         headerRowNumber: headerRowIndex + 1,
         filasOmitidas: omitidas,
-        sheetTitle: sheetTitle,
+        sheetTitle: isAcFormat ? sheetTitle : null,
+        acConsecutivo: acConsecutivo,
       );
     } catch (e) {
       return PpExcelParseResult(
@@ -263,6 +273,25 @@ class PpExcelParser {
             RegExp(r'[A-Z]{2}').hasMatch(text) &&
             !RegExp(r'^\d').hasMatch(text)) {
           return text;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Extrae el N° CONSECUTIVO del bloque de portada buscando una celda que
+  /// contenga "CONSECUTIVO" y retornando el valor numérico en celdas adyacentes.
+  String? _extractAcConsecutivo(Sheet sheet, int headerRowIndex) {
+    for (var i = 0; i < headerRowIndex; i++) {
+      final row = sheet.rows[i];
+      for (var j = 0; j < row.length; j++) {
+        final text = _cellText(sheet, i, j).trim().toUpperCase();
+        if (text.contains('CONSECUTIVO')) {
+          // Buscar el primer valor no vacío a la derecha en la misma fila
+          for (var k = j + 1; k < row.length && k < j + 6; k++) {
+            final val = _cellText(sheet, i, k).trim();
+            if (val.isNotEmpty) return val;
+          }
         }
       }
     }

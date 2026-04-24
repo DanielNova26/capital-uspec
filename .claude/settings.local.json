@@ -40,7 +40,8 @@
       "Bash(find C:/Desarrollo/capital-uspec/lib/core -name *.dart)",
       "Bash(find C:/Desarrollo/capital-uspec/lib/utils -name task*)",
       "Bash(npm run:*)",
-      "Bash(firebase deploy *)"
+      "Bash(firebase deploy *)",
+      "Bash(pip install *)"
     ]
   }
 }

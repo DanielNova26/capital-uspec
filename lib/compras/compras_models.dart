@@ -19,23 +19,63 @@ const List<String> kCategoriasCompras = [
 ];
 
 const List<String> kUnidadesMedida = [
-  'Kg', 'g', 'mg', 'Ton',
-  'L', 'mL',
-  'Und', 'Par', 'Caja', 'Paquete', 'Bolsa',
-  'Rollo', 'Metro', 'Cm',
-  'Libra', 'Galón', 'Botella', 'Caneca',
-  'Costal', 'Bandeja', 'Porción',
+  'Kg',
+  'g',
+  'mg',
+  'Ton',
+  'L',
+  'mL',
+  'Und',
+  'Par',
+  'Caja',
+  'Paquete',
+  'Bolsa',
+  'Rollo',
+  'Metro',
+  'Cm',
+  'Libra',
+  'Galón',
+  'Botella',
+  'Caneca',
+  'Costal',
+  'Bandeja',
+  'Porción',
 ];
 
 const List<String> kDepartamentos = [
-  'Amazonas', 'Antioquia', 'Arauca', 'Atlántico',
-  'Bogotá D.C.', 'Bolívar', 'Boyacá', 'Caldas',
-  'Caquetá', 'Casanare', 'Cauca', 'Cesar', 'Chocó',
-  'Córdoba', 'Cundinamarca', 'Guainía', 'Guaviare',
-  'Huila', 'La Guajira', 'Magdalena', 'Meta',
-  'Nariño', 'Norte de Santander', 'Putumayo', 'Quindío',
-  'Risaralda', 'San Andrés y Providencia', 'Santander',
-  'Sucre', 'Tolima', 'Valle del Cauca', 'Vaupés', 'Vichada',
+  'Amazonas',
+  'Antioquia',
+  'Arauca',
+  'Atlántico',
+  'Bogotá D.C.',
+  'Bolívar',
+  'Boyacá',
+  'Caldas',
+  'Caquetá',
+  'Casanare',
+  'Cauca',
+  'Cesar',
+  'Chocó',
+  'Córdoba',
+  'Cundinamarca',
+  'Guainía',
+  'Guaviare',
+  'Huila',
+  'La Guajira',
+  'Magdalena',
+  'Meta',
+  'Nariño',
+  'Norte de Santander',
+  'Putumayo',
+  'Quindío',
+  'Risaralda',
+  'San Andrés y Providencia',
+  'Santander',
+  'Sucre',
+  'Tolima',
+  'Valle del Cauca',
+  'Vaupés',
+  'Vichada',
 ];
 
 // Los documentos requeridos ya no se definen aquí con constantes hardcodeadas.
@@ -48,19 +88,22 @@ const List<String> kDepartamentos = [
 const String kDocRut = 'rut';
 const String kDocCertExistencia = 'camaraComercio';
 const String kDocActaInspeccion = 'actaIvcPlanta';
+const String kDocFichaTecnicaProv = 'fichaTecnicaProv';
+
+/// Documentos legacy de proveedor que ya no deben mostrarse en la UI activa.
+const Set<String> kDocProveedorOcultos = {kDocFichaTecnicaProv};
 
 /// Documentos a nivel de PROVEEDOR.
-/// NOTA: fichaTecnicaProv fue movido al nivel de PRODUCTO (ProductoDoc.fichaTecnica).
+/// NOTA: la ficha técnica del producto ya no se gestiona desde proveedor.
 const Map<String, String> kDocProveedorLabels = {
   'rut': 'RUT del proveedor',
   'camaraComercio': 'Cámara de comercio vigente',
   'actaIvcPlanta': 'Acta IVC planta de producción (vigencia menor a 1 año)',
-  'actaIvcVehiculo': 'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
+  'actaIvcVehiculo':
+      'Acta IVC del vehículo transportador (vigencia menor a 1 año)',
   'examenMedico': 'Examen médico del conductor con énfasis en alimentos',
   'cursoManipulacion':
       'Certificado/curso de manipulación de alimentos del conductor/manipulador',
-  // Docs requeridos por el motor de requisitos a nivel PROVEEDOR
-  'fichaTecnicaProv': 'Ficha técnica del producto',
   'soporteRegistroInvima': 'Soporte de registro sanitario INVIMA',
   'fichaTecnicaDosificacion':
       'Ficha técnica con registro sanitario y dosificaciones',
@@ -71,10 +114,9 @@ const Map<String, String> kDocRecepcionLabels = {
   'guiaSacrificio': 'Guía de sacrificio',
   'certCalidad': 'Certificado de calidad',
   'fichaTecnica': 'Ficha técnica (copia vigente)',
-  'evidenciaEtiqueta':
-  'Evidencia fotográfica del rótulo/etiqueta del empaque',
+  'evidenciaEtiqueta': 'Evidencia fotográfica del rótulo/etiqueta del empaque',
   'fechaVencimientoEtiqueta':
-  'Fecha de vencimiento impresa en el empaque (verificación/evidencia)',
+      'Fecha de vencimiento impresa en el empaque (verificación/evidencia)',
   'declImport': 'Declaración de Importación (DIAN)',
   'docTransporte': 'Documento de transporte (BL/AWB/Carta porte)',
   'mandatoAduanas': 'Mandato o poder del agente de aduanas',
@@ -85,26 +127,26 @@ const Map<String, String> kDocRecepcionLabels = {
   'etiquetaEspanol': 'Etiqueta en idioma español (evidencia fotográfica)',
   'soporteRegistroInvima': 'Soporte de registro sanitario INVIMA',
   'fichaTecnicaDosificacion':
-  'Ficha técnica con registro sanitario y dosificaciones (uso alimentario)',
+      'Ficha técnica con registro sanitario y dosificaciones (uso alimentario)',
   'hojaSeguridad': 'Hoja de seguridad (SGA) con 16 parámetros',
   'sustanciasPermitidas':
-  'Listado/soporte de sustancias permitidas para uso en proceso alimentario',
+      'Listado/soporte de sustancias permitidas para uso en proceso alimentario',
   'rotuladoSGA':
-  'Etiqueta SGA: pictogramas, palabra de advertencia, H/P, identificación y proveedor (evidencia)',
+      'Etiqueta SGA: pictogramas, palabra de advertencia, H/P, identificación y proveedor (evidencia)',
   'rotuladoInfoBasica':
-  'Rotulado: nombre alimento, contenido neto, fabricante/fraccionador, lote, vencimiento, conservación, ciudad, etc. (evidencia)',
+      'Rotulado: nombre alimento, contenido neto, fabricante/fraccionador, lote, vencimiento, conservación, ciudad, etc. (evidencia)',
   'rotuladoAditivos': 'Declaración de aditivos',
   'rotuladoIngredientes':
-  'Lista de ingredientes y declaración de agua añadida (evidencia)',
+      'Lista de ingredientes y declaración de agua añadida (evidencia)',
   'rotuladoDenominacion': 'Denominación del producto (evidencia)',
   'rotuladoLoteFechas':
-  'Rotulado: lote, peso neto, fechas, conservación y datos del fabricante (evidencia)',
+      'Rotulado: lote, peso neto, fechas, conservación y datos del fabricante (evidencia)',
   'rotuladoAdvertencias':
-  'Rotulado: advertencias (alérgenos, sodio, azúcares, etc.) (evidencia)',
+      'Rotulado: advertencias (alérgenos, sodio, azúcares, etc.) (evidencia)',
   'rotuladoRegistroInvima':
-  'Registro sanitario INVIMA visible en etiqueta (evidencia)',
+      'Registro sanitario INVIMA visible en etiqueta (evidencia)',
   'rotuladoImportOrigen':
-  'Rotulado: información obligatoria incluyendo país de origen (evidencia)',
+      'Rotulado: información obligatoria incluyendo país de origen (evidencia)',
   'rotuladoFrontal810': 'Etiquetado nutricional frontal (evidencia)',
 };
 
@@ -134,16 +176,16 @@ class MarcaRef {
   });
 
   factory MarcaRef.fromMap(Map<String, dynamic> m) => MarcaRef(
-        marcaId: m['marcaId'] as String? ?? '',
-        codigo: m['codigo'] as String? ?? '',
-        descripcion: m['descripcion'] as String? ?? '',
-      );
+    marcaId: m['marcaId'] as String? ?? '',
+    codigo: m['codigo'] as String? ?? '',
+    descripcion: m['descripcion'] as String? ?? '',
+  );
 
   Map<String, dynamic> toMap() => {
-        'marcaId': marcaId,
-        'codigo': codigo,
-        'descripcion': descripcion,
-      };
+    'marcaId': marcaId,
+    'codigo': codigo,
+    'descripcion': descripcion,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -153,7 +195,7 @@ class MarcaRef {
 class MarcaDoc {
   final String id;
   final String empresaId;
-  final String codigo;       // auto-generado: MRC-0001
+  final String codigo; // auto-generado: MRC-0001
   final String descripcion;
   final Timestamp createdAt;
   final Timestamp? updatedAt;
@@ -168,27 +210,24 @@ class MarcaDoc {
   });
 
   factory MarcaDoc.fromMap(String id, Map<String, dynamic> m) => MarcaDoc(
-        id: id,
-        empresaId: m['empresaId'] as String? ?? '',
-        codigo: m['codigo'] as String? ?? '',
-        descripcion: m['descripcion'] as String? ?? '',
-        createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
-        updatedAt: m['updatedAt'] as Timestamp?,
-      );
+    id: id,
+    empresaId: m['empresaId'] as String? ?? '',
+    codigo: m['codigo'] as String? ?? '',
+    descripcion: m['descripcion'] as String? ?? '',
+    createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+    updatedAt: m['updatedAt'] as Timestamp?,
+  );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'codigo': codigo,
-        'descripcion': descripcion,
-        'createdAt': createdAt,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+    'empresaId': empresaId,
+    'codigo': codigo,
+    'descripcion': descripcion,
+    'createdAt': createdAt,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
 
-  MarcaRef toRef() => MarcaRef(
-        marcaId: id,
-        codigo: codigo,
-        descripcion: descripcion,
-      );
+  MarcaRef toRef() =>
+      MarcaRef(marcaId: id, codigo: codigo, descripcion: descripcion);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -207,14 +246,17 @@ class DocAdjunto {
   final String? nombre;
   final String? path;
   final Timestamp? fechaSubida;
+
   /// Fecha de vencimiento del documento (opcional, p.ej. para registro sanitario).
   final Timestamp? fechaVencimiento;
+
   /// Estado de revisión calidad: '' | 'pendiente' | 'aprobado' | 'rechazado'
   final String estadoCalidad;
   final String? observacionActualizacion;
   final String? observacionCalidad;
   final String? revisadoPor;
   final Timestamp? fechaRevision;
+
   /// userId del usuario que subió este documento (para notificaciones de rechazo).
   final String? subidoPor;
 
@@ -235,7 +277,7 @@ class DocAdjunto {
   bool get tieneDoc => url != null && url!.isNotEmpty;
   bool get pendienteRevisionCalidad =>
       estadoCalidad == 'pendiente_revision_calidad' ||
-          estadoCalidad == 'pendiente';
+      estadoCalidad == 'pendiente';
   bool get pendiente => pendienteRevisionCalidad;
   bool get aprobado => estadoCalidad == 'aprobado';
   bool get rechazado => estadoCalidad == 'rechazado';
@@ -258,18 +300,18 @@ class DocAdjunto {
   }
 
   Map<String, dynamic> toMap() => {
-        'url': url,
-        'nombre': nombre,
-        'path': path,
-        'fechaSubida': fechaSubida,
-        'fechaVencimiento': fechaVencimiento,
-        'estadoCalidad': estadoCalidad,
-        'observacionCalidad': observacionCalidad,
-        'observacionActualizacion': observacionActualizacion,
-        'revisadoPor': revisadoPor,
-        'fechaRevision': fechaRevision,
-        'subidoPor': subidoPor,
-      };
+    'url': url,
+    'nombre': nombre,
+    'path': path,
+    'fechaSubida': fechaSubida,
+    'fechaVencimiento': fechaVencimiento,
+    'estadoCalidad': estadoCalidad,
+    'observacionCalidad': observacionCalidad,
+    'observacionActualizacion': observacionActualizacion,
+    'revisadoPor': revisadoPor,
+    'fechaRevision': fechaRevision,
+    'subidoPor': subidoPor,
+  };
 
   DocAdjunto copyWith({
     String? url,
@@ -283,21 +325,20 @@ class DocAdjunto {
     String? revisadoPor,
     Timestamp? fechaRevision,
     String? subidoPor,
-  }) =>
-      DocAdjunto(
-        url: url ?? this.url,
-        nombre: nombre ?? this.nombre,
-        path: path ?? this.path,
-        fechaSubida: fechaSubida ?? this.fechaSubida,
-        fechaVencimiento: fechaVencimiento ?? this.fechaVencimiento,
-        estadoCalidad: estadoCalidad ?? this.estadoCalidad,
-        observacionCalidad: observacionCalidad ?? this.observacionCalidad,
-        observacionActualizacion:
-            observacionActualizacion ?? this.observacionActualizacion,
-        revisadoPor: revisadoPor ?? this.revisadoPor,
-        fechaRevision: fechaRevision ?? this.fechaRevision,
-        subidoPor: subidoPor ?? this.subidoPor,
-      );
+  }) => DocAdjunto(
+    url: url ?? this.url,
+    nombre: nombre ?? this.nombre,
+    path: path ?? this.path,
+    fechaSubida: fechaSubida ?? this.fechaSubida,
+    fechaVencimiento: fechaVencimiento ?? this.fechaVencimiento,
+    estadoCalidad: estadoCalidad ?? this.estadoCalidad,
+    observacionCalidad: observacionCalidad ?? this.observacionCalidad,
+    observacionActualizacion:
+        observacionActualizacion ?? this.observacionActualizacion,
+    revisadoPor: revisadoPor ?? this.revisadoPor,
+    fechaRevision: fechaRevision ?? this.fechaRevision,
+    subidoPor: subidoPor ?? this.subidoPor,
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -360,20 +401,20 @@ class ProveedorDoc {
   }
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'nit': nit,
-        'razonSocial': razonSocial,
-        'direccion': direccion,
-        'telefono': telefono,
-        'email': email,
-        'departamento': departamento,
-        'ciudad': ciudad,
-        'esLocal': esLocal,
-        'categorias': categorias,
-        'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
-        'createdAt': createdAt,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+    'empresaId': empresaId,
+    'nit': nit,
+    'razonSocial': razonSocial,
+    'direccion': direccion,
+    'telefono': telefono,
+    'email': email,
+    'departamento': departamento,
+    'ciudad': ciudad,
+    'esLocal': esLocal,
+    'categorias': categorias,
+    'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
+    'createdAt': createdAt,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
 
   ProveedorDoc copyWith({
     String? id,
@@ -390,23 +431,22 @@ class ProveedorDoc {
     Map<String, DocAdjunto>? documentos,
     Timestamp? createdAt,
     Timestamp? updatedAt,
-  }) =>
-      ProveedorDoc(
-        id: id ?? this.id,
-        empresaId: empresaId ?? this.empresaId,
-        nit: nit ?? this.nit,
-        razonSocial: razonSocial ?? this.razonSocial,
-        direccion: direccion ?? this.direccion,
-        telefono: telefono ?? this.telefono,
-        email: email ?? this.email,
-        departamento: departamento ?? this.departamento,
-        ciudad: ciudad ?? this.ciudad,
-        esLocal: esLocal ?? this.esLocal,
-        categorias: categorias ?? this.categorias,
-        documentos: documentos ?? this.documentos,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  }) => ProveedorDoc(
+    id: id ?? this.id,
+    empresaId: empresaId ?? this.empresaId,
+    nit: nit ?? this.nit,
+    razonSocial: razonSocial ?? this.razonSocial,
+    direccion: direccion ?? this.direccion,
+    telefono: telefono ?? this.telefono,
+    email: email ?? this.email,
+    departamento: departamento ?? this.departamento,
+    ciudad: ciudad ?? this.ciudad,
+    esLocal: esLocal ?? this.esLocal,
+    categorias: categorias ?? this.categorias,
+    documentos: documentos ?? this.documentos,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -422,10 +462,13 @@ class ProductoDoc {
   final String categoria;
   final bool esPerecedero;
   final List<MarcaRef> marcas;
+
   /// 'NACIONAL' | 'IMPORTADO' — determina la documentación requerida en recepción
   final String origen;
+
   /// Ficha técnica del producto (antes estaba a nivel de proveedor)
   final DocAdjunto? fichaTecnica;
+
   /// Ficha técnica por marca vinculada al producto (marcaId -> DocAdjunto)
   final Map<String, DocAdjunto> fichasTecnicasPorMarca;
   final Timestamp createdAt;
@@ -448,46 +491,48 @@ class ProductoDoc {
   });
 
   factory ProductoDoc.fromMap(String id, Map<String, dynamic> m) => ProductoDoc(
-        id: id,
-        empresaId: m['empresaId'] as String? ?? '',
-        codigo: m['codigo'] as String? ?? '',
-        nombre: m['nombre'] as String? ?? '',
-        unidadMedida: m['unidadMedida'] as String? ?? '',
-        categoria: m['categoria'] as String? ?? '',
-        esPerecedero: m['esPerecedero'] as bool? ?? false,
-        marcas: ((m['marcas'] as List?) ?? [])
-            .cast<Map<String, dynamic>>()
-            .map(MarcaRef.fromMap)
-            .toList(),
-        origen: m['origen'] as String? ?? 'NACIONAL',
-        fichaTecnica: m['fichaTecnica'] != null
-            ? DocAdjunto.fromMap(m['fichaTecnica'] as Map<String, dynamic>?)
-            : null,
+    id: id,
+    empresaId: m['empresaId'] as String? ?? '',
+    codigo: m['codigo'] as String? ?? '',
+    nombre: m['nombre'] as String? ?? '',
+    unidadMedida: m['unidadMedida'] as String? ?? '',
+    categoria: m['categoria'] as String? ?? '',
+    esPerecedero: m['esPerecedero'] as bool? ?? false,
+    marcas: ((m['marcas'] as List?) ?? [])
+        .cast<Map<String, dynamic>>()
+        .map(MarcaRef.fromMap)
+        .toList(),
+    origen: m['origen'] as String? ?? 'NACIONAL',
+    fichaTecnica: m['fichaTecnica'] != null
+        ? DocAdjunto.fromMap(m['fichaTecnica'] as Map<String, dynamic>?)
+        : null,
     fichasTecnicasPorMarca:
-    ((m['fichasTecnicasPorMarca'] as Map<String, dynamic>?) ?? {})
-        .map((k, v) => MapEntry(
-        k,
-        DocAdjunto.fromMap(
-            (v as Map?)?.cast<String, dynamic>()))),
-        createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
-        updatedAt: m['updatedAt'] as Timestamp?,
-      );
+        ((m['fichasTecnicasPorMarca'] as Map<String, dynamic>?) ?? {}).map(
+          (k, v) => MapEntry(
+            k,
+            DocAdjunto.fromMap((v as Map?)?.cast<String, dynamic>()),
+          ),
+        ),
+    createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+    updatedAt: m['updatedAt'] as Timestamp?,
+  );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'codigo': codigo,
-        'nombre': nombre,
-        'unidadMedida': unidadMedida,
-        'categoria': categoria,
-        'esPerecedero': esPerecedero,
-        'marcas': marcas.map((r) => r.toMap()).toList(),
-        'origen': origen,
-        'fichaTecnica': fichaTecnica?.toMap(),
-    'fichasTecnicasPorMarca':
-    fichasTecnicasPorMarca.map((k, v) => MapEntry(k, v.toMap())),
-        'createdAt': createdAt,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+    'empresaId': empresaId,
+    'codigo': codigo,
+    'nombre': nombre,
+    'unidadMedida': unidadMedida,
+    'categoria': categoria,
+    'esPerecedero': esPerecedero,
+    'marcas': marcas.map((r) => r.toMap()).toList(),
+    'origen': origen,
+    'fichaTecnica': fichaTecnica?.toMap(),
+    'fichasTecnicasPorMarca': fichasTecnicasPorMarca.map(
+      (k, v) => MapEntry(k, v.toMap()),
+    ),
+    'createdAt': createdAt,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
 
   ProductoDoc copyWith({
     String? id,
@@ -504,23 +549,24 @@ class ProductoDoc {
     bool clearFichaTecnica = false,
     Timestamp? createdAt,
     Timestamp? updatedAt,
-  }) =>
-      ProductoDoc(
-        id: id ?? this.id,
-        empresaId: empresaId ?? this.empresaId,
-        codigo: codigo ?? this.codigo,
-        nombre: nombre ?? this.nombre,
-        unidadMedida: unidadMedida ?? this.unidadMedida,
-        categoria: categoria ?? this.categoria,
-        esPerecedero: esPerecedero ?? this.esPerecedero,
-        marcas: marcas ?? this.marcas,
-        origen: origen ?? this.origen,
-        fichaTecnica: clearFichaTecnica ? null : (fichaTecnica ?? this.fichaTecnica),
-        fichasTecnicasPorMarca:
+  }) => ProductoDoc(
+    id: id ?? this.id,
+    empresaId: empresaId ?? this.empresaId,
+    codigo: codigo ?? this.codigo,
+    nombre: nombre ?? this.nombre,
+    unidadMedida: unidadMedida ?? this.unidadMedida,
+    categoria: categoria ?? this.categoria,
+    esPerecedero: esPerecedero ?? this.esPerecedero,
+    marcas: marcas ?? this.marcas,
+    origen: origen ?? this.origen,
+    fichaTecnica: clearFichaTecnica
+        ? null
+        : (fichaTecnica ?? this.fichaTecnica),
+    fichasTecnicasPorMarca:
         fichasTecnicasPorMarca ?? this.fichasTecnicasPorMarca,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -531,10 +577,11 @@ class RecepcionProducto {
   final String productoId;
   final String nombre;
   final String categoria;
-  final String marcaId;      // ID de MarcaDoc (puede ser vacío)
-  final String marca;        // Descripción de la marca (para mostrar)
-  final String origen;       // 'NACIONAL' | 'IMPORTADO' — hereda del ProductoDoc
+  final String marcaId; // ID de MarcaDoc (puede ser vacío)
+  final String marca; // Descripción de la marca (para mostrar)
+  final String origen; // 'NACIONAL' | 'IMPORTADO' — hereda del ProductoDoc
   final Map<String, DocAdjunto> documentos;
+
   /// Observaciones del operador (bodega) sobre esta recepción del producto
   final String observaciones;
 
@@ -566,15 +613,15 @@ class RecepcionProducto {
   }
 
   Map<String, dynamic> toMap() => {
-        'productoId': productoId,
-        'nombre': nombre,
-        'categoria': categoria,
-        'marcaId': marcaId,
-        'marca': marca,
-        'origen': origen,
-        'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
-        'observaciones': observaciones,
-      };
+    'productoId': productoId,
+    'nombre': nombre,
+    'categoria': categoria,
+    'marcaId': marcaId,
+    'marca': marca,
+    'origen': origen,
+    'documentos': documentos.map((k, v) => MapEntry(k, v.toMap())),
+    'observaciones': observaciones,
+  };
 
   RecepcionProducto copyWith({
     String? productoId,
@@ -585,17 +632,16 @@ class RecepcionProducto {
     String? origen,
     Map<String, DocAdjunto>? documentos,
     String? observaciones,
-  }) =>
-      RecepcionProducto(
-        productoId: productoId ?? this.productoId,
-        nombre: nombre ?? this.nombre,
-        categoria: categoria ?? this.categoria,
-        marcaId: marcaId ?? this.marcaId,
-        marca: marca ?? this.marca,
-        origen: origen ?? this.origen,
-        documentos: documentos ?? this.documentos,
-        observaciones: observaciones ?? this.observaciones,
-      );
+  }) => RecepcionProducto(
+    productoId: productoId ?? this.productoId,
+    nombre: nombre ?? this.nombre,
+    categoria: categoria ?? this.categoria,
+    marcaId: marcaId ?? this.marcaId,
+    marca: marca ?? this.marca,
+    origen: origen ?? this.origen,
+    documentos: documentos ?? this.documentos,
+    observaciones: observaciones ?? this.observaciones,
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -610,11 +656,12 @@ class RecepcionDoc {
   final String nit;
   final String razonSocial;
   final String ordenCompra;
+
   /// Bodega o ubicación de destino de la mercancía
   final String bodega;
   final List<RecepcionProducto> productos;
   final List<String> productoIds; // para consultas con array-contains
-  final String creadoPor;         // userId de quien creó la recepción
+  final String creadoPor; // userId de quien creó la recepción
   final Timestamp createdAt;
 
   const RecepcionDoc({
@@ -632,7 +679,8 @@ class RecepcionDoc {
     required this.createdAt,
   });
 
-  factory RecepcionDoc.fromMap(String id, Map<String, dynamic> m) => RecepcionDoc(
+  factory RecepcionDoc.fromMap(String id, Map<String, dynamic> m) =>
+      RecepcionDoc(
         id: id,
         empresaId: m['empresaId'] as String? ?? '',
         fecha: m['fecha'] as Timestamp? ?? Timestamp.now(),
@@ -651,18 +699,18 @@ class RecepcionDoc {
       );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'fecha': fecha,
-        'proveedorId': proveedorId,
-        'nit': nit,
-        'razonSocial': razonSocial,
-        'ordenCompra': ordenCompra,
-        'bodega': bodega,
-        'productos': productos.map((p) => p.toMap()).toList(),
-        'productoIds': productoIds,
-        'creadoPor': creadoPor,
-        'createdAt': FieldValue.serverTimestamp(),
-      };
+    'empresaId': empresaId,
+    'fecha': fecha,
+    'proveedorId': proveedorId,
+    'nit': nit,
+    'razonSocial': razonSocial,
+    'ordenCompra': ordenCompra,
+    'bodega': bodega,
+    'productos': productos.map((p) => p.toMap()).toList(),
+    'productoIds': productoIds,
+    'creadoPor': creadoPor,
+    'createdAt': FieldValue.serverTimestamp(),
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -676,6 +724,7 @@ class ComprasRolDoc {
   final String userId;
   final String cedula;
   final String nombre;
+
   /// 'calidad' | 'compras' | 'bodega'
   final String rol;
   final Timestamp createdAt;
@@ -702,13 +751,13 @@ class ComprasRolDoc {
       );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'userId': userId,
-        'cedula': cedula,
-        'nombre': nombre,
-        'rol': rol,
-        'createdAt': createdAt,
-      };
+    'empresaId': empresaId,
+    'userId': userId,
+    'cedula': cedula,
+    'nombre': nombre,
+    'rol': rol,
+    'createdAt': createdAt,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -719,6 +768,7 @@ class ComprasRolDoc {
 class NotificacionComprasDoc {
   final String id;
   final String empresaId;
+
   /// userId destinatario (quien subió el documento — bodega)
   final String userId;
   final String recepcionId;
@@ -757,16 +807,16 @@ class NotificacionComprasDoc {
       );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'userId': userId,
-        'recepcionId': recepcionId,
-        'productoNombre': productoNombre,
-        'docKey': docKey,
-        'docLabel': docLabel,
-        'motivo': motivo,
-        'createdAt': createdAt,
-        'leida': leida,
-      };
+    'empresaId': empresaId,
+    'userId': userId,
+    'recepcionId': recepcionId,
+    'productoNombre': productoNombre,
+    'docKey': docKey,
+    'docLabel': docLabel,
+    'motivo': motivo,
+    'createdAt': createdAt,
+    'leida': leida,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -778,11 +828,14 @@ class FichaTecnicaHistorial {
   final String url;
   final String nombre;
   final String? path;
+
   /// Motivo obligatorio de la actualización (por qué se reemplazó).
   final String observacion;
+
   /// userId que realizó la actualización.
   final String actualizadoPor;
   final Timestamp fecha;
+
   /// Estado de calidad que tenía el documento al momento de ser archivado.
   final String estadoCalidadFinal;
 
@@ -808,14 +861,14 @@ class FichaTecnicaHistorial {
       );
 
   Map<String, dynamic> toMap() => {
-        'url': url,
-        'nombre': nombre,
-        'path': path,
-        'observacion': observacion,
-        'actualizadoPor': actualizadoPor,
-        'fecha': fecha,
-        'estadoCalidadFinal': estadoCalidadFinal,
-      };
+    'url': url,
+    'nombre': nombre,
+    'path': path,
+    'observacion': observacion,
+    'actualizadoPor': actualizadoPor,
+    'fecha': fecha,
+    'estadoCalidadFinal': estadoCalidadFinal,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -832,13 +885,17 @@ class FichaTecnicaDoc {
   final String productoId;
   final String productoNombre;
   final String productoCategoria;
+
   /// '' cuando el producto no tiene marca.
   final String marcaId;
   final String marcaNombre;
+
   /// Ficha vigente con su estado de calidad.
   final DocAdjunto? documentoActual;
+
   /// Versiones anteriores archivadas.
   final List<FichaTecnicaHistorial> historial;
+
   /// userId que subió la ficha (para enviar notificaciones si calidad rechaza).
   final String creadoPor;
   final Timestamp createdAt;
@@ -874,7 +931,8 @@ class FichaTecnicaDoc {
         marcaNombre: m['marcaNombre'] as String? ?? '',
         documentoActual: m['documentoActual'] != null
             ? DocAdjunto.fromMap(
-                (m['documentoActual'] as Map?)?.cast<String, dynamic>())
+                (m['documentoActual'] as Map?)?.cast<String, dynamic>(),
+              )
             : null,
         historial: ((m['historial'] as List?) ?? [])
             .cast<Map<String, dynamic>>()
@@ -886,20 +944,20 @@ class FichaTecnicaDoc {
       );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'proveedorId': proveedorId,
-        'proveedorNombre': proveedorNombre,
-        'productoId': productoId,
-        'productoNombre': productoNombre,
-        'productoCategoria': productoCategoria,
-        'marcaId': marcaId,
-        'marcaNombre': marcaNombre,
-        'documentoActual': documentoActual?.toMap(),
-        'historial': historial.map((h) => h.toMap()).toList(),
-        'creadoPor': creadoPor,
-        'createdAt': createdAt,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+    'empresaId': empresaId,
+    'proveedorId': proveedorId,
+    'proveedorNombre': proveedorNombre,
+    'productoId': productoId,
+    'productoNombre': productoNombre,
+    'productoCategoria': productoCategoria,
+    'marcaId': marcaId,
+    'marcaNombre': marcaNombre,
+    'documentoActual': documentoActual?.toMap(),
+    'historial': historial.map((h) => h.toMap()).toList(),
+    'creadoPor': creadoPor,
+    'createdAt': createdAt,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
 
   FichaTecnicaDoc copyWith({
     String? id,
@@ -917,23 +975,22 @@ class FichaTecnicaDoc {
     String? creadoPor,
     Timestamp? createdAt,
     Timestamp? updatedAt,
-  }) =>
-      FichaTecnicaDoc(
-        id: id ?? this.id,
-        empresaId: empresaId ?? this.empresaId,
-        proveedorId: proveedorId ?? this.proveedorId,
-        proveedorNombre: proveedorNombre ?? this.proveedorNombre,
-        productoId: productoId ?? this.productoId,
-        productoNombre: productoNombre ?? this.productoNombre,
-        productoCategoria: productoCategoria ?? this.productoCategoria,
-        marcaId: marcaId ?? this.marcaId,
-        marcaNombre: marcaNombre ?? this.marcaNombre,
-        documentoActual: clearDocumentoActual
-            ? null
-            : (documentoActual ?? this.documentoActual),
-        historial: historial ?? this.historial,
-        creadoPor: creadoPor ?? this.creadoPor,
-        createdAt: createdAt ?? this.createdAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  }) => FichaTecnicaDoc(
+    id: id ?? this.id,
+    empresaId: empresaId ?? this.empresaId,
+    proveedorId: proveedorId ?? this.proveedorId,
+    proveedorNombre: proveedorNombre ?? this.proveedorNombre,
+    productoId: productoId ?? this.productoId,
+    productoNombre: productoNombre ?? this.productoNombre,
+    productoCategoria: productoCategoria ?? this.productoCategoria,
+    marcaId: marcaId ?? this.marcaId,
+    marcaNombre: marcaNombre ?? this.marcaNombre,
+    documentoActual: clearDocumentoActual
+        ? null
+        : (documentoActual ?? this.documentoActual),
+    historial: historial ?? this.historial,
+    creadoPor: creadoPor ?? this.creadoPor,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 }

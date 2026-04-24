@@ -3,7 +3,7 @@
 // Fuente de verdad: colección TBL_COMPRAS_REQ_DOCUMENTOS en Firestore.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'compras_models.dart' show DocAdjunto;
+import 'compras_models.dart' show DocAdjunto, kDocFichaTecnicaProv;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ReqDocumentoDoc  — un registro de la tabla TBL_COMPRAS_REQ_DOCUMENTOS
@@ -14,17 +14,18 @@ class ReqDocumentoDoc {
   final String empresaId;
   final String categoriaApp; // 'Proteína' | 'Abarrotes' | 'Aseo' | 'Todas'
   final String materiaPrima; // descripción informativa de la materia prima
-  final String origen;       // 'NACIONAL' | 'IMPORTADO' | 'AMBOS'
-  final String nivel;        // 'PROVEEDOR' | 'RECEPCION'
-  final String etapa;        // 'INICIAL' | 'CADA_PEDIDO' | 'ROTULADO'
-  final String codDoc;       // código interno del Excel (ej. PROV_FICHA_TECNICA)
-  final String keyApp;       // clave de almacenamiento en el mapa documentos
+  final String origen; // 'NACIONAL' | 'IMPORTADO' | 'AMBOS'
+  final String nivel; // 'PROVEEDOR' | 'RECEPCION'
+  final String etapa; // 'INICIAL' | 'CADA_PEDIDO' | 'ROTULADO'
+  final String codDoc; // código interno del Excel (ej. PROV_FICHA_TECNICA)
+  final String keyApp; // clave de almacenamiento en el mapa documentos
   final String documentoRequerido; // nombre legible para mostrar en UI
-  final String obligatorio;  // 'SI' | 'CONDICIONAL'
-  final String condicion;    // texto explicativo si obligatorio == 'CONDICIONAL'
-  final String norma;        // norma(s) separadas por ';'
-  final String entidad;      // 'INVIMA' | 'ICA' | 'DIAN' | ''
-  final String frecuencia;   // 'AL_INICIO/ACTUALIZACION' | 'ANUAL' | 'POR_PEDIDO' | ...
+  final String obligatorio; // 'SI' | 'CONDICIONAL'
+  final String condicion; // texto explicativo si obligatorio == 'CONDICIONAL'
+  final String norma; // norma(s) separadas por ';'
+  final String entidad; // 'INVIMA' | 'ICA' | 'DIAN' | ''
+  final String
+  frecuencia; // 'AL_INICIO/ACTUALIZACION' | 'ANUAL' | 'POR_PEDIDO' | ...
   final String observaciones;
   final bool activo;
 
@@ -70,24 +71,24 @@ class ReqDocumentoDoc {
       );
 
   Map<String, dynamic> toMap() => {
-        'empresaId': empresaId,
-        'categoriaApp': categoriaApp,
-        'materiaPrima': materiaPrima,
-        'origen': origen,
-        'nivel': nivel,
-        'etapa': etapa,
-        'codDoc': codDoc,
-        'keyApp': keyApp,
-        'documentoRequerido': documentoRequerido,
-        'obligatorio': obligatorio,
-        'condicion': condicion,
-        'norma': norma,
-        'entidad': entidad,
-        'frecuencia': frecuencia,
-        'observaciones': observaciones,
-        'activo': activo,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
+    'empresaId': empresaId,
+    'categoriaApp': categoriaApp,
+    'materiaPrima': materiaPrima,
+    'origen': origen,
+    'nivel': nivel,
+    'etapa': etapa,
+    'codDoc': codDoc,
+    'keyApp': keyApp,
+    'documentoRequerido': documentoRequerido,
+    'obligatorio': obligatorio,
+    'condicion': condicion,
+    'norma': norma,
+    'entidad': entidad,
+    'frecuencia': frecuencia,
+    'observaciones': observaciones,
+    'activo': activo,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -97,10 +98,10 @@ class ReqDocumentoDoc {
 class ReqDocAplic {
   final String keyApp;
   final String documentoRequerido;
-  final List<String> normas;    // lista de normas únicas que lo exigen
+  final List<String> normas; // lista de normas únicas que lo exigen
   final List<String> entidades; // lista de entidades regulatorias únicas
-  final bool esMandatorio;      // true si al menos una fila fuente es 'SI'
-  final String condicion;       // texto de condición (si CONDICIONAL)
+  final bool esMandatorio; // true si al menos una fila fuente es 'SI'
+  final String condicion; // texto de condición (si CONDICIONAL)
 
   const ReqDocAplic({
     required this.keyApp,
@@ -150,11 +151,14 @@ class ReqEngine {
 
     final catSet = {...categorias, 'Todas'};
     final filtrados = _todos
-        .where((d) =>
-            d.activo &&
-            d.nivel == 'PROVEEDOR' &&
-            d.etapa == 'INICIAL' &&
-            catSet.contains(d.categoriaApp))
+        .where(
+          (d) =>
+              d.activo &&
+              d.nivel == 'PROVEEDOR' &&
+              d.etapa == 'INICIAL' &&
+              d.keyApp != kDocFichaTecnicaProv &&
+              catSet.contains(d.categoriaApp),
+        )
         .toList();
 
     return _agrupar(filtrados);
@@ -175,13 +179,15 @@ class ReqEngine {
     if (_todos.isEmpty) return const [];
 
     final filtrados = _todos
-        .where((d) =>
-            d.activo &&
-            d.nivel == 'RECEPCION' &&
-            d.etapa == etapa &&
-            (d.categoriaApp == categoriaProducto ||
-                d.categoriaApp == 'Todas') &&
-            (d.origen == 'AMBOS' || d.origen == origenProducto))
+        .where(
+          (d) =>
+              d.activo &&
+              d.nivel == 'RECEPCION' &&
+              d.etapa == etapa &&
+              (d.categoriaApp == categoriaProducto ||
+                  d.categoriaApp == 'Todas') &&
+              (d.origen == 'AMBOS' || d.origen == origenProducto),
+        )
         .toList();
 
     return _agrupar(filtrados);
@@ -193,10 +199,9 @@ class ReqEngine {
   List<ReqDocAplic> getFaltantes(
     Map<String, DocAdjunto> docs,
     List<ReqDocAplic> requeridos,
-  ) =>
-      requeridos
-          .where((r) => r.esMandatorio && !(docs[r.keyApp]?.tieneDoc ?? false))
-          .toList();
+  ) => requeridos
+      .where((r) => r.esMandatorio && !(docs[r.keyApp]?.tieneDoc ?? false))
+      .toList();
 
   // ─── Interno: agrupar por keyApp ────────────────────────────────────────────
 
@@ -226,10 +231,14 @@ class ReqEngine {
           .toSet()
           .toList();
       final esMandatorio = grupo.any((f) => f.obligatorio == 'SI');
-      final condicionFila = grupo
-          .where((f) => f.obligatorio == 'CONDICIONAL' && f.condicion.isNotEmpty)
-          .map((f) => f.condicion)
-          .firstOrNull ?? '';
+      final condicionFila =
+          grupo
+              .where(
+                (f) => f.obligatorio == 'CONDICIONAL' && f.condicion.isNotEmpty,
+              )
+              .map((f) => f.condicion)
+              .firstOrNull ??
+          '';
 
       return ReqDocAplic(
         keyApp: key,
