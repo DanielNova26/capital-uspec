@@ -13,6 +13,8 @@ import '../widgets/internal_module_layout.dart';
 import '../compras/compras_req_seed.dart';
 import '../compras/compras_service.dart';
 import '../compras/compras_models.dart';
+import '../interventoria/interventoria_models.dart';
+import '../interventoria/interventoria_service.dart';
 
 import 'admin_repository.dart';
 import 'migrations/admin_migration_service.dart';
@@ -23,7 +25,7 @@ const String kArial = 'Arial';
 // ======= Paleta Admin (moderna) =======
 const Color kAdminBg = Color(0xFFF8FAFC); // Slate 50
 const Color kAdminPrimary = Color(0xFF0F172A); // Slate 900
-const Color kAdminAccent = Color(0xFF3B82F6);  // Blue 500
+const Color kAdminAccent = Color(0xFF3B82F6); // Blue 500
 const Color kAdminCard = Colors.white;
 const Color kAdminBorder = Color(0xFFE2E8F0); // Slate 200
 const Color kAdminMuted = Color(0xFF64748B); // Slate 500
@@ -71,18 +73,27 @@ const List<InternalModuleTabItem> _kAdminModuleTabs = [
   InternalModuleTabItem(label: 'Diagnósticos', icon: Icons.medical_information),
   InternalModuleTabItem(label: 'Req. Compras', icon: Icons.rule_folder),
   InternalModuleTabItem(label: 'Roles Compras', icon: Icons.verified_user),
+  InternalModuleTabItem(
+    label: 'Roles Interventoria',
+    icon: Icons.document_scanner,
+  ),
 ];
 
 class AdminDashboardScreen extends StatefulWidget {
   final String userId; // admin id
   final String empresaId;
-  const AdminDashboardScreen({super.key, required this.userId, required this.empresaId});
+  const AdminDashboardScreen({
+    super.key,
+    required this.userId,
+    required this.empresaId,
+  });
 
   @override
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+    with SingleTickerProviderStateMixin {
   final _repo = AdminRepository(db: FirebaseFirestore.instance);
   final _mig = AdminMigrationService(db: FirebaseFirestore.instance);
 
@@ -144,7 +155,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 9, vsync: this);
+    _tabController = TabController(length: 10, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -181,8 +192,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     // intenta empresa del admin
     if (selected == null || selected.isEmpty) {
       try {
-        final adminDoc =
-        await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(widget.userId).get();
+        final adminDoc = await FirebaseFirestore.instance
+            .collection('TBL_USUARIOS')
+            .doc(widget.userId)
+            .get();
         selected = (adminDoc.data()?['empresaId'] ?? '').toString().trim();
       } catch (_) {}
     }
@@ -219,7 +232,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       // extractUserApps lee tanto apps globales como las del scope de empresa.
       _userApps = {
         for (final u in users)
-          u.id: extractUserApps(u.data(), empresaId: selected).toSet()
+          u.id: extractUserApps(u.data(), empresaId: selected).toSet(),
       };
 
       // Si cambias de empresa, limpiamos selección de migración
@@ -233,8 +246,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   String _safe(dynamic v) => v == null ? '' : v.toString().trim();
 
   String _userName(Map<String, dynamic> d, String fallback) {
-    final n = _safe(d['nombres']).isNotEmpty ? _safe(d['nombres']) : _safe(d['primerNombre']);
-    final a = _safe(d['apellidos']).isNotEmpty ? _safe(d['apellidos']) : _safe(d['primerApellido']);
+    final n = _safe(d['nombres']).isNotEmpty
+        ? _safe(d['nombres'])
+        : _safe(d['primerNombre']);
+    final a = _safe(d['apellidos']).isNotEmpty
+        ? _safe(d['apellidos'])
+        : _safe(d['primerApellido']);
     final full = ('$n $a').trim();
     return full.isEmpty ? fallback : full;
   }
@@ -242,7 +259,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg, style: const TextStyle(fontFamily: kArial))),
+      SnackBar(
+        content: Text(msg, style: const TextStyle(fontFamily: kArial)),
+      ),
     );
   }
 
@@ -254,7 +273,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(title, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontFamily: kArial,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
         content: Text(message, style: const TextStyle(fontFamily: kArial)),
         actions: [
           TextButton(
@@ -264,7 +289,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
             onPressed: () => Navigator.pop(context, true),
-            child: Text(confirmText, style: const TextStyle(fontFamily: kArial)),
+            child: Text(
+              confirmText,
+              style: const TextStyle(fontFamily: kArial),
+            ),
           ),
         ],
       ),
@@ -273,7 +301,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   // ---------------- USUARIOS: editar apps ----------------
-  Future<void> _editUserApps(QueryDocumentSnapshot<Map<String, dynamic>> userDoc) async {
+  Future<void> _editUserApps(
+    QueryDocumentSnapshot<Map<String, dynamic>> userDoc,
+  ) async {
     final local = {...(_userApps[userDoc.id] ?? {})};
     final data = userDoc.data();
     final nombre = _userName(data, userDoc.id);
@@ -296,101 +326,150 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Apps asignadas',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                      color: kAdminPrimary,
-                    )),
+                Text(
+                  'Apps asignadas',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    color: kAdminPrimary,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(nombre, style: const TextStyle(fontFamily: kArial, color: Colors.black54)),
+                Text(
+                  nombre,
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    color: Colors.black54,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: _apps.isEmpty
-                      ? const Center(child: Text('No hay apps habilitadas.', style: TextStyle(fontFamily: kArial)))
+                      ? const Center(
+                          child: Text(
+                            'No hay apps habilitadas.',
+                            style: TextStyle(fontFamily: kArial),
+                          ),
+                        )
                       : Card(
-                    color: kAdminCard,
-                    child: ListView.separated(
-                      itemCount: _apps.length,
-                      separatorBuilder: (_, __) => const Divider(height: 0),
-                      itemBuilder: (_, i) {
-                        final aDoc = _apps[i];
-                        final a = aDoc.data();
-                        final appIdRaw = _safe(a['appId']).isNotEmpty ? _safe(a['appId']) : aDoc.id;
-                        final appId = normalizeAppId(appIdRaw) ?? appIdRaw;
-                        final nombre = _safe(a['nombre']).isNotEmpty ? _safe(a['nombre']) : appId;
-                        final checked = local.contains(appId);
-                        final isGD = appId == 'gestiondocumentaldashboard';
+                          color: kAdminCard,
+                          child: ListView.separated(
+                            itemCount: _apps.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 0),
+                            itemBuilder: (_, i) {
+                              final aDoc = _apps[i];
+                              final a = aDoc.data();
+                              final appIdRaw = _safe(a['appId']).isNotEmpty
+                                  ? _safe(a['appId'])
+                                  : aDoc.id;
+                              final appId =
+                                  normalizeAppId(appIdRaw) ?? appIdRaw;
+                              final nombre = _safe(a['nombre']).isNotEmpty
+                                  ? _safe(a['nombre'])
+                                  : appId;
+                              final checked = local.contains(appId);
+                              final isGD =
+                                  appId == 'gestiondocumentaldashboard';
 
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CheckboxListTile(
-                              value: checked,
-                              activeColor: kAdminPrimary,
-                              title: Text(nombre,
-                                  style: const TextStyle(
-                                      fontFamily: kArial, fontWeight: FontWeight.w700)),
-                              subtitle: Text(appId,
-                                  style: const TextStyle(
-                                      fontFamily: kArial, color: Colors.black54)),
-                              onChanged: (v) {
-                                if (v == true) {
-                                  local.add(appId);
-                                } else {
-                                  local.remove(appId);
-                                }
-                                (ctx as Element).markNeedsBuild();
-                              },
-                            ),
-                            if (isGD && checked)
-                              Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.indigo.withOpacity(0.05),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.indigo.withOpacity(0.2)),
-                                ),
-                                child: const Row(
-                                  children: [
-                                    Icon(Icons.info_outline, size: 18, color: Colors.indigo),
-                                    SizedBox(width: 12),
-                                    Expanded(
-                                      child: Text(
-                                        'GESTIÓN DOCUMENTAL: Recuerda que además de habilitar el acceso al módulo, debes asignar un "Rol Documental" en el botón de Organización (Icono Edificio) para que el usuario pueda subir o firmar.',
-                                        style: TextStyle(
-                                          fontFamily: kArial,
-                                          fontSize: 10,
-                                          color: Colors.indigo,
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CheckboxListTile(
+                                    value: checked,
+                                    activeColor: kAdminPrimary,
+                                    title: Text(
+                                      nombre,
+                                      style: const TextStyle(
+                                        fontFamily: kArial,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
+                                    subtitle: Text(
+                                      appId,
+                                      style: const TextStyle(
+                                        fontFamily: kArial,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    onChanged: (v) {
+                                      if (v == true) {
+                                        local.add(appId);
+                                      } else {
+                                        local.remove(appId);
+                                      }
+                                      (ctx as Element).markNeedsBuild();
+                                    },
+                                  ),
+                                  if (isGD && checked)
+                                    Container(
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 4,
+                                      ),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.withOpacity(0.05),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: Colors.indigo.withOpacity(0.2),
+                                        ),
+                                      ),
+                                      child: const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.info_outline,
+                                            size: 18,
+                                            color: Colors.indigo,
+                                          ),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              'GESTIÓN DOCUMENTAL: Recuerda que además de habilitar el acceso al módulo, debes asignar un "Rol Documental" en el botón de Organización (Icono Edificio) para que el usuario pueda subir o firmar.',
+                                              style: TextStyle(
+                                                fontFamily: kArial,
+                                                fontSize: 10,
+                                                color: Colors.indigo,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
                 ),
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.save),
-                    style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kAdminPrimary,
+                    ),
                     onPressed: () async {
-                      await _repo.updateUserApps(userDoc.id, local, empresaId: _empresaId);
+                      await _repo.updateUserApps(
+                        userDoc.id,
+                        local,
+                        empresaId: _empresaId,
+                      );
                       _snack('Apps actualizadas');
                       if (!mounted) return;
                       Navigator.pop(ctx);
                       await _loadAll(forceEmpresaId: _empresaId);
                     },
-                    label: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+                    label: const Text(
+                      'Guardar',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -402,7 +481,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   }
 
   // ---------------- USUARIOS: editar org ----------------
-  Future<void> _editUserOrg(QueryDocumentSnapshot<Map<String, dynamic>> userDoc) async {
+  Future<void> _editUserOrg(
+    QueryDocumentSnapshot<Map<String, dynamic>> userDoc,
+  ) async {
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) return;
 
@@ -416,17 +497,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     String? areaId = _safe(scoped?['areaId']).isEmpty
         ? (_safe(d['areaId']).isEmpty ? null : _safe(d['areaId']))
         : _safe(scoped?['areaId']);
-    String cargoNombre =
-        _safe(scoped?['cargo']).isNotEmpty ? _safe(scoped?['cargo']) : _safe(d['cargo']);
+    String cargoNombre = _safe(scoped?['cargo']).isNotEmpty
+        ? _safe(scoped?['cargo'])
+        : _safe(d['cargo']);
     String rolDocumental = _safe(scoped?['rolDocumental']).isNotEmpty
         ? _safe(scoped?['rolDocumental']).toLowerCase()
-        : (_safe(d['rolDocumental']).isEmpty ? '' : _safe(d['rolDocumental']).toLowerCase());
+        : (_safe(d['rolDocumental']).isEmpty
+              ? ''
+              : _safe(d['rolDocumental']).toLowerCase());
     String rolPlanillas = _safe(scoped?['rolPlanillas']).isNotEmpty
         ? _safe(scoped?['rolPlanillas']).toLowerCase()
-        : (_safe(d['rolPlanillas']).isEmpty ? '' : _safe(d['rolPlanillas']).toLowerCase());
+        : (_safe(d['rolPlanillas']).isEmpty
+              ? ''
+              : _safe(d['rolPlanillas']).toLowerCase());
 
-    CentroCostoItem? centroSel = _centros.where((c) => c.centroId == centroId).cast<CentroCostoItem?>().firstWhere((x) => x != null, orElse: () => null);
-    AreaItem? areaSel = _areas.where((a) => a.areaId == areaId).cast<AreaItem?>().firstWhere((x) => x != null, orElse: () => null);
+    CentroCostoItem? centroSel = _centros
+        .where((c) => c.centroId == centroId)
+        .cast<CentroCostoItem?>()
+        .firstWhere((x) => x != null, orElse: () => null);
+    AreaItem? areaSel = _areas
+        .where((a) => a.areaId == areaId)
+        .cast<AreaItem?>()
+        .firstWhere((x) => x != null, orElse: () => null);
 
     await showDialog(
       context: context,
@@ -437,7 +529,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text('Organización', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, color: kAdminPrimary)),
+              title: Text(
+                'Organización',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                  color: kAdminPrimary,
+                ),
+              ),
               content: SizedBox(
                 width: 560,
                 child: Column(
@@ -445,19 +544,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   children: [
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(nombre, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+                      child: Text(
+                        nombre,
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 12),
 
                     DropdownButtonFormField<CentroCostoItem>(
                       value: centroSel,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'Centro de costos', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Centro de costos',
+                        border: OutlineInputBorder(),
+                      ),
                       items: centrosEnabled
-                          .map((c) => DropdownMenuItem(
-                        value: c,
-                        child: Text('${c.codigo} - ${c.nombre}', style: const TextStyle(fontFamily: kArial)),
-                      ))
+                          .map(
+                            (c) => DropdownMenuItem(
+                              value: c,
+                              child: Text(
+                                '${c.codigo} - ${c.nombre}',
+                                style: const TextStyle(fontFamily: kArial),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => setDialogState(() => centroSel = v),
                     ),
@@ -466,12 +579,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     DropdownButtonFormField<AreaItem>(
                       value: areaSel,
                       isExpanded: true,
-                      decoration: const InputDecoration(labelText: 'Área / Departamento', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Área / Departamento',
+                        border: OutlineInputBorder(),
+                      ),
                       items: areasEnabled
-                          .map((a) => DropdownMenuItem(
-                        value: a,
-                        child: Text(a.nombre, style: const TextStyle(fontFamily: kArial)),
-                      ))
+                          .map(
+                            (a) => DropdownMenuItem(
+                              value: a,
+                              child: Text(
+                                a.nombre,
+                                style: const TextStyle(fontFamily: kArial),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => setDialogState(() => areaSel = v),
                     ),
@@ -479,7 +600,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
 
                     TextFormField(
                       initialValue: cargoNombre,
-                      decoration: const InputDecoration(labelText: 'Cargo (texto)', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Cargo (texto)',
+                        border: OutlineInputBorder(),
+                      ),
                       style: const TextStyle(fontFamily: kArial),
                       onChanged: (v) => cargoNombre = v.trim(),
                     ),
@@ -490,26 +614,42 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       decoration: const InputDecoration(
                         labelText: 'Rol en Gestión Documental',
                         border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.description_outlined, color: kAdminAccent),
-                        helperText: 'Habilita acciones específicas (redactar, revisar, firmar).',
-                        helperStyle: TextStyle(fontFamily: kArial, fontSize: 10, color: kAdminAccent, fontWeight: FontWeight.w700),
+                        prefixIcon: Icon(
+                          Icons.description_outlined,
+                          color: kAdminAccent,
+                        ),
+                        helperText:
+                            'Habilita acciones específicas (redactar, revisar, firmar).',
+                        helperStyle: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 10,
+                          color: kAdminAccent,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       items: [
                         const DropdownMenuItem<String>(
                           value: '',
-                          child: Text('Sin rol documental (Solo lectura)', style: TextStyle(fontFamily: kArial)),
+                          child: Text(
+                            'Sin rol documental (Solo lectura)',
+                            style: TextStyle(fontFamily: kArial),
+                          ),
                         ),
                         ...kDocumentalRoles.map(
                           (rol) => DropdownMenuItem<String>(
                             value: rol,
                             child: Text(
                               kDocumentalRoleLabels[rol] ?? rol,
-                              style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
                       ],
-                      onChanged: (v) => setDialogState(() => rolDocumental = v ?? ''),
+                      onChanged: (v) =>
+                          setDialogState(() => rolDocumental = v ?? ''),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
@@ -518,35 +658,59 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       decoration: const InputDecoration(
                         labelText: 'Rol en Planillas de Pago',
                         border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.receipt_long_outlined, color: kAdminAccent),
-                        helperText: 'Define quién puede cargar, auditar o firmar planillas.',
-                        helperStyle: TextStyle(fontFamily: kArial, fontSize: 10, color: kAdminAccent, fontWeight: FontWeight.w700),
+                        prefixIcon: Icon(
+                          Icons.receipt_long_outlined,
+                          color: kAdminAccent,
+                        ),
+                        helperText:
+                            'Define quién puede cargar, auditar o firmar planillas.',
+                        helperStyle: TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 10,
+                          color: kAdminAccent,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       items: [
                         const DropdownMenuItem<String>(
                           value: '',
-                          child: Text('Sin rol en planillas', style: TextStyle(fontFamily: kArial)),
+                          child: Text(
+                            'Sin rol en planillas',
+                            style: TextStyle(fontFamily: kArial),
+                          ),
                         ),
                         ...kPlanillasRoles.map(
                           (rol) => DropdownMenuItem<String>(
                             value: rol,
                             child: Text(
                               kPlanillasRoleLabels[rol] ?? rol,
-                              style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
                       ],
-                      onChanged: (v) => setDialogState(() => rolPlanillas = v ?? ''),
+                      onChanged: (v) =>
+                          setDialogState(() => rolPlanillas = v ?? ''),
                     ),
                   ],
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
+                ),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.save),
-                  style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kAdminPrimary,
+                  ),
                   onPressed: () async {
                     await _repo.updateUserOrg(
                       userId: userDoc.id,
@@ -565,7 +729,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     _snack('Usuario actualizado');
                     await _loadAll(forceEmpresaId: _empresaId);
                   },
-                  label: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                  label: const Text(
+                    'Guardar',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
               ],
             );
@@ -686,7 +856,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               SizedBox(
                                 width: half,
                                 child: OutlinedButton.icon(
-                                  onPressed: () => setLocal(() => local.clear()),
+                                  onPressed: () =>
+                                      setLocal(() => local.clear()),
                                   icon: const Icon(Icons.clear),
                                   label: const Text(
                                     'Limpiar',
@@ -704,7 +875,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: kAdminPrimary,
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),
@@ -738,22 +911,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                           ),
                           child: ListView.separated(
                             itemCount: list.length,
-                            separatorBuilder: (_, __) => Divider(height: 0, color: Colors.grey.shade200),
+                            separatorBuilder: (_, __) =>
+                                Divider(height: 0, color: Colors.grey.shade200),
                             itemBuilder: (_, i) {
                               final u = list[i];
                               final d = u.data();
                               final name = _userName(d, u.id);
-                              final ced = _safe(d['cedula']).isNotEmpty ? _safe(d['cedula']) : u.id;
+                              final ced = _safe(d['cedula']).isNotEmpty
+                                  ? _safe(d['cedula'])
+                                  : u.id;
                               final cargo = _safe(d['cargo']);
                               final checked = local.contains(u.id);
 
                               return CheckboxListTile(
                                 value: checked,
                                 activeColor: kAdminPrimary,
-                                controlAffinity: ListTileControlAffinity.trailing,
+                                controlAffinity:
+                                    ListTileControlAffinity.trailing,
                                 dense: true,
                                 visualDensity: VisualDensity.compact,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
                                 title: Text(
                                   name,
                                   maxLines: 1,
@@ -821,27 +1001,47 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       context: context,
       builder: (_) {
         return AlertDialog(
-          title: const Text('Centro canónico', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+          title: const Text(
+            'Centro canónico',
+            style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+          ),
           content: DropdownButtonFormField<CentroCostoItem>(
             value: centroCanonical,
             isExpanded: true,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: enabledCentros
-                .map((c) => DropdownMenuItem(
-              value: c,
-              child: Text('${c.codigo} - ${c.nombre}', style: const TextStyle(fontFamily: kArial)),
-            ))
+                .map(
+                  (c) => DropdownMenuItem(
+                    value: c,
+                    child: Text(
+                      '${c.codigo} - ${c.nombre}',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                )
                 .toList(),
             onChanged: (v) {
               if (v != null) centroCanonical = v;
             },
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Cancelar',
+                style: TextStyle(fontFamily: kArial),
+              ),
+            ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
               onPressed: () => Navigator.pop(context),
-              child: const Text('Continuar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+              child: const Text(
+                'Continuar',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ],
         );
@@ -852,7 +1052,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       final ok = await _confirm(
         title: 'Ejecutar migración de Centro',
         message:
-        'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n'
+            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n'
             'Centro canónico: ${centroCanonical.codigo} - ${centroCanonical.nombre}\n\n'
             'Esto SOLO actualizará TBL_USUARIOS (no tareas/cargos/estructura).\n¿Continuar?',
         confirmText: 'Ejecutar',
@@ -887,9 +1087,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       },
     );
 
-    _snack(dryRun
-        ? 'SIMULACIÓN Centro: escaneados ${result.scanned}, a cambiar ${result.updated}'
-        : 'Centro ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}');
+    _snack(
+      dryRun
+          ? 'SIMULACIÓN Centro: escaneados ${result.scanned}, a cambiar ${result.updated}'
+          : 'Centro ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
+    );
 
     await _loadAll(forceEmpresaId: empresaId);
   }
@@ -908,7 +1110,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       final ok = await _confirm(
         title: 'Ejecutar normalización de Tokens',
         message:
-        'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
+            'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n\n'
             'Se copiará token/fcm_token a fcmToken si aplica.\n¿Continuar?',
         confirmText: 'Ejecutar',
       );
@@ -936,13 +1138,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       },
     );
 
-    _snack(dryRun
-        ? 'SIMULACIÓN Tokens: escaneados ${result.scanned}, a cambiar ${result.updated}'
-        : 'Tokens ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}');
+    _snack(
+      dryRun
+          ? 'SIMULACIÓN Tokens: escaneados ${result.scanned}, a cambiar ${result.updated}'
+          : 'Tokens ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
+    );
 
     await _loadAll(forceEmpresaId: empresaId);
   }
-
 
   // ---------------- MIGRACIONES: APP IDs SOLO USUARIOS SELECCIONADOS ----------------
   Future<void> _runNormalizeAppIdsSelectedUsers({required bool dryRun}) async {
@@ -987,9 +1190,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       },
     );
 
-    _snack(dryRun
-        ? 'SIMULACIÓN App IDs: escaneados ${result.scanned}, a cambiar ${result.updated}'
-        : 'App IDs ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}');
+    _snack(
+      dryRun
+          ? 'SIMULACIÓN App IDs: escaneados ${result.scanned}, a cambiar ${result.updated}'
+          : 'App IDs ejecutado: escaneados ${result.scanned}, cambiados ${result.updated}',
+    );
 
     await _loadAll(forceEmpresaId: empresaId);
   }
@@ -1007,27 +1212,41 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             final enabled = typed.trim().toUpperCase() == 'BORRAR';
 
             return AlertDialog(
-              title: const Text('Eliminar todas las tareas', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+              title: const Text(
+                'Eliminar todas las tareas',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Empresa activa: $empresaId',
-                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
                     'Esta acción eliminará TODAS las tareas de la empresa activa en TBL_TAREAS. '
-                        'No se puede deshacer.',
+                    'No se puede deshacer.',
                     style: TextStyle(fontFamily: kArial),
                   ),
                   const SizedBox(height: 12),
-                  const Text('Escribe BORRAR para confirmar:', style: TextStyle(fontFamily: kArial)),
+                  const Text(
+                    'Escribe BORRAR para confirmar:',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                   const SizedBox(height: 6),
                   TextField(
                     controller: controller,
-                    decoration: const InputDecoration(border: OutlineInputBorder()),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                    ),
                     style: const TextStyle(fontFamily: kArial),
                     onChanged: (v) => setLocal(() => typed = v),
                   ),
@@ -1036,13 +1255,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                 ),
                 ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kAdminPrimary,
+                  ),
                   onPressed: enabled ? () => Navigator.pop(ctx, true) : null,
                   icon: const Icon(Icons.delete_forever),
-                  label: const Text('Eliminar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                  label: const Text(
+                    'Eliminar',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
               ],
             );
@@ -1089,9 +1319,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         scanned: deleted,
         updated: deleted,
         dryRun: false,
-        extra: {
-          'empresaId': empresaId,
-        },
+        extra: {'empresaId': empresaId},
       );
 
       _snack('Tareas eliminadas: $deleted');
@@ -1131,7 +1359,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final ok = await _confirm(
       title: '⚠ RESETEAR DATOS DE USUARIOS',
       message:
-      'Se borrarán Áreas, Cargos, Centros y Jefes de ${_users.length} usuarios en la empresa $empresaId.\n\n'
+          'Se borrarán Áreas, Cargos, Centros y Jefes de ${_users.length} usuarios en la empresa $empresaId.\n\n'
           'NO se borrarán las cuentas de acceso (correo/clave).\n'
           'Los usuarios quedarán listos para recibir una carga limpia desde Excel.',
       confirmText: 'SÍ, RESETEAR DATOS',
@@ -1211,7 +1439,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final ok = await _confirm(
       title: '⚠ BORRAR TODOS LOS CATÁLOGOS',
       message:
-      'Se eliminarán TODAS las Áreas, Cargos y Centros de Costo de la empresa $empresaId.\n\n'
+          'Se eliminarán TODAS las Áreas, Cargos y Centros de Costo de la empresa $empresaId.\n\n'
           'Haz esto solo si vas a volver a subir el archivo Excel completo.\n'
           '¿Estás seguro?',
       confirmText: 'BORRAR TODO',
@@ -1246,7 +1474,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final ok = await _confirm(
       title: '⚠ BORRAR ESTRUCTURA ORGANIZACIONAL',
       message:
-      'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL.\n\n'
+          'Se eliminarán TODOS los documentos en TBL_ESTRUCTURA_ORGANIZACIONAL.\n\n'
           'Úsalo solo si vas a volver a subir la estructura completa.\n'
           '¿Estás seguro?',
       confirmText: 'BORRAR ESTRUCTURA',
@@ -1279,10 +1507,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     }
 
     setState(() => _loading = false);
-    _snack('Estructura organizacional eliminada. Total documentos borrados: $deletedCount');
+    _snack(
+      'Estructura organizacional eliminada. Total documentos borrados: $deletedCount',
+    );
     await _loadAll(forceEmpresaId: _empresaId ?? '');
   }
-
 
   Future<void> _pickDiagnosticosExcel() async {
     final result = await FilePicker.platform.pickFiles(
@@ -1389,8 +1618,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         return;
       }
 
-      final result = await ComprasService()
-          .importarProveedores(empresaId, parsed.proveedores);
+      final result = await ComprasService().importarProveedores(
+        empresaId,
+        parsed.proveedores,
+      );
       if (!mounted) return;
       setState(() {
         _proveedoresImportResult = {
@@ -1458,8 +1689,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         return;
       }
 
-      final result =
-          await ComprasService().importarProductos(empresaId, parsed.productos);
+      final result = await ComprasService().importarProductos(
+        empresaId,
+        parsed.productos,
+      );
       if (!mounted) return;
       setState(() {
         _productosImportResult = {
@@ -1486,7 +1719,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final ok = await _confirm(
       title: 'Cargar requisitos de Compras',
       message:
-      'Esto reemplazará los requisitos documentales de Compras de la empresa seleccionada con la parametrización base (incluye proteína, abarrotes y aseo).',
+          'Esto reemplazará los requisitos documentales de Compras de la empresa seleccionada con la parametrización base (incluye proteína, abarrotes y aseo).',
       confirmText: 'Cargar',
     );
     if (!ok) return;
@@ -1532,14 +1765,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final ok = await _confirm(
       title: 'Importar REQ_DOCUMENTOS desde Excel',
       message:
-      'Se reemplazarán los requisitos actuales de Compras para la empresa activa con lo cargado en el Excel.',
+          'Se reemplazarán los requisitos actuales de Compras para la empresa activa con lo cargado en el Excel.',
       confirmText: 'Importar',
     );
     if (!ok) return;
 
     setState(() => _importandoReqCompras = true);
     try {
-      final parsed = _comprasReqParser.parse(bytes: bytes, empresaId: empresaId);
+      final parsed = _comprasReqParser.parse(
+        bytes: bytes,
+        empresaId: empresaId,
+      );
       if (parsed.docs.isEmpty) {
         _snack('No se detectaron filas válidas en la hoja REQ_DOCUMENTOS.');
         return;
@@ -1554,7 +1790,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         };
       });
       _snack(
-          'Requisitos de Compras importados: ${parsed.docs.length} (omitidos: ${parsed.skippedRows}).');
+        'Requisitos de Compras importados: ${parsed.docs.length} (omitidos: ${parsed.skippedRows}).',
+      );
     } catch (e) {
       _snack('Error al importar requisitos de Compras: $e');
     } finally {
@@ -1610,7 +1847,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: _importandoReqCompras ? null : _pickReqComprasExcel,
+                  onPressed: _importandoReqCompras
+                      ? null
+                      : _pickReqComprasExcel,
                   icon: const Icon(Icons.attach_file),
                   label: Text(
                     _reqComprasFileName == null
@@ -1628,7 +1867,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    onPressed: _importandoReqCompras ? null : _importarReqComprasExcel,
+                    onPressed: _importandoReqCompras
+                        ? null
+                        : _importarReqComprasExcel,
                     icon: const Icon(Icons.file_upload_outlined),
                     label: const Text(
                       'Importar Excel de requisitos',
@@ -1648,16 +1889,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    onPressed: _importandoReqCompras ? null : _sembrarReqComprasBase,
+                    onPressed: _importandoReqCompras
+                        ? null
+                        : _sembrarReqComprasBase,
                     icon: _importandoReqCompras
                         ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : const Icon(Icons.upload_file),
                     label: Text(
                       _importandoReqCompras
@@ -1705,8 +1948,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Row(
                   children: [
-                    Icon(Icons.store_outlined,
-                        color: Color(0xFFB45309), size: 24),
+                    Icon(
+                      Icons.store_outlined,
+                      color: Color(0xFFB45309),
+                      size: 24,
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'Carga masiva de proveedores',
@@ -1728,8 +1974,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed:
-                      _importandoProveedores ? null : _pickProveedoresExcel,
+                  onPressed: _importandoProveedores
+                      ? null
+                      : _pickProveedoresExcel,
                   icon: const Icon(Icons.attach_file),
                   label: Text(
                     _proveedoresFileName == null
@@ -1793,108 +2040,114 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         ),
         const SizedBox(height: 12),
         // ── Carga masiva de productos ──────────────────────────────────
-        Builder(builder: (_) {
-          final prodResult = _productosImportResult;
-          return Card(
-            color: kAdminCard,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.green.shade200),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.inventory_2_outlined,
-                          color: Colors.green.shade700, size: 24),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Carga masiva de productos',
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
+        Builder(
+          builder: (_) {
+            final prodResult = _productosImportResult;
+            return Card(
+              color: kAdminCard,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.green.shade200),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          color: Colors.green.shade700,
+                          size: 24,
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Sube un Excel con el maestro inicial de productos de la empresa. '
-                    'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA, UNIDAD_MEDIDA. '
-                    'Opcionales: CODIGO_PRODUCTO, ORIGEN (NACIONAL/IMPORTADO), PERECEDERO (SI/NO).\n'
-                    'Los productos con código o nombre ya registrado serán omitidos.',
-                    style: TextStyle(fontFamily: kArial, height: 1.4),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed:
-                        _importandoProductos ? null : _pickProductosExcel,
-                    icon: const Icon(Icons.attach_file),
-                    label: Text(
-                      _productosFileName == null
-                          ? 'Seleccionar Excel de productos'
-                          : _productosFileName!,
-                      style: const TextStyle(fontFamily: kArial),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Carga masiva de productos',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Sube un Excel con el maestro inicial de productos de la empresa. '
+                      'Columnas requeridas: NOMBRE_PRODUCTO, CATEGORIA, UNIDAD_MEDIDA. '
+                      'Opcionales: CODIGO_PRODUCTO, ORIGEN (NACIONAL/IMPORTADO), PERECEDERO (SI/NO).\n'
+                      'Los productos con código o nombre ya registrado serán omitidos.',
+                      style: TextStyle(fontFamily: kArial, height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
                       onPressed: _importandoProductos
                           ? null
-                          : _importarProductosExcel,
-                      icon: _importandoProductos
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.file_upload_outlined),
+                          : _pickProductosExcel,
+                      icon: const Icon(Icons.attach_file),
                       label: Text(
-                        _importandoProductos
-                            ? 'Importando...'
-                            : 'Importar productos desde Excel',
-                        style: const TextStyle(
-                          fontFamily: kArial,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (prodResult != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade50,
-                        border: Border.all(color: Colors.green.shade300),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        'Última importación: ${prodResult['importados'] ?? 0} productos cargados • ${prodResult['omitidos'] ?? 0} omitidos (duplicado o fila inválida).',
+                        _productosFileName == null
+                            ? 'Seleccionar Excel de productos'
+                            : _productosFileName!,
                         style: const TextStyle(fontFamily: kArial),
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: _importandoProductos
+                            ? null
+                            : _importarProductosExcel,
+                        icon: _importandoProductos
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.file_upload_outlined),
+                        label: Text(
+                          _importandoProductos
+                              ? 'Importando...'
+                              : 'Importar productos desde Excel',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (prodResult != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          border: Border.all(color: Colors.green.shade300),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Última importación: ${prodResult['importados'] ?? 0} productos cargados • ${prodResult['omitidos'] ?? 0} omitidos (duplicado o fila inválida).',
+                          style: const TextStyle(fontFamily: kArial),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-          );
-        }),
+            );
+          },
+        ),
       ],
     );
   }
@@ -1917,7 +2170,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Row(
                   children: [
-                    Icon(Icons.upload_file, color: Colors.teal.shade900, size: 28),
+                    Icon(
+                      Icons.upload_file,
+                      color: Colors.teal.shade900,
+                      size: 28,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -1935,8 +2192,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 const SizedBox(height: 12),
                 const Text(
                   'Sube un Excel con diagnósticos para actualizar el catálogo '
-                      'de diagnósticos en Firestore.\n'
-                      'Después de importar, el buscador de diagnóstico clínico leerá primero desde Firestore.',
+                  'de diagnósticos en Firestore.\n'
+                  'Después de importar, el buscador de diagnóstico clínico leerá primero desde Firestore.',
                   style: TextStyle(fontFamily: kArial, height: 1.4),
                 ),
                 const SizedBox(height: 16),
@@ -1945,7 +2202,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   icon: const Icon(Icons.description_outlined),
                   label: const Text(
                     'Seleccionar archivo Excel',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1993,7 +2253,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   // ---------------- LIMPIEZA: NOTIFICACIONES ----------------
 
   /// Cuenta notificaciones de un usuario.
-  /// Si [empresaId] se provee, filtra client-side (legacies sin empresaId siempre cuentan).
+  /// Si [empresaId] se provee, filtra client-side por coincidencia exacta.
   Future<int> _countUserNotifs({
     required String userId,
     String? empresaId,
@@ -2007,8 +2267,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final snap = await q.get();
     if (empresaId != null && empresaId.isNotEmpty) {
       return snap.docs.where((d) {
-        final eid = (d.data()['empresaId'] as String?)?.trim() ?? '';
-        return eid.isEmpty || eid == empresaId;
+        final eid = (d.data()['empresaId'] ?? '').toString().trim();
+        return eid == empresaId;
       }).length;
     }
     return snap.docs.length;
@@ -2030,8 +2290,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
 
     final toDelete = (empresaId != null && empresaId.isNotEmpty)
         ? snap.docs.where((d) {
-            final eid = (d.data()['empresaId'] as String?)?.trim() ?? '';
-            return eid.isEmpty || eid == empresaId;
+            final eid = (d.data()['empresaId'] ?? '').toString().trim();
+            return eid == empresaId;
           }).toList()
         : snap.docs.toList();
 
@@ -2084,7 +2344,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     if (!mounted) return;
 
     if (totalCount == 0) {
-      _snack('No hay ${soloNoLeidas ? "notificaciones no leídas" : "notificaciones"} en $empresaId.');
+      _snack(
+        'No hay ${soloNoLeidas ? "notificaciones no leídas" : "notificaciones"} en $empresaId.',
+      );
       return;
     }
 
@@ -2110,7 +2372,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           soloNoLeidas: soloNoLeidas,
         );
       }
-      if (mounted) _snack('✅ $deleted notificaciones eliminadas de "$empresaId".');
+      if (mounted)
+        _snack('✅ $deleted notificaciones eliminadas de "$empresaId".');
     } catch (e) {
       if (mounted) _snack('Error al borrar: $e');
     } finally {
@@ -2148,7 +2411,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     if (!mounted) return;
 
     if (totalCount == 0) {
-      _snack('No hay ${soloNoLeidas ? "notificaciones no leídas" : "notificaciones"} para $userId.');
+      _snack(
+        'No hay ${soloNoLeidas ? "notificaciones no leídas" : "notificaciones"} para $userId.',
+      );
       return;
     }
 
@@ -2198,7 +2463,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Row(
                   children: [
-                    Icon(Icons.person_remove_outlined, color: Colors.orange.shade900, size: 28),
+                    Icon(
+                      Icons.person_remove_outlined,
+                      color: Colors.orange.shade900,
+                      size: 28,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -2216,7 +2485,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 const SizedBox(height: 12),
                 const Text(
                   'Esta opción NO borra al usuario ni su contraseña. Borra apps, empresa, cargos, áreas, centros y jefes.\n'
-                      'Úsalo antes de subir un Excel actualizado.',
+                  'Úsalo antes de subir un Excel actualizado.',
                   style: TextStyle(fontFamily: kArial, height: 1.4),
                 ),
                 const SizedBox(height: 16),
@@ -2230,7 +2499,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     ),
                     onPressed: _resetUsersData,
                     icon: const Icon(Icons.cleaning_services),
-                    label: const Text('LIMPIAR DATOS DE USUARIOS', style: TextStyle(fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'LIMPIAR DATOS DE USUARIOS',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -2251,7 +2523,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Row(
                   children: [
-                    Icon(Icons.account_tree_outlined, color: Colors.red.shade900, size: 28),
+                    Icon(
+                      Icons.account_tree_outlined,
+                      color: Colors.red.shade900,
+                      size: 28,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -2282,7 +2558,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     ),
                     onPressed: _purgeOrganizationalStructure,
                     icon: const Icon(Icons.delete_forever),
-                    label: const Text('BORRAR ESTRUCTURA', style: TextStyle(fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'BORRAR ESTRUCTURA',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -2303,7 +2582,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Row(
                   children: [
-                    Icon(Icons.folder_delete_outlined, color: Colors.red.shade900, size: 28),
+                    Icon(
+                      Icons.folder_delete_outlined,
+                      color: Colors.red.shade900,
+                      size: 28,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -2334,7 +2617,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     ),
                     onPressed: _purgeCatalogs,
                     icon: const Icon(Icons.delete_sweep),
-                    label: const Text('BORRAR TODOS LOS CATÁLOGOS', style: TextStyle(fontWeight: FontWeight.bold)),
+                    label: const Text(
+                      'BORRAR TODOS LOS CATÁLOGOS',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -2356,7 +2642,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Row(
                   children: [
-                    Icon(Icons.notifications_off_outlined, color: Colors.teal.shade900, size: 28),
+                    Icon(
+                      Icons.notifications_off_outlined,
+                      color: Colors.teal.shade900,
+                      size: 28,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
@@ -2376,7 +2666,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   'Elimina entradas de TBL_NOTIFICACIONES para pruebas limpias. '
                   'No afecta tareas, usuarios ni otras tablas. '
                   'Muestra cuántas hay antes de confirmar.',
-                  style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
                 ),
 
                 // --- Por empresa activa ---
@@ -2410,8 +2704,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         ),
                         onPressed: (_empresaId == null || _users.isEmpty)
                             ? null
-                            : () => _cleanNotificacionesEmpresa(soloNoLeidas: true),
-                        icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                            : () => _cleanNotificacionesEmpresa(
+                                soloNoLeidas: true,
+                              ),
+                        icon: const Icon(
+                          Icons.mark_email_unread_outlined,
+                          size: 18,
+                        ),
                         label: const Text(
                           'Solo no leídas',
                           style: TextStyle(fontFamily: kArial, fontSize: 12),
@@ -2428,7 +2727,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         ),
                         onPressed: (_empresaId == null || _users.isEmpty)
                             ? null
-                            : () => _cleanNotificacionesEmpresa(soloNoLeidas: false),
+                            : () => _cleanNotificacionesEmpresa(
+                                soloNoLeidas: false,
+                              ),
                         icon: const Icon(Icons.delete_sweep, size: 18),
                         label: const Text(
                           'Todas',
@@ -2453,7 +2754,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 if (_users.isEmpty)
                   const Text(
                     'Selecciona una empresa primero para cargar usuarios.',
-                    style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.grey),
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      color: Colors.grey,
+                    ),
                   )
                 else
                   DropdownButtonFormField<String>(
@@ -2462,7 +2767,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     decoration: const InputDecoration(
                       labelText: 'Usuario (cédula)',
                       border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       labelStyle: TextStyle(fontFamily: kArial),
                     ),
                     items: _users.map((u) {
@@ -2472,7 +2780,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         value: u.id,
                         child: Text(
                           '$nombre  (${u.id})',
-                          style: const TextStyle(fontFamily: kArial, fontSize: 13),
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 13,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       );
@@ -2492,10 +2803,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         onPressed: _notifCleanUserId == null
                             ? null
                             : () => _cleanNotificacionesUsuario(
-                                  userId: _notifCleanUserId!,
-                                  soloNoLeidas: true,
-                                ),
-                        icon: const Icon(Icons.mark_email_unread_outlined, size: 18),
+                                userId: _notifCleanUserId!,
+                                soloNoLeidas: true,
+                              ),
+                        icon: const Icon(
+                          Icons.mark_email_unread_outlined,
+                          size: 18,
+                        ),
                         label: const Text(
                           'Solo no leídas',
                           style: TextStyle(fontFamily: kArial, fontSize: 12),
@@ -2513,9 +2827,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         onPressed: _notifCleanUserId == null
                             ? null
                             : () => _cleanNotificacionesUsuario(
-                                  userId: _notifCleanUserId!,
-                                  soloNoLeidas: false,
-                                ),
+                                userId: _notifCleanUserId!,
+                                soloNoLeidas: false,
+                              ),
                         icon: const Icon(Icons.delete_sweep, size: 18),
                         label: const Text(
                           'Todas',
@@ -2597,9 +2911,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       Tab(icon: Icon(Icons.construction, size: 20), text: 'Migraciones'),
       Tab(icon: Icon(Icons.history, size: 20), text: 'Logs'),
       Tab(icon: Icon(Icons.cleaning_services, size: 20), text: 'Limpieza'),
-      Tab(icon: Icon(Icons.medical_information, size: 20), text: 'Diagnósticos'),
+      Tab(
+        icon: Icon(Icons.medical_information, size: 20),
+        text: 'Diagnósticos',
+      ),
       Tab(icon: Icon(Icons.rule_folder, size: 20), text: 'Req. Compras'),
       Tab(icon: Icon(Icons.verified_user, size: 20), text: 'Roles Compras'),
+      Tab(
+        icon: Icon(Icons.document_scanner, size: 20),
+        text: 'Roles Interventoria',
+      ),
     ];
   }
 
@@ -2614,6 +2935,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       _tabDiagnosticos(),
       _tabReqCompras(),
       _tabRolesCompras(),
+      _tabRolesInterventoria(),
     ];
   }
 
@@ -2628,6 +2950,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       {'icon': Icons.medical_information, 'label': 'Diagnósticos'},
       {'icon': Icons.rule_folder, 'label': 'Req. Compras'},
       {'icon': Icons.verified_user, 'label': 'Roles Compras'},
+      {'icon': Icons.document_scanner, 'label': 'Roles Interventoria'},
     ];
 
     return Container(
@@ -2641,19 +2964,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('TODO',
-                    style: TextStyle(
-                        color: kAdminAccent,
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 24)),
-                Text('ADMIN CONSOLE',
-                    style: TextStyle(
-                        color: Colors.white54,
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 10,
-                        letterSpacing: 1.2)),
+                Text(
+                  'TODO',
+                  style: TextStyle(
+                    color: kAdminAccent,
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 24,
+                  ),
+                ),
+                Text(
+                  'ADMIN CONSOLE',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 10,
+                    letterSpacing: 1.2,
+                  ),
+                ),
               ],
             ),
           ),
@@ -2666,21 +2995,33 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 final isSelected = _tabController.index == index;
                 final item = items[index];
                 return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 2,
+                  ),
                   child: ListTile(
                     onTap: () => setState(() => _tabController.index = index),
                     selected: isSelected,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     selectedTileColor: Colors.white.withOpacity(0.1),
-                    leading: Icon(item['icon'] as IconData,
-                        color: isSelected ? kAdminAccent : Colors.white60, size: 20),
-                    title: Text(item['label'] as String,
-                        style: TextStyle(
-                          fontFamily: kArial,
-                          fontSize: 14,
-                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                          color: isSelected ? Colors.white : Colors.white60,
-                        )),
+                    leading: Icon(
+                      item['icon'] as IconData,
+                      color: isSelected ? kAdminAccent : Colors.white60,
+                      size: 20,
+                    ),
+                    title: Text(
+                      item['label'] as String,
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 14,
+                        fontWeight: isSelected
+                            ? FontWeight.w800
+                            : FontWeight.w500,
+                        color: isSelected ? Colors.white : Colors.white60,
+                      ),
+                    ),
                   ),
                 );
               },
@@ -2689,8 +3030,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           const Divider(color: Colors.white10, height: 1),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('v1.2.0-admin',
-                style: TextStyle(color: Colors.white24, fontFamily: kArial, fontSize: 10)),
+            child: Text(
+              'v1.2.0-admin',
+              style: TextStyle(
+                color: Colors.white24,
+                fontFamily: kArial,
+                fontSize: 10,
+              ),
+            ),
           ),
         ],
       ),
@@ -2710,7 +3057,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           Text(
             _allTabItems()[_tabController.index].text!,
             style: const TextStyle(
-                fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20, color: kAdminPrimary),
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 20,
+              color: kAdminPrimary,
+            ),
           ),
           const Spacer(),
           _buildEmpresaSelectorWeb(),
@@ -2734,12 +3085,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           isExpanded: true,
           icon: const Icon(Icons.business, color: kAdminPrimary, size: 20),
           items: _empresas
-              .map((e) => DropdownMenuItem(
-                    value: e.empresaId,
-                    child: Text('${e.nombre} (${e.empresaId})',
-                        style: const TextStyle(
-                            fontFamily: kArial, fontWeight: FontWeight.w700, fontSize: 13)),
-                  ))
+              .map(
+                (e) => DropdownMenuItem(
+                  value: e.empresaId,
+                  child: Text(
+                    '${e.nombre} (${e.empresaId})',
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              )
               .toList(),
           onChanged: (v) async {
             if (v == null || v.isEmpty) return;
@@ -2757,13 +3115,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('EMPRESA ACTUAL',
-              style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 10,
-                  color: kAdminMuted,
-                  letterSpacing: 1.2)),
+          const Text(
+            'EMPRESA ACTUAL',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 10,
+              color: kAdminMuted,
+              letterSpacing: 1.2,
+            ),
+          ),
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(
@@ -2776,14 +3137,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               child: DropdownButton<String>(
                 value: _empresaId,
                 isExpanded: true,
-                icon: const Icon(Icons.business, color: kAdminPrimary, size: 20),
+                icon: const Icon(
+                  Icons.business,
+                  color: kAdminPrimary,
+                  size: 20,
+                ),
                 items: _empresas
-                    .map((e) => DropdownMenuItem(
-                          value: e.empresaId,
-                          child: Text('${e.nombre} (${e.empresaId})',
-                              style: const TextStyle(
-                                  fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 13)),
-                        ))
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e.empresaId,
+                        child: Text(
+                          '${e.nombre} (${e.empresaId})',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) async {
                   if (v == null || v.isEmpty) return;
@@ -2822,11 +3194,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Gestión de Usuarios',
-                      style:
-                          TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20)),
-                  Text('Administra accesos y organización de personal',
-                      style: TextStyle(fontFamily: kArial, fontSize: 13, color: kAdminMuted)),
+                  Text(
+                    'Gestión de Usuarios',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 20,
+                    ),
+                  ),
+                  Text(
+                    'Administra accesos y organización de personal',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 13,
+                      color: kAdminMuted,
+                    ),
+                  ),
                 ],
               ),
               const Spacer(),
@@ -2859,9 +3242,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 final uDoc = filtered[i];
                 final d = uDoc.data();
                 final nombre = _userName(d, uDoc.id);
-                final cedula = _safe(d['cedula']).isNotEmpty ? _safe(d['cedula']) : uDoc.id;
+                final cedula = _safe(d['cedula']).isNotEmpty
+                    ? _safe(d['cedula'])
+                    : uDoc.id;
                 final scoped = getUserCompanyDetail(d, _empresaId);
-                final cargo = _safe(scoped?['cargo']).isNotEmpty ? _safe(scoped?['cargo']) : _safe(d['cargo']);
+                final cargo = _safe(scoped?['cargo']).isNotEmpty
+                    ? _safe(scoped?['cargo'])
+                    : _safe(d['cargo']);
                 final centro = _safe(scoped?['centroCostos']).isNotEmpty
                     ? _safe(scoped?['centroCostos'])
                     : _safe(d['centroCostos']);
@@ -2897,50 +3284,72 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                 color: kAdminPrimary.withOpacity(0.05),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: const Icon(Icons.person_outline, color: kAdminPrimary),
+                              child: const Icon(
+                                Icons.person_outline,
+                                color: kAdminPrimary,
+                              ),
                             ),
                             const SizedBox(width: 16),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(nombre,
-                                      style: const TextStyle(
-                                          fontFamily: kArial,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 16)),
+                                  Text(
+                                    nombre,
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
                                   const SizedBox(height: 2),
-                                  Text('Cédula: $cedula • ID: ${uDoc.id}',
-                                      style: const TextStyle(
-                                          fontFamily: kArial, fontSize: 12, color: kAdminMuted)),
+                                  Text(
+                                    'Cédula: $cedula • ID: ${uDoc.id}',
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontSize: 12,
+                                      color: kAdminMuted,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
                             PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert, color: kAdminMuted),
+                              icon: const Icon(
+                                Icons.more_vert,
+                                color: kAdminMuted,
+                              ),
                               onSelected: (v) async {
                                 if (v == 'apps') await _editUserApps(uDoc);
                                 if (v == 'org') await _editUserOrg(uDoc);
                               },
                               itemBuilder: (_) => const [
                                 PopupMenuItem(
-                                    value: 'org',
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.business, size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Organización', style: TextStyle(fontFamily: kArial)),
-                                      ],
-                                    )),
+                                  value: 'org',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.business, size: 18),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Organización',
+                                        style: TextStyle(fontFamily: kArial),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 PopupMenuItem(
-                                    value: 'apps',
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.apps, size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Asignar Apps', style: TextStyle(fontFamily: kArial)),
-                                      ],
-                                    )),
+                                  value: 'apps',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.apps, size: 18),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Asignar Apps',
+                                        style: TextStyle(fontFamily: kArial),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ],
                             ),
                           ],
@@ -2948,13 +3357,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            _infoItem(Icons.badge_outlined, cargo.isNotEmpty ? cargo : 'Sin cargo'),
+                            _infoItem(
+                              Icons.badge_outlined,
+                              cargo.isNotEmpty ? cargo : 'Sin cargo',
+                            ),
                             const SizedBox(width: 16),
-                            _infoItem(Icons.location_on_outlined,
-                                centro.isNotEmpty ? centro : 'Sin centro'),
+                            _infoItem(
+                              Icons.location_on_outlined,
+                              centro.isNotEmpty ? centro : 'Sin centro',
+                            ),
                             const SizedBox(width: 16),
-                            _infoItem(Icons.corporate_fare_outlined,
-                                area.isNotEmpty ? area : 'Sin área'),
+                            _infoItem(
+                              Icons.corporate_fare_outlined,
+                              area.isNotEmpty ? area : 'Sin área',
+                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
@@ -2981,32 +3397,39 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             spacing: 8,
                             runSpacing: 8,
                             children: apps
-                                .map((a) => Container(
-                                      padding:
-                                          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: kAdminAccent.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(6),
+                                .map(
+                                  (a) => Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: kAdminAccent.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      a,
+                                      style: const TextStyle(
+                                        fontFamily: kArial,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: kAdminAccent,
                                       ),
-                                      child: Text(
-                                        a,
-                                        style: const TextStyle(
-                                          fontFamily: kArial,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: kAdminAccent,
-                                        ),
-                                      ),
-                                    ))
+                                    ),
+                                  ),
+                                )
                                 .toList(),
                           )
                         else
-                          const Text('Sin aplicaciones asignadas',
-                              style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontSize: 11,
-                                  fontStyle: FontStyle.italic,
-                                  color: kAdminMuted)),
+                          const Text(
+                            'Sin aplicaciones asignadas',
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                              color: kAdminMuted,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -3030,7 +3453,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               text,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontFamily: kArial, fontSize: 12, color: kAdminMuted),
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: kAdminMuted,
+              ),
             ),
           ),
         ],
@@ -3051,23 +3478,45 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Gestión de Aplicaciones',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20)),
-                Text('Habilita o deshabilita módulos para la empresa activa',
-                    style: TextStyle(fontFamily: kArial, fontSize: 13, color: kAdminMuted)),
+                Text(
+                  'Gestión de Aplicaciones',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                  ),
+                ),
+                Text(
+                  'Habilita o deshabilita módulos para la empresa activa',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 13,
+                    color: kAdminMuted,
+                  ),
+                ),
               ],
             ),
             const Spacer(),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: kAdminPrimary,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               onPressed: () => _dialogApp(),
               icon: const Icon(Icons.add, size: 20),
-              label: const Text('Nueva App',
-                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+              label: const Text(
+                'Nueva App',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ],
         ),
@@ -3086,8 +3535,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 Icon(Icons.apps_outage, size: 48, color: kAdminMuted),
                 SizedBox(height: 12),
-                Text('No hay apps registradas en esta empresa',
-                    style: TextStyle(fontFamily: kArial, color: kAdminMuted)),
+                Text(
+                  'No hay apps registradas en esta empresa',
+                  style: TextStyle(fontFamily: kArial, color: kAdminMuted),
+                ),
               ],
             ),
           )
@@ -3103,7 +3554,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     mainAxisSpacing: 16,
                   ),
                   itemCount: _appsAdmin.length,
-                  itemBuilder: (context, index) => _appGridItem(_appsAdmin[index]),
+                  itemBuilder: (context, index) =>
+                      _appGridItem(_appsAdmin[index]),
                 )
               : Column(
                   children: _appsAdmin.map((a) => _appListItem(a)).toList(),
@@ -3124,7 +3576,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2)),
+        side: BorderSide(
+          color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2),
+        ),
       ),
       color: enabled ? Colors.white : kAdminError.withOpacity(0.02),
       child: Padding(
@@ -3137,22 +3591,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: (enabled ? kAdminAccent : kAdminMuted).withOpacity(0.1),
+                    color: (enabled ? kAdminAccent : kAdminMuted).withOpacity(
+                      0.1,
+                    ),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(Icons.apps, color: enabled ? kAdminAccent : kAdminMuted, size: 20),
+                  child: Icon(
+                    Icons.apps,
+                    color: enabled ? kAdminAccent : kAdminMuted,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(nombre,
-                          style: const TextStyle(
-                              fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 15)),
-                      Text(appId,
-                          style:
-                              const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted)),
+                      Text(
+                        nombre,
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                      Text(
+                        appId,
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 11,
+                          color: kAdminMuted,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -3167,7 +3637,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     descripcion.isNotEmpty ? descripcion : 'Sin descripción',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontFamily: kArial, fontSize: 12, color: kAdminMuted),
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      color: kAdminMuted,
+                    ),
                   ),
                 ),
                 Switch(
@@ -3203,8 +3677,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       subtitle: appId,
       enabled: enabled,
       trailing2: descripcion.isNotEmpty
-          ? Text(descripcion,
-              style: const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted))
+          ? Text(
+              descripcion,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 11,
+                color: kAdminMuted,
+              ),
+            )
           : null,
       onEdit: () => _dialogApp(existing: aDoc),
       onToggle: (v) async {
@@ -3225,56 +3705,75 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       padding: const EdgeInsets.all(24),
       children: [
         _sectionHeader(
-            title: 'Centros de Costos',
-            subtitle: 'TBL_CENTROS_COSTOS',
-            onAdd: () => _dialogCentro()),
+          title: 'Centros de Costos',
+          subtitle: 'TBL_CENTROS_COSTOS',
+          onAdd: () => _dialogCentro(),
+        ),
         const SizedBox(height: 16),
-        ...centros.map((c) => _catalogTile(
-              title: '${c.codigo} - ${c.nombre}',
-              subtitle: c.centroId,
-              enabled: c.enabled,
-              onEdit: () => _dialogCentro(existing: c),
-              onToggle: (v) async {
-                await _repo.setCentroEnabled(c.centroId, v);
-                _snack('Centro ${v ? "habilitado" : "deshabilitado"}');
-                await _loadAll(forceEmpresaId: _empresaId);
-              },
-            )),
+        ...centros.map(
+          (c) => _catalogTile(
+            title: '${c.codigo} - ${c.nombre}',
+            subtitle: c.centroId,
+            enabled: c.enabled,
+            onEdit: () => _dialogCentro(existing: c),
+            onToggle: (v) async {
+              await _repo.setCentroEnabled(c.centroId, v);
+              _snack('Centro ${v ? "habilitado" : "deshabilitado"}');
+              await _loadAll(forceEmpresaId: _empresaId);
+            },
+          ),
+        ),
         const SizedBox(height: 32),
-        _sectionHeader(title: 'Áreas', subtitle: 'TBL_AREAS', onAdd: () => _dialogArea()),
+        _sectionHeader(
+          title: 'Áreas',
+          subtitle: 'TBL_AREAS',
+          onAdd: () => _dialogArea(),
+        ),
         const SizedBox(height: 16),
-        ...areas.map((a) => _catalogTile(
-              title: a.nombre,
-              subtitle: a.areaId,
-              enabled: a.enabled,
-              onEdit: () => _dialogArea(existing: a),
-              onToggle: (v) async {
-                await _repo.setAreaEnabled(a.areaId, v);
-                _snack('Área ${v ? "habilitada" : "deshabilitada"}');
-                await _loadAll(forceEmpresaId: _empresaId);
-              },
-            )),
+        ...areas.map(
+          (a) => _catalogTile(
+            title: a.nombre,
+            subtitle: a.areaId,
+            enabled: a.enabled,
+            onEdit: () => _dialogArea(existing: a),
+            onToggle: (v) async {
+              await _repo.setAreaEnabled(a.areaId, v);
+              _snack('Área ${v ? "habilitada" : "deshabilitada"}');
+              await _loadAll(forceEmpresaId: _empresaId);
+            },
+          ),
+        ),
         const SizedBox(height: 32),
-        _sectionHeader(title: 'Cargos', subtitle: 'TBL_CARGOS', onAdd: () => _dialogCargo()),
+        _sectionHeader(
+          title: 'Cargos',
+          subtitle: 'TBL_CARGOS',
+          onAdd: () => _dialogCargo(),
+        ),
         const SizedBox(height: 16),
-        ...cargos.map((c) => _catalogTile(
-              title: c.nombre,
-              subtitle: c.cargoId,
-              enabled: c.enabled,
-              trailing2: Text(
-                [
-                  if (c.centroId != null) 'Centro:${c.centroId}',
-                  if (c.areaId != null) 'Área:${c.areaId}',
-                ].join('  •  '),
-                style: const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted),
+        ...cargos.map(
+          (c) => _catalogTile(
+            title: c.nombre,
+            subtitle: c.cargoId,
+            enabled: c.enabled,
+            trailing2: Text(
+              [
+                if (c.centroId != null) 'Centro:${c.centroId}',
+                if (c.areaId != null) 'Área:${c.areaId}',
+              ].join('  •  '),
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 11,
+                color: kAdminMuted,
               ),
-              onEdit: () => _dialogCargo(existing: c),
-              onToggle: (v) async {
-                await _repo.setCargoEnabled(c.cargoId, v);
-                _snack('Cargo ${v ? "habilitado" : "deshabilitado"}');
-                await _loadAll(forceEmpresaId: _empresaId);
-              },
-            )),
+            ),
+            onEdit: () => _dialogCargo(existing: c),
+            onToggle: (v) async {
+              await _repo.setCargoEnabled(c.cargoId, v);
+              _snack('Cargo ${v ? "habilitado" : "deshabilitado"}');
+              await _loadAll(forceEmpresaId: _empresaId);
+            },
+          ),
+        ),
       ],
     );
   }
@@ -3286,8 +3785,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     if (empresaId.isEmpty) return;
 
     final data = existing?.data() ?? <String, dynamic>{};
-    final existingAppId =
-    _safe(data['appId']).isNotEmpty ? _safe(data['appId']) : existing?.id ?? '';
+    final existingAppId = _safe(data['appId']).isNotEmpty
+        ? _safe(data['appId'])
+        : existing?.id ?? '';
     String appId = existingAppId;
     String nombre = _safe(data['nombre']);
     String descripcion = _safe(data['descripcion']);
@@ -3360,7 +3860,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                         padding: EdgeInsets.only(top: 4),
                         child: Text(
                           'Se guardará con docId: empresaId_appId',
-                          style: TextStyle(fontFamily: kArial, fontSize: 11, color: Colors.black54),
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 11,
+                            color: Colors.black54,
+                          ),
                         ),
                       ),
                   ],
@@ -3369,11 +3873,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                 ),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.save),
-                  style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kAdminPrimary,
+                  ),
                   onPressed: () async {
                     if (appId.trim().isEmpty || nombre.trim().isEmpty) {
                       _snack('appId y nombre son obligatorios');
@@ -3383,7 +3892,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                       empresaId: empresaId,
                       appId: appId.trim(),
                       nombre: nombre.trim(),
-                      descripcion: descripcion.trim().isEmpty ? null : descripcion.trim(),
+                      descripcion: descripcion.trim().isEmpty
+                          ? null
+                          : descripcion.trim(),
                       enabled: enabled,
                       isNew: isNew,
                     );
@@ -3394,7 +3905,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                   },
                   label: const Text(
                     'Guardar',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ],
@@ -3405,27 +3919,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     );
   }
 
-  Widget _sectionHeader({required String title, required String subtitle, required VoidCallback onAdd}) {
+  Widget _sectionHeader({
+    required String title,
+    required String subtitle,
+    required VoidCallback onAdd,
+  }) {
     return Row(
       children: [
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 18)),
-            Text(subtitle, style: const TextStyle(fontFamily: kArial, fontSize: 11, color: kAdminMuted)),
+            Text(
+              title,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
+              ),
+            ),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 11,
+                color: kAdminMuted,
+              ),
+            ),
           ],
         ),
         const Spacer(),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: kAdminPrimary,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
           onPressed: onAdd,
           icon: const Icon(Icons.add, size: 18),
-          label: const Text('Agregar',
-              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 13)),
+          label: const Text(
+            'Agregar',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
         ),
       ],
     );
@@ -3444,7 +3983,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2)),
+        side: BorderSide(
+          color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2),
+        ),
       ),
       color: enabled ? Colors.white : kAdminError.withOpacity(0.02),
       child: Padding(
@@ -3470,16 +4011,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 children: [
                   Row(
                     children: [
-                      Text(title,
-                          style: const TextStyle(
-                              fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 16)),
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                        ),
+                      ),
                       const SizedBox(width: 8),
                       _statusBadge(enabled),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(subtitle,
-                      style: const TextStyle(fontFamily: kArial, fontSize: 12, color: kAdminMuted)),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      color: kAdminMuted,
+                    ),
+                  ),
                   if (trailing2 != null) ...[
                     const SizedBox(height: 6),
                     trailing2,
@@ -3499,7 +4051,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               onPressed: onEdit,
               style: IconButton.styleFrom(
                 backgroundColor: kAdminBg,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
           ],
@@ -3514,7 +4068,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       decoration: BoxDecoration(
         color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.2)),
+        border: Border.all(
+          color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.2),
+        ),
       ),
       child: Text(
         enabled ? 'ACTIVO' : 'INACTIVO',
@@ -3540,12 +4096,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Migraciones por usuario (no global)',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 16, color: kAdminPrimary)),
+                Text(
+                  'Migraciones por usuario (no global)',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                    color: kAdminPrimary,
+                  ),
+                ),
                 const SizedBox(height: 6),
                 const Text(
                   'Primero selecciona usuarios. Luego puedes simular o ejecutar.',
-                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
                 ),
                 const SizedBox(height: 12),
 
@@ -3559,16 +4126,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                           _selectedMigrationUsers.isEmpty
                               ? 'Seleccionar usuarios'
                               : 'Usuarios seleccionados: ${_selectedMigrationUsers.length}',
-                          style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     if (_selectedMigrationUsers.isNotEmpty)
                       OutlinedButton.icon(
-                        onPressed: () => setState(() => _selectedMigrationUsers.clear()),
+                        onPressed: () =>
+                            setState(() => _selectedMigrationUsers.clear()),
                         icon: const Icon(Icons.clear),
-                        label: const Text('Limpiar', style: TextStyle(fontFamily: kArial)),
+                        label: const Text(
+                          'Limpiar',
+                          style: TextStyle(fontFamily: kArial),
+                        ),
                       ),
                   ],
                 ),
@@ -3580,17 +4154,32 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     runSpacing: 6,
                     children: _selectedMigrationUsers
                         .take(12)
-                        .map((id) => Chip(
-                      backgroundColor: const Color(0xFFE8FBFF),
-                      label: Text(id, style: const TextStyle(fontFamily: kArial, fontSize: 11, fontWeight: FontWeight.w700)),
-                    ))
+                        .map(
+                          (id) => Chip(
+                            backgroundColor: const Color(0xFFE8FBFF),
+                            label: Text(
+                              id,
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        )
                         .toList(),
                   ),
                   if (_selectedMigrationUsers.length > 12)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
-                      child: Text('y ${_selectedMigrationUsers.length - 12} más...',
-                          style: const TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54)),
+                      child: Text(
+                        'y ${_selectedMigrationUsers.length - 12} más...',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
                     ),
                 ],
               ],
@@ -3607,25 +4196,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Centro de costos → SOLO usuarios seleccionados',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                const Text(
+                  'Centro de costos → SOLO usuarios seleccionados',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _runNormalizeCentroSelectedUsers(dryRun: true),
+                        onPressed: () =>
+                            _runNormalizeCentroSelectedUsers(dryRun: true),
                         icon: const Icon(Icons.visibility),
-                        label: const Text('Simular', style: TextStyle(fontFamily: kArial)),
+                        label: const Text(
+                          'Simular',
+                          style: TextStyle(fontFamily: kArial),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
-                        onPressed: () => _runNormalizeCentroSelectedUsers(dryRun: false),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kAdminPrimary,
+                        ),
+                        onPressed: () =>
+                            _runNormalizeCentroSelectedUsers(dryRun: false),
                         icon: const Icon(Icons.play_arrow),
-                        label: const Text('Ejecutar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                        label: const Text(
+                          'Ejecutar',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -3644,25 +4251,43 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Tokens (fcmToken) → SOLO usuarios seleccionados',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                const Text(
+                  'Tokens (fcmToken) → SOLO usuarios seleccionados',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _runNormalizeTokensSelectedUsers(dryRun: true),
+                        onPressed: () =>
+                            _runNormalizeTokensSelectedUsers(dryRun: true),
                         icon: const Icon(Icons.visibility),
-                        label: const Text('Simular', style: TextStyle(fontFamily: kArial)),
+                        label: const Text(
+                          'Simular',
+                          style: TextStyle(fontFamily: kArial),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
-                        onPressed: () => _runNormalizeTokensSelectedUsers(dryRun: false),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kAdminPrimary,
+                        ),
+                        onPressed: () =>
+                            _runNormalizeTokensSelectedUsers(dryRun: false),
                         icon: const Icon(Icons.play_arrow),
-                        label: const Text('Ejecutar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                        label: const Text(
+                          'Ejecutar',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -3681,30 +4306,52 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('App IDs (formato canónico) → SOLO usuarios seleccionados',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                const Text(
+                  'App IDs (formato canónico) → SOLO usuarios seleccionados',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 const Text(
                   'Convierte IDs cortos (compras, admin…) a IDs completos (comprasdashboard, admindashboard…).',
-                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: () => _runNormalizeAppIdsSelectedUsers(dryRun: true),
+                        onPressed: () =>
+                            _runNormalizeAppIdsSelectedUsers(dryRun: true),
                         icon: const Icon(Icons.visibility),
-                        label: const Text('Simular', style: TextStyle(fontFamily: kArial)),
+                        label: const Text(
+                          'Simular',
+                          style: TextStyle(fontFamily: kArial),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
-                        onPressed: () => _runNormalizeAppIdsSelectedUsers(dryRun: false),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kAdminPrimary,
+                        ),
+                        onPressed: () =>
+                            _runNormalizeAppIdsSelectedUsers(dryRun: false),
                         icon: const Icon(Icons.play_arrow),
-                        label: const Text('Ejecutar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+                        label: const Text(
+                          'Ejecutar',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -3725,23 +4372,35 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               children: [
                 const Text(
                   'Eliminar todas las tareas (empresa activa)',
-                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 const Text(
                   'Útil para reiniciar el entorno en periodo de prueba.',
-                  style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade700,
+                    ),
                     onPressed: _deleteAllTasksForEmpresa,
                     icon: const Icon(Icons.delete_forever),
                     label: const Text(
                       'Eliminar todas las tareas',
-                      style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ),
@@ -3757,36 +4416,51 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   Widget _tabLogs() {
     return FutureBuilder(
       future: _loadLogs(),
-      builder: (context, AsyncSnapshot<List<QueryDocumentSnapshot<Map<String, dynamic>>>> snap) {
-        if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-        final docs = snap.data ?? [];
-        if (docs.isEmpty) return const Center(child: Text('Sin logs', style: TextStyle(fontFamily: kArial)));
+      builder:
+          (
+            context,
+            AsyncSnapshot<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+            snap,
+          ) {
+            if (!snap.hasData)
+              return const Center(child: CircularProgressIndicator());
+            final docs = snap.data ?? [];
+            if (docs.isEmpty)
+              return const Center(
+                child: Text('Sin logs', style: TextStyle(fontFamily: kArial)),
+              );
 
-        return ListView.separated(
-          padding: const EdgeInsets.all(12),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (_, i) {
-            final d = docs[i].data();
-            final action = (d['action'] ?? '').toString();
-            final scanned = (d['scanned'] ?? 0).toString();
-            final updated = (d['updated'] ?? 0).toString();
-            final dryRun = (d['dryRun'] as bool?) ?? false;
+            return ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: docs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (_, i) {
+                final d = docs[i].data();
+                final action = (d['action'] ?? '').toString();
+                final scanned = (d['scanned'] ?? 0).toString();
+                final updated = (d['updated'] ?? 0).toString();
+                final dryRun = (d['dryRun'] as bool?) ?? false;
 
-            return Card(
-              color: kAdminCard,
-              child: ListTile(
-                leading: const Icon(Icons.bolt, color: kAdminAccent),
-                title: Text(action, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
-                subtitle: Text(
-                  'Scanned: $scanned • Updated: $updated • ${dryRun ? "SIMULACIÓN" : "EJECUTADO"}',
-                  style: const TextStyle(fontFamily: kArial),
-                ),
-              ),
+                return Card(
+                  color: kAdminCard,
+                  child: ListTile(
+                    leading: const Icon(Icons.bolt, color: kAdminAccent),
+                    title: Text(
+                      action,
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Scanned: $scanned • Updated: $updated • ${dryRun ? "SIMULACIÓN" : "EJECUTADO"}',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
+                );
+              },
             );
           },
-        );
-      },
     );
   }
 
@@ -3803,8 +4477,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     await showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(existing == null ? 'Nuevo centro' : 'Editar centro',
-            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+        title: Text(
+          existing == null ? 'Nuevo centro' : 'Editar centro',
+          style: const TextStyle(
+            fontFamily: kArial,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
         content: SizedBox(
           width: 520,
           child: Column(
@@ -3813,19 +4492,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               TextField(
                 controller: idCtrl,
                 enabled: existing == null,
-                decoration: const InputDecoration(labelText: 'centroId (docId)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'centroId (docId)',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: codCtrl,
-                decoration: const InputDecoration(labelText: 'Código (ej: CC001)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Código (ej: CC001)',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: nomCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Nombre',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
@@ -3833,13 +4521,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 value: enabled,
                 activeColor: kAdminAccent,
                 onChanged: (v) => setState(() => enabled = v),
-                title: const Text('Habilitado', style: TextStyle(fontFamily: kArial)),
+                title: const Text(
+                  'Habilitado',
+                  style: TextStyle(fontFamily: kArial),
+                ),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
             onPressed: () async {
@@ -3864,7 +4558,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               _snack('Centro guardado');
               await _loadAll(forceEmpresaId: _empresaId);
             },
-            child: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+            child: const Text(
+              'Guardar',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+            ),
           ),
         ],
       ),
@@ -3882,8 +4579,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     await showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(existing == null ? 'Nueva área' : 'Editar área',
-            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+        title: Text(
+          existing == null ? 'Nueva área' : 'Editar área',
+          style: const TextStyle(
+            fontFamily: kArial,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
         content: SizedBox(
           width: 520,
           child: Column(
@@ -3892,13 +4594,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               TextField(
                 controller: idCtrl,
                 enabled: existing == null,
-                decoration: const InputDecoration(labelText: 'areaId (docId)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'areaId (docId)',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: nomCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Nombre',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
@@ -3906,13 +4614,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 value: enabled,
                 activeColor: kAdminAccent,
                 onChanged: (v) => setState(() => enabled = v),
-                title: const Text('Habilitado', style: TextStyle(fontFamily: kArial)),
+                title: const Text(
+                  'Habilitado',
+                  style: TextStyle(fontFamily: kArial),
+                ),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
             onPressed: () async {
@@ -3922,13 +4636,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 _snack('Completa areaId y nombre');
                 return;
               }
-              await _repo.upsertArea(empresaId: empresaId, areaId: areaId, nombre: nombre, enabled: enabled);
+              await _repo.upsertArea(
+                empresaId: empresaId,
+                areaId: areaId,
+                nombre: nombre,
+                enabled: enabled,
+              );
               if (!mounted) return;
               Navigator.pop(context);
               _snack('Área guardada');
               await _loadAll(forceEmpresaId: _empresaId);
             },
-            child: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+            child: const Text(
+              'Guardar',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+            ),
           ),
         ],
       ),
@@ -3945,10 +4667,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
 
     CentroCostoItem? centroSel = existing?.centroId == null
         ? null
-        : _centros.where((c) => c.centroId == existing!.centroId).cast<CentroCostoItem?>().firstWhere((x) => x != null, orElse: () => null);
+        : _centros
+              .where((c) => c.centroId == existing!.centroId)
+              .cast<CentroCostoItem?>()
+              .firstWhere((x) => x != null, orElse: () => null);
     AreaItem? areaSel = existing?.areaId == null
         ? null
-        : _areas.where((a) => a.areaId == existing!.areaId).cast<AreaItem?>().firstWhere((x) => x != null, orElse: () => null);
+        : _areas
+              .where((a) => a.areaId == existing!.areaId)
+              .cast<AreaItem?>()
+              .firstWhere((x) => x != null, orElse: () => null);
 
     final centrosEnabled = _centros.where((c) => c.enabled).toList();
     final areasEnabled = _areas.where((a) => a.enabled).toList();
@@ -3956,8 +4684,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     await showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text(existing == null ? 'Nuevo cargo' : 'Editar cargo',
-            style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+        title: Text(
+          existing == null ? 'Nuevo cargo' : 'Editar cargo',
+          style: const TextStyle(
+            fontFamily: kArial,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
         content: SizedBox(
           width: 520,
           child: Column(
@@ -3966,13 +4699,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               TextField(
                 controller: idCtrl,
                 enabled: existing == null,
-                decoration: const InputDecoration(labelText: 'cargoId (docId)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'cargoId (docId)',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: nomCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Nombre',
+                  border: OutlineInputBorder(),
+                ),
                 style: const TextStyle(fontFamily: kArial),
               ),
               const SizedBox(height: 10),
@@ -3980,13 +4719,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               DropdownButtonFormField<CentroCostoItem>(
                 value: centroSel,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Centro (opcional)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Centro (opcional)',
+                  border: OutlineInputBorder(),
+                ),
                 items: [
-                  const DropdownMenuItem<CentroCostoItem>(value: null, child: Text('—', style: TextStyle(fontFamily: kArial))),
-                  ...centrosEnabled.map((c) => DropdownMenuItem(
-                    value: c,
-                    child: Text('${c.codigo} - ${c.nombre}', style: const TextStyle(fontFamily: kArial)),
-                  )),
+                  const DropdownMenuItem<CentroCostoItem>(
+                    value: null,
+                    child: Text('—', style: TextStyle(fontFamily: kArial)),
+                  ),
+                  ...centrosEnabled.map(
+                    (c) => DropdownMenuItem(
+                      value: c,
+                      child: Text(
+                        '${c.codigo} - ${c.nombre}',
+                        style: const TextStyle(fontFamily: kArial),
+                      ),
+                    ),
+                  ),
                 ],
                 onChanged: (v) => centroSel = v,
               ),
@@ -3995,13 +4745,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               DropdownButtonFormField<AreaItem>(
                 value: areaSel,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Área (opcional)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Área (opcional)',
+                  border: OutlineInputBorder(),
+                ),
                 items: [
-                  const DropdownMenuItem<AreaItem>(value: null, child: Text('—', style: TextStyle(fontFamily: kArial))),
-                  ...areasEnabled.map((a) => DropdownMenuItem(
-                    value: a,
-                    child: Text(a.nombre, style: const TextStyle(fontFamily: kArial)),
-                  )),
+                  const DropdownMenuItem<AreaItem>(
+                    value: null,
+                    child: Text('—', style: TextStyle(fontFamily: kArial)),
+                  ),
+                  ...areasEnabled.map(
+                    (a) => DropdownMenuItem(
+                      value: a,
+                      child: Text(
+                        a.nombre,
+                        style: const TextStyle(fontFamily: kArial),
+                      ),
+                    ),
+                  ),
                 ],
                 onChanged: (v) => areaSel = v,
               ),
@@ -4011,13 +4772,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                 value: enabled,
                 activeColor: kAdminAccent,
                 onChanged: (v) => setState(() => enabled = v),
-                title: const Text('Habilitado', style: TextStyle(fontFamily: kArial)),
+                title: const Text(
+                  'Habilitado',
+                  style: TextStyle(fontFamily: kArial),
+                ),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(fontFamily: kArial))),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar', style: TextStyle(fontFamily: kArial)),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: kAdminPrimary),
             onPressed: () async {
@@ -4040,7 +4807,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               _snack('Cargo guardado');
               await _loadAll(forceEmpresaId: _empresaId);
             },
-            child: const Text('Guardar', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+            child: const Text(
+              'Guardar',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+            ),
           ),
         ],
       ),
@@ -4053,25 +4823,36 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     final empresaId = _empresaId ?? '';
     if (empresaId.isEmpty) {
       return const Center(
-        child: Text('Selecciona una empresa',
-            style: TextStyle(fontFamily: kArial)),
+        child: Text(
+          'Selecciona una empresa',
+          style: TextStyle(fontFamily: kArial),
+        ),
       );
     }
     final svc = ComprasService();
-    final roles = [kRolCalidad, kRolCompras, kRolBodega, kRolConsultas];
+    final roles = [
+      kRolAdmin,
+      kRolCalidad,
+      kRolCompras,
+      kRolBodega,
+      kRolConsultas,
+    ];
     final rolesLabels = {
+      kRolAdmin: 'Admin Documental',
       kRolCalidad: 'Calidad',
       kRolCompras: 'Compras',
       kRolBodega: 'Bodega',
       kRolConsultas: 'Consultas',
     };
     final rolesIcons = {
+      kRolAdmin: Icons.admin_panel_settings,
       kRolCalidad: Icons.verified_user,
       kRolCompras: Icons.shopping_cart,
       kRolBodega: Icons.warehouse,
       kRolConsultas: Icons.search,
     };
     final rolesColors = {
+      kRolAdmin: const Color(0xFF7B1FA2),
       kRolCalidad: Colors.green.shade700,
       kRolCompras: kAdminPrimary,
       kRolBodega: Colors.blue.shade700,
@@ -4109,10 +4890,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     const SizedBox(height: 8),
                     const Text(
                       'Asigna a cada usuario su rol en el módulo de Compras. '
+                      'Admin Documental: acceso total + puede eliminar recepciones, fichas y marcas. '
                       'Calidad: aprueba documentos. Compras: gestiona proveedores/productos. '
                       'Bodega: recepción de mercancía + consultas. '
                       'Consultas: solo lectura de la pestaña de consultas.',
-                      style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
                     ),
                   ],
                 ),
@@ -4123,62 +4909,71 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
             if (rolesActuales.isNotEmpty) ...[
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 6),
-                child: Text('Roles asignados',
-                    style: TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14)),
+                child: Text(
+                  'Roles asignados',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
               ),
-              ...rolesActuales.map((r) => Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor:
-                            (rolesColors[r.rol] ?? kAdminPrimary)
-                                .withOpacity(0.15),
-                        child: Icon(
-                          rolesIcons[r.rol] ?? Icons.person,
-                          color: rolesColors[r.rol] ?? kAdminPrimary,
-                          size: 20,
-                        ),
-                      ),
-                      title: Text(r.nombre,
-                          style: const TextStyle(
-                              fontFamily: kArial,
-                              fontWeight: FontWeight.w600)),
-                      subtitle: Text(
-                          '${rolesLabels[r.rol] ?? r.rol} · ${r.cedula}',
-                          style: const TextStyle(
-                              fontFamily: kArial, fontSize: 12)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            color: Colors.red),
-                        tooltip: 'Quitar rol',
-                        onPressed: () async {
-                          final ok = await _confirm(
-                            title: 'Quitar rol',
-                            message:
-                                '¿Quitar el rol de ${rolesLabels[r.rol]} a ${r.nombre}?',
-                            confirmText: 'Quitar',
-                          );
-                          if (ok) {
-                            await svc.eliminarComprasRol(r.id);
-                            _snack('Rol eliminado');
-                          }
-                        },
+              ...rolesActuales.map(
+                (r) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: (rolesColors[r.rol] ?? kAdminPrimary)
+                          .withOpacity(0.15),
+                      child: Icon(
+                        rolesIcons[r.rol] ?? Icons.person,
+                        color: rolesColors[r.rol] ?? kAdminPrimary,
+                        size: 20,
                       ),
                     ),
-                  )),
+                    title: Text(
+                      r.nombre,
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${rolesLabels[r.rol] ?? r.rol} · ${r.cedula}',
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Quitar rol',
+                      onPressed: () async {
+                        final ok = await _confirm(
+                          title: 'Quitar rol',
+                          message:
+                              '¿Quitar el rol de ${rolesLabels[r.rol]} a ${r.nombre}?',
+                          confirmText: 'Quitar',
+                        );
+                        if (ok) {
+                          await svc.eliminarComprasRol(r.id);
+                          _snack('Rol eliminado');
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ),
               const Divider(height: 24),
             ],
             // Asignar nuevo rol
             const Padding(
               padding: EdgeInsets.only(bottom: 6),
-              child: Text('Asignar rol a usuario',
-                  style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14)),
+              child: Text(
+                'Asignar rol a usuario',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
             ),
             ..._users.map((userDoc) {
               final data = userDoc.data();
@@ -4189,61 +4984,82 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
               ComprasRolDoc? rolActual;
               try {
                 rolActual = rolesActuales.firstWhere(
-                    (r) => r.userId == userId || r.cedula == cedula);
+                  (r) => r.userId == userId || r.cedula == cedula,
+                );
               } catch (_) {}
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 6),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(nombre,
-                                style: const TextStyle(
-                                    fontFamily: kArial,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13)),
-                            Text(cedula,
-                                style: const TextStyle(
-                                    fontFamily: kArial,
-                                    fontSize: 11,
-                                    color: Colors.black54)),
+                            Text(
+                              nombre,
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              cedula,
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 11,
+                                color: Colors.black54,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                       const SizedBox(width: 8),
                       DropdownButton<String>(
                         value: rolActual?.rol,
-                        hint: const Text('Sin rol',
-                            style: TextStyle(
-                                fontFamily: kArial, fontSize: 12)),
+                        hint: const Text(
+                          'Sin rol',
+                          style: TextStyle(fontFamily: kArial, fontSize: 12),
+                        ),
                         items: [
                           const DropdownMenuItem<String>(
                             value: null,
-                            child: Text('Sin rol',
-                                style: TextStyle(
-                                    fontFamily: kArial, fontSize: 12)),
+                            child: Text(
+                              'Sin rol',
+                              style: TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 12,
+                              ),
+                            ),
                           ),
-                          ...roles.map((r) => DropdownMenuItem<String>(
-                                value: r,
-                                child: Row(
-                                  children: [
-                                    Icon(rolesIcons[r],
-                                        size: 14,
-                                        color: rolesColors[r]),
-                                    const SizedBox(width: 4),
-                                    Text(rolesLabels[r] ?? r,
-                                        style: const TextStyle(
-                                            fontFamily: kArial,
-                                            fontSize: 12)),
-                                  ],
-                                ),
-                              )),
+                          ...roles.map(
+                            (r) => DropdownMenuItem<String>(
+                              value: r,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    rolesIcons[r],
+                                    size: 14,
+                                    color: rolesColors[r],
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    rolesLabels[r] ?? r,
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ],
                         onChanged: (nuevoRol) async {
                           try {
@@ -4265,9 +5081,295 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               createdAt: Timestamp.now(),
                             );
                             await svc.guardarComprasRol(
-                                doc, isNew: rolActual == null);
+                              doc,
+                              isNew: rolActual == null,
+                            );
                             _snack(
-                                'Rol ${rolesLabels[nuevoRol]} asignado a $nombre');
+                              'Rol ${rolesLabels[nuevoRol]} asignado a $nombre',
+                            );
+                          } catch (e) {
+                            _snack('Error al guardar rol: $e');
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _tabRolesInterventoria() {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty) {
+      return const Center(
+        child: Text(
+          'Selecciona una empresa',
+          style: TextStyle(fontFamily: kArial),
+        ),
+      );
+    }
+    final svc = InterventoriaService();
+    final rolesIcons = {
+      kRolInterventoriaAdmin: Icons.admin_panel_settings,
+      kRolInterventoriaRegistrador: Icons.edit_document,
+      kRolInterventoriaRevisor: Icons.fact_check,
+      kRolInterventoriaGerente: Icons.query_stats,
+      kRolInterventoriaDirectivo: Icons.leaderboard,
+      kRolInterventoriaConsulta: Icons.search,
+    };
+    final rolesColors = {
+      kRolInterventoriaAdmin: const Color(0xFF7B1FA2),
+      kRolInterventoriaRegistrador: const Color(0xFF0F766E),
+      kRolInterventoriaRevisor: Colors.blue.shade700,
+      kRolInterventoriaGerente: Colors.indigo.shade700,
+      kRolInterventoriaDirectivo: Colors.orange.shade800,
+      kRolInterventoriaConsulta: const Color(0xFF475569),
+    };
+
+    return StreamBuilder<List<InterventoriaRolDoc>>(
+      stream: svc.streamRoles(empresaId),
+      builder: (ctx, snapRoles) {
+        final rolesActuales = snapRoles.data ?? [];
+        return ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              color: kAdminCard,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.document_scanner, color: kAdminPrimary),
+                        SizedBox(width: 8),
+                        Text(
+                          'Roles en Interventoria',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Configura quien registra visitas, revisa OCR y accede al analisis directivo. '
+                      'Los centros de costos se toman desde TBL_CENTROS_COSTOS y el modulo respeta empresa activa.',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        await _repo.upsertApp(
+                          empresaId: empresaId,
+                          appId: kInterventoriaAppId,
+                          nombre: 'Interventoria',
+                          descripcion:
+                              'Control de visitas, actas escaneadas, OCR editable e indicadores.',
+                          enabled: true,
+                          isNew: true,
+                        );
+                        await svc.asegurarConfigBase(empresaId);
+                        _snack(
+                          'Modulo Interventoria habilitado y configuracion base creada.',
+                        );
+                        await _loadAll(forceEmpresaId: empresaId);
+                      },
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Habilitar modulo y config base'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (rolesActuales.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  'Roles asignados',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              ...rolesActuales.map(
+                (r) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: (rolesColors[r.rol] ?? kAdminPrimary)
+                          .withOpacity(0.15),
+                      child: Icon(
+                        rolesIcons[r.rol] ?? Icons.person,
+                        color: rolesColors[r.rol] ?? kAdminPrimary,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      r.nombre,
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${kInterventoriaRoleLabels[r.rol] ?? r.rol} · ${r.cedula}',
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      tooltip: 'Quitar rol',
+                      onPressed: () async {
+                        final ok = await _confirm(
+                          title: 'Quitar rol',
+                          message:
+                              '¿Quitar el rol de ${kInterventoriaRoleLabels[r.rol] ?? r.rol} a ${r.nombre}?',
+                          confirmText: 'Quitar',
+                        );
+                        if (ok) {
+                          await svc.eliminarRol(r.id);
+                          _snack('Rol eliminado');
+                        }
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const Divider(height: 24),
+            ],
+            const Padding(
+              padding: EdgeInsets.only(bottom: 6),
+              child: Text(
+                'Asignar rol a usuario',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            ..._users.map((userDoc) {
+              final data = userDoc.data();
+              final nombre = _userName(data, userDoc.id);
+              final cedula = _safe(data['cedula']);
+              final userId = userDoc.id;
+              InterventoriaRolDoc? rolActual;
+              try {
+                rolActual = rolesActuales.firstWhere(
+                  (r) => r.userId == userId || r.cedula == cedula,
+                );
+              } catch (_) {}
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              nombre,
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            Text(
+                              cedula,
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 11,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: rolActual?.rol,
+                        hint: const Text(
+                          'Sin rol',
+                          style: TextStyle(fontFamily: kArial, fontSize: 12),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: null,
+                            child: Text(
+                              'Sin rol',
+                              style: TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          ...kInterventoriaRoles.map(
+                            (r) => DropdownMenuItem<String>(
+                              value: r,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    rolesIcons[r],
+                                    size: 14,
+                                    color: rolesColors[r],
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    kInterventoriaRoleLabels[r] ?? r,
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (nuevoRol) async {
+                          try {
+                            if (nuevoRol == null) {
+                              if (rolActual != null) {
+                                await svc.eliminarRol(rolActual.id);
+                                _snack('Rol eliminado de $nombre');
+                              }
+                              return;
+                            }
+                            final doc = InterventoriaRolDoc(
+                              id: rolActual?.id ?? '',
+                              empresaId: empresaId,
+                              userId: userId,
+                              cedula: cedula,
+                              nombre: nombre,
+                              rol: nuevoRol,
+                              createdAt: Timestamp.now(),
+                            );
+                            await svc.guardarRol(doc, isNew: rolActual == null);
+                            _snack(
+                              'Rol ${kInterventoriaRoleLabels[nuevoRol]} asignado a $nombre',
+                            );
                           } catch (e) {
                             _snack('Error al guardar rol: $e');
                           }

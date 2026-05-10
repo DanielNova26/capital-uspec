@@ -563,6 +563,13 @@ class PpService {
             (m) => _normalizeStoragePath(m['path']) == activePathField,
             orElse: () => rawLogos.whereType<Map>().first,
           );
+          // b64 stored by guardarLogo — use directly, no Storage round-trip.
+          final b64 = match['b64'] as String?;
+          if (b64 != null && b64.isNotEmpty) {
+            try {
+              return base64Decode(b64);
+            } catch (_) {}
+          }
           logoPath =
               _normalizeStoragePath(match['path']) ??
               _normalizeStoragePath(match['url']);
@@ -844,7 +851,7 @@ class PpService {
       final ref = _storage.ref(path);
       await ref.putData(
         pdfFirmadoCarga,
-        SettableMetadata(contentType: 'application/pdf'),
+        _pdfMetadata(_buildPdfFileName(pdf.nombre)),
       );
       final url = await ref.getDownloadURL();
 
@@ -957,12 +964,14 @@ class PpService {
     String? pdfPathActual;
     String? pdfUrlSellado;
     String? pdfPathSellado;
+    String? nombrePlanillaDetectado;
     bool requiereSelloCarga = false;
     try {
       final snap = await _planillas.doc(planillaId).get();
       final data = snap.data() ?? {};
       pdfUrlActual = data['urlPdf'] as String?;
       pdfPathActual = data['pathPdf'] as String?;
+      nombrePlanillaDetectado = _cleanString(data['nombrePlanillaDetectado']);
       final datosExcel = data['datosExcel'];
       final tipoGeneracion = datosExcel is Map
           ? (datosExcel['tipo_generacion'] ?? '').toString().trim()
@@ -996,6 +1005,7 @@ class PpService {
           empresaId: empresaId,
           planillaId: planillaId,
           bytes: stamped,
+          nombrePlanilla: nombrePlanillaDetectado,
         );
         pdfUrlSellado = url;
         pdfPathSellado = path;
@@ -1616,6 +1626,7 @@ class PpService {
         empresaId: empresaId,
         planillaId: planillaId,
         bytes: stamped,
+        nombrePlanilla: _cleanString(planillaData['nombrePlanillaDetectado']),
       );
       pdfUrlSellado = url;
       pdfPathSellado = path;
@@ -1864,6 +1875,9 @@ class PpService {
             empresaId: empresaId,
             planillaId: planillaId,
             bytes: stamped,
+            nombrePlanilla: _cleanString(
+              planillaData['nombrePlanillaDetectado'],
+            ),
           );
           urlPdfFirmado = url;
           pathPdfFirmado = path;
@@ -2124,6 +2138,10 @@ class PpService {
       'metadatosExtraccion.nombreEditadoPor': actorId,
       'metadatosExtraccion.nombreEditadoEn': DateTime.now().toIso8601String(),
     });
+    await sincronizarMetadataPdfDescarga(
+      empresaId: empresaId,
+      planillaId: planillaId,
+    );
 
     final loteId = _cleanString(data['loteId']) ?? planillaId;
     await _registrarEventoLote(
@@ -2366,6 +2384,7 @@ class PpService {
         empresaId: empresaId,
         planillaId: planillaId,
         bytes: stamped,
+        nombrePlanilla: _cleanString(data['nombrePlanillaDetectado']),
       );
 
       await _planillas.doc(planillaId).update({
@@ -2660,7 +2679,7 @@ class PpService {
     final safe = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
     final path = 'planillas_pago/$empresaId/$loteId/pdfs/${ts}_$safe';
     final ref = _storage.ref(path);
-    await ref.putData(bytes, SettableMetadata(contentType: 'application/pdf'));
+    await ref.putData(bytes, _pdfMetadata(_buildPdfFileName(nombre)));
     final url = await ref.getDownloadURL();
     return (url, path);
   }
@@ -2678,7 +2697,7 @@ class PpService {
         ? 'planillas_pago/$empresaId/$loteId/originales/${planillaId}_${ts}_$safe'
         : 'planillas_pago/$empresaId/directos_base/$planillaId/${ts}_$safe';
     final ref = _storage.ref(path);
-    await ref.putData(bytes, SettableMetadata(contentType: 'application/pdf'));
+    await ref.putData(bytes, _pdfMetadata(_buildPdfFileName(nombre)));
     final url = await ref.getDownloadURL();
     return (url, path);
   }
@@ -3109,14 +3128,73 @@ class PpService {
     required String empresaId,
     required String planillaId,
     required Uint8List bytes,
+    String? nombrePlanilla,
   }) async {
     final ts = DateTime.now().millisecondsSinceEpoch;
     final path =
         'planillas_pago/$empresaId/firmados/${planillaId}_${ts}_firmado.pdf';
     final ref = _storage.ref(path);
-    await ref.putData(bytes, SettableMetadata(contentType: 'application/pdf'));
+    final fileName = _buildPdfFileName(
+      nombrePlanilla,
+      fallbackBase: '${planillaId}_firmado',
+    );
+    await ref.putData(bytes, _pdfMetadata(fileName));
     final url = await ref.getDownloadURL();
     return (url, path);
+  }
+
+  String _buildPdfFileName(
+    String? rawName, {
+    String fallbackBase = 'planilla',
+  }) {
+    final candidate = (rawName ?? '').trim();
+    final normalizedBase = candidate.isNotEmpty ? candidate : fallbackBase;
+    final withoutExtension = normalizedBase.toLowerCase().endsWith('.pdf')
+        ? normalizedBase.substring(0, normalizedBase.length - 4)
+        : normalizedBase;
+    final safe = withoutExtension
+        .replaceAll(RegExp(r'[<>:"/\\|?*\n\r;]'), '_')
+        .trim()
+        .replaceAll(RegExp(r'[. ]+$'), '');
+    final resolved = safe.isEmpty ? fallbackBase : safe;
+    return '$resolved.pdf';
+  }
+
+  SettableMetadata _pdfMetadata(String fileName) {
+    final asciiFallback = fileName.replaceAll(RegExp(r'[^\x20-\x7E]'), '_');
+    final encoded = Uri.encodeComponent(fileName);
+    return SettableMetadata(
+      contentType: 'application/pdf',
+      contentDisposition:
+          'inline; filename="$asciiFallback"; filename*=UTF-8\'\'$encoded',
+    );
+  }
+
+  Future<void> sincronizarMetadataPdfDescarga({
+    required String empresaId,
+    required String planillaId,
+  }) async {
+    try {
+      final snap = await _planillas.doc(planillaId).get();
+      if (!snap.exists) return;
+      final data = snap.data() ?? const <String, dynamic>{};
+      final empresaPlanilla = _cleanString(data['empresaId']) ?? '';
+      if (empresaPlanilla != empresaId.trim()) return;
+
+      final path =
+          _normalizeStoragePath(data['pathPdf']) ??
+          _normalizeStoragePath(data['urlPdf']);
+      if (path == null || path.isEmpty) return;
+
+      final fileName = _buildPdfFileName(
+        _cleanString(data['nombrePlanillaDetectado']) ??
+            _cleanString(data['nombreArchivoOriginal']),
+        fallbackBase: planillaId,
+      );
+      await _storage.ref(path).updateMetadata(_pdfMetadata(fileName));
+    } catch (e) {
+      debugPrint('[PpService] No se pudo sincronizar metadata PDF: $e');
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -3476,7 +3554,7 @@ class PpService {
         'sin_logo': resolvedLogo.sinLogo,
         'filas_consolidadas': filas.length,
         'rango_filas_excel': _rangoFilasExcel(filas),
-        if (sheetTitle != null) 'sheet_title': sheetTitle,
+        ...?sheetTitle == null ? null : {'sheet_title': sheetTitle},
         // Stored so PDF can be regenerated from Firestore without Storage reads.
         'filas_rows': filas.map((f) => f.toMap()).toList(),
       },
@@ -3565,7 +3643,7 @@ class PpService {
     } catch (_) {}
 
     pw.TextStyle ts(double sz, {bool bold = false}) => pw.TextStyle(
-      font: arial,
+      font: bold ? pw.Font.helveticaBold() : arial,
       fontSize: sz,
       fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
     );
@@ -3574,7 +3652,7 @@ class PpService {
     final empresaTitulo =
         _cleanString(empresaNombre) ?? 'UNION TEMPORAL CAPITAL USPEC 2025';
     final fechaDisplay = _fechaDisplay(fila.fecha);
-    final pagador = fila.extras['banco'] ?? fila.extras['pagador'] ?? '';
+    const pagador = 'BBVA';
     final totalFmt = fila.valor != null
         ? NumberFormat('#,##0', 'es_CO').format(fila.valor)
         : '';
@@ -3632,6 +3710,7 @@ class PpService {
             if (cols.isNotEmpty)
               pw.Table(
                 border: pw.TableBorder.all(width: 0.5),
+                columnWidths: _pdfColumnWidths(cols),
                 children: [
                   pw.TableRow(
                     decoration: const pw.BoxDecoration(
@@ -3663,8 +3742,10 @@ class PpService {
                             ),
                             child: pw.Text(
                               fila.extras[c] ?? '',
-                              style: ts(6),
-                              textAlign: pw.TextAlign.center,
+                              style: ts(6, bold: c == 'valor_a_pagar'),
+                              textAlign: c == 'valor_a_pagar'
+                                  ? pw.TextAlign.right
+                                  : pw.TextAlign.center,
                             ),
                           ),
                         )
@@ -3739,7 +3820,7 @@ class PpService {
     } catch (_) {}
 
     pw.TextStyle ts(double sz, {bool bold = false}) => pw.TextStyle(
-      font: arial,
+      font: bold ? pw.Font.helveticaBold() : arial,
       fontSize: sz,
       fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
     );
@@ -3753,11 +3834,13 @@ class PpService {
             return '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
           }())
         : _fechaDisplay(_firstNonEmptyDate(filas));
-    final pagador =
-        _firstNonEmptyExtra(filas, const ['pagador', 'banco']) ?? '';
+    const pagador = 'BBVA';
     final total = _sumarValores(filas);
     final totalFmt = _formatMontoPdf(total);
-    final columns = _pdfColumnsForConsolidado(filas, esAlimentarCapital: esAlimentarCapital);
+    final columns = _pdfColumnsForConsolidado(
+      filas,
+      esAlimentarCapital: esAlimentarCapital,
+    );
 
     doc.addPage(
       pw.MultiPage(
@@ -3849,7 +3932,10 @@ class PpService {
           pw.SizedBox(height: 8),
           pw.Table(
             border: pw.TableBorder.all(width: 0.5),
-            columnWidths: _pdfColumnWidths(columns, esAlimentarCapital: esAlimentarCapital),
+            columnWidths: _pdfColumnWidths(
+              columns,
+              esAlimentarCapital: esAlimentarCapital,
+            ),
             children: [
               pw.TableRow(
                 decoration: const pw.BoxDecoration(color: PdfColors.grey300),
@@ -3861,7 +3947,7 @@ class PpService {
                     ),
                     child: pw.Text(
                       _pdfColumnLabel(column),
-                      style: ts(esAlimentarCapital ? 6.5 : 4.8, bold: true),
+                      style: ts(esAlimentarCapital ? 6.5 : 5.5, bold: true),
                       textAlign: pw.TextAlign.center,
                     ),
                   );
@@ -3872,9 +3958,8 @@ class PpService {
                   children: columns.map((column) {
                     final value = _pdfColumnValue(fila, column);
                     final isValor = column == 'valor_a_pagar';
-                    final displayValue = isValor &&
-                            esAlimentarCapital &&
-                            value.isNotEmpty
+                    final displayValue =
+                        isValor && esAlimentarCapital && value.isNotEmpty
                         ? '\$ $value'
                         : value;
                     final alignRight = isValor;
@@ -3885,7 +3970,10 @@ class PpService {
                       ),
                       child: pw.Text(
                         displayValue,
-                        style: ts(esAlimentarCapital ? 6.0 : 4.7),
+                        style: ts(
+                          esAlimentarCapital ? 6.0 : 5.5,
+                          bold: isValor,
+                        ),
                         textAlign: alignRight
                             ? pw.TextAlign.right
                             : pw.TextAlign.center,
@@ -4238,7 +4326,6 @@ class PpService {
     List<PpExcelFila> filas, {
     bool esAlimentarCapital = false,
   }) {
-
     if (esAlimentarCapital) {
       return [
         'no',
@@ -4341,6 +4428,8 @@ class PpService {
           case 'contabilizado':
           case 'revisado_karen':
             widths[i] = const pw.FixedColumnWidth(42);
+          case 'proveedor':
+            widths[i] = const pw.FixedColumnWidth(80);
           case 'detalle':
           case 'no_factura_orden_de_compra':
           case 'observaciones':
@@ -4573,7 +4662,22 @@ class PpService {
       return null;
     }
 
-    final logoBytes = await _cargarLogoEmpresa(empresaId);
+    // Try loading logo from stored datosExcel paths first (avoids re-downloading
+    // when the signing user might not have Storage access to the config).
+    Uint8List logoBytes = Uint8List(0);
+    final storedLogoPath = _cleanString(datosExcel['logo_path']);
+    final storedLogoUrl = _normalizeStorageUrl(
+      datosExcel['logo_url'] as String?,
+    );
+    if ((storedLogoPath?.isNotEmpty ?? false) ||
+        (storedLogoUrl?.isNotEmpty ?? false)) {
+      logoBytes =
+          await _loadBinary(url: storedLogoUrl, path: storedLogoPath) ??
+          Uint8List(0);
+    }
+    if (logoBytes.isEmpty) {
+      logoBytes = await _cargarLogoEmpresa(empresaId);
+    }
     final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
       empresaId: empresaId,
       planillaData: planillaData,

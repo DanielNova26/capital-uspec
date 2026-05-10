@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.comprasLimpiarRechazadosVencidos = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.icd11Search = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.onNotificationCreated = exports.comprasLimpiarRechazadosVencidos = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.icd11Search = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 // ICD-11 token broker + proxy (Fase B)
@@ -272,9 +272,12 @@ exports.onNotificationCreated = functions
     const body = (data.description || data.body || "").toString();
     const taskId = data.taskId ? String(data.taskId) : "";
     const type = data.type ? String(data.type) : "";
+    const empresaId = data.empresaId ? String(data.empresaId) : "";
+    const module = data.module ? String(data.module) : "";
+    const notifId = ctx.params.notifId;
     const tokens = await getTokensFor(userId);
     console.log("[onNotificationCreated] userId:", userId, "tokens:", tokens.length);
-    await sendPushTo(tokens, { title, body: body || title }, { taskId, type });
+    await sendPushTo(tokens, { title, body: body || title }, { taskId, type, empresaId, module, notifId });
 });
 exports.onTaskCreated = functions
     .region("us-central1")
@@ -417,6 +420,76 @@ exports.onTaskUpdated = functions
         }));
     }
 });
+function bogotaDateKey(date = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Bogota",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+}
+function bogotaDayBounds(date = new Date()) {
+    const dayKey = bogotaDateKey(date);
+    const [year, month, day] = dayKey.split("-").map((v) => Number(v));
+    const start = new Date(Date.UTC(year, month - 1, day, 5, 0, 0, 0));
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    return { dayKey, start, end };
+}
+function formatDateCo(dayKey) {
+    const [year, month, day] = dayKey.split("-");
+    return `${day}/${month}/${year}`;
+}
+exports.citasNutricionRecordatorios0800 = functions
+    .region("us-central1")
+    .pubsub.schedule("0 8 * * *")
+    .timeZone("America/Bogota")
+    .onRun(async () => {
+    const { dayKey, start, end } = bogotaDayBounds();
+    const citasSnap = await db
+        .collection("TBL_CITAS_NUTRICION")
+        .where("estado", "==", "agendada")
+        .where("fechaReevaluacion", ">=", admin.firestore.Timestamp.fromDate(start))
+        .where("fechaReevaluacion", "<=", admin.firestore.Timestamp.fromDate(end))
+        .get();
+    await Promise.all(citasSnap.docs.map(async (doc) => {
+        const data = doc.data();
+        const userId = (data.userId ?? "").toString().trim();
+        if (!userId)
+            return;
+        const citaId = (data.citaId ?? doc.id).toString();
+        const pacienteId = (data.pacienteId ?? "").toString();
+        const pacienteNombre = (data.pacienteNombre ?? "paciente").toString();
+        const empresaId = (data.empresaId ?? "").toString().trim();
+        const reminderId = `reminder_${citaId}_${dayKey.split("-").join("")}`;
+        const notifRef = db
+            .collection("TBL_NOTIFICACIONES")
+            .doc(userId)
+            .collection("notifications")
+            .doc(reminderId);
+        const existing = await notifRef.get();
+        if (existing.exists)
+            return;
+        await notifRef.set({
+            id: reminderId,
+            title: "Recordatorio: Reevaluacion nutricional",
+            description: `Hoy es la reevaluacion nutricional de ${pacienteNombre}. ` +
+                `Fecha programada: ${formatDateCo(dayKey)}.`,
+            type: "cita_nutricion_recordatorio",
+            taskId: citaId,
+            fromId: userId,
+            fromName: "Nutricion",
+            pacienteId,
+            pacienteNombre,
+            empresaId,
+            scheduledFor: data.fechaReevaluacion ?? admin.firestore.Timestamp.fromDate(start),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            read: false,
+        });
+    }));
+    console.log(`[citas_nutricion] recordatorios ${dayKey}: ${citasSnap.size}`);
+});
 // --------------------------- Endpoints de prueba ---------------------------
 exports.sendTestPush = functions
     .region("us-central1")
@@ -425,10 +498,14 @@ exports.sendTestPush = functions
     const title = (data?.title || "⚡ Test push").toString();
     const body = (data?.body || "Hola").toString();
     const taskId = (data?.taskId || "TEST").toString();
+    const empresaId = (data?.empresaId || "").toString().trim();
     if (!userId)
         throw new functions.https.HttpsError("invalid-argument", "userId requerido");
     try {
-        await saveInAppNotification(userId, { title, description: body, taskId, type: "test" });
+        const payload = { title, description: body, taskId, type: "test" };
+        if (empresaId)
+            payload.empresaId = empresaId;
+        await saveInAppNotification(userId, payload);
     }
     catch (e) {
         console.error("[sendTestPush] saveInAppNotification error:", e);
@@ -477,6 +554,7 @@ exports.sendTestPushHttp = functions
         const title = (isPost ? req.body?.title : req.query.title) || "⚡ Test push";
         const body = (isPost ? req.body?.body : req.query.body) || "Hola";
         const taskId = (isPost ? req.body?.taskId : req.query.taskId) || "TEST";
+        const empresaId = ((isPost ? req.body?.empresaId : req.query.empresaId) || "").toString().trim();
         const skipSave = (isPost ? req.body?.skipSave : req.query.skipSave) || "0";
         if (!userId) {
             res.status(400).json({ error: "userId requerido" });
@@ -484,7 +562,10 @@ exports.sendTestPushHttp = functions
         }
         if (skipSave !== "1" && skipSave?.toLowerCase() !== "true") {
             try {
-                await saveInAppNotification(userId, { title, description: body, taskId, type: "test" });
+                const payload = { title, description: body, taskId, type: "test" };
+                if (empresaId)
+                    payload.empresaId = empresaId;
+                await saveInAppNotification(userId, payload);
             }
             catch (e) {
                 console.error("[sendTestPushHttp] saveInAppNotification ERROR:", e?.message);
@@ -493,7 +574,7 @@ exports.sendTestPushHttp = functions
         if (skipSave === "1" || skipSave?.toLowerCase() === "true") {
             const tokens = await getTokensFor(userId);
             console.log("[sendTestPushHttp] tokens:", tokens.length);
-            const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test" });
+            const r = await sendPushTo(tokens, { title, body }, { taskId, type: "test", empresaId });
             res.json({ ok: true, ...r });
             return;
         }

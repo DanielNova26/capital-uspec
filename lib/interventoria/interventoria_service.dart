@@ -1,0 +1,298 @@
+import 'dart:typed_data';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+
+import 'interventoria_models.dart';
+
+class InterventoriaOcrResult {
+  final DateTime? fechaVisita;
+  final Map<String, InterventoriaItem> items;
+  final String observaciones;
+  final Map<String, dynamic> raw;
+
+  const InterventoriaOcrResult({
+    this.fechaVisita,
+    required this.items,
+    this.observaciones = '',
+    this.raw = const {},
+  });
+}
+
+class InterventoriaService {
+  final FirebaseFirestore _db;
+  final FirebaseStorage _storage;
+
+  InterventoriaService({FirebaseFirestore? db, FirebaseStorage? storage})
+    : _db = db ?? FirebaseFirestore.instance,
+      _storage = storage ?? FirebaseStorage.instance;
+
+  Stream<List<CentroCostoRef>> streamCentrosCosto(String empresaId) => _db
+      .collection('TBL_CENTROS_COSTOS')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((snap) {
+        final list = snap.docs
+            .where((d) => (d.data()['enabled'] as bool?) ?? true)
+            .map((d) => CentroCostoRef.fromMap(d.id, d.data()))
+            .toList();
+        list.sort((a, b) {
+          final byCode = a.codigo.compareTo(b.codigo);
+          return byCode != 0 ? byCode : a.nombre.compareTo(b.nombre);
+        });
+        return list;
+      });
+
+  Stream<List<InterventoriaVisita>> streamVisitas(String empresaId) => _db
+      .collection('TBL_INTERVENTORIA_VISITAS')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((snap) {
+        final list = snap.docs
+            .map((d) => InterventoriaVisita.fromMap(d.id, d.data()))
+            .toList();
+        list.sort((a, b) => b.fechaVisita.compareTo(a.fechaVisita));
+        return list;
+      });
+
+  Future<String> guardarVisita(InterventoriaVisita visita) async {
+    final ref = visita.id.isEmpty
+        ? _db.collection('TBL_INTERVENTORIA_VISITAS').doc()
+        : _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
+    await ref.set(visita.toMap(), SetOptions(merge: true));
+    return ref.id;
+  }
+
+  Future<void> eliminarVisita(String visitaId) =>
+      _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visitaId).delete();
+
+  Future<InterventoriaAdjunto> subirActaBytes({
+    required Uint8List bytes,
+    required String empresaId,
+    required String visitaId,
+    required String nombre,
+    required String contentType,
+    required String origen,
+  }) async {
+    final safeName = nombre.replaceAll(RegExp(r'[^\w.\-]'), '_');
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final path = 'interventoria/$empresaId/visitas/$visitaId/${ts}_$safeName';
+    final ref = _storage.ref(path);
+    await ref.putData(bytes, SettableMetadata(contentType: contentType));
+    final url = await ref.getDownloadURL();
+    return InterventoriaAdjunto(
+      url: url,
+      nombre: nombre,
+      path: path,
+      contentType: contentType,
+      origen: origen,
+      fechaSubida: Timestamp.now(),
+    );
+  }
+
+  Future<void> agregarAdjuntos({
+    required String visitaId,
+    required List<InterventoriaAdjunto> adjuntos,
+  }) async {
+    if (adjuntos.isEmpty) return;
+    final firstUrl = adjuntos.first.url;
+    await _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visitaId).set({
+      'imagenesActa': FieldValue.arrayUnion(
+        adjuntos.map((a) => a.toMap()).toList(),
+      ),
+      if (firstUrl.isNotEmpty) 'actaOriginalUrl': firstUrl,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Stream<List<InterventoriaRolDoc>> streamRoles(String empresaId) => _db
+      .collection('TBL_INTERVENTORIA_ROLES')
+      .where('empresaId', isEqualTo: empresaId)
+      .snapshots()
+      .map((snap) {
+        final list = snap.docs
+            .map((d) => InterventoriaRolDoc.fromMap(d.id, d.data()))
+            .toList();
+        list.sort((a, b) => a.nombre.compareTo(b.nombre));
+        return list;
+      });
+
+  Future<InterventoriaRolDoc?> getRolUsuario(
+    String empresaId,
+    String userId,
+  ) async {
+    final byUserId = await _db
+        .collection('TBL_INTERVENTORIA_ROLES')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('userId', isEqualTo: userId)
+        .limit(1)
+        .get();
+    if (byUserId.docs.isNotEmpty) {
+      return InterventoriaRolDoc.fromMap(
+        byUserId.docs.first.id,
+        byUserId.docs.first.data(),
+      );
+    }
+    final byCedula = await _db
+        .collection('TBL_INTERVENTORIA_ROLES')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('cedula', isEqualTo: userId)
+        .limit(1)
+        .get();
+    if (byCedula.docs.isEmpty) return null;
+    return InterventoriaRolDoc.fromMap(
+      byCedula.docs.first.id,
+      byCedula.docs.first.data(),
+    );
+  }
+
+  Future<void> guardarRol(
+    InterventoriaRolDoc rol, {
+    required bool isNew,
+  }) async {
+    final docId = isNew ? '${rol.empresaId}_${rol.userId}' : rol.id;
+    await _db
+        .collection('TBL_INTERVENTORIA_ROLES')
+        .doc(docId)
+        .set(rol.toMap(), SetOptions(merge: true));
+  }
+
+  Future<void> eliminarRol(String id) =>
+      _db.collection('TBL_INTERVENTORIA_ROLES').doc(id).delete();
+
+  Future<void> asegurarConfigBase(String empresaId) async {
+    await _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId).set({
+      'empresaId': empresaId,
+      'categorias': kInterventoriaCategorias
+          .map((c) => {'key': c.key, 'label': c.label, 'activo': true})
+          .toList(),
+      'semaforo': {'verdeDesde': 90, 'amarilloDesde': 70},
+      'ocr': {'modo': 'prellenado_editable', 'requiereRevision': true},
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  InterventoriaOcrResult analizarTextoOcr(String texto) {
+    final items = defaultInterventoriaItems();
+    final normalizedText = _normalize(texto);
+
+    for (final categoria in kInterventoriaCategorias) {
+      final value = _extractValueForLabel(normalizedText, categoria.label);
+      if (value == null) continue;
+      items[categoria.key] = items[categoria.key]!.copyWith(
+        valor: value,
+        noEvaluado: false,
+        fuente: 'ocr',
+        confianzaOcr: 0.72,
+      );
+    }
+
+    for (final categoria in kInterventoriaCategorias) {
+      if (_extractNeForLabel(normalizedText, categoria.label)) {
+        items[categoria.key] = items[categoria.key]!.copyWith(
+          noEvaluado: true,
+          clearValor: true,
+          fuente: 'ocr',
+          confianzaOcr: 0.68,
+        );
+      }
+    }
+
+    final fecha = _extractFecha(texto);
+    return InterventoriaOcrResult(
+      fechaVisita: fecha,
+      items: items,
+      observaciones: _extractObservaciones(texto),
+      raw: {
+        'fechaDetectada': fecha?.toIso8601String(),
+        'porcentajeGeneral': calcularPorcentajeGeneral(items),
+        'categoriasDetectadas': items.values
+            .where((i) => i.fuente == 'ocr')
+            .length,
+      },
+    );
+  }
+
+  double? _extractValueForLabel(String normalizedText, String label) {
+    final labelTokens = _normalize(label)
+        .split(' ')
+        .where((token) => token.length > 2 && !RegExp(r'^\d+$').hasMatch(token))
+        .take(3)
+        .toList();
+    if (labelTokens.isEmpty) return null;
+
+    final lines = normalizedText.split('\n');
+    for (final line in lines) {
+      final matches = labelTokens.where(line.contains).length;
+      if (matches < (labelTokens.length == 1 ? 1 : 2)) continue;
+      final percent = RegExp(r'(\d{1,3})([,.]\d+)?\s*%?').firstMatch(line);
+      if (percent == null) continue;
+      final raw = percent
+          .group(0)!
+          .replaceAll('%', '')
+          .replaceAll(',', '.')
+          .trim();
+      final value = double.tryParse(raw);
+      if (value == null || value > 100) continue;
+      return value;
+    }
+    return null;
+  }
+
+  bool _extractNeForLabel(String normalizedText, String label) {
+    final labelTokens = _normalize(label)
+        .split(' ')
+        .where((token) => token.length > 2 && !RegExp(r'^\d+$').hasMatch(token))
+        .take(3)
+        .toList();
+    for (final line in normalizedText.split('\n')) {
+      if (!line.contains(' ne ') && !line.endsWith(' ne')) continue;
+      final matches = labelTokens.where(line.contains).length;
+      if (matches >= (labelTokens.length == 1 ? 1 : 2)) return true;
+    }
+    return false;
+  }
+
+  DateTime? _extractFecha(String texto) {
+    final match = RegExp(
+      r'(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})',
+    ).firstMatch(texto);
+    if (match == null) return null;
+    final day = int.tryParse(match.group(1)!);
+    final month = int.tryParse(match.group(2)!);
+    var year = int.tryParse(match.group(3)!);
+    if (day == null || month == null || year == null) return null;
+    if (year < 100) year += 2000;
+    return DateTime.tryParse(
+      '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}',
+    );
+  }
+
+  String _extractObservaciones(String texto) {
+    final lower = texto.toLowerCase();
+    final idx = lower.indexOf('observ');
+    if (idx < 0) return '';
+    final tail = texto.substring(idx).trim();
+    return tail.length > 600 ? tail.substring(0, 600) : tail;
+  }
+
+  String _normalize(String text) {
+    const accents = {
+      'á': 'a',
+      'é': 'e',
+      'í': 'i',
+      'ó': 'o',
+      'ú': 'u',
+      'ñ': 'n',
+      'Á': 'a',
+      'É': 'e',
+      'Í': 'i',
+      'Ó': 'o',
+      'Ú': 'u',
+      'Ñ': 'n',
+    };
+    var out = text;
+    accents.forEach((a, b) => out = out.replaceAll(a, b));
+    return out.toLowerCase().replaceAll(RegExp(r'[^\w%,.\n ]+'), ' ');
+  }
+}

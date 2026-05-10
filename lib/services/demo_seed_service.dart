@@ -40,7 +40,7 @@ class DemoSeedService {
   final FirebaseFirestore _db;
 
   DemoSeedService({FirebaseFirestore? db})
-      : _db = db ?? FirebaseFirestore.instance;
+    : _db = db ?? FirebaseFirestore.instance;
 
   Future<DemoSeedResult> ensureDemoData() async {
     const empresaId = 'DEMO_EMPRESA_APP_REVIEW';
@@ -87,10 +87,12 @@ class DemoSeedService {
 
     // Timestamps “bonitos” para que se vea real en review
     final now = DateTime.now();
-    final createdYesterday =
-    Timestamp.fromDate(now.subtract(const Duration(days: 1)));
-    final createdTwoDaysAgo =
-    Timestamp.fromDate(now.subtract(const Duration(days: 2)));
+    final createdYesterday = Timestamp.fromDate(
+      now.subtract(const Duration(days: 1)),
+    );
+    final createdTwoDaysAgo = Timestamp.fromDate(
+      now.subtract(const Duration(days: 2)),
+    );
     final dueInThreeDays = Timestamp.fromDate(now.add(const Duration(days: 3)));
     final dueTomorrow = Timestamp.fromDate(now.add(const Duration(days: 1)));
 
@@ -98,74 +100,54 @@ class DemoSeedService {
     final serverNow = FieldValue.serverTimestamp();
 
     // ===================== EMPRESA =====================
-    batch.set(
-      _db.collection('TBL_EMPRESAS').doc(empresaId),
-      {
-        'empresaId': empresaId,
-        'nombre': empresaNombre,
-        'esDemo': true,
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('TBL_EMPRESAS').doc(empresaId), {
+      'empresaId': empresaId,
+      'nombre': empresaNombre,
+      'esDemo': true,
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // Config seguridad (PIN admin / cuenta demo)
-    batch.set(
-      _db.collection('TBL_CONFIG').doc('SECURITY'),
-      {
-        'seedAdminPin': adminPin,
-        'demoAccountId': reviewerCedula, // docId real del demo admin
-        'updatedAt': serverNow,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('TBL_CONFIG').doc('SECURITY'), {
+      'seedAdminPin': adminPin,
+      'demoAccountId': reviewerCedula, // docId real del demo admin
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // ===================== CATÁLOGOS =====================
     // Centro de costos (✅ SOLO esta colección)
-    batch.set(
-      _db.collection('TBL_CENTROS_COSTOS').doc(centroId),
-      {
-        'empresaId': empresaId,
-        'centroId': centroId,
-        'codigo': 'CP-001',
-        'nombre': centroNombre,
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('TBL_CENTROS_COSTOS').doc(centroId), {
+      'empresaId': empresaId,
+      'centroId': centroId,
+      'codigo': 'CP-001',
+      'nombre': centroNombre,
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // Área (idealmente relacionada al centro para tu filtro centro -> área)
-    batch.set(
-      _db.collection('TBL_AREAS').doc(areaId),
-      {
-        'empresaId': empresaId,
-        'areaId': areaId,
-        'nombre': areaNombre,
-        'descripcion': 'Equipo dedicado a proyectos estratégicos.',
-        'centroId': centroId, // 👈 clave para filtro por centro
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('TBL_AREAS').doc(areaId), {
+      'empresaId': empresaId,
+      'areaId': areaId,
+      'nombre': areaNombre,
+      'descripcion': 'Equipo dedicado a proyectos estratégicos.',
+      'centroId': centroId, // 👈 clave para filtro por centro
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // Cargos (relacionados a área y centro)
-    batch.set(
-      _db.collection('TBL_CARGOS').doc(cargoGerenteId),
-      {
-        'empresaId': empresaId,
-        'cargoId': cargoGerenteId,
-        'nombre': 'Gerente de Proyectos',
-        'area': areaNombre,
-        'areaId': areaId,
-        'centroId': centroId,
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('TBL_CARGOS').doc(cargoGerenteId), {
+      'empresaId': empresaId,
+      'cargoId': cargoGerenteId,
+      'nombre': 'Gerente de Proyectos',
+      'area': areaNombre,
+      'areaId': areaId,
+      'centroId': centroId,
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     batch.set(
       _db.collection('TBL_CARGOS').doc(cargoCoordinadorId),
@@ -182,27 +164,23 @@ class DemoSeedService {
       SetOptions(merge: true),
     );
 
-    batch.set(
-      _db.collection('TBL_CARGOS').doc(cargoAnalistaId),
-      {
-        'empresaId': empresaId,
-        'cargoId': cargoAnalistaId,
-        'nombre': 'Analista de Proyectos',
-        'area': areaNombre,
-        'areaId': areaId,
-        'centroId': centroId,
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_db.collection('TBL_CARGOS').doc(cargoAnalistaId), {
+      'empresaId': empresaId,
+      'cargoId': cargoAnalistaId,
+      'nombre': 'Analista de Proyectos',
+      'area': areaNombre,
+      'areaId': areaId,
+      'centroId': centroId,
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // Apps (docs con id compuesto empresaId_appId)
     Future<void> _setApp(
-        String appId,
-        String nombre,
-        String descripcion,
-        ) async {
+      String appId,
+      String nombre,
+      String descripcion,
+    ) async {
       batch.set(
         _db.collection('TBL_APPS').doc('${empresaId}_$appId'),
         {
@@ -243,6 +221,11 @@ class DemoSeedService {
       'Gestión Documental',
       'Control de versiones, firmas y estados de documentos.',
     );
+    await _setApp(
+      'InterventoriaDashboard',
+      'Interventoría',
+      'Control de visitas, actas escaneadas e indicadores sanitarios.',
+    );
     // Role demo
     batch.set(
       _db.collection('TBL_ROLES').doc('${empresaId}_desarrollador'),
@@ -256,6 +239,7 @@ class DemoSeedService {
           'GerenciaDashboard',
           'NutricionDashboard',
           'GestionDocumental',
+          'InterventoriaDashboard',
         ],
         'updatedAt': serverNow,
         'createdAt': serverNow,
@@ -278,70 +262,67 @@ class DemoSeedService {
     final analParts = _splitName(analistaNombreCompleto);
 
     // Admin/reviewer (docId = cedula)
-    batch.set(
-      _db.collection('TBL_USUARIOS').doc(reviewerCedula),
-      {
-        'usuario': reviewerCedula,
-        'cedula': reviewerCedula,
-        'tipo_documento': 'CC',
-        'nombres': reviewerNombres,
-        'apellidos': reviewerApellidos,
-        'correo': reviewerEmail,
+    batch.set(_db.collection('TBL_USUARIOS').doc(reviewerCedula), {
+      'usuario': reviewerCedula,
+      'cedula': reviewerCedula,
+      'tipo_documento': 'CC',
+      'nombres': reviewerNombres,
+      'apellidos': reviewerApellidos,
+      'correo': reviewerEmail,
 
-        // Empresa multi-empresa compatible
-        'empresaId': empresaId,
-        'empresaNombre': empresaNombre,
-        'empresas': const [empresaId],
-        'empresasDetalle': {
-          empresaId: {
-            'empresaId': empresaId,
-            'empresaNombre': empresaNombre,
-            'area': areaNombre,
-            'areaId': areaId,
-            'cargo': 'Gerente de Proyectos',
-            'cargoId': cargoGerenteId,
-            'centroCostos': centroNombre,
-            'centroId': centroId,
-            'jefeId': null,
-            'jefeNombre': null,
-            'cargoJefe': null,
-          }
+      // Empresa multi-empresa compatible
+      'empresaId': empresaId,
+      'empresaNombre': empresaNombre,
+      'empresas': const [empresaId],
+      'empresasDetalle': {
+        empresaId: {
+          'empresaId': empresaId,
+          'empresaNombre': empresaNombre,
+          'area': areaNombre,
+          'areaId': areaId,
+          'cargo': 'Gerente de Proyectos',
+          'cargoId': cargoGerenteId,
+          'centroCostos': centroNombre,
+          'centroId': centroId,
+          'jefeId': null,
+          'jefeNombre': null,
+          'cargoJefe': null,
         },
-
-        // Campos top-level (los usa tu CreateTaskScreen)
-        'area': areaNombre,
-        'areaId': areaId,
-        'cargo': 'Gerente de Proyectos',
-        'cargoId': cargoGerenteId,
-        'centroCostos': centroNombre,
-        'centroId': centroId,
-        'jefeId': null,
-        'jefeNombre': null,
-        'cargoJefe': null,
-
-        // Apps y credenciales
-        'apps': const [
-          'AdminDashboard',
-          'TalentoHumanoDashboard',
-          'GerenciaDashboard',
-          'NutricionDashboard',
-          'GestionDocumental',
-        ],
-        'password': reviewerPassword,
-        'needsPasswordChange': false,
-
-        'pregunta_seguridad_1': questions[0].question,
-        'respuesta_seguridad_1': questions[0].answer.toLowerCase(),
-        'pregunta_seguridad_2': questions[1].question,
-        'respuesta_seguridad_2': questions[1].answer.toLowerCase(),
-
-        'estado': 'activo',
-        'enabled': true,
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
       },
-      SetOptions(merge: true),
-    );
+
+      // Campos top-level (los usa tu CreateTaskScreen)
+      'area': areaNombre,
+      'areaId': areaId,
+      'cargo': 'Gerente de Proyectos',
+      'cargoId': cargoGerenteId,
+      'centroCostos': centroNombre,
+      'centroId': centroId,
+      'jefeId': null,
+      'jefeNombre': null,
+      'cargoJefe': null,
+
+      // Apps y credenciales
+      'apps': const [
+        'AdminDashboard',
+        'TalentoHumanoDashboard',
+        'GerenciaDashboard',
+        'NutricionDashboard',
+        'GestionDocumental',
+        'InterventoriaDashboard',
+      ],
+      'password': reviewerPassword,
+      'needsPasswordChange': false,
+
+      'pregunta_seguridad_1': questions[0].question,
+      'respuesta_seguridad_1': questions[0].answer.toLowerCase(),
+      'pregunta_seguridad_2': questions[1].question,
+      'respuesta_seguridad_2': questions[1].answer.toLowerCase(),
+
+      'estado': 'activo',
+      'enabled': true,
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // Coordinador
     batch.set(
@@ -370,7 +351,7 @@ class DemoSeedService {
             'jefeId': reviewerCedula,
             'jefeNombre': '$reviewerNombres $reviewerApellidos',
             'cargoJefe': 'Gerente de Proyectos',
-          }
+          },
         },
 
         'area': areaNombre,
@@ -396,70 +377,62 @@ class DemoSeedService {
     );
 
     // Analista
-    batch.set(
-      _db.collection('TBL_USUARIOS').doc(analistaCedula),
-      {
-        'usuario': analistaCedula,
-        'cedula': analistaCedula,
-        'tipo_documento': 'CC',
-        'nombres': analParts['nombres'],
-        'apellidos': analParts['apellidos'],
-        'correo': analistaEmail,
+    batch.set(_db.collection('TBL_USUARIOS').doc(analistaCedula), {
+      'usuario': analistaCedula,
+      'cedula': analistaCedula,
+      'tipo_documento': 'CC',
+      'nombres': analParts['nombres'],
+      'apellidos': analParts['apellidos'],
+      'correo': analistaEmail,
 
-        'empresaId': empresaId,
-        'empresaNombre': empresaNombre,
-        'empresas': const [empresaId],
-        'empresasDetalle': {
-          empresaId: {
-            'empresaId': empresaId,
-            'empresaNombre': empresaNombre,
-            'area': areaNombre,
-            'areaId': areaId,
-            'cargo': 'Analista de Proyectos',
-            'cargoId': cargoAnalistaId,
-            'centroCostos': centroNombre,
-            'centroId': centroId,
-            'jefeId': coordinadorCedula,
-            'jefeNombre': coordinadorNombreCompleto,
-            'cargoJefe': 'Coordinador de Operaciones',
-          }
+      'empresaId': empresaId,
+      'empresaNombre': empresaNombre,
+      'empresas': const [empresaId],
+      'empresasDetalle': {
+        empresaId: {
+          'empresaId': empresaId,
+          'empresaNombre': empresaNombre,
+          'area': areaNombre,
+          'areaId': areaId,
+          'cargo': 'Analista de Proyectos',
+          'cargoId': cargoAnalistaId,
+          'centroCostos': centroNombre,
+          'centroId': centroId,
+          'jefeId': coordinadorCedula,
+          'jefeNombre': coordinadorNombreCompleto,
+          'cargoJefe': 'Coordinador de Operaciones',
         },
-
-        'area': areaNombre,
-        'areaId': areaId,
-        'cargo': 'Analista de Proyectos',
-        'cargoId': cargoAnalistaId,
-        'centroCostos': centroNombre,
-        'centroId': centroId,
-        'jefeId': coordinadorCedula,
-        'jefeNombre': coordinadorNombreCompleto,
-        'cargoJefe': 'Coordinador de Operaciones',
-
-        'apps': const <String>[],
-        'password': 'Demo2025!',
-        'needsPasswordChange': false,
-
-        'estado': 'activo',
-        'enabled': true,
-        'createdAt': serverNow,
-        'updatedAt': serverNow,
       },
-      SetOptions(merge: true),
-    );
+
+      'area': areaNombre,
+      'areaId': areaId,
+      'cargo': 'Analista de Proyectos',
+      'cargoId': cargoAnalistaId,
+      'centroCostos': centroNombre,
+      'centroId': centroId,
+      'jefeId': coordinadorCedula,
+      'jefeNombre': coordinadorNombreCompleto,
+      'cargoJefe': 'Coordinador de Operaciones',
+
+      'apps': const <String>[],
+      'password': 'Demo2025!',
+      'needsPasswordChange': false,
+
+      'estado': 'activo',
+      'enabled': true,
+      'createdAt': serverNow,
+      'updatedAt': serverNow,
+    }, SetOptions(merge: true));
 
     // ===================== CEDULAS (para tu validación por cédula) =====================
     void _seedCedula(String cedula) {
-      batch.set(
-        _db.collection('TBL_CEDULAS').doc(cedula),
-        {
-          'cedula': cedula,
-          'empresaId': empresaId,
-          'empresas': FieldValue.arrayUnion([empresaId]),
-          'createdAt': serverNow,
-          'updatedAt': serverNow,
-        },
-        SetOptions(merge: true),
-      );
+      batch.set(_db.collection('TBL_CEDULAS').doc(cedula), {
+        'cedula': cedula,
+        'empresaId': empresaId,
+        'empresas': FieldValue.arrayUnion([empresaId]),
+        'createdAt': serverNow,
+        'updatedAt': serverNow,
+      }, SetOptions(merge: true));
     }
 
     _seedCedula(reviewerCedula);
@@ -531,14 +504,15 @@ class DemoSeedService {
             'id': 'welcome_demo',
             'title': 'Bienvenido a ToDo',
             'body':
-            'Explora el panel administrativo y crea tareas con datos de prueba.',
+                'Explora el panel administrativo y crea tareas con datos de prueba.',
             'read': false,
             'createdAt': createdYesterday,
           },
           {
             'id': 'reunion_equipo',
             'title': 'Reunión semanal',
-            'body': 'Revisa las tareas pendientes antes de la reunión del miércoles.',
+            'body':
+                'Revisa las tareas pendientes antes de la reunión del miércoles.',
             'read': false,
             'createdAt': createdTwoDaysAgo,
           },
@@ -554,7 +528,7 @@ class DemoSeedService {
       {
         'titulo': 'Completar onboarding del nuevo equipo',
         'descripcion':
-        'Revisa y aprueba la documentación de inducción de los nuevos ingresos.',
+            'Revisa y aprueba la documentación de inducción de los nuevos ingresos.',
         'estado': 'en_progreso',
         'prioridad': 'alta',
         'asignado_uid': reviewerCedula,
@@ -572,7 +546,7 @@ class DemoSeedService {
           {
             'name': 'Plan de inducción.pdf',
             'url': 'https://www.orimi.com/pdf-test.pdf',
-          }
+          },
         ],
         'notify': true,
       },
@@ -584,7 +558,7 @@ class DemoSeedService {
       {
         'titulo': 'Actualizar tablero de indicadores',
         'descripcion':
-        'Sube las métricas de cumplimiento del trimestre y comparte al equipo.',
+            'Sube las métricas de cumplimiento del trimestre y comparte al equipo.',
         'estado': 'en_progreso',
         'prioridad': 'media',
         'asignado_uid': reviewerCedula,
@@ -607,7 +581,8 @@ class DemoSeedService {
       _db.collection('TBL_TAREAS').doc('demo_task_capacitacion'),
       {
         'titulo': 'Capacitación en protocolos de seguridad',
-        'descripcion': 'Coordina con Talento Humano la sesión virtual del viernes.',
+        'descripcion':
+            'Coordina con Talento Humano la sesión virtual del viernes.',
         'estado': 'finalizado',
         'prioridad': 'alta',
         'asignado_uid': coordinadorCedula,

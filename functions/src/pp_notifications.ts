@@ -2,24 +2,28 @@
 //
 // Cloud Functions programadas para Planillas de Pago.
 //
-// Envía un resumen de pendientes 3 veces al día hora Colombia (UTC-5):
-//   08:00 → cron: "0 13 * * *"
-//   12:00 → cron: "0 17 * * *"
-//   16:00 → cron: "0 21 * * *"
+// Envía un resumen de pendientes 3 veces al día hora Colombia:
+//   08:00 → cron: "0 8 * * *"
+//   12:00 → cron: "0 12 * * *"
+//   16:00 → cron: "0 16 * * *"
 //
 // Para cada empresa activa consulta usuarios con rolPlanillas y
 // notifica cuántas planillas tienen pendientes según su rol:
-//   - auditoria:  estado == 'en_revision_auditoria'
-//   - gerencia:   estado == 'pendiente_firma_gerencia'
+//   - auditoria: estado == 'en_revision_auditoria'
+//   - gerencia:  estado == 'pendiente_firma_gerencia'
 //
 // Usa la misma estructura de notificaciones push del proyecto:
-//   TBL_NOTIFICACIONES/{cedula}/notifications/{autoId}
+//   TBL_NOTIFICACIONES/{cedula}/notifications/{resumenId}
 
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 
 const getDb = () => admin.firestore();
-const getFcm = () => admin.messaging();
+
+const ROLE_AUDITORIA = "auditoria";
+const ROLE_GERENCIA = "gerencia";
+const ROLE_GERENTE_ALIAS = "gerente";
+const TARGET_ROLES = [ROLE_AUDITORIA, ROLE_GERENCIA, ROLE_GERENTE_ALIAS];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -29,43 +33,60 @@ async function pushNotificationToUser(
   userId: string,
   title: string,
   body: string,
-  empresaId: string
-): Promise<void> {
+  empresaId: string,
+  hora: string,
+  summaryRole: string,
+  pendingCount: number
+): Promise<boolean> {
   const db = getDb();
+  const dayKey = bogotaDateKey();
+  const horaKey = hora.replace(/[^0-9]/g, "");
+  const safeEmpresaId = safeDocId(empresaId);
+  const notifId = `planillas_resumen_${safeEmpresaId}_${dayKey}_${horaKey}_${summaryRole}`;
   const notifRef = db
     .collection("TBL_NOTIFICACIONES")
     .doc(userId)
     .collection("notifications")
-    .doc();
+    .doc(notifId);
 
-  await notifRef.set({
-    title,
-    description: body,
-    taskId: "",
-    type: "planillas_pago_resumen",
-    fromId: "system",
-    fromName: "Sistema",
-    empresaId,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    read: false,
+  let created = false;
+  await db.runTransaction(async (tx) => {
+    const existing = await tx.get(notifRef);
+    if (existing.exists) {
+      tx.set(
+        notifRef,
+        {
+          title,
+          description: body,
+          pendingCount,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return;
+    }
+
+    tx.create(notifRef, {
+      id: notifId,
+      title,
+      description: body,
+      taskId: "",
+      type: "planillas_pago_resumen",
+      module: "gestion_documental_planillas",
+      summaryRole,
+      pendingCount,
+      scheduleSlot: hora,
+      scheduleDate: dayKey,
+      fromId: "system",
+      fromName: "Sistema",
+      empresaId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      read: false,
+    });
+    created = true;
   });
 
-  // FCM: intentar enviar si el usuario tiene token registrado
-  try {
-    const tokenSnap = await db.collection("TBL_USUARIOS").doc(userId).get();
-    const token: string | undefined = tokenSnap.data()?.fcmToken;
-    if (token) {
-      await getFcm().send({
-        token,
-        notification: { title, body },
-        data: { type: "planillas_pago_resumen", empresaId },
-        android: { priority: "high" },
-        apns: { payload: { aps: { badge: 1, sound: "default" } } },
-      });
-    }
-  } catch (_) {
-    // FCM es best-effort; la notificación en Firestore ya fue guardada
-  }
+  return created;
 }
 
 async function notificarResumen(hora: string): Promise<void> {
@@ -75,147 +96,196 @@ async function notificarResumen(hora: string): Promise<void> {
 
   for (const empresaDoc of empresasSnap.docs) {
     const empresaId = empresaDoc.id;
+    const pendientes = await contarPendientesEmpresa(empresaId);
+    if (pendientes.auditoria === 0 && pendientes.gerencia === 0) continue;
 
     // 2. Buscar usuarios con rolPlanillas en esta empresa
     //    Buscamos tanto en rolPlanillas global como en empresasDetalle scoped
     const [globalSnap, scopedSnap] = await Promise.all([
       db
         .collection("TBL_USUARIOS")
-        .where("rolPlanillas", "in", ["auditoria", "gerencia", "admin_doc"])
+        .where("rolPlanillas", "in", TARGET_ROLES)
         .get(),
       db
         .collection("TBL_USUARIOS")
-        .where(`empresasDetalle.${empresaId}.rolPlanillas`, "in", [
-          "auditoria",
-          "gerencia",
-          "admin_doc",
-        ])
+        .where(
+          new admin.firestore.FieldPath(
+            "empresasDetalle",
+            empresaId,
+            "rolPlanillas"
+          ),
+          "in",
+          TARGET_ROLES
+        )
         .get(),
     ]);
 
     // Deduplicar usuarios
-    const usuariosMap = new Map<
-      string,
-      { rol: string; nombre: string }
-    >();
+    const usuariosMap = new Map<string, { rol: string }>();
 
     for (const doc of [...globalSnap.docs, ...scopedSnap.docs]) {
       const data = doc.data();
       // Verificar que el usuario pertenece a la empresa
-      const empresas: string[] = data.empresas ?? [];
-      if (!empresas.includes(empresaId)) continue;
+      if (!userBelongsToEmpresa(data, empresaId)) continue;
 
       // Resolver rol: priorizar scoped sobre global
-      const scopedRol =
-        data.empresasDetalle?.[empresaId]?.rolPlanillas ?? "";
-      const globalRol = data.rolPlanillas ?? "";
-      const rol = (scopedRol || globalRol) as string;
+      const rol = resolvePlanillasRole(data, empresaId);
 
-      if (!rol || !["auditoria", "gerencia", "admin_doc"].includes(rol)) {
-        continue;
-      }
+      if (![ROLE_AUDITORIA, ROLE_GERENCIA].includes(rol)) continue;
 
       usuariosMap.set(doc.id, {
         rol,
-        nombre: data.nombre ?? doc.id,
       });
     }
 
     // 3. Para cada usuario, contar planillas pendientes
     for (const [userId, { rol }] of usuariosMap.entries()) {
-      let estadoPendiente: string | null = null;
-      let rolLabel = "";
+      const count =
+        rol === ROLE_AUDITORIA ? pendientes.auditoria : pendientes.gerencia;
+      if (count === 0) continue;
 
-      if (rol === "auditoria") {
-        estadoPendiente = "en_revision_auditoria";
-        rolLabel = "auditoría";
-      } else if (rol === "gerencia") {
-        estadoPendiente = "pendiente_firma_gerencia";
-        rolLabel = "firma de gerencia";
-      } else if (rol === "admin_doc") {
-        // admin_doc ve ambos pendientes
-        estadoPendiente = null;
-      }
-
-      let count = 0;
-      let titulo = "";
-      let cuerpo = "";
-
-      if (estadoPendiente) {
-        const countSnap = await db
-          .collection("TBL_PP_PLANILLAS")
-          .where("empresaId", "==", empresaId)
-          .where("estado", "==", estadoPendiente)
-          .count()
-          .get();
-        count = countSnap.data().count ?? 0;
-
-        if (count === 0) continue;
-
-        titulo = `[${hora}] Planillas pendientes`;
-        cuerpo = `Tienes ${count} planilla${count > 1 ? "s" : ""} pendiente${count > 1 ? "s" : ""} de ${rolLabel}.`;
-      } else {
-        // admin_doc: suma auditoria + gerencia
-        const [audSnap, gerSnap] = await Promise.all([
-          db
-            .collection("TBL_PP_PLANILLAS")
-            .where("empresaId", "==", empresaId)
-            .where("estado", "==", "en_revision_auditoria")
-            .count()
-            .get(),
-          db
-            .collection("TBL_PP_PLANILLAS")
-            .where("empresaId", "==", empresaId)
-            .where("estado", "==", "pendiente_firma_gerencia")
-            .count()
-            .get(),
-        ]);
-        const audCount = audSnap.data().count ?? 0;
-        const gerCount = gerSnap.data().count ?? 0;
-        count = audCount + gerCount;
-
-        if (count === 0) continue;
-
-        titulo = `[${hora}] Resumen Planillas de Pago`;
-        cuerpo = `${audCount} en revisión auditoría · ${gerCount} pendientes de firma.`;
-      }
-
-      await pushNotificationToUser(userId, titulo, cuerpo, empresaId);
+      const { titulo, cuerpo } = buildResumenMessage(hora, rol, count);
+      const created = await pushNotificationToUser(
+        userId,
+        titulo,
+        cuerpo,
+        empresaId,
+        hora,
+        rol,
+        count
+      );
       console.log(
-        `[pp_notif] ${hora} → ${userId} (${rol}) empresa=${empresaId} pendientes=${count}`
+        `[pp_notif] ${created ? "created" : "updated"} ${hora} -> ${userId} (${rol}) empresa=${empresaId} pendientes=${count}`
       );
     }
   }
 }
 
+async function contarPendientesEmpresa(
+  empresaId: string
+): Promise<{ auditoria: number; gerencia: number }> {
+  const db = getDb();
+  const [audSnap, gerSnap] = await Promise.all([
+    db
+      .collection("TBL_PP_PLANILLAS")
+      .where("empresaId", "==", empresaId)
+      .where("estado", "==", "en_revision_auditoria")
+      .count()
+      .get(),
+    db
+      .collection("TBL_PP_PLANILLAS")
+      .where("empresaId", "==", empresaId)
+      .where("estado", "==", "pendiente_firma_gerencia")
+      .count()
+      .get(),
+  ]);
+
+  return {
+    auditoria: audSnap.data().count ?? 0,
+    gerencia: gerSnap.data().count ?? 0,
+  };
+}
+
+function buildResumenMessage(
+  hora: string,
+  rol: string,
+  count: number
+): { titulo: string; cuerpo: string } {
+  const plural = count === 1 ? "" : "s";
+  const pendientes = count === 1 ? "pendiente" : "pendientes";
+
+  if (rol === ROLE_AUDITORIA) {
+    return {
+      titulo: `[${hora}] Auditoría: planillas pendientes`,
+      cuerpo: `Tienes ${count} planilla${plural} ${pendientes} para revisión/aprobación de auditoría.`,
+    };
+  }
+
+  return {
+    titulo: `[${hora}] Gerencia: planillas por firmar`,
+    cuerpo: `Tienes ${count} planilla${plural} ${pendientes} de firma de gerencia.`,
+  };
+}
+
+function resolvePlanillasRole(
+  data: admin.firestore.DocumentData,
+  empresaId: string
+): string {
+  const scopedRol = data.empresasDetalle?.[empresaId]?.rolPlanillas ?? "";
+  const globalRol = data.rolPlanillas ?? "";
+  return normalizePlanillasRole(scopedRol || globalRol);
+}
+
+function normalizePlanillasRole(raw: unknown): string {
+  const role = (raw ?? "").toString().trim().toLowerCase();
+  if (role === ROLE_GERENTE_ALIAS) return ROLE_GERENCIA;
+  return role;
+}
+
+function userBelongsToEmpresa(
+  data: admin.firestore.DocumentData,
+  empresaId: string
+): boolean {
+  const empresas = Array.isArray(data.empresas)
+    ? data.empresas.map((e: unknown) => String(e))
+    : [];
+  if (empresas.includes(empresaId)) return true;
+
+  const empresasDetalle = data.empresasDetalle;
+  if (
+    empresasDetalle &&
+    typeof empresasDetalle === "object" &&
+    Object.prototype.hasOwnProperty.call(empresasDetalle, empresaId)
+  ) {
+    return true;
+  }
+
+  const empresaUnica = (data.empresaId ?? data.empresa ?? "")
+    .toString()
+    .trim();
+  return empresaUnica === empresaId;
+}
+
+function bogotaDateKey(date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return `${values.year}${values.month}${values.day}`;
+}
+
+function safeDocId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Funciones programadas (hora Colombia UTC-5)
+// Funciones programadas (hora Colombia)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 08:00 hora Colombia = 13:00 UTC
 export const ppNotificaciones0800 = functions
   .region("us-central1")
-  .pubsub.schedule("0 13 * * *")
+  .pubsub.schedule("0 8 * * *")
   .timeZone("America/Bogota")
   .onRun(async () => {
     console.log("[pp_notif] Ejecutando resumen 08:00 Colombia");
     await notificarResumen("08:00");
   });
 
-// 12:00 hora Colombia = 17:00 UTC
 export const ppNotificaciones1200 = functions
   .region("us-central1")
-  .pubsub.schedule("0 17 * * *")
+  .pubsub.schedule("0 12 * * *")
   .timeZone("America/Bogota")
   .onRun(async () => {
     console.log("[pp_notif] Ejecutando resumen 12:00 Colombia");
     await notificarResumen("12:00");
   });
 
-// 16:00 hora Colombia = 21:00 UTC
 export const ppNotificaciones1600 = functions
   .region("us-central1")
-  .pubsub.schedule("0 21 * * *")
+  .pubsub.schedule("0 16 * * *")
   .timeZone("America/Bogota")
   .onRun(async () => {
     console.log("[pp_notif] Ejecutando resumen 16:00 Colombia");

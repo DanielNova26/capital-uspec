@@ -20,13 +20,16 @@ const Color kMarronOscuro = Color(0xFF145DA0);
 /// Maneja tipos especiales de Compras antes de delegar al TaskRouteGuard.
 /// Retorna true si la navegación fue exitosa.
 Future<bool> _openNotificationTask(
-    BuildContext context, {
-      required String type,
-      required String taskId,
-      required String cedula,
-    }) async {
+  BuildContext context, {
+  required String type,
+  required String taskId,
+  required String cedula,
+}) async {
+  if (taskId.trim().isEmpty) return true;
+
   // Tipos de Nutrición: navegan a NutricionDashboardScreen.
-  if (type == 'cita_nutricion_agendada' || type == 'cita_nutricion_recordatorio') {
+  if (type == 'cita_nutricion_agendada' ||
+      type == 'cita_nutricion_recordatorio') {
     if (taskId.isNotEmpty && context.mounted) {
       await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
     }
@@ -40,7 +43,9 @@ Future<bool> _openNotificationTask(
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Abre el módulo de Gestión Documental para revisar el documento.'),
+          content: Text(
+            'Abre el módulo de Gestión Documental para revisar el documento.',
+          ),
           duration: Duration(seconds: 3),
         ),
       );
@@ -49,17 +54,36 @@ Future<bool> _openNotificationTask(
   }
 
   // Tipos de Compras: navegan al proveedor o ficha, sin pasar por TaskRouteGuard.
-  if ((type == 'doc_rechazado' || type == 'correccion_requerida') && taskId.startsWith('proveedor:')) {
+  if ((type == 'doc_rechazado' || type == 'correccion_requerida') &&
+      taskId.startsWith('proveedor:')) {
     final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
     if (proveedorId.isNotEmpty && context.mounted) {
-      await abrirDetalleProveedor(context, userId: cedula, proveedorId: proveedorId);
+      await abrirDetalleProveedor(
+        context,
+        userId: cedula,
+        proveedorId: proveedorId,
+      );
     }
     return context.mounted;
   }
   if (type == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
     final fichaId = taskId.replaceFirst('ficha:', '').trim();
     if (fichaId.isNotEmpty && context.mounted) {
-      await abrirDetalleFichaRechazada(context, userId: cedula, fichaId: fichaId);
+      await abrirDetalleFichaRechazada(
+        context,
+        userId: cedula,
+        fichaId: fichaId,
+      );
+    }
+    return context.mounted;
+  }
+  if (type == 'recepcion_doc_rechazado' && taskId.startsWith('recepcion:')) {
+    if (context.mounted) {
+      await abrirDetalleRecepcionCompras(
+        context,
+        userId: cedula,
+        recepcionId: taskId,
+      );
     }
     return context.mounted;
   }
@@ -103,10 +127,8 @@ Future<bool> _openNotificationTask(
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => CreatedTasksScreen(
-            userId: cedula,
-            highlightTaskId: taskId,
-          ),
+          builder: (_) =>
+              CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
         ),
       );
       return true;
@@ -115,10 +137,8 @@ Future<bool> _openNotificationTask(
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AssignedTasksScreen(
-          userId: cedula,
-          highlightTaskId: taskId,
-        ),
+        builder: (_) =>
+            AssignedTasksScreen(userId: cedula, highlightTaskId: taskId),
       ),
     );
     return true;
@@ -130,11 +150,8 @@ class NotificationsScreen extends StatelessWidget {
   final String userId;
   final String? empresaId;
 
-  const NotificationsScreen({
-    Key? key,
-    required this.userId,
-    this.empresaId,
-  }) : super(key: key);
+  const NotificationsScreen({Key? key, required this.userId, this.empresaId})
+    : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -145,7 +162,9 @@ class NotificationsScreen extends StatelessWidget {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: isWeb ? scheme.surfaceVariant.withOpacity(0.2) : scheme.background,
+        backgroundColor: isWeb
+            ? scheme.surfaceVariant.withOpacity(0.2)
+            : scheme.background,
         appBar: AppBar(
           backgroundColor: scheme.surface,
           foregroundColor: scheme.onSurface,
@@ -179,12 +198,20 @@ class NotificationsScreen extends StatelessWidget {
             preferredSize: const Size.fromHeight(60),
             child: Container(
               width: double.infinity,
-              padding: isWeb ? const EdgeInsets.symmetric(horizontal: 32) : const EdgeInsets.symmetric(horizontal: 16),
+              padding: isWeb
+                  ? const EdgeInsets.symmetric(horizontal: 32)
+                  : const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                border: Border(bottom: BorderSide(color: scheme.outlineVariant.withOpacity(0.5))),
+                border: Border(
+                  bottom: BorderSide(
+                    color: scheme.outlineVariant.withOpacity(0.5),
+                  ),
+                ),
               ),
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: isWeb ? 400 : double.infinity),
+                constraints: BoxConstraints(
+                  maxWidth: isWeb ? 400 : double.infinity,
+                ),
                 child: TabBar(
                   labelColor: scheme.primary,
                   unselectedLabelColor: scheme.onSurfaceVariant,
@@ -213,8 +240,16 @@ class NotificationsScreen extends StatelessWidget {
         ),
         body: TabBarView(
           children: [
-            _NotificationList(userId: userId, onlyUnread: true, empresaId: empresaId),
-            _NotificationList(userId: userId, onlyUnread: false, empresaId: empresaId),
+            _NotificationList(
+              userId: userId,
+              onlyUnread: true,
+              empresaId: empresaId,
+            ),
+            _NotificationList(
+              userId: userId,
+              onlyUnread: false,
+              empresaId: empresaId,
+            ),
           ],
         ),
       ),
@@ -231,13 +266,14 @@ class NotificationsScreen extends StatelessWidget {
     final snap = await query.get();
     if (snap.docs.isEmpty) return;
 
-    // Filtrar por empresa activa si aplica
     final eid = (empresaId ?? '').trim();
     final toMark = eid.isEmpty
         ? snap.docs
         : snap.docs.where((d) {
-            final notifEmpresa = (d.data()['empresaId'] as String?)?.trim() ?? '';
-            return notifEmpresa.isNotEmpty && notifEmpresa == eid;
+            final notifEmpresa = (d.data()['empresaId'] ?? '')
+                .toString()
+                .trim();
+            return notifEmpresa == eid;
           }).toList();
 
     if (toMark.isEmpty) return;
@@ -279,12 +315,31 @@ class _NotificationList extends StatelessWidget {
         (visto is bool && visto);
   }
 
-  /// Filtra por empresa activa. Legacy (sin empresaId) siempre pasa.
+  /// Filtra por empresa activa. Las legacy sin empresaId sólo aparecen en vista general.
   bool _matchesEmpresa(Map<String, dynamic> data) {
     final eid = (empresaId ?? '').trim();
     if (eid.isEmpty) return true;
-    final notifEmpresa = (data['empresaId'] as String?)?.trim() ?? '';
-    return notifEmpresa.isNotEmpty && notifEmpresa == eid;
+    final notifEmpresa = (data['empresaId'] ?? '').toString().trim();
+    return notifEmpresa == eid;
+  }
+
+  String _empresaKey(Map<String, dynamic> data) {
+    final raw = (data['empresaId'] ?? '').toString().trim();
+    return raw.isEmpty ? '__sin_empresa__' : raw;
+  }
+
+  String _empresaLabel(Map<String, dynamic> data) {
+    final explicit =
+        (data['empresaNombre'] ??
+                data['companyName'] ??
+                data['nombreEmpresa'] ??
+                data['empresa'])
+            ?.toString()
+            .trim() ??
+        '';
+    if (explicit.isNotEmpty) return explicit;
+    final eid = (data['empresaId'] ?? '').toString().trim();
+    return eid.isEmpty ? 'Sin empresa' : eid;
   }
 
   String _fromOf(Map<String, dynamic> data) {
@@ -296,7 +351,8 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('assigned')) return 'Asignado por';
     if (t.contains('avance') || t.contains('progress')) return 'Reportado por';
     if (t.contains('novedad') || t.contains('news')) return 'Reportado por';
-    if (t.contains('finaliz') || t.contains('aprobad') || t.contains('devuelt')) return 'Gestionado por';
+    if (t.contains('finaliz') || t.contains('aprobad') || t.contains('devuelt'))
+      return 'Gestionado por';
     return 'De';
   }
 
@@ -306,7 +362,10 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('assigned')) return 'Asignación';
     if (t.contains('avance') || t.contains('progress')) return 'Avance';
     if (t.contains('novedad') || t.contains('news')) return 'Novedad';
-    if (t.contains('finaliz') || t.contains('aprobad') || t.contains('complet')) {
+    if (t.contains('recepcion_doc_rechazado')) return 'Compras/Bodega';
+    if (t.contains('finaliz') ||
+        t.contains('aprobad') ||
+        t.contains('complet')) {
       return 'Finalización';
     }
     if (t.contains('devuelt')) return 'Devolución';
@@ -316,11 +375,16 @@ class _NotificationList extends StatelessWidget {
   IconData _getIconForType(String type) {
     final t = type.trim().toLowerCase();
     if (t.startsWith('gestion_documental')) return Icons.description_outlined;
-    if (t.contains('assigned') || t.contains('reasign')) return Icons.assignment_ind_rounded;
-    if (t.contains('avance') || t.contains('progress')) return Icons.trending_up_rounded;
-    if (t.contains('novedad') || t.contains('news')) return Icons.error_outline_rounded;
-    if (t.contains('rechazado') || t.contains('correccion')) return Icons.description_outlined;
-    if (t.contains('finaliz') || t.contains('complet') || t.contains('aprobad')) return Icons.check_circle_outline_rounded;
+    if (t.contains('assigned') || t.contains('reasign'))
+      return Icons.assignment_ind_rounded;
+    if (t.contains('avance') || t.contains('progress'))
+      return Icons.trending_up_rounded;
+    if (t.contains('novedad') || t.contains('news'))
+      return Icons.error_outline_rounded;
+    if (t.contains('rechazado') || t.contains('correccion'))
+      return Icons.description_outlined;
+    if (t.contains('finaliz') || t.contains('complet') || t.contains('aprobad'))
+      return Icons.check_circle_outline_rounded;
     if (t.contains('devuelt')) return Icons.undo_rounded;
     return Icons.notifications_active_outlined;
   }
@@ -373,7 +437,7 @@ class _NotificationList extends StatelessWidget {
 
         for (final d in docs) {
           final data = d.data();
-          // Filtro de empresa activa (legacy sin empresaId pasa siempre)
+          // Filtro de empresa activa: si hay empresa seleccionada, sólo entra esa empresa.
           if (!_matchesEmpresa(data)) continue;
           final taskId = (data['taskId'] as String?) ?? '';
           final when = _parseCreatedAt(data['createdAt']);
@@ -387,7 +451,9 @@ class _NotificationList extends StatelessWidget {
 
         if (uniqueDocs.isEmpty) {
           return EmptyStateWidget(
-            icon: onlyUnread ? Icons.notifications_off_outlined : Icons.notifications_none_rounded,
+            icon: onlyUnread
+                ? Icons.notifications_off_outlined
+                : Icons.notifications_none_rounded,
             title: onlyUnread ? 'Sin novedades' : 'Historial vacío',
             message: onlyUnread
                 ? 'Estás al día. No tienes notificaciones nuevas.'
@@ -395,27 +461,40 @@ class _NotificationList extends StatelessWidget {
           );
         }
 
-        // Group by Date
-        final grouped = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+        // Group by company + date when no active company was provided.
+        final grouped =
+            <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+        final showCompanyDivision = (empresaId ?? '').trim().isEmpty;
+        final companyKeys = <String>{};
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
         final yesterday = today.subtract(const Duration(days: 1));
 
         for (final doc in uniqueDocs) {
-          final dt = _parseCreatedAt(doc.data()['createdAt']);
-          String key = 'Anteriores';
+          final data = doc.data();
+          companyKeys.add(_empresaKey(data));
+          final dt = _parseCreatedAt(data['createdAt']);
+          String dateKey = 'Anteriores';
           if (dt != null) {
             final date = DateTime(dt.year, dt.month, dt.day);
-            if (date == today) key = 'Hoy';
-            else if (date == yesterday) key = 'Ayer';
-            else key = DateFormat('MMMM dd, yyyy', 'es_CO').format(date);
+            if (date == today)
+              dateKey = 'Hoy';
+            else if (date == yesterday)
+              dateKey = 'Ayer';
+            else
+              dateKey = DateFormat('MMMM dd, yyyy', 'es_CO').format(date);
           }
+          final key = showCompanyDivision
+              ? '${_empresaLabel(data)} · $dateKey'
+              : dateKey;
           grouped.putIfAbsent(key, () => []).add(doc);
         }
 
         return Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: isWeb ? 800 : double.infinity),
+            constraints: BoxConstraints(
+              maxWidth: isWeb ? 800 : double.infinity,
+            ),
             child: ListView.builder(
               padding: EdgeInsets.symmetric(
                 horizontal: isWeb ? 32 : 16,
@@ -424,8 +503,9 @@ class _NotificationList extends StatelessWidget {
               itemCount: grouped.keys.length + 1,
               itemBuilder: (context, groupIndex) {
                 if (groupIndex == 0) {
-                  final unreadCount =
-                      uniqueDocs.where((doc) => !_isRead(doc.data())).length;
+                  final unreadCount = uniqueDocs
+                      .where((doc) => !_isRead(doc.data()))
+                      .length;
                   return Container(
                     margin: const EdgeInsets.only(bottom: 24),
                     padding: const EdgeInsets.all(18),
@@ -439,7 +519,9 @@ class _NotificationList extends StatelessWidget {
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: scheme.primary.withOpacity(0.10)),
+                      border: Border.all(
+                        color: scheme.primary.withOpacity(0.10),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -450,8 +532,10 @@ class _NotificationList extends StatelessWidget {
                             color: scheme.primary.withOpacity(0.12),
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: Icon(Icons.notifications_active_rounded,
-                              color: scheme.primary),
+                          child: Icon(
+                            Icons.notifications_active_rounded,
+                            color: scheme.primary,
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -459,7 +543,9 @@ class _NotificationList extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                onlyUnread ? 'Bandeja nueva' : 'Historial de actividad',
+                                onlyUnread
+                                    ? 'Bandeja nueva'
+                                    : 'Historial de actividad',
                                 style: TextStyle(
                                   fontFamily: kArial,
                                   fontSize: 17,
@@ -470,8 +556,8 @@ class _NotificationList extends StatelessWidget {
                               const SizedBox(height: 4),
                               Text(
                                 onlyUnread
-                                    ? '$unreadCount alerta${unreadCount == 1 ? "" : "s"} pendiente${unreadCount == 1 ? "" : "s"}'
-                                    : '${uniqueDocs.length} registro${uniqueDocs.length == 1 ? "" : "s"} disponible${uniqueDocs.length == 1 ? "" : "s"}',
+                                    ? '$unreadCount alerta${unreadCount == 1 ? "" : "s"} pendiente${unreadCount == 1 ? "" : "s"}${showCompanyDivision ? " en ${companyKeys.length} empresa${companyKeys.length == 1 ? "" : "s"}" : ""}'
+                                    : '${uniqueDocs.length} registro${uniqueDocs.length == 1 ? "" : "s"} disponible${uniqueDocs.length == 1 ? "" : "s"}${showCompanyDivision ? " en ${companyKeys.length} empresa${companyKeys.length == 1 ? "" : "s"}" : ""}',
                                 style: TextStyle(
                                   fontFamily: kArial,
                                   fontSize: 13,
@@ -494,7 +580,10 @@ class _NotificationList extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: scheme.surfaceVariant.withOpacity(0.5),
                           borderRadius: BorderRadius.circular(20),
@@ -520,8 +609,11 @@ class _NotificationList extends StatelessWidget {
                       final from = _fromOf(data);
                       final fromLabel = _fromLabel(type);
                       final category = _typeLabel(type);
+                      final companyLabel = _empresaLabel(data);
                       final dt = _parseCreatedAt(data['createdAt']);
-                      final when = dt != null ? DateFormat('hh:mm a').format(dt).toLowerCase() : '--:--';
+                      final when = dt != null
+                          ? DateFormat('hh:mm a').format(dt).toLowerCase()
+                          : '--:--';
                       final isRead = _isRead(data);
                       final typeIcon = _getIconForType(type);
                       final typeColor = _getColorForType(type, context);
@@ -532,15 +624,19 @@ class _NotificationList extends StatelessWidget {
                           color: scheme.surface,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: isRead ? scheme.outlineVariant.withOpacity(0.3) : scheme.primary.withOpacity(0.15),
+                            color: isRead
+                                ? scheme.outlineVariant.withOpacity(0.3)
+                                : scheme.primary.withOpacity(0.15),
                             width: 1,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: isRead ? Colors.black.withOpacity(0.02) : scheme.primary.withOpacity(0.04),
+                              color: isRead
+                                  ? Colors.black.withOpacity(0.02)
+                                  : scheme.primary.withOpacity(0.04),
                               blurRadius: 12,
                               offset: const Offset(0, 4),
-                            )
+                            ),
                           ],
                         ),
                         child: ClipRRect(
@@ -548,12 +644,19 @@ class _NotificationList extends StatelessWidget {
                           child: Stack(
                             children: [
                               Material(
-                                color: isRead ? Colors.transparent : scheme.primary.withOpacity(0.02),
+                                color: isRead
+                                    ? Colors.transparent
+                                    : scheme.primary.withOpacity(0.02),
                                 child: InkWell(
                                   onTap: () async {
-                                    if (taskId == null) {
+                                    if (taskId == null ||
+                                        taskId.trim().isEmpty) {
                                       if (!isRead) {
-                                        try { await doc.reference.update({'read': true}); } catch (_) {}
+                                        try {
+                                          await doc.reference.update({
+                                            'read': true,
+                                          });
+                                        } catch (_) {}
                                       }
                                       return;
                                     }
@@ -565,13 +668,18 @@ class _NotificationList extends StatelessWidget {
                                       cedula: userId,
                                     );
                                     if (opened && !isRead) {
-                                      try { await doc.reference.update({'read': true}); } catch (_) {}
+                                      try {
+                                        await doc.reference.update({
+                                          'read': true,
+                                        });
+                                      } catch (_) {}
                                     }
                                   },
                                   child: Padding(
                                     padding: const EdgeInsets.all(16),
                                     child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Stack(
                                           alignment: Alignment.topRight,
@@ -580,14 +688,21 @@ class _NotificationList extends StatelessWidget {
                                               width: 48,
                                               height: 48,
                                               decoration: BoxDecoration(
-                                                color: isRead 
-                                                    ? scheme.surfaceVariant.withOpacity(0.3) 
-                                                    : typeColor.withOpacity(0.12),
-                                                borderRadius: BorderRadius.circular(14),
+                                                color: isRead
+                                                    ? scheme.surfaceVariant
+                                                          .withOpacity(0.3)
+                                                    : typeColor.withOpacity(
+                                                        0.12,
+                                                      ),
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
                                               ),
                                               child: Icon(
                                                 typeIcon,
-                                                color: isRead ? scheme.onSurfaceVariant.withOpacity(0.7) : typeColor,
+                                                color: isRead
+                                                    ? scheme.onSurfaceVariant
+                                                          .withOpacity(0.7)
+                                                    : typeColor,
                                                 size: 24,
                                               ),
                                             ),
@@ -601,7 +716,10 @@ class _NotificationList extends StatelessWidget {
                                                   decoration: BoxDecoration(
                                                     color: scheme.primary,
                                                     shape: BoxShape.circle,
-                                                    border: Border.all(color: scheme.surface, width: 2),
+                                                    border: Border.all(
+                                                      color: scheme.surface,
+                                                      width: 2,
+                                                    ),
                                                   ),
                                                 ),
                                               ),
@@ -610,7 +728,8 @@ class _NotificationList extends StatelessWidget {
                                         const SizedBox(width: 16),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Row(
                                                 children: [
@@ -619,9 +738,16 @@ class _NotificationList extends StatelessWidget {
                                                       title,
                                                       style: TextStyle(
                                                         fontFamily: kArial,
-                                                        fontWeight: isRead ? FontWeight.w700 : FontWeight.w900,
+                                                        fontWeight: isRead
+                                                            ? FontWeight.w700
+                                                            : FontWeight.w900,
                                                         fontSize: 15,
-                                                        color: isRead ? scheme.onSurface.withOpacity(0.8) : scheme.onSurface,
+                                                        color: isRead
+                                                            ? scheme.onSurface
+                                                                  .withOpacity(
+                                                                    0.8,
+                                                                  )
+                                                            : scheme.onSurface,
                                                         letterSpacing: -0.2,
                                                       ),
                                                     ),
@@ -631,8 +757,11 @@ class _NotificationList extends StatelessWidget {
                                                     when,
                                                     style: TextStyle(
                                                       fontSize: 11,
-                                                      fontWeight: FontWeight.w600,
-                                                      color: scheme.onSurfaceVariant.withOpacity(0.6),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color: scheme
+                                                          .onSurfaceVariant
+                                                          .withOpacity(0.6),
                                                     ),
                                                   ),
                                                 ],
@@ -643,21 +772,58 @@ class _NotificationList extends StatelessWidget {
                                                 runSpacing: 8,
                                                 children: [
                                                   Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 10,
+                                                          vertical: 4,
+                                                        ),
                                                     decoration: BoxDecoration(
-                                                      color: typeColor.withOpacity(0.10),
-                                                      borderRadius: BorderRadius.circular(999),
+                                                      color: typeColor
+                                                          .withOpacity(0.10),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            999,
+                                                          ),
                                                     ),
                                                     child: Text(
                                                       category,
                                                       style: TextStyle(
                                                         fontFamily: kArial,
                                                         fontSize: 11,
-                                                        fontWeight: FontWeight.w800,
+                                                        fontWeight:
+                                                            FontWeight.w800,
                                                         color: typeColor,
                                                       ),
                                                     ),
                                                   ),
+                                                  if (showCompanyDivision)
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 10,
+                                                            vertical: 4,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: scheme
+                                                            .surfaceVariant
+                                                            .withOpacity(0.55),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                      ),
+                                                      child: Text(
+                                                        companyLabel,
+                                                        style: TextStyle(
+                                                          fontFamily: kArial,
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: scheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                      ),
+                                                    ),
                                                 ],
                                               ),
                                               const SizedBox(height: 8),
@@ -665,32 +831,54 @@ class _NotificationList extends StatelessWidget {
                                                 desc,
                                                 style: TextStyle(
                                                   fontFamily: kArial,
-                                                  color: scheme.onSurfaceVariant,
+                                                  color:
+                                                      scheme.onSurfaceVariant,
                                                   fontSize: 14,
                                                   height: 1.4,
-                                                  fontWeight: isRead ? FontWeight.w400 : FontWeight.w500,
+                                                  fontWeight: isRead
+                                                      ? FontWeight.w400
+                                                      : FontWeight.w500,
                                                 ),
                                               ),
                                               if (from.isNotEmpty) ...[
                                                 const SizedBox(height: 12),
                                                 Container(
-                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 10,
+                                                        vertical: 4,
+                                                      ),
                                                   decoration: BoxDecoration(
-                                                    color: scheme.surfaceVariant.withOpacity(0.3),
-                                                    borderRadius: BorderRadius.circular(8),
+                                                    color: scheme.surfaceVariant
+                                                        .withOpacity(0.3),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          8,
+                                                        ),
                                                   ),
                                                   child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
                                                     children: [
-                                                      Icon(Icons.person_outline_rounded, size: 12, color: scheme.onSurfaceVariant.withOpacity(0.7)),
+                                                      Icon(
+                                                        Icons
+                                                            .person_outline_rounded,
+                                                        size: 12,
+                                                        color: scheme
+                                                            .onSurfaceVariant
+                                                            .withOpacity(0.7),
+                                                      ),
                                                       const SizedBox(width: 6),
                                                       Text(
                                                         '$fromLabel: $from',
                                                         style: TextStyle(
                                                           fontFamily: kArial,
                                                           fontSize: 11,
-                                                          fontWeight: FontWeight.w700,
-                                                          color: scheme.onSurfaceVariant.withOpacity(0.8),
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: scheme
+                                                              .onSurfaceVariant
+                                                              .withOpacity(0.8),
                                                         ),
                                                       ),
                                                     ],
@@ -703,11 +891,14 @@ class _NotificationList extends StatelessWidget {
                                         if (taskId != null) ...[
                                           const SizedBox(width: 8),
                                           Padding(
-                                            padding: const EdgeInsets.only(top: 12),
+                                            padding: const EdgeInsets.only(
+                                              top: 12,
+                                            ),
                                             child: Icon(
                                               Icons.arrow_forward_ios_rounded,
                                               size: 14,
-                                              color: scheme.onSurfaceVariant.withOpacity(0.3),
+                                              color: scheme.onSurfaceVariant
+                                                  .withOpacity(0.3),
                                             ),
                                           ),
                                         ],

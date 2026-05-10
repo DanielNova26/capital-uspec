@@ -51,7 +51,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
     _tabCtrl = TabController(length: 3, vsync: this);
     _tabCtrl.addListener(() {
       if (!mounted) return;
-      if (_tabCtrl.index != 0 && _selectionMode) {
+      if (_tabCtrl.index == 2 && _selectionMode) {
         setState(() {
           _selectionMode = false;
           _selectedPlanillaIds.clear();
@@ -247,7 +247,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                         ),
                       ),
                     )
-                  else if (canDelete && inPlanillasTab)
+                  else if (canDelete && (inPlanillasTab || inFirmadasTab))
                     IconButton(
                       icon: Icon(
                         _selectionMode ? Icons.close : Icons.checklist_rounded,
@@ -261,7 +261,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                     ),
                   if (canDelete &&
                       isWeb &&
-                      inPlanillasTab &&
+                      (inPlanillasTab || inFirmadasTab) &&
                       _selectionMode &&
                       _selectedPlanillaIds.isNotEmpty)
                     Padding(
@@ -378,7 +378,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                         _buildSearchBar(),
                         if (inPlanillasTab) _buildFiltroEstado(),
                         if (inFirmadasTab) _buildFiltroFechaFirma(),
-                        if (_selectionMode && canDelete && inPlanillasTab)
+                        if (_selectionMode && canDelete && (inPlanillasTab || inFirmadasTab))
                           _buildSelectionBanner(),
                         Expanded(
                           child: TabBarView(
@@ -393,7 +393,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                       ],
                     ),
               floatingActionButton: !isWeb
-                  ? (_selectionMode && canDelete && inPlanillasTab
+                  ? (_selectionMode && canDelete && (inPlanillasTab || inFirmadasTab)
                         ? FloatingActionButton.extended(
                             onPressed:
                                 _selectedPlanillaIds.isEmpty ||

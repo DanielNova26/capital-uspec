@@ -12,7 +12,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
-import 'package:todo/services/local_notification_service.dart';
+import 'package:todo/services/notification_service.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/utils/user_company.dart';
@@ -26,6 +26,9 @@ import 'document_management_screen.dart' hide kArial;
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
 import '../compras/compras_service.dart';
+import '../interventoria/interventoria_dashboard_screen.dart';
+import '../interventoria/interventoria_models.dart';
+import '../interventoria/interventoria_service.dart';
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
@@ -42,7 +45,8 @@ import 'widgets/home_shared_widgets.dart';
 class HomeScreen extends StatefulWidget {
   final String username;
   final String empresaId;
-  const HomeScreen({Key? key, required this.username, required this.empresaId}) : super(key: key);
+  const HomeScreen({Key? key, required this.username, required this.empresaId})
+    : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -71,6 +75,14 @@ class _HomeScreenState extends State<HomeScreen> {
   // Clave que detecta cambio de cedula/empresa para re-suscribirse.
   String? _lastCitasKey;
 
+  // Notificaciones no asociadas directamente a tareas, para que el calendario
+  // también funcione como agenda operativa transversal.
+  Map<String, List<Map<String, dynamic>>> _notificationEvents = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _notificationCalendarSub;
+  String? _lastNotificationCalendarKey;
+  String? _lastSyncedActiveCedula;
+
   bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
 
   // --- Lógica FCM y Notificaciones ---
@@ -82,60 +94,141 @@ class _HomeScreenState extends State<HomeScreen> {
     required Map<String, dynamic> userData,
   }) async {
     // Tipos de Nutrición: navegan a NutricionDashboardScreen.
-    if (type == 'cita_nutricion_agendada' || type == 'cita_nutricion_recordatorio') {
-      if (taskId.isNotEmpty && mounted) await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
+    if (type == 'cita_nutricion_agendada' ||
+        type == 'cita_nutricion_recordatorio') {
+      if (taskId.isNotEmpty && mounted)
+        await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
       return;
     }
-    if ((type == 'doc_rechazado' || type == 'correccion_requerida') && taskId.startsWith('proveedor:')) {
-      final empresaId = normalizeEmpresaId(EmpresaScope.of(context, listen: false).selectedEmpresaId);
+    if ((type == 'doc_rechazado' || type == 'correccion_requerida') &&
+        taskId.startsWith('proveedor:')) {
+      final empresaId = normalizeEmpresaId(
+        EmpresaScope.of(context, listen: false).selectedEmpresaId,
+      );
       if (empresaId == null) return;
-      final comprasAllowed = await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'comprasdashboard', deniedMessage: 'Sin acceso a Compras.');
+      final comprasAllowed = await _guardModuleNavigation(
+        userData: userData,
+        empresaId: empresaId,
+        appId: 'comprasdashboard',
+        deniedMessage: 'Sin acceso a Compras.',
+      );
       if (!comprasAllowed) return;
       final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
-      if (proveedorId.isNotEmpty && mounted) await abrirDetalleProveedor(context, userId: cedula, proveedorId: proveedorId);
+      if (proveedorId.isNotEmpty && mounted)
+        await abrirDetalleProveedor(
+          context,
+          userId: cedula,
+          proveedorId: proveedorId,
+        );
       return;
     }
     if (type == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
-      final empresaId = normalizeEmpresaId(EmpresaScope.of(context, listen: false).selectedEmpresaId);
+      final empresaId = normalizeEmpresaId(
+        EmpresaScope.of(context, listen: false).selectedEmpresaId,
+      );
       if (empresaId == null) return;
-      final comprasAllowed = await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'comprasdashboard', deniedMessage: 'Sin acceso a Compras.');
+      final comprasAllowed = await _guardModuleNavigation(
+        userData: userData,
+        empresaId: empresaId,
+        appId: 'comprasdashboard',
+        deniedMessage: 'Sin acceso a Compras.',
+      );
       if (!comprasAllowed) return;
       final fichaId = taskId.replaceFirst('ficha:', '').trim();
-      if (fichaId.isNotEmpty && mounted) await abrirDetalleFichaRechazada(context, userId: cedula, fichaId: fichaId);
+      if (fichaId.isNotEmpty && mounted)
+        await abrirDetalleFichaRechazada(
+          context,
+          userId: cedula,
+          fichaId: fichaId,
+        );
       return;
     }
-    final routeDecision = await TaskRouteGuard().resolveNotificationRoute(context, userIdentity: cedula, taskId: taskId, type: type);
+    final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
+      context,
+      userIdentity: cedula,
+      taskId: taskId,
+      type: type,
+    );
     if (!mounted) return;
     if (!routeDecision.allowed) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(routeDecision.message ?? 'Error al abrir notificación.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            routeDecision.message ?? 'Error al abrir notificación.',
+          ),
+        ),
+      );
       return;
     }
     if (taskId.trim().isNotEmpty) {
-      try { await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).set({'visto': true}, SetOptions(merge: true)); } catch (_) {}
+      try {
+        await FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .doc(taskId)
+            .set({'visto': true}, SetOptions(merge: true));
+      } catch (_) {}
     }
     if (routeDecision.target == TaskRouteTarget.taskHistory) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => TaskHistoryScreen(currentUserId: cedula, initialTabIndex: routeDecision.initialTabIndex, highlightTaskId: taskId)));
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TaskHistoryScreen(
+            currentUserId: cedula,
+            initialTabIndex: routeDecision.initialTabIndex,
+            highlightTaskId: taskId,
+          ),
+        ),
+      );
       return;
     }
     if (routeDecision.target == TaskRouteTarget.createdTasks) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CreatedTasksScreen(userId: cedula, highlightTaskId: taskId)));
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
+        ),
+      );
       return;
     }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => AssignedTasksScreen(userId: cedula, highlightTaskId: taskId)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            AssignedTasksScreen(userId: cedula, highlightTaskId: taskId),
+      ),
+    );
   }
 
   Future<String?> _getFcmTokenWithRetries() async {
-    try { return await FirebaseMessaging.instance.getToken(); } catch (_) { return null; }
+    try {
+      return await FirebaseMessaging.instance.getToken();
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<void> _persistFcmToken({required String token, required String userId}) async {
+  Future<void> _persistFcmToken({
+    required String token,
+    required String userId,
+  }) async {
     final platform = kIsWeb ? 'web' : Platform.operatingSystem;
-    try { await FirebaseFunctions.instance.httpsCallable('registerDeviceToken').call({'cedula': userId, 'token': token, 'platform': platform}); } catch (_) {}
     try {
-      await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(userId).set({
-        'fcmTokens': FieldValue.arrayUnion([token]),
-        'fcmDevices.$token': {'platform': platform, 'updatedAt': FieldValue.serverTimestamp()},
-      }, SetOptions(merge: true));
+      await FirebaseFunctions.instance
+          .httpsCallable('registerDeviceToken')
+          .call({'cedula': userId, 'token': token, 'platform': platform});
+    } catch (_) {}
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(userId)
+          .set({
+            'fcmTokens': FieldValue.arrayUnion([token]),
+            'fcmDevices.$token': {
+              'platform': platform,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+          }, SetOptions(merge: true));
     } catch (_) {}
   }
 
@@ -143,20 +236,26 @@ class _HomeScreenState extends State<HomeScreen> {
     if (userId.isEmpty) return;
     _notifSub?.cancel();
     _listeningUserId = userId;
-    _notifSub = FirebaseFirestore.instance.collection('TBL_NOTIFICACIONES').doc(userId).collection('notifications').orderBy('createdAt', descending: true).snapshots().listen((snap) async {
-      if (!_notifsPrimed) {
-        for (final doc in snap.docs) _seenNotifIds.add(doc.id);
-        _notifsPrimed = true;
-        return;
-      }
-      for (final change in snap.docChanges) {
-        if (change.type != DocumentChangeType.added) continue;
-        _seenNotifIds.add(change.doc.id);
-        // La notificación push en foreground y background la gestiona FCM
-        // vía el trigger onNotificationCreated en Cloud Functions.
-        // Este listener sólo mantiene el conjunto de IDs vistos para el badge.
-      }
-    });
+    _notifSub = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(userId)
+        .collection('notifications')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snap) async {
+          if (!_notifsPrimed) {
+            for (final doc in snap.docs) _seenNotifIds.add(doc.id);
+            _notifsPrimed = true;
+            return;
+          }
+          for (final change in snap.docChanges) {
+            if (change.type != DocumentChangeType.added) continue;
+            _seenNotifIds.add(change.doc.id);
+            // La notificación push en foreground y background la gestiona FCM
+            // vía el trigger onNotificationCreated en Cloud Functions.
+            // Este listener sólo mantiene el conjunto de IDs vistos para el badge.
+          }
+        });
   }
 
   Future<void> _ensureFcmRegistered(String userId) async {
@@ -177,16 +276,20 @@ class _HomeScreenState extends State<HomeScreen> {
     return null;
   }
 
-  bool _isRead(Map<String, dynamic> data) => (data['read'] == true || data['leido'] == true || data['visto'] == true);
-  String _titleOf(Map<String, dynamic> m) => (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
+  bool _isRead(Map<String, dynamic> data) =>
+      (data['read'] == true || data['leido'] == true || data['visto'] == true);
+  String _titleOf(Map<String, dynamic> m) =>
+      (m['titulo'] ?? m['title'] ?? '(Sin título)').toString();
   String _estadoOf(Map<String, dynamic> m) => resolveTaskStatus(m);
-  bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
-  
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
   List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
     final key = DateFormat('yyyy-MM-dd').format(day);
     final tasks = _events[key] ?? [];
     final citas = _citasEvents[key] ?? [];
-    return [...tasks, ...citas];
+    final notificaciones = _notificationEvents[key] ?? [];
+    return [...tasks, ...citas, ...notificaciones];
   }
 
   /// Suscribe (o re-suscribe) a TBL_CITAS_NUTRICION para el cedula+empresa activa.
@@ -204,53 +307,219 @@ class _HomeScreenState extends State<HomeScreen> {
         .where('estado', isEqualTo: 'agendada')
         .snapshots()
         .listen((snap) {
-      final newEvents = <String, List<Map<String, dynamic>>>{};
-      for (final d in snap.docs) {
-        final data = <String, dynamic>{'id': d.id, ...d.data()};
-        final raw = data['fechaReevaluacion'];
-        final fecha = _toDate(raw);
-        if (fecha != null) {
-          final k = DateFormat('yyyy-MM-dd').format(fecha);
-          // Marcar como cita de Nutrición para diferenciar en el calendario.
-          data['_calType'] = 'cita_nutricion';
-          data['titulo'] = 'Control: ${(data['pacienteNombre'] as String?) ?? 'Nutrición'}';
-          newEvents.putIfAbsent(k, () => []).add(data);
-        }
-      }
-      if (mounted) setState(() => _citasEvents = newEvents);
-    });
+          final newEvents = <String, List<Map<String, dynamic>>>{};
+          for (final d in snap.docs) {
+            final data = <String, dynamic>{'id': d.id, ...d.data()};
+            final raw = data['fechaReevaluacion'];
+            final fecha = _toDate(raw);
+            if (fecha != null) {
+              final k = DateFormat('yyyy-MM-dd').format(fecha);
+              // Marcar como cita de Nutrición para diferenciar en el calendario.
+              data['_calType'] = 'cita_nutricion';
+              data['titulo'] =
+                  'Control: ${(data['pacienteNombre'] as String?) ?? 'Nutrición'}';
+              newEvents.putIfAbsent(k, () => []).add(data);
+            }
+          }
+          if (mounted) setState(() => _citasEvents = newEvents);
+        });
   }
 
-  Future<void> _abrirCompras(BuildContext context, String userId, String empresaId, Map<String, dynamic> userData) async {
-    if (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'comprasdashboard', deniedMessage: 'Sin acceso a Compras.')) {
+  bool _notificationMatchesEmpresa(
+    Map<String, dynamic> data,
+    String empresaId,
+  ) {
+    final notifEmpresa = (data['empresaId'] ?? '').toString().trim();
+    final eid = empresaId.trim();
+    if (eid.isEmpty) return true;
+    return notifEmpresa == eid;
+  }
+
+  DateTime? _notificationCalendarDate(Map<String, dynamic> data) {
+    final explicit = _toDate(
+      data['calendarAt'] ??
+          data['scheduledFor'] ??
+          data['fechaCalendario'] ??
+          data['fechaEvento'],
+    );
+    if (explicit != null) return explicit;
+
+    final type = (data['type'] ?? '').toString().trim().toLowerCase();
+    final taskId = (data['taskId'] ?? '').toString().trim();
+    final isModuleNotification =
+        taskId.isEmpty ||
+        taskId.startsWith('proveedor:') ||
+        taskId.startsWith('ficha:') ||
+        taskId.startsWith('recepcion:') ||
+        type.startsWith('gestion_documental') ||
+        type == 'planillas_pago_resumen';
+    if (!isModuleNotification) return null;
+
+    return _toDate(data['createdAt']);
+  }
+
+  String _notificationCalendarLabel(String type) {
+    final t = type.trim().toLowerCase();
+    if (t.startsWith('gestion_documental')) return 'GESTIÓN DOC.';
+    if (t.contains('cita_nutricion')) return 'NUTRICIÓN';
+    if (t.contains('planillas')) return 'PLANILLAS';
+    if (t.contains('rechazado') || t.contains('correccion')) return 'COMPRAS';
+    if (t.contains('talento') || t.contains('th_')) return 'TALENTO H.';
+    return 'NOTIFICACIÓN';
+  }
+
+  void _restartNotificationCalendarSubscription(
+    String cedula,
+    String empresaId,
+  ) {
+    final key = '$cedula:$empresaId';
+    if (_lastNotificationCalendarKey == key) return;
+    _lastNotificationCalendarKey = key;
+    _notificationCalendarSub?.cancel();
+    _notificationEvents = {};
+    _notificationCalendarSub = FirebaseFirestore.instance
+        .collection('TBL_NOTIFICACIONES')
+        .doc(cedula)
+        .collection('notifications')
+        .orderBy('createdAt', descending: true)
+        .limit(300)
+        .snapshots()
+        .listen((snap) {
+          final newEvents = <String, List<Map<String, dynamic>>>{};
+          for (final d in snap.docs) {
+            final data = <String, dynamic>{'id': d.id, ...d.data()};
+            if (!_notificationMatchesEmpresa(data, empresaId)) continue;
+            final fecha = _notificationCalendarDate(data);
+            if (fecha == null) continue;
+            final k = DateFormat('yyyy-MM-dd').format(fecha);
+            data['_calType'] = 'notificacion';
+            data['titulo'] = (data['title'] ?? 'Notificación').toString();
+            newEvents.putIfAbsent(k, () => []).add(data);
+          }
+          if (mounted) setState(() => _notificationEvents = newEvents);
+        });
+  }
+
+  void _syncActiveNotificationCedula(String cedula) {
+    if (_lastSyncedActiveCedula == cedula) return;
+    _lastSyncedActiveCedula = cedula;
+    unawaited(NotificationsService.setActiveCedula(cedula));
+  }
+
+  Future<void> _abrirCompras(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: 'comprasdashboard',
+      deniedMessage: 'Sin acceso a Compras.',
+    )) {
       String? rolCompras;
-      try { rolCompras = (await ComprasService().getRolUsuario(empresaId, userId))?.rol; } catch (_) {}
-      if (context.mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ComprasDashboardScreen(userId: userId, empresaId: empresaId, rolCompras: rolCompras)));
+      try {
+        rolCompras = (await ComprasService().getRolUsuario(
+          empresaId,
+          userId,
+        ))?.rol;
+      } catch (_) {}
+      if (context.mounted)
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ComprasDashboardScreen(
+              userId: userId,
+              empresaId: empresaId,
+              rolCompras: rolCompras,
+            ),
+          ),
+        );
     }
   }
 
-  Future<bool> _guardModuleNavigation({required Map<String, dynamic> userData, required String empresaId, required String appId, required String deniedMessage}) async {
-    final d = await AccessGuard().canAccess(userData: userData, empresaId: empresaId, appId: appId);
-    if (!d.allowed && mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d.message ?? deniedMessage)));
+  Future<void> _abrirInterventoria(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: kInterventoriaAppId,
+      deniedMessage: 'Sin acceso a Interventoria.',
+    )) {
+      String? rolInterventoria;
+      try {
+        rolInterventoria = (await InterventoriaService().getRolUsuario(
+          empresaId,
+          userId,
+        ))?.rol;
+      } catch (_) {}
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InterventoriaDashboardScreen(
+              userId: userId,
+              empresaId: empresaId,
+              rolInterventoria: rolInterventoria,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<bool> _guardModuleNavigation({
+    required Map<String, dynamic> userData,
+    required String empresaId,
+    required String appId,
+    required String deniedMessage,
+  }) async {
+    final d = await AccessGuard().canAccess(
+      userData: userData,
+      empresaId: empresaId,
+      appId: appId,
+    );
+    if (!d.allowed && mounted)
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(d.message ?? deniedMessage)));
     return d.allowed;
   }
 
   @override
-  void initState() { super.initState(); _focusedDay = DateTime.now(); _selectedDay = DateTime.now(); }
+  void initState() {
+    super.initState();
+    _focusedDay = DateTime.now();
+    _selectedDay = DateTime.now();
+  }
 
   @override
-  void dispose() { _tokenSub?.cancel(); _notifSub?.cancel(); _citasSub?.cancel(); super.dispose(); }
+  void dispose() {
+    _tokenSub?.cancel();
+    _notifSub?.cancel();
+    _citasSub?.cancel();
+    _notificationCalendarSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final cedula = widget.username;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final String scopeEmpresa = EmpresaScope.of(context).selectedEmpresaId ?? widget.empresaId;
+    final String scopeEmpresa =
+        EmpresaScope.of(context).selectedEmpresaId ?? widget.empresaId;
     // Mantener empresa activa sincronizada para el listener de toasts.
     _currentEmpresaId = scopeEmpresa;
     // Suscribir/re-suscribir citas de Nutrición para el calendario.
     _restartCitasSubscription(cedula, scopeEmpresa);
+    _restartNotificationCalendarSubscription(cedula, scopeEmpresa);
+    _syncActiveNotificationCedula(cedula);
 
     if (!_didRegisterToken) {
       _didRegisterToken = true;
@@ -258,14 +527,19 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(cedula).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(cedula)
+          .snapshots(),
       builder: (context, userSnap) {
-        if (!userSnap.hasData) return HomeShell(userId: cedula, body: const SkeletonList());
-        
+        if (!userSnap.hasData)
+          return HomeShell(userId: cedula, body: const SkeletonList());
+
         final userData = userSnap.data?.data() ?? {};
         final apps = extractUserApps(userData, empresaId: scopeEmpresa);
         final isDev = isDeveloperUser(userData);
-        final nombreUsuario = userData['primerNombre'] ?? userData['nombres'] ?? cedula;
+        final nombreUsuario =
+            userData['primerNombre'] ?? userData['nombres'] ?? cedula;
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
@@ -278,13 +552,13 @@ class _HomeScreenState extends State<HomeScreen> {
             // Solo se oculta si el documento existe con enabled == false.
             final disabledAppIds = appsEmpresaSnap.hasData
                 ? appsEmpresaSnap.data!.docs
-                    .where((d) => (d.data()['enabled'] as bool?) == false)
-                    .map((d) {
-                      final raw = (d.data()['appId'] ?? '').toString();
-                      return normalizeAppId(raw) ?? '';
-                    })
-                    .where((id) => id.isNotEmpty)
-                    .toSet()
+                      .where((d) => (d.data()['enabled'] as bool?) == false)
+                      .map((d) {
+                        final raw = (d.data()['appId'] ?? '').toString();
+                        return normalizeAppId(raw) ?? '';
+                      })
+                      .where((id) => id.isNotEmpty)
+                      .toSet()
                 : <String>{};
 
             // Dos queries separadas porque Firestore no admite OR entre campos distintos.
@@ -311,7 +585,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ]) {
                       if (!seen.add(doc.id)) continue;
                       final data = doc.data();
-                      if (matchesEmpresaScope(data, scopeEmpresa, allowLegacyWithoutEmpresa: true)) {
+                      if (matchesEmpresaScope(
+                        data,
+                        scopeEmpresa,
+                        allowLegacyWithoutEmpresa: true,
+                      )) {
                         tasks.add({'id': doc.id, ...data});
                       }
                     }
@@ -321,7 +599,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Prioridad: fecha_limite → dueDate → fecha_creacion.
                     _events.clear();
                     for (final t in tasks) {
-                      final due = _toDate(t['fecha_limite'] ?? t['dueDate'] ?? t['fecha_creacion']);
+                      final due = _toDate(
+                        t['fecha_limite'] ??
+                            t['dueDate'] ??
+                            t['fecha_creacion'],
+                      );
                       if (due != null) {
                         final key = DateFormat('yyyy-MM-dd').format(due);
                         _events.putIfAbsent(key, () => []).add(t);
@@ -330,14 +612,47 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     return HomeShell(
                       userId: cedula,
-                      appBar: _isWebShell ? null : AppBar(
-                        title: CompanyNameWidget(empresaId: scopeEmpresa, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 18)),
-                        backgroundColor: scheme.primary, foregroundColor: scheme.onPrimary,
-                        actions: [_buildNotificationBell(cedula, userData), const SizedBox(width: 8)],
-                      ),
+                      appBar: _isWebShell
+                          ? null
+                          : AppBar(
+                              title: CompanyNameWidget(
+                                empresaId: scopeEmpresa,
+                                style: const TextStyle(
+                                  fontFamily: kArial,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              backgroundColor: scheme.primary,
+                              foregroundColor: scheme.onPrimary,
+                              actions: [
+                                _buildNotificationBell(cedula, userData),
+                                const SizedBox(width: 8),
+                              ],
+                            ),
                       body: _isWebShell
-                        ? _buildWebHome(cedula, scopeEmpresa, userData, apps, isDev, disabledAppIds, theme, scheme, nombreUsuario)
-                        : _buildMobileHome(cedula, scopeEmpresa, userData, apps, isDev, disabledAppIds, theme, scheme, nombreUsuario),
+                          ? _buildWebHome(
+                              cedula,
+                              scopeEmpresa,
+                              userData,
+                              apps,
+                              isDev,
+                              disabledAppIds,
+                              theme,
+                              scheme,
+                              nombreUsuario,
+                            )
+                          : _buildMobileHome(
+                              cedula,
+                              scopeEmpresa,
+                              userData,
+                              apps,
+                              isDev,
+                              disabledAppIds,
+                              theme,
+                              scheme,
+                              nombreUsuario,
+                            ),
                     );
                   },
                 );
@@ -350,7 +665,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // --- HOME WEB (Consola de Control) ---
-  Widget _buildWebHome(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, ThemeData theme, ColorScheme scheme, String nombre) {
+  Widget _buildWebHome(
+    String cedula,
+    String empresaId,
+    Map<String, dynamic> userData,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+    ThemeData theme,
+    ColorScheme scheme,
+    String nombre,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
       child: Column(
@@ -362,8 +687,20 @@ class _HomeScreenState extends State<HomeScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Hola, $nombre', style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, fontFamily: kArial)),
-                  CompanyNameWidget(empresaId: empresaId, style: theme.textTheme.titleMedium?.copyWith(color: scheme.primary, fontWeight: FontWeight.w600)),
+                  Text(
+                    'Hola, $nombre',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      fontFamily: kArial,
+                    ),
+                  ),
+                  CompanyNameWidget(
+                    empresaId: empresaId,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
               Row(
@@ -371,8 +708,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   _buildNotificationBell(cedula, userData),
                   const SizedBox(width: 16),
                   FilledButton.icon(
-                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CreateTaskScreen(currentUserId: cedula))),
-                    icon: const Icon(Icons.add), label: const Text('Nueva Tarea'),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => CreateTaskScreen(currentUserId: cedula),
+                      ),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Nueva Tarea'),
                   ),
                 ],
               ),
@@ -385,7 +728,15 @@ class _HomeScreenState extends State<HomeScreen> {
               // Columna Izquierda: Grid de Módulos (Consola)
               Expanded(
                 flex: 2,
-                child: _buildModuleGrid(cedula, empresaId, userData, apps, isDev, disabledAppIds, true),
+                child: _buildModuleGrid(
+                  cedula,
+                  empresaId,
+                  userData,
+                  apps,
+                  isDev,
+                  disabledAppIds,
+                  true,
+                ),
               ),
               const SizedBox(width: 32),
               // Columna Derecha: Agenda y Tareas del día
@@ -397,7 +748,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     _buildCalendarCard(scheme),
                     const SizedBox(height: 24),
-                    SectionHeader(title: 'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}'),
+                    SectionHeader(
+                      title:
+                          'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}',
+                    ),
                     const SizedBox(height: 12),
                     _buildSelectedDayTasksCard(cedula, empresaId),
                   ],
@@ -411,27 +765,61 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // --- HOME MÓVIL (Acción Rápida) ---
-  Widget _buildMobileHome(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, ThemeData theme, ColorScheme scheme, String nombre) {
+  Widget _buildMobileHome(
+    String cedula,
+    String empresaId,
+    Map<String, dynamic> userData,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+    ThemeData theme,
+    ColorScheme scheme,
+    String nombre,
+  ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Hola, $nombre', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, fontFamily: kArial)),
+          Text(
+            'Hola, $nombre',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              fontFamily: kArial,
+            ),
+          ),
           const SizedBox(height: 20),
-          
+
           const SectionHeader(title: 'Mis Módulos'),
           const SizedBox(height: 12),
           // Módulos Deslizables en Móvil
-          _buildMobileModuleSlider(cedula, empresaId, userData, apps, isDev, disabledAppIds),
-          
+          _buildMobileModuleSlider(
+            cedula,
+            empresaId,
+            userData,
+            apps,
+            isDev,
+            disabledAppIds,
+          ),
+
           const SizedBox(height: 32),
           const SectionHeader(title: 'Mi Agenda'),
           const SizedBox(height: 12),
           _buildCalendarCard(scheme),
-          
+
           const SizedBox(height: 20),
-          SectionHeader(title: 'Pendientes de hoy', trailing: TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AssignedTasksScreen(userId: cedula))), child: const Text('Ver todos'))),
+          SectionHeader(
+            title: 'Pendientes de hoy',
+            trailing: TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AssignedTasksScreen(userId: cedula),
+                ),
+              ),
+              child: const Text('Ver todos'),
+            ),
+          ),
           const SizedBox(height: 8),
           _buildSelectedDayTasksCard(cedula, empresaId),
         ],
@@ -441,8 +829,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // --- Widgets de Soporte ---
 
-  Widget _buildMobileModuleSlider(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds) {
-    final modules = _getModuleWidgets(cedula, empresaId, userData, apps, isDev, disabledAppIds, false);
+  Widget _buildMobileModuleSlider(
+    String cedula,
+    String empresaId,
+    Map<String, dynamic> userData,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+  ) {
+    final modules = _getModuleWidgets(
+      cedula,
+      empresaId,
+      userData,
+      apps,
+      isDev,
+      disabledAppIds,
+      false,
+    );
     if (modules.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
@@ -459,7 +862,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildNotificationBell(String cedula, Map<String, dynamic> userData) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final scopeEmpresa = EmpresaScope.of(context, listen: false).selectedEmpresaId ?? widget.empresaId;
+    final scopeEmpresa =
+        EmpresaScope.of(context, listen: false).selectedEmpresaId ??
+        widget.empresaId;
     final isMobile = !_isWebShell;
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -473,24 +878,26 @@ class _HomeScreenState extends State<HomeScreen> {
         final unread = docs.where((d) {
           final data = d.data();
           if (_isRead(data)) return false;
-          final notifEmpresa = (data['empresaId'] as String?)?.trim() ?? '';
-          if (notifEmpresa.isEmpty) return false;
-          return notifEmpresa == scopeEmpresa;
+          final notifEmpresa = (data['empresaId'] ?? '').toString().trim();
+          return scopeEmpresa.trim().isEmpty || notifEmpresa == scopeEmpresa;
         }).length;
         final iconColor = isMobile
             ? Colors.white
             : (unread > 0
-                ? scheme.primary
-                : scheme.onSurfaceVariant.withOpacity(0.7));
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant.withOpacity(0.7));
 
         return IconButton(
           tooltip: 'Notificaciones',
           onPressed: () {
-            final eid = EmpresaScope.of(context, listen: false).selectedEmpresaId ?? widget.empresaId;
+            final eid =
+                EmpresaScope.of(context, listen: false).selectedEmpresaId ??
+                widget.empresaId;
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => NotificationsScreen(userId: cedula, empresaId: eid),
+                builder: (_) =>
+                    NotificationsScreen(userId: cedula, empresaId: eid),
               ),
             );
           },
@@ -508,7 +915,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: ScaleTransition(scale: anim, child: child),
                   ),
                   child: Icon(
-                    unread > 0 ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+                    unread > 0
+                        ? Icons.notifications_active_rounded
+                        : Icons.notifications_none_rounded,
                     key: ValueKey(unread > 0),
                     color: iconColor,
                     size: 26,
@@ -520,13 +929,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   right: -7,
                   top: -6,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 3,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: scheme.error,
                       borderRadius: BorderRadius.circular(7),
                       border: Border.all(color: scheme.surface, width: 1.5),
                     ),
-                    constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                    constraints: const BoxConstraints(
+                      minWidth: 14,
+                      minHeight: 14,
+                    ),
                     child: Text(
                       unread > 99 ? '99+' : '$unread',
                       textAlign: TextAlign.center,
@@ -546,8 +961,24 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildModuleGrid(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, bool isWeb) {
-    final modules = _getModuleWidgets(cedula, empresaId, userData, apps, isDev, disabledAppIds, isWeb);
+  Widget _buildModuleGrid(
+    String cedula,
+    String empresaId,
+    Map<String, dynamic> userData,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+    bool isWeb,
+  ) {
+    final modules = _getModuleWidgets(
+      cedula,
+      empresaId,
+      userData,
+      apps,
+      isDev,
+      disabledAppIds,
+      isWeb,
+    );
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -569,56 +1000,223 @@ class _HomeScreenState extends State<HomeScreen> {
   /// [disabledAppIds]: apps con enabled=false en TBL_APPS para la empresa
   /// activa. Si el app está en este set, se oculta aunque el usuario lo tenga
   /// asignado. Ausencia de documento en TBL_APPS = habilitado (legacy compat).
-  bool _moduleVisible(List<String> apps, bool isDev, String fullAppId, Set<String> disabledAppIds) {
+  bool _moduleVisible(
+    List<String> apps,
+    bool isDev,
+    String fullAppId,
+    Set<String> disabledAppIds,
+  ) {
     if (isDev) return true;
     // Si está explícitamente deshabilitado para esta empresa, no mostrar.
-    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId))) return false;
+    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId)))
+      return false;
     return apps.any((app) => appIdsEquivalent(app, fullAppId));
   }
 
-  List<Widget> _getModuleWidgets(String cedula, String empresaId, Map<String, dynamic> userData, List<String> apps, bool isDev, Set<String> disabledAppIds, bool isWeb) {
+  List<Widget> _getModuleWidgets(
+    String cedula,
+    String empresaId,
+    Map<String, dynamic> userData,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+    bool isWeb,
+  ) {
     final cardWidth = isWeb ? null : 140.0;
     return [
-      if (_moduleVisible(apps, isDev, 'admindashboard', disabledAppIds)) 
-        ModuleCard(width: cardWidth, title: 'Administración', icon: Icons.admin_panel_settings_rounded, color: const Color(0xFF475569), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'admindashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => AdminDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
-      
-      if (_moduleVisible(apps, isDev, 'talentohumanodashboard', disabledAppIds)) 
-        ModuleCard(width: cardWidth, title: 'Talento Humano', icon: Icons.groups_rounded, color: const Color(0xFF4F46E5), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'talentohumanodashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => TalentoHumanoDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
-      
-      if (_moduleVisible(apps, isDev, 'gerenciadashboard', disabledAppIds)) 
-        ModuleCard(width: cardWidth, title: 'Gerencia', icon: Icons.query_stats_rounded, color: const Color(0xFF7C3AED), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'gerenciadashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => GerenciaDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
-      
-      if (_moduleVisible(apps, isDev, 'gestiondocumentaldashboard', disabledAppIds)) 
-        ModuleCard(width: cardWidth, title: 'Gestión Documental', icon: Icons.auto_stories_rounded, color: const Color(0xFF0D9488), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'gestiondocumentaldashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => DocumentManagementScreen(currentUserId: cedula, empresaId: empresaId))) : null),
-      
-      if (_moduleVisible(apps, isDev, 'nutriciondashboard', disabledAppIds)) 
-        ModuleCard(width: cardWidth, title: 'Nutrición', icon: Icons.restaurant_menu_rounded, color: const Color(0xFFEA580C), compact: !isWeb, onTap: () async => (await _guardModuleNavigation(userData: userData, empresaId: empresaId, appId: 'nutriciondashboard', deniedMessage: 'Sin acceso')) ? Navigator.push(context, MaterialPageRoute(builder: (_) => NutricionDashboardScreen(userId: cedula, empresaId: empresaId))) : null),
-      
-      if (_moduleVisible(apps, isDev, 'comprasdashboard', disabledAppIds)) 
-        ModuleCard(width: cardWidth, title: 'Compras', icon: Icons.shopping_bag_rounded, color: const Color(0xFF2563EB), compact: !isWeb, onTap: () => _abrirCompras(context, cedula, empresaId, userData)),
+      if (_moduleVisible(apps, isDev, 'admindashboard', disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Administración',
+          icon: Icons.admin_panel_settings_rounded,
+          color: const Color(0xFF475569),
+          compact: !isWeb,
+          onTap: () async =>
+              (await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'admindashboard',
+                deniedMessage: 'Sin acceso',
+              ))
+              ? Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AdminDashboardScreen(
+                      userId: cedula,
+                      empresaId: empresaId,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+
+      if (_moduleVisible(apps, isDev, 'talentohumanodashboard', disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Talento Humano',
+          icon: Icons.groups_rounded,
+          color: const Color(0xFF4F46E5),
+          compact: !isWeb,
+          onTap: () async =>
+              (await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'talentohumanodashboard',
+                deniedMessage: 'Sin acceso',
+              ))
+              ? Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => TalentoHumanoDashboardScreen(
+                      userId: cedula,
+                      empresaId: empresaId,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+
+      if (_moduleVisible(apps, isDev, 'gerenciadashboard', disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Gerencia',
+          icon: Icons.query_stats_rounded,
+          color: const Color(0xFF7C3AED),
+          compact: !isWeb,
+          onTap: () async =>
+              (await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'gerenciadashboard',
+                deniedMessage: 'Sin acceso',
+              ))
+              ? Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GerenciaDashboardScreen(
+                      userId: cedula,
+                      empresaId: empresaId,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+
+      if (_moduleVisible(
+        apps,
+        isDev,
+        'gestiondocumentaldashboard',
+        disabledAppIds,
+      ))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Gestión Documental',
+          icon: Icons.auto_stories_rounded,
+          color: const Color(0xFF0D9488),
+          compact: !isWeb,
+          onTap: () async =>
+              (await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'gestiondocumentaldashboard',
+                deniedMessage: 'Sin acceso',
+              ))
+              ? Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => DocumentManagementScreen(
+                      currentUserId: cedula,
+                      empresaId: empresaId,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+
+      if (_moduleVisible(apps, isDev, 'nutriciondashboard', disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Nutrición',
+          icon: Icons.restaurant_menu_rounded,
+          color: const Color(0xFFEA580C),
+          compact: !isWeb,
+          onTap: () async =>
+              (await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: 'nutriciondashboard',
+                deniedMessage: 'Sin acceso',
+              ))
+              ? Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => NutricionDashboardScreen(
+                      userId: cedula,
+                      empresaId: empresaId,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+
+      if (_moduleVisible(apps, isDev, 'comprasdashboard', disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Compras',
+          icon: Icons.shopping_bag_rounded,
+          color: const Color(0xFF2563EB),
+          compact: !isWeb,
+          onTap: () => _abrirCompras(context, cedula, empresaId, userData),
+        ),
+
+      if (_moduleVisible(apps, isDev, kInterventoriaAppId, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Interventoria',
+          icon: Icons.document_scanner_rounded,
+          color: const Color(0xFF0F766E),
+          compact: !isWeb,
+          onTap: () =>
+              _abrirInterventoria(context, cedula, empresaId, userData),
+        ),
     ];
   }
 
   Widget _buildCalendarCard(ColorScheme scheme) {
     return Card(
-      elevation: 2, 
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), 
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: TableCalendar(
-        locale: 'es_CO', 
-        firstDay: DateTime.utc(2020, 1, 1), 
-        lastDay: DateTime.utc(2030, 12, 31), 
-        focusedDay: _focusedDay, 
-        selectedDayPredicate: (day) => _isSameDay(_selectedDay, day), 
-        eventLoader: _getEventsForDay, 
-        onDaySelected: (sel, foc) => setState(() { _selectedDay = sel; _focusedDay = foc; }), 
+        locale: 'es_CO',
+        firstDay: DateTime.utc(2020, 1, 1),
+        lastDay: DateTime.utc(2030, 12, 31),
+        focusedDay: _focusedDay,
+        selectedDayPredicate: (day) => _isSameDay(_selectedDay, day),
+        eventLoader: _getEventsForDay,
+        onDaySelected: (sel, foc) => setState(() {
+          _selectedDay = sel;
+          _focusedDay = foc;
+        }),
         calendarStyle: CalendarStyle(
-          todayDecoration: BoxDecoration(color: scheme.primary.withOpacity(0.3), shape: BoxShape.circle), 
-          selectedDecoration: BoxDecoration(color: scheme.primary, shape: BoxShape.circle), 
-          markerDecoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+          todayDecoration: BoxDecoration(
+            color: scheme.primary.withOpacity(0.3),
+            shape: BoxShape.circle,
+          ),
+          selectedDecoration: BoxDecoration(
+            color: scheme.primary,
+            shape: BoxShape.circle,
+          ),
+          markerDecoration: const BoxDecoration(
+            color: Colors.orange,
+            shape: BoxShape.circle,
+          ),
           markersMaxCount: 3,
           outsideDaysVisible: false,
-        ), 
-        headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
+        ),
+        headerStyle: const HeaderStyle(
+          formatButtonVisible: false,
+          titleCentered: true,
+        ),
         // Personalizar marcadores para que sean visibles
         calendarBuilders: CalendarBuilders(
           markerBuilder: (context, date, events) {
@@ -630,18 +1228,25 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-      )
+      ),
     );
   }
 
   Widget _buildEventsMarker(int count) {
     return Container(
       padding: const EdgeInsets.all(4),
-      decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle),
+      decoration: const BoxDecoration(
+        color: Colors.orange,
+        shape: BoxShape.circle,
+      ),
       constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
       child: Text(
         '$count',
-        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
         textAlign: TextAlign.center,
       ),
     );
@@ -657,11 +1262,19 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Center(
           child: Column(
             children: [
-              Icon(Icons.event_available_outlined, size: 40, color: scheme.onSurfaceVariant.withOpacity(0.2)),
+              Icon(
+                Icons.event_available_outlined,
+                size: 40,
+                color: scheme.onSurfaceVariant.withOpacity(0.2),
+              ),
               const SizedBox(height: 8),
               Text(
                 'Sin pendientes para este día',
-                style: TextStyle(color: scheme.onSurfaceVariant.withOpacity(0.5), fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: scheme.onSurfaceVariant.withOpacity(0.5),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -672,6 +1285,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       children: tasks.map((t) {
         final esCita = t['_calType'] == 'cita_nutricion';
+        final esNotificacion = t['_calType'] == 'notificacion';
 
         if (esCita) {
           // ── Evento de Nutrición ───────────────────────────────────────────
@@ -686,18 +1300,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.black.withOpacity(0.02),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
-                )
+                ),
               ],
             ),
             child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: Colors.teal.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.medical_services_outlined, color: Colors.teal, size: 20),
+                child: const Icon(
+                  Icons.medical_services_outlined,
+                  color: Colors.teal,
+                  size: 20,
+                ),
               ),
               title: Text(
                 _titleOf(t),
@@ -713,7 +1334,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.teal.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(4),
@@ -744,13 +1368,111 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
+        if (esNotificacion) {
+          final type = (t['type'] ?? '').toString();
+          final desc = (t['description'] ?? t['body'] ?? '').toString();
+          final label = _notificationCalendarLabel(type);
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 4,
+              ),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.notifications_active_outlined,
+                  color: scheme.primary,
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                _titleOf(t),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontFamily: kArial,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ),
+                    if (desc.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        desc,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: scheme.onSurfaceVariant.withOpacity(0.75),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NotificationsScreen(
+                    userId: cedula,
+                    empresaId: scopeEmpresa,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
         // ── Tarea normal ──────────────────────────────────────────────────────
         final estado = _estadoOf(t);
-        final esFinalizada = estado.contains('finalizado') || estado.contains('completada');
+        final esFinalizada =
+            estado.contains('finalizado') || estado.contains('completada');
 
         final isAsignadaAMi = t['asignado_uid'] == cedula;
         // Se considera "recibida" si yo la creé o soy el jefe, y NO está asignada a mí
-        final isRecibida = (t['creador_id'] == cedula || t['jefe_uid'] == cedula) && !isAsignadaAMi;
+        final isRecibida =
+            (t['creador_id'] == cedula || t['jefe_uid'] == cedula) &&
+            !isAsignadaAMi;
 
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
@@ -763,21 +1485,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Colors.black.withOpacity(0.02),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
-              )
+              ),
             ],
           ),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 4,
+            ),
             leading: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: (esFinalizada ? Colors.green : (isRecibida ? Colors.blue : Colors.orange)).withOpacity(0.1),
+                color:
+                    (esFinalizada
+                            ? Colors.green
+                            : (isRecibida ? Colors.blue : Colors.orange))
+                        .withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 esFinalizada
                     ? Icons.check_rounded
-                    : (isRecibida ? Icons.input_rounded : Icons.pending_actions_rounded),
+                    : (isRecibida
+                          ? Icons.input_rounded
+                          : Icons.pending_actions_rounded),
                 color: esFinalizada
                     ? Colors.green
                     : (isRecibida ? Colors.blue : Colors.orange),
@@ -798,9 +1529,13 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
-                      color: (isRecibida ? Colors.blue : Colors.orange).withOpacity(0.1),
+                      color: (isRecibida ? Colors.blue : Colors.orange)
+                          .withOpacity(0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -808,7 +1543,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w900,
-                        color: (isRecibida ? Colors.blue.shade700 : Colors.orange.shade700),
+                        color: (isRecibida
+                            ? Colors.blue.shade700
+                            : Colors.orange.shade700),
                       ),
                     ),
                   ),

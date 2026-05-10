@@ -15,6 +15,7 @@
 // AndroidManifest.xml: ya declaraste POST_NOTIFICATIONS y el default channel id 'tasks_high'
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -25,9 +26,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../compras/compras_dashboard_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
+import '../home/notifications_screen.dart';
 import '../home/assigned_tasks_screen.dart';
 import '../home/created_tasks_screen.dart';
 import '../home/task_history_screen.dart';
@@ -54,11 +57,26 @@ class NotificationsService {
   NotificationsService._();
 
   static final FlutterLocalNotificationsPlugin _fln =
-  FlutterLocalNotificationsPlugin();
+      FlutterLocalNotificationsPlugin();
 
   static bool _initialized = false;
   static CedulaProvider? _cedulaProvider;
   static GlobalKey<NavigatorState>? _navigatorKey;
+  static String? _activeCedula;
+  static const String _kActiveCedulaPrefKey = 'active_notification_cedula';
+
+  static Future<void> setActiveCedula(String? cedula) async {
+    final normalized = cedula?.trim();
+    _activeCedula = (normalized == null || normalized.isEmpty)
+        ? null
+        : normalized;
+    final prefs = await SharedPreferences.getInstance();
+    if (_activeCedula == null) {
+      await prefs.remove(_kActiveCedulaPrefKey);
+    } else {
+      await prefs.setString(_kActiveCedulaPrefKey, _activeCedula!);
+    }
+  }
 
   /// Inicializa todo: canales, permisos, handlers y registro de token.
   ///
@@ -88,7 +106,10 @@ class NotificationsService {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-    const initSettings = InitializationSettings(android: androidInit, iOS: iosInit);
+    const initSettings = InitializationSettings(
+      android: androidInit,
+      iOS: iosInit,
+    );
 
     await _fln.initialize(
       initSettings,
@@ -96,12 +117,14 @@ class NotificationsService {
         final payload = resp.payload;
         if (kDebugMode) print('[LOCAL TAP] payload=$payload');
         await _handleNotificationTapPayload(payload);
-        },
+      },
     );
 
     // 2) Crear canal Android con máxima importancia (coincide con AndroidManifest)
-    final android = _fln.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _fln
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android != null && !kIsWeb && Platform.isAndroid) {
       // ✅ Solicitar permiso explícito para Android 13+
       await android.requestNotificationsPermission();
@@ -131,11 +154,12 @@ class NotificationsService {
     );
     if (kDebugMode) print('[FCM] Permission: ${settings.authorizationStatus}');
 
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
 
     // 4) Handlers de mensajes (foreground + tap desde terminated/background)
     FirebaseMessaging.onMessage.listen(_onMessageForeground);
@@ -171,10 +195,12 @@ class NotificationsService {
     final body = n?.body ?? data['body'] ?? 'Tienes una notificación';
     final rawPayload = (data['deepLink'] ?? data['taskId'])?.toString();
     final type = (data['type'] ?? '').toString().trim();
-    // Encode type into payload so tap handler can route correctly
-    final combinedPayload = (type.isNotEmpty && rawPayload != null && rawPayload.isNotEmpty)
-        ? '$type::$rawPayload'
-        : rawPayload;
+    final empresaId = (data['empresaId'] ?? '').toString().trim();
+    final combinedPayload = jsonEncode({
+      'type': type,
+      'payload': rawPayload ?? '',
+      'empresaId': empresaId,
+    });
 
     await _fln.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -197,35 +223,45 @@ class NotificationsService {
   static Future<void> _onMessageOpenedApp(RemoteMessage m) async {
     final data = m.data;
     if (kDebugMode) print('[FCM TAP] data=$data');
-    final rawPayload = data['deepLink']?.toString() ?? data['taskId']?.toString();
+    final rawPayload =
+        data['deepLink']?.toString() ?? data['taskId']?.toString();
     final type = (data['type'] ?? '').toString().trim();
-    final combinedPayload = (type.isNotEmpty && rawPayload != null && rawPayload.isNotEmpty)
-        ? '$type::$rawPayload'
+    final empresaId = (data['empresaId'] ?? '').toString().trim();
+    final combinedPayload = type.isNotEmpty
+        ? '$type::${rawPayload ?? ''}'
         : rawPayload;
-    await _handleNotificationTapPayload(combinedPayload);
+    await _handleNotificationTapPayload(combinedPayload, empresaId: empresaId);
   }
 
-  static Future<void> _handleNotificationTapPayload(String? payload) async {
-    // Parse "type::rawId" format — type may be empty for legacy payloads
+  static Future<void> _handleNotificationTapPayload(
+    String? payload, {
+    String? empresaId,
+  }) async {
+    // Parse "type::rawId" format; type may be empty for legacy payloads.
     String notifType = '';
     String? rawPayload = payload;
-    if (payload != null && payload.contains('::')) {
+    String? notifEmpresaId = empresaId?.trim();
+    if (payload != null && payload.trim().startsWith('{')) {
+      try {
+        final parsed = jsonDecode(payload);
+        if (parsed is Map<String, dynamic>) {
+          notifType = (parsed['type'] ?? '').toString().trim();
+          rawPayload = (parsed['payload'] ?? '').toString();
+          final parsedEmpresa = (parsed['empresaId'] ?? '').toString().trim();
+          if (parsedEmpresa.isNotEmpty) notifEmpresaId = parsedEmpresa;
+        }
+      } catch (_) {}
+    } else if (payload != null && payload.contains('::')) {
       final idx = payload.indexOf('::');
       notifType = payload.substring(0, idx).trim();
       rawPayload = payload.substring(idx + 2);
     }
     final taskId = _extractTaskId(rawPayload);
-    if (taskId == null) {
-      if (kDebugMode) {
-        print('[FCM TAP] payload sin taskId: $payload');
-      }
-      return;
-    }
 
     final navigator = _navigatorKey?.currentState;
     if (navigator == null || _navigatorKey?.currentContext == null) {
       if (kDebugMode) {
-        print('[FCM TAP] navigatorKey no configurado; taskId=$taskId');
+        print('[FCM TAP] navigatorKey no configurado; payload=$payload');
       }
       return;
     }
@@ -241,21 +277,56 @@ class NotificationsService {
     final context = _navigatorKey?.currentContext;
     if (context == null) return;
 
+    if (taskId == null) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => NotificationsScreen(
+            userId: cedula,
+            empresaId: (notifEmpresaId ?? '').isEmpty ? null : notifEmpresaId,
+          ),
+        ),
+      );
+      return;
+    }
+
     // Tipos de Nutrición: navegan a NutricionDashboardScreen.
-    if (notifType == 'cita_nutricion_agendada' || notifType == 'cita_nutricion_recordatorio') {
+    if (notifType == 'cita_nutricion_agendada' ||
+        notifType == 'cita_nutricion_recordatorio') {
       await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
       return;
     }
 
     // Tipos especiales de Compras: navegan al proveedor o ficha técnica.
-    if ((notifType == 'doc_rechazado' || notifType == 'correccion_requerida') && taskId.startsWith('proveedor:')) {
+    if ((notifType == 'doc_rechazado' || notifType == 'correccion_requerida') &&
+        taskId.startsWith('proveedor:')) {
       final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
-      if (proveedorId.isNotEmpty) await abrirDetalleProveedor(context, userId: cedula, proveedorId: proveedorId);
+      if (proveedorId.isNotEmpty) {
+        await abrirDetalleProveedor(
+          context,
+          userId: cedula,
+          proveedorId: proveedorId,
+        );
+      }
       return;
     }
     if (notifType == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
       final fichaId = taskId.replaceFirst('ficha:', '').trim();
-      if (fichaId.isNotEmpty) await abrirDetalleFichaRechazada(context, userId: cedula, fichaId: fichaId);
+      if (fichaId.isNotEmpty) {
+        await abrirDetalleFichaRechazada(
+          context,
+          userId: cedula,
+          fichaId: fichaId,
+        );
+      }
+      return;
+    }
+    if (notifType == 'recepcion_doc_rechazado' &&
+        taskId.startsWith('recepcion:')) {
+      await abrirDetalleRecepcionCompras(
+        context,
+        userId: cedula,
+        recepcionId: taskId,
+      );
       return;
     }
 
@@ -294,10 +365,8 @@ class NotificationsService {
     if (routeDecision.target == TaskRouteTarget.createdTasks) {
       navigator.push(
         MaterialPageRoute(
-          builder: (_) => CreatedTasksScreen(
-            userId: cedula,
-            highlightTaskId: taskId,
-          ),
+          builder: (_) =>
+              CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
         ),
       );
       return;
@@ -305,10 +374,8 @@ class NotificationsService {
 
     navigator.push(
       MaterialPageRoute(
-        builder: (_) => AssignedTasksScreen(
-          userId: cedula,
-          highlightTaskId: taskId,
-        ),
+        builder: (_) =>
+            AssignedTasksScreen(userId: cedula, highlightTaskId: taskId),
       ),
     );
   }
@@ -329,8 +396,13 @@ class NotificationsService {
         return fromQuery.trim();
       }
 
-      final segments = uri.pathSegments.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-      final tareaIdx = segments.lastIndexWhere((s) => s.toLowerCase() == 'tareas');
+      final segments = uri.pathSegments
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      final tareaIdx = segments.lastIndexWhere(
+        (s) => s.toLowerCase() == 'tareas',
+      );
       if (tareaIdx != -1 && tareaIdx + 1 < segments.length) {
         return segments[tareaIdx + 1];
       }
@@ -339,7 +411,10 @@ class NotificationsService {
       }
     }
 
-    final asUriPath = value.split('/').where((s) => s.trim().isNotEmpty).toList();
+    final asUriPath = value
+        .split('/')
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
     return asUriPath.isEmpty ? null : asUriPath.last.trim();
   }
 
@@ -351,6 +426,19 @@ class NotificationsService {
       final v = await _cedulaProvider!.call();
       if (v != null && v.trim().isNotEmpty) return v.trim();
     }
+
+    if (_activeCedula != null && _activeCedula!.trim().isNotEmpty) {
+      return _activeCedula!.trim();
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_kActiveCedulaPrefKey);
+      if (stored != null && stored.trim().isNotEmpty) {
+        _activeCedula = stored.trim();
+        return _activeCedula;
+      }
+    } catch (_) {}
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
@@ -376,10 +464,10 @@ class NotificationsService {
     final deviceName = kIsWeb
         ? 'Web'
         : Platform.isAndroid
-            ? 'Android'
-            : Platform.isIOS
-                ? 'iOS'
-                : platform;
+        ? 'Android'
+        : Platform.isIOS
+        ? 'iOS'
+        : platform;
     try {
       final cedula = await _resolveCedula();
       if (cedula == null) {
@@ -388,8 +476,9 @@ class NotificationsService {
         }
         return;
       }
-      final callable =
-      FirebaseFunctions.instance.httpsCallable('registerDeviceToken');
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'registerDeviceToken',
+      );
       await callable.call(<String, dynamic>{
         'cedula': cedula,
         'token': token,
@@ -411,14 +500,16 @@ class NotificationsService {
               .collection('TBL_USUARIOS')
               .doc(cedula)
               .set({
-            'fcmTokens': FieldValue.arrayUnion([token]),
-            'fcmDevices.$token': {
-              'platform': platform,
-              'deviceName': deviceName,
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-          }, SetOptions(merge: true));
-          if (kDebugMode) print('[FCM] Token registrado vía fallback para: $cedula');
+                'fcmTokens': FieldValue.arrayUnion([token]),
+                'fcmDevices.$token': {
+                  'platform': platform,
+                  'deviceName': deviceName,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                },
+              }, SetOptions(merge: true));
+          if (kDebugMode) {
+            print('[FCM] Token registrado vía fallback para: $cedula');
+          }
         } catch (e2) {
           if (kDebugMode) print('[FCM] Fallback Firestore error: $e2');
         }

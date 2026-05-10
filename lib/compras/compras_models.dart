@@ -159,6 +159,8 @@ const String kRolCalidad = 'calidad';
 const String kRolCompras = 'compras';
 const String kRolBodega = 'bodega';
 const String kRolConsultas = 'consultas';
+/// Acceso total: ve y puede eliminar recepciones, marcas, fichas técnicas y documentos.
+const String kRolAdmin = 'admin';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)

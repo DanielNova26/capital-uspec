@@ -10,7 +10,7 @@ class CitasNutricionService {
   final FirebaseFirestore _db;
 
   CitasNutricionService({FirebaseFirestore? db})
-      : _db = db ?? FirebaseFirestore.instance;
+    : _db = db ?? FirebaseFirestore.instance;
 
   /// Agenda una cita de reevaluación nutricional.
   /// Crea el evento y envía notificación de agendamiento.
@@ -62,15 +62,8 @@ class CitasNutricionService {
       citaId: doc.id,
     );
 
-    // Crear notificación de recordatorio para la fecha de reevaluación
-    await _crearNotificacionRecordatorio(
-      userId: userId,
-      empresaId: empresaId,
-      pacienteId: pacienteId,
-      pacienteNombre: pacienteNombre,
-      fechaReevaluacion: fechaReevaluacion,
-      citaId: doc.id,
-    );
+    // El recordatorio del dia lo genera la Cloud Function programada para
+    // evitar que suene inmediatamente al agendar.
 
     return doc.id;
   }
@@ -108,44 +101,6 @@ class CitasNutricionService {
     });
   }
 
-  /// Crea la notificación de recordatorio para cuando llegue la fecha.
-  /// [createdAt] usa FieldValue.serverTimestamp() para ordenar correctamente
-  /// en la lista; [scheduledFor] guarda la fecha real del control.
-  Future<void> _crearNotificacionRecordatorio({
-    required String userId,
-    required String empresaId,
-    required String pacienteId,
-    required String pacienteNombre,
-    required DateTime fechaReevaluacion,
-    required String citaId,
-  }) async {
-    final notifRef = _db
-        .collection(_collNotificaciones)
-        .doc(userId)
-        .collection('notifications')
-        .doc('reminder_$citaId');
-
-    await notifRef.set({
-      'id': notifRef.id,
-      'title': 'Recordatorio: Reevaluaci\u00f3n nutricional',
-      'description':
-          'Hoy es la reevaluaci\u00f3n nutricional de $pacienteNombre. '
-          'Fecha programada: ${_formatDate(fechaReevaluacion)}.',
-      'type': 'cita_nutricion_recordatorio',
-      'taskId': citaId,
-      'fromId': userId,
-      'fromName': 'Nutrici\u00f3n',
-      'pacienteId': pacienteId,
-      'pacienteNombre': pacienteNombre,
-      'read': false,
-      // scheduledFor guarda la fecha real del control (para info/display).
-      // createdAt usa serverTimestamp para que la ordenación sea correcta.
-      'scheduledFor': Timestamp.fromDate(fechaReevaluacion),
-      'createdAt': FieldValue.serverTimestamp(),
-      if (empresaId.isNotEmpty) 'empresaId': empresaId,
-    });
-  }
-
   /// Stream de citas para un usuario (para el calendario del Home).
   Stream<List<Map<String, dynamic>>> streamCitasUsuario({
     required String userId,
@@ -173,10 +128,14 @@ class CitasNutricionService {
         .collection(_collCitas)
         .where('userId', isEqualTo: userId)
         .where('empresaId', isEqualTo: empresaId)
-        .where('fechaReevaluacion',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('fechaReevaluacion',
-            isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .where(
+          'fechaReevaluacion',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(start),
+        )
+        .where(
+          'fechaReevaluacion',
+          isLessThanOrEqualTo: Timestamp.fromDate(end),
+        )
         .snapshots()
         .map((snap) => snap.docs.map((d) => d.data()).toList());
   }

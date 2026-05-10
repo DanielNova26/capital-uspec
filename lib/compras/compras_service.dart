@@ -208,6 +208,9 @@ class ComprasService {
         return list;
       });
 
+  Future<void> eliminarRecepcion(String id) =>
+      _db.collection('TBL_COMPRAS_RECEPCIONES').doc(id).delete();
+
   /// Stream de recepciones con al menos un documento por revisar en calidad.
   /// Incluye documentos con estado 'pendiente' y documentos históricos con
   /// archivo adjunto pero sin estadoCalidad explícito.
@@ -300,17 +303,29 @@ class ComprasService {
 
     // Crear notificación al usuario que creó la recepción
     if (recepcion.creadoPor.isNotEmpty) {
+      final label = kDocRecepcionLabels[docKey] ?? docKey;
       final notif = NotificacionComprasDoc(
         empresaId: recepcion.empresaId,
         userId: recepcion.creadoPor,
         recepcionId: recepcion.id,
         productoNombre: rp.nombre,
         docKey: docKey,
-        docLabel: kDocRecepcionLabels[docKey] ?? docKey,
+        docLabel: label,
         motivo: motivo,
         createdAt: Timestamp.now(),
       );
       await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
+      await _crearNotificacionGlobalCompras(
+        userId: recepcion.creadoPor,
+        empresaId: recepcion.empresaId,
+        title: 'Documento de recepción rechazado',
+        description:
+            'El documento "$label" de ${rp.nombre} fue rechazado. Motivo: $motivo.',
+        type: 'recepcion_doc_rechazado',
+        taskId: 'recepcion:${recepcion.id}',
+        fromId: revisadoPor,
+        fromName: 'Revisión de Calidad',
+      );
     }
   }
 
@@ -609,6 +624,39 @@ class ComprasService {
     await batch.commit();
   }
 
+  Future<void> _crearNotificacionGlobalCompras({
+    required String userId,
+    required String empresaId,
+    required String title,
+    required String description,
+    required String type,
+    required String taskId,
+    required String fromId,
+    required String fromName,
+  }) async {
+    if (userId.trim().isEmpty) return;
+
+    final notifRef = _db
+        .collection('TBL_NOTIFICACIONES')
+        .doc(userId.trim())
+        .collection('notifications')
+        .doc();
+
+    await notifRef.set({
+      'id': notifRef.id,
+      'title': title,
+      'description': description,
+      'type': type,
+      'taskId': taskId,
+      'fromId': fromId,
+      'fromName': fromName,
+      'module': 'compras_bodega',
+      'createdAt': FieldValue.serverTimestamp(),
+      'read': false,
+      if (empresaId.trim().isNotEmpty) 'empresaId': empresaId.trim(),
+    });
+  }
+
   // ─── REQ_DOCUMENTOS ─────────────────────────────────────────────────────────
 
   /// Carga (one-time) el motor de requisitos documentales para la empresa.
@@ -710,6 +758,51 @@ class ComprasService {
     return snap.docs
         .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
         .toList();
+  }
+
+  Future<List<FichaTecnicaDoc>> getFichasTecnicasPorMarca(
+    String empresaId,
+    String marcaId,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('marcaId', isEqualTo: marcaId)
+        .get();
+    return snap.docs
+        .map((d) => FichaTecnicaDoc.fromMap(d.id, d.data()))
+        .toList()
+      ..sort((a, b) => a.productoNombre.compareTo(b.productoNombre));
+  }
+
+  Future<List<ProductoDoc>> getProductosPorMarca(
+    String empresaId,
+    String marcaId,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_PRODUCTOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return snap.docs
+        .map((d) => ProductoDoc.fromMap(d.id, d.data()))
+        .where((p) => p.marcas.any((r) => r.marcaId == marcaId))
+        .toList()
+      ..sort((a, b) => a.nombre.compareTo(b.nombre));
+  }
+
+  Future<List<RecepcionDoc>> getRecepcionesPorMarca(
+    String empresaId,
+    String marcaId,
+  ) async {
+    final snap = await _db
+        .collection('TBL_COMPRAS_RECEPCIONES')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return snap.docs
+        .map((d) => RecepcionDoc.fromMap(d.id, d.data()))
+        .where((r) => r.productos.any((p) => p.marcaId == marcaId))
+        .toList()
+      ..sort((a, b) => b.fecha.compareTo(a.fecha));
   }
 
   /// Crea o actualiza una ficha técnica.
@@ -886,26 +979,17 @@ class ComprasService {
       );
       await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
 
-      // Notificación estándar (campana del Home / TBL_NOTIFICACIONES)
-      final notifRef = _db
-          .collection('TBL_NOTIFICACIONES')
-          .doc(subidoPor)
-          .collection('notifications')
-          .doc();
-      await notifRef.set({
-        'id': notifRef.id,
-        'title': '📄 Documento rechazado – ${prov.razonSocial}',
-        'description':
-            'El documento "$label" fue rechazado. Motivo: $motivo. '
-            'Por favor corrígelo y vuelve a cargarlo.',
-        'type': 'doc_rechazado',
-        'taskId': 'proveedor:$proveedorId',
-        'fromId': revisadoPor,
-        'fromName': 'Revisión de Calidad',
-        'createdAt': Timestamp.now(),
-        'read': false,
-        if (prov.empresaId.isNotEmpty) 'empresaId': prov.empresaId,
-      });
+      await _crearNotificacionGlobalCompras(
+        userId: subidoPor,
+        empresaId: prov.empresaId,
+        title: 'Documento rechazado - ${prov.razonSocial}',
+        description:
+            'El documento "$label" fue rechazado. Motivo: $motivo. Por favor corrígelo y vuelve a cargarlo.',
+        type: 'doc_rechazado',
+        taskId: 'proveedor:$proveedorId',
+        fromId: revisadoPor,
+        fromName: 'Revisión de Calidad',
+      );
     }
   }
 
@@ -955,27 +1039,17 @@ class ComprasService {
       );
       await _db.collection('TBL_COMPRAS_NOTIFICACIONES').add(notif.toMap());
 
-      // Escritura directa en TBL_NOTIFICACIONES para la bandeja in-app
-      try {
-        final notifRef = _db
-            .collection('TBL_NOTIFICACIONES')
-            .doc(creadoPor)
-            .collection('notifications')
-            .doc();
-        await notifRef.set({
-          'id': notifRef.id,
-          'title': 'Ficha técnica rechazada',
-          'description':
-              'El documento "$label" fue rechazado. Motivo: $motivo. Por favor corrígelo y vuelve a cargarlo.',
-          'type': 'ficha_rechazada',
-          'taskId': 'ficha:$fichaId',
-          'fromId': revisadoPor,
-          'fromName': 'Revisión de Calidad',
-          'createdAt': Timestamp.now(),
-          'read': false,
-          if (empresaId.isNotEmpty) 'empresaId': empresaId,
-        });
-      } catch (_) {}
+      await _crearNotificacionGlobalCompras(
+        userId: creadoPor,
+        empresaId: empresaId,
+        title: 'Ficha técnica rechazada',
+        description:
+            'El documento "$label" fue rechazado. Motivo: $motivo. Por favor corrígelo y vuelve a cargarlo.',
+        type: 'ficha_rechazada',
+        taskId: 'ficha:$fichaId',
+        fromId: revisadoPor,
+        fromName: 'Revisión de Calidad',
+      );
     }
   }
 }

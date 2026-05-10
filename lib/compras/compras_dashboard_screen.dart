@@ -230,6 +230,53 @@ Future<void> abrirDetalleFichaRechazada(
   );
 }
 
+/// Navega al formulario de la recepción cuando Calidad rechaza un documento.
+/// Usada desde notificaciones globales de Compras/Bodega.
+Future<void> abrirDetalleRecepcionCompras(
+  BuildContext context, {
+  required String userId,
+  required String recepcionId,
+}) async {
+  final cleanId = recepcionId.replaceFirst('recepcion:', '').trim();
+  if (cleanId.isEmpty) return;
+
+  final svc = ComprasService();
+  RecepcionDoc? recepcion;
+  try {
+    final snap = await FirebaseFirestore.instance
+        .collection('TBL_COMPRAS_RECEPCIONES')
+        .doc(cleanId)
+        .get();
+    if (snap.exists && snap.data() != null) {
+      recepcion = RecepcionDoc.fromMap(snap.id, snap.data()!);
+    }
+  } catch (_) {}
+
+  if (!context.mounted) return;
+
+  if (recepcion == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No se pudo encontrar la recepción notificada.'),
+        backgroundColor: Colors.redAccent,
+      ),
+    );
+    return;
+  }
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _NuevaRecepcionScreen(
+        empresaId: recepcion!.empresaId,
+        svc: svc,
+        existing: recepcion,
+        userId: userId,
+      ),
+    ),
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPRAS DASHBOARD SCREEN — pantalla principal (hub)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -252,6 +299,7 @@ class ComprasDashboardScreen extends StatelessWidget {
   bool get _esCalidad => rolCompras == kRolCalidad;
   bool get _esCompras => rolCompras == kRolCompras;
   bool get _esConsultas => rolCompras == kRolConsultas;
+  bool get _esAdmin => rolCompras == kRolAdmin;
 
   /// Solo ve recepción (sin consultas ni gestión)
   bool get _soloRecepcion => false; // Bodega ahora también tiene consultas
@@ -264,7 +312,10 @@ class ComprasDashboardScreen extends StatelessWidget {
 
     String subtituloRol = 'Gestión de proveedores, productos y recepciones';
     Color colorRol = kComprasPrimary;
-    if (_esBodega) {
+    if (_esAdmin) {
+      subtituloRol = 'Admin Documental — acceso total, puede eliminar registros';
+      colorRol = const Color(0xFF7B1FA2);
+    } else if (_esBodega) {
       subtituloRol = 'Bodega — recepción de mercancía y consultas';
       colorRol = const Color(0xFF0277BD);
     } else if (_esCalidad) {
@@ -422,7 +473,7 @@ class ComprasDashboardScreen extends StatelessWidget {
     }
 
     return [
-      if (!_sinGestion && !_esBodega) ...[
+      if (!_sinGestion && !_esBodega || _esAdmin) ...[
         card(
           icon: Icons.business,
           titulo: 'Proveedores',
@@ -481,6 +532,7 @@ class ComprasDashboardScreen extends StatelessWidget {
                 empresaId: empresaId,
                 svc: svc,
                 userId: userId,
+                puedeEliminar: _esAdmin,
               ),
             ),
           ),
@@ -493,11 +545,15 @@ class ComprasDashboardScreen extends StatelessWidget {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => _ConsultasScreen(empresaId: empresaId, svc: svc),
+            builder: (_) => _ConsultasScreen(
+              empresaId: empresaId,
+              svc: svc,
+              esAdmin: _esAdmin,
+            ),
           ),
         ),
       ),
-      if (_esCalidad)
+      if (_esCalidad || _esAdmin)
         card(
           icon: Icons.verified_user,
           titulo: 'Revisión de Calidad',
@@ -529,7 +585,11 @@ class ComprasDashboardScreen extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           child: Icon(
-            _esBodega ? Icons.warehouse_outlined : Icons.shopping_cart_outlined,
+            _esAdmin
+                ? Icons.admin_panel_settings_outlined
+                : _esBodega
+                ? Icons.warehouse_outlined
+                : Icons.shopping_cart_outlined,
             color: colorRol,
             size: 28,
           ),
@@ -5359,11 +5419,13 @@ class _RecepcionesScreen extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
   final String userId;
+  final bool puedeEliminar;
 
   const _RecepcionesScreen({
     required this.empresaId,
     required this.svc,
     required this.userId,
+    this.puedeEliminar = false,
   });
 
   @override
@@ -5371,6 +5433,55 @@ class _RecepcionesScreen extends StatefulWidget {
 }
 
 class _RecepcionesScreenState extends State<_RecepcionesScreen> {
+  Future<void> _confirmarEliminar(RecepcionDoc r) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text(
+          'Eliminar recepción',
+          style: TextStyle(fontFamily: _kFont),
+        ),
+        content: Text(
+          '¿Eliminar la recepción de "${r.razonSocial}" del ${DateFormat('dd/MM/yyyy').format(r.fecha.toDate())}?\n\nEsta acción no se puede deshacer.',
+          style: const TextStyle(fontFamily: _kFont),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kComprasRed),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      try {
+        await widget.svc.eliminarRecepcion(r.id);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Recepción eliminada'),
+              backgroundColor: kComprasGreen,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al eliminar: $e'),
+              backgroundColor: kComprasRed,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -5515,10 +5626,26 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                               kComprasPrimary,
                             ),
                             const Spacer(),
-                            const Icon(
-                              Icons.chevron_right,
-                              color: Colors.black26,
-                            ),
+                            if (widget.puedeEliminar)
+                              IconButton(
+                                onPressed: () => _confirmarEliminar(r),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                  color: kComprasRed,
+                                ),
+                                tooltip: 'Eliminar recepción',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                              )
+                            else
+                              const Icon(
+                                Icons.chevron_right,
+                                color: Colors.black26,
+                              ),
                           ],
                         ),
                       ],
@@ -5557,6 +5684,41 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
 // NUEVA RECEPCION SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 
+class _BodegaDestinoOption {
+  final String empresaLabel;
+  final String bodegaLabel;
+  final String value;
+
+  const _BodegaDestinoOption({
+    required this.empresaLabel,
+    required this.bodegaLabel,
+    required this.value,
+  });
+}
+
+const List<_BodegaDestinoOption> _kBodegaDestinoCatalogo = [
+  _BodegaDestinoOption(
+    empresaLabel: 'Empresa 1 (Captal Uspec)',
+    bodegaLabel: 'Bodega Lutransa',
+    value: 'Empresa 1 (Captal Uspec) - Bodega Lutransa',
+  ),
+  _BodegaDestinoOption(
+    empresaLabel: 'Empresa 2 (Servir Uspec)',
+    bodegaLabel: 'Bodega Lutransa',
+    value: 'Empresa 2 (Servir Uspec) - Bodega Lutransa',
+  ),
+  _BodegaDestinoOption(
+    empresaLabel: 'Empresa 2 (Servir Uspec)',
+    bodegaLabel: 'Bodega Pasto',
+    value: 'Empresa 2 (Servir Uspec) - Bodega Pasto',
+  ),
+  _BodegaDestinoOption(
+    empresaLabel: 'Empresa 2 (Servir Uspec)',
+    bodegaLabel: 'Bodega Gerfor',
+    value: 'Empresa 2 (Servir Uspec) - Bodega Gerfor',
+  ),
+];
+
 class _RecepcionEntry {
   ProductoDoc? producto;
   MarcaDoc? marcaSeleccionada;
@@ -5591,7 +5753,6 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   ProveedorDoc? _proveedor;
   final _provCtrl = TextEditingController();
   final _ordenCtrl = TextEditingController();
-  final _bodegaCtrl = TextEditingController();
   List<_RecepcionEntry> _entries = [];
   List<ProveedorDoc> _proveedores = [];
   List<ProductoDoc> _productos = [];
@@ -5599,6 +5760,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   List<FichaTecnicaDoc> _fichasTecnicas = [];
   bool _guardando = false;
   bool _loadingProvs = true;
+  String? _bodegaSeleccionada;
 
   bool get isNew => widget.existing == null;
 
@@ -5623,7 +5785,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     if (!isNew) {
       final r = widget.existing!;
       _ordenCtrl.text = r.ordenCompra;
-      _bodegaCtrl.text = r.bodega;
+      _bodegaSeleccionada = r.bodega.isEmpty ? null : r.bodega;
       _entries = r.productos.map((rp) {
         final e = _RecepcionEntry();
         e.pendingMarcaId = rp.marcaId;
@@ -5719,11 +5881,104 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   void dispose() {
     _provCtrl.dispose();
     _ordenCtrl.dispose();
-    _bodegaCtrl.dispose();
     for (final e in _entries) {
       e.dispose();
     }
     super.dispose();
+  }
+
+  List<DropdownMenuItem<String>> _buildBodegaDropdownItems() {
+    final items = <DropdownMenuItem<String>>[];
+    String? currentEmpresa;
+
+    for (final option in _kBodegaDestinoCatalogo) {
+      if (option.empresaLabel != currentEmpresa) {
+        currentEmpresa = option.empresaLabel;
+        items.add(
+          DropdownMenuItem<String>(
+            value: '__header__$currentEmpresa',
+            enabled: false,
+            child: Text(
+              currentEmpresa,
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF475569),
+              ),
+            ),
+          ),
+        );
+      }
+
+      items.add(
+        DropdownMenuItem<String>(
+          value: option.value,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  option.bodegaLabel,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  option.empresaLabel,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final selected = _bodegaSeleccionada;
+    final exists = _kBodegaDestinoCatalogo.any((o) => o.value == selected);
+    if (selected != null && selected.isNotEmpty && !exists) {
+      items.add(
+        DropdownMenuItem<String>(
+          value: selected,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                selected,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'Destino existente en esta recepción',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 11,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return items;
   }
 
   Future<void> _guardar() async {
@@ -5804,7 +6059,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         nit: _proveedor!.nit,
         razonSocial: _proveedor!.razonSocial,
         ordenCompra: _ordenCtrl.text.trim(),
-        bodega: _bodegaCtrl.text.trim(),
+        bodega: _bodegaSeleccionada?.trim() ?? '',
         productos: productos,
         productoIds: productos.map((p) => p.productoId).toList(),
         creadoPor: widget.existing?.creadoPor ?? widget.userId,
@@ -6132,16 +6387,30 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     style: const TextStyle(fontFamily: _kFont, fontSize: 14),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _bodegaCtrl,
+                  DropdownButtonFormField<String>(
+                    value: _bodegaSeleccionada,
+                    isExpanded: true,
+                    menuMaxHeight: 360,
                     decoration:
                         _inputDecoration(
                           'Bodega / Ubicación de destino',
                         ).copyWith(
-                          hintText: 'Ej: Bodega Principal, Bodega 2...',
+                          helperText:
+                              'Selecciona la empresa y la bodega de destino para esta recepción.',
                           prefixIcon: const Icon(Icons.warehouse, size: 18),
                         ),
-                    style: const TextStyle(fontFamily: _kFont, fontSize: 14),
+                    items: _buildBodegaDropdownItems(),
+                    onChanged: (value) =>
+                        setState(() => _bodegaSeleccionada = value),
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 13,
+                      color: Color(0xFF0F172A),
+                    ),
+                    hint: const Text(
+                      'Selecciona empresa y bodega',
+                      style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   // ── Productos ────────────────────────────
@@ -7505,11 +7774,63 @@ Future<void> _exportarExcel({
   );
 }
 
+class _ConsultaTabMeta {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  const _ConsultaTabMeta({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+}
+
+class _ConsultasOverviewCounts {
+  final int proveedores;
+  final int productos;
+  final int marcas;
+  final int recepciones;
+  final int fichas;
+
+  const _ConsultasOverviewCounts({
+    required this.proveedores,
+    required this.productos,
+    required this.marcas,
+    required this.recepciones,
+    required this.fichas,
+  });
+
+  int get total => proveedores + productos + marcas + recepciones + fichas;
+
+  int countFor(int index) {
+    switch (index) {
+      case 0:
+        return proveedores;
+      case 1:
+        return productos;
+      case 2:
+        return marcas;
+      case 3:
+        return recepciones;
+      case 4:
+        return fichas;
+      default:
+        return total;
+    }
+  }
+}
+
 class _ConsultasScreen extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
+  final bool esAdmin;
 
-  const _ConsultasScreen({required this.empresaId, required this.svc});
+  const _ConsultasScreen({
+    required this.empresaId,
+    required this.svc,
+    this.esAdmin = false,
+  });
 
   @override
   State<_ConsultasScreen> createState() => _ConsultasScreenState();
@@ -7517,16 +7838,422 @@ class _ConsultasScreen extends StatefulWidget {
 
 class _ConsultasScreenState extends State<_ConsultasScreen>
     with SingleTickerProviderStateMixin {
+  static const Color _accentColor = Color(0xFF283593);
+  static const List<_ConsultaTabMeta> _tabs = [
+    _ConsultaTabMeta(
+      title: 'Proveedores',
+      subtitle:
+          'Cobertura documental, categorías activas y lectura rápida del maestro de proveedores.',
+      icon: Icons.business,
+    ),
+    _ConsultaTabMeta(
+      title: 'Productos',
+      subtitle:
+          'Catálogo consolidado con origen, unidad de medida, categoría y marcas vinculadas.',
+      icon: Icons.inventory_2,
+    ),
+    _ConsultaTabMeta(
+      title: 'Marcas',
+      subtitle:
+          'Consulta simple del universo de marcas habilitadas para operación y recepción.',
+      icon: Icons.local_offer,
+    ),
+    _ConsultaTabMeta(
+      title: 'Recepciones',
+      subtitle:
+          'Trazabilidad por proveedor, producto, orden de compra y bodega de destino.',
+      icon: Icons.receipt_long,
+    ),
+    _ConsultaTabMeta(
+      title: 'Fichas Técnicas',
+      subtitle:
+          'Historial documental por producto, marca y proveedor con estado de calidad.',
+      icon: Icons.description,
+    ),
+  ];
+
   late TabController _tabCtrl;
+  late final Future<_ConsultasOverviewCounts> _overviewFuture;
+  int _selectedTabIndex = 0;
+
+  bool get _isDesktop => MediaQuery.of(context).size.width >= 1024;
+  _ConsultaTabMeta get _activeTab => _tabs[_selectedTabIndex];
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 5, vsync: this);
+    _tabCtrl = TabController(length: _tabs.length, vsync: this);
+    _tabCtrl.addListener(_handleTabChange);
+    _overviewFuture = _loadOverviewCounts();
+  }
+
+  void _handleTabChange() {
+    if (!mounted || _tabCtrl.indexIsChanging) return;
+    if (_selectedTabIndex == _tabCtrl.index) return;
+    setState(() => _selectedTabIndex = _tabCtrl.index);
+  }
+
+  void _changeTab(int index) {
+    if (_selectedTabIndex == index) return;
+    setState(() => _selectedTabIndex = index);
+    _tabCtrl.animateTo(index);
+  }
+
+  Future<_ConsultasOverviewCounts> _loadOverviewCounts() async {
+    final db = FirebaseFirestore.instance;
+    final providers = await db
+        .collection('TBL_COMPRAS_PROVEEDORES')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+    final products = await db
+        .collection('TBL_COMPRAS_PRODUCTOS')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+    final brands = await db
+        .collection('TBL_COMPRAS_MARCAS')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+    final receipts = await db
+        .collection('TBL_COMPRAS_RECEPCIONES')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+    final technicalSheets = await db
+        .collection('TBL_COMPRAS_FICHAS_TECNICAS')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+
+    return _ConsultasOverviewCounts(
+      proveedores: providers.docs.length,
+      productos: products.docs.length,
+      marcas: brands.docs.length,
+      recepciones: receipts.docs.length,
+      fichas: technicalSheets.docs.length,
+    );
+  }
+
+  List<Widget> _buildTabViews() {
+    return [
+      _ConsultaProveedoresTab(empresaId: widget.empresaId, svc: widget.svc),
+      _ConsultaProductosTab(empresaId: widget.empresaId, svc: widget.svc),
+      _ConsultaMarcasTab(empresaId: widget.empresaId, svc: widget.svc),
+      _ConsultaRecepcionesTab(empresaId: widget.empresaId, svc: widget.svc),
+      _ConsultaFichasTab(
+        empresaId: widget.empresaId,
+        svc: widget.svc,
+        esAdmin: widget.esAdmin,
+      ),
+    ];
+  }
+
+  Widget _buildDesktopOverview() {
+    return ModuleCard(
+      padding: const EdgeInsets.all(24),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked = constraints.maxWidth < 1040;
+          final leading = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: _accentColor.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: _accentColor.withOpacity(0.18)),
+                ),
+                child: const Text(
+                  'Centro de consultas',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: _accentColor,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                _activeTab.title,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _activeTab.subtitle,
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 14,
+                  color: Color(0xFF475569),
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: const [
+                  _ConsultasFeatureChip(
+                    icon: Icons.search_rounded,
+                    label: 'Búsqueda rápida',
+                  ),
+                  _ConsultasFeatureChip(
+                    icon: Icons.tune_rounded,
+                    label: 'Filtros persistentes',
+                  ),
+                  _ConsultasFeatureChip(
+                    icon: Icons.download_rounded,
+                    label: 'Exportación a Excel',
+                  ),
+                  _ConsultasFeatureChip(
+                    icon: Icons.visibility_outlined,
+                    label: 'Lectura operativa',
+                  ),
+                ],
+              ),
+            ],
+          );
+
+          final trailing = FutureBuilder<_ConsultasOverviewCounts>(
+            future: _overviewFuture,
+            builder: (context, snapshot) {
+              final counts = snapshot.data;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _accentColor.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _accentColor.withOpacity(0.14)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: _accentColor.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            _activeTab.icon,
+                            color: _accentColor,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Foco actual',
+                                style: TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF475569),
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _activeTab.title,
+                                style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          counts == null
+                              ? '...'
+                              : counts.countFor(_selectedTabIndex).toString(),
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            color: _accentColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: List.generate(_tabs.length, (index) {
+                      final tab = _tabs[index];
+                      final selected = index == _selectedTabIndex;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: stacked ? double.infinity : 164,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? _accentColor.withOpacity(0.08)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: selected
+                                ? _accentColor.withOpacity(0.28)
+                                : const Color(0xFFE2E8F0),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              tab.icon,
+                              size: 18,
+                              color: selected
+                                  ? _accentColor
+                                  : const Color(0xFF64748B),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              tab.title,
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: selected
+                                    ? _accentColor
+                                    : const Color(0xFF1E293B),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              counts == null
+                                  ? 'Cargando...'
+                                  : '${counts.countFor(index)} registros',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 11,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              );
+            },
+          );
+
+          if (stacked) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [leading, const SizedBox(height: 18), trailing],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 6, child: leading),
+              const SizedBox(width: 20),
+              Expanded(flex: 5, child: trailing),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDesktopBody() {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1340),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+          child: Column(
+            children: [
+              _buildDesktopOverview(),
+              const SizedBox(height: 16),
+              InternalModuleTabs(
+                items: _tabs
+                    .map(
+                      (tab) => InternalModuleTabItem(
+                        label: tab.title,
+                        icon: tab.icon,
+                      ),
+                    )
+                    .toList(),
+                selectedIndex: _selectedTabIndex,
+                onSelected: _changeTab,
+                accentColor: _accentColor,
+                trailing: FutureBuilder<_ConsultasOverviewCounts>(
+                  future: _overviewFuture,
+                  builder: (context, snapshot) {
+                    final counts = snapshot.data;
+                    final total = counts?.countFor(_selectedTabIndex);
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Text(
+                        total == null
+                            ? 'Preparando vista analitica...'
+                            : '$total registros visibles en ${_activeTab.title.toLowerCase()}',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ModuleCard(
+                  padding: EdgeInsets.zero,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: TabBarView(
+                      controller: _tabCtrl,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: _buildTabViews(),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _tabCtrl.removeListener(_handleTabChange);
     _tabCtrl.dispose();
     super.dispose();
   }
@@ -7540,48 +8267,74 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
           'Consultas',
           style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: const Color(0xFF283593),
+        backgroundColor: _accentColor,
         foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabCtrl,
-          isScrollable: true,
-          indicator: UnderlineTabIndicator(
-            borderSide: const BorderSide(width: 3, color: kComprasAccent),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          indicatorSize: TabBarIndicatorSize.tab,
-          labelColor: Colors.white,
-          unselectedLabelColor: const Color(0xFFB3E5FC),
-          labelStyle: const TextStyle(
-            fontFamily: _kFont,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-          unselectedLabelStyle: const TextStyle(
-            fontFamily: _kFont,
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-          ),
-          tabs: const [
-            Tab(icon: Icon(Icons.business, size: 16), text: 'Proveedores'),
-            Tab(icon: Icon(Icons.inventory_2, size: 16), text: 'Productos'),
-            Tab(icon: Icon(Icons.local_offer, size: 16), text: 'Marcas'),
-            Tab(icon: Icon(Icons.receipt_long, size: 16), text: 'Recepciones'),
-            Tab(
-              icon: Icon(Icons.description, size: 16),
-              text: 'Fichas Técnicas',
-            ),
-          ],
-        ),
+        bottom: _isDesktop
+            ? null
+            : TabBar(
+                controller: _tabCtrl,
+                isScrollable: true,
+                indicator: UnderlineTabIndicator(
+                  borderSide: const BorderSide(width: 3, color: kComprasAccent),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                labelColor: Colors.white,
+                unselectedLabelColor: const Color(0xFFB3E5FC),
+                labelStyle: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                tabs: _tabs
+                    .map(
+                      (tab) =>
+                          Tab(icon: Icon(tab.icon, size: 16), text: tab.title),
+                    )
+                    .toList(),
+              ),
       ),
-      body: TabBarView(
-        controller: _tabCtrl,
+      body: _isDesktop
+          ? _buildDesktopBody()
+          : TabBarView(controller: _tabCtrl, children: _buildTabViews()),
+    );
+  }
+}
+
+class _ConsultasFeatureChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _ConsultasFeatureChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _ConsultaProveedoresTab(empresaId: widget.empresaId, svc: widget.svc),
-          _ConsultaProductosTab(empresaId: widget.empresaId, svc: widget.svc),
-          _ConsultaMarcasTab(empresaId: widget.empresaId, svc: widget.svc),
-          _ConsultaRecepcionesTab(empresaId: widget.empresaId, svc: widget.svc),
-          _ConsultaFichasTab(empresaId: widget.empresaId, svc: widget.svc),
+          Icon(icon, size: 14, color: _ConsultasScreenState._accentColor),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334155),
+            ),
+          ),
         ],
       ),
     );
@@ -8293,12 +9046,662 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
                             color: Colors.black38,
                           ),
                         ),
+                        onTap: () => _mostrarDetalleMarca(
+                          context,
+                          m,
+                          widget.empresaId,
+                          widget.svc,
+                        ),
                       ),
                     );
                   },
                 ),
         ),
       ],
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DETALLE DE MARCA (Consultas)
+// ══════════════════════════════════════════════════════════════════════════════
+
+void _mostrarDetalleMarca(
+  BuildContext context,
+  MarcaDoc marca,
+  String empresaId,
+  ComprasService svc,
+) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) =>
+        _MarcaDetailSheet(marca: marca, empresaId: empresaId, svc: svc),
+  );
+}
+
+class _MarcaDetailSheet extends StatefulWidget {
+  final MarcaDoc marca;
+  final String empresaId;
+  final ComprasService svc;
+  const _MarcaDetailSheet({
+    required this.marca,
+    required this.empresaId,
+    required this.svc,
+  });
+  @override
+  State<_MarcaDetailSheet> createState() => _MarcaDetailSheetState();
+}
+
+class _MarcaDetailSheetState extends State<_MarcaDetailSheet> {
+  List<FichaTecnicaDoc>? _fichas;
+  List<ProductoDoc>? _productos;
+  List<RecepcionDoc>? _recepciones;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  Future<void> _cargar() async {
+    try {
+      final results = await Future.wait([
+        widget.svc.getFichasTecnicasPorMarca(widget.empresaId, widget.marca.id),
+        widget.svc.getProductosPorMarca(widget.empresaId, widget.marca.id),
+        widget.svc.getRecepcionesPorMarca(widget.empresaId, widget.marca.id),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _fichas = results[0] as List<FichaTecnicaDoc>;
+        _productos = results[1] as List<ProductoDoc>;
+        _recepciones = results[2] as List<RecepcionDoc>;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Widget _sectionHeader(String title, IconData icon) => Padding(
+    padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
+    child: Row(
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF283593)),
+        const SizedBox(width: 6),
+        Text(
+          title,
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            color: Color(0xFF283593),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _estadoChip(String estado) {
+    Color bg;
+    Color fg;
+    String label;
+    switch (estado) {
+      case 'aprobado':
+        bg = const Color(0xFFDCFCE7);
+        fg = kComprasGreen;
+        label = 'Aprobado';
+        break;
+      case 'rechazado':
+        bg = const Color(0xFFFEE2E2);
+        fg = kComprasRed;
+        label = 'Rechazado';
+        break;
+      case 'pendiente':
+      case 'pendiente_revision_calidad':
+        bg = const Color(0xFFFEF3C7);
+        fg = Colors.orange.shade800;
+        label = 'Pendiente';
+        break;
+      default:
+        bg = const Color(0xFFF3F4F6);
+        fg = Colors.black54;
+        label = 'Sin subir';
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontFamily: _kFont,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: fg,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (_, sc) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 4),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            // Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
+              decoration: const BoxDecoration(
+                color: Color(0xFF283593),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Row(
+                children: [
+                  const CircleAvatar(
+                    backgroundColor: Colors.white24,
+                    radius: 24,
+                    child: Icon(
+                      Icons.local_offer,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.marca.descripcion,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          widget.marca.codigo,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    DateFormat(
+                      'dd/MM/yyyy',
+                      'es',
+                    ).format(widget.marca.createdAt.toDate()),
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 11,
+                      color: Colors.white54,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Body
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Text(
+                        'Error al cargar: $_error',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          color: kComprasRed,
+                        ),
+                      ),
+                    )
+                  : ListView(
+                      controller: sc,
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                      children: [
+                        // ── Proveedores ──────────────────────────────────
+                        _sectionHeader(
+                          'Proveedores que abastecen esta marca',
+                          Icons.store,
+                        ),
+                        Builder(
+                          builder: (_) {
+                            final provMap = <String, String>{};
+                            for (final f in _fichas!) {
+                              if (f.proveedorId.isNotEmpty) {
+                                provMap[f.proveedorId] = f.proveedorNombre;
+                              }
+                            }
+                            if (provMap.isEmpty) {
+                              return const Padding(
+                                padding: EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  'Sin proveedores registrados en fichas técnicas.',
+                                  style: TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 12,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                              );
+                            }
+                            return Column(
+                              children: provMap.entries.map((e) {
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0F4FF),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: const Color(0xFFBBCCF0),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.store,
+                                        size: 16,
+                                        color: Color(0xFF283593),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          e.value,
+                                          style: const TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+                        // ── Fichas Técnicas ──────────────────────────────
+                        _sectionHeader(
+                          'Fichas técnicas (${_fichas!.length})',
+                          Icons.description,
+                        ),
+                        if (_fichas!.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              'Sin fichas técnicas registradas para esta marca.',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ),
+                        ..._fichas!.map((f) {
+                          final doc = f.documentoActual;
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: const Color(0xFFE5E7EB),
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 3,
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        f.productoNombre,
+                                        style: const TextStyle(
+                                          fontFamily: _kFont,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                    if (doc != null && doc.tieneDoc)
+                                      _estadoChip(doc.estadoCalidad),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  f.proveedorNombre,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 11,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                                if (doc != null && doc.tieneDoc) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      if (doc.fechaVencimiento != null) ...[
+                                        Icon(
+                                          Icons.event,
+                                          size: 12,
+                                          color:
+                                              doc.fechaVencimiento!
+                                                  .toDate()
+                                                  .isBefore(DateTime.now())
+                                              ? kComprasRed
+                                              : Colors.black45,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Vence: ${DateFormat('dd/MM/yyyy').format(doc.fechaVencimiento!.toDate())}',
+                                          style: TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 10,
+                                            color:
+                                                doc.fechaVencimiento!
+                                                    .toDate()
+                                                    .isBefore(DateTime.now())
+                                                ? kComprasRed
+                                                : Colors.black45,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                      ] else
+                                        const Spacer(),
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            _abrirUrl(context, doc.url),
+                                        icon: const Icon(
+                                          Icons.open_in_new,
+                                          size: 13,
+                                        ),
+                                        label: const Text(
+                                          'Ver documento',
+                                          style: TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: kComprasPrimary,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          minimumSize: Size.zero,
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ] else
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(
+                                      'Sin documento cargado',
+                                      style: TextStyle(
+                                        fontFamily: _kFont,
+                                        fontSize: 11,
+                                        color: Colors.orange.shade600,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        }),
+                        // ── Productos ────────────────────────────────────
+                        _sectionHeader(
+                          'Productos asociados (${_productos!.length})',
+                          Icons.inventory_2,
+                        ),
+                        if (_productos!.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              'Sin productos vinculados a esta marca.',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ),
+                        ..._productos!.map((p) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF9FAFB),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFE5E7EB),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        p.nombre,
+                                        style: const TextStyle(
+                                          fontFamily: _kFont,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${p.categoria} · ${p.unidadMedida}',
+                                        style: const TextStyle(
+                                          fontFamily: _kFont,
+                                          fontSize: 11,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: p.origen == 'IMPORTADO'
+                                        ? const Color(0xFFFEF3C7)
+                                        : const Color(0xFFECFDF5),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    p.origen == 'IMPORTADO'
+                                        ? 'Importado'
+                                        : 'Nacional',
+                                    style: TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: p.origen == 'IMPORTADO'
+                                          ? Colors.orange.shade800
+                                          : kComprasGreen,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                        // ── Recepciones recientes ────────────────────────
+                        _sectionHeader(
+                          'Recepciones recientes (${_recepciones!.take(10).length})',
+                          Icons.local_shipping,
+                        ),
+                        if (_recepciones!.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              'Sin recepciones registradas con esta marca.',
+                              style: TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 12,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ),
+                        ..._recepciones!.take(10).map((r) {
+                          final prods = r.productos
+                              .where((p) => p.marcaId == widget.marca.id)
+                              .toList();
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFE5E7EB),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0F4FF),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    DateFormat(
+                                      'dd/MM\nyyyy',
+                                      'es',
+                                    ).format(r.fecha.toDate()),
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontFamily: _kFont,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF283593),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        r.razonSocial,
+                                        style: const TextStyle(
+                                          fontFamily: _kFont,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      ...prods.map(
+                                        (p) => Text(
+                                          '· ${p.nombre}',
+                                          style: const TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 11,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ),
+                                      if (r.ordenCompra.isNotEmpty)
+                                        Text(
+                                          'OC: ${r.ordenCompra}',
+                                          style: const TextStyle(
+                                            fontFamily: _kFont,
+                                            fontSize: 10,
+                                            color: Colors.black38,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                        if (_recepciones!.length > 10)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              '... y ${_recepciones!.length - 10} recepciones más.',
+                              style: const TextStyle(
+                                fontFamily: _kFont,
+                                fontSize: 11,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -8445,6 +9848,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
           q.isEmpty ||
           r.razonSocial.toLowerCase().contains(q) ||
           r.nit.contains(q) ||
+          r.bodega.toLowerCase().contains(q) ||
           r.productos.any((p) => p.nombre.toLowerCase().contains(q));
       final ocMatch = oc.isEmpty || r.ordenCompra.toLowerCase().contains(oc);
       return qMatch && ocMatch;
@@ -8464,7 +9868,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
           // Barra búsqueda general
           _ConsultasToolbar(
             searchCtrl: _searchCtrl,
-            hint: 'Buscar por proveedor o producto...',
+            hint: 'Buscar por proveedor, producto o bodega...',
             onSearchChanged: () => setState(() {}),
             total: lista.length,
             exportando: _exportando,
@@ -8719,7 +10123,12 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
 class _ConsultaFichasTab extends StatefulWidget {
   final String empresaId;
   final ComprasService svc;
-  const _ConsultaFichasTab({required this.empresaId, required this.svc});
+  final bool esAdmin;
+  const _ConsultaFichasTab({
+    required this.empresaId,
+    required this.svc,
+    this.esAdmin = false,
+  });
   @override
   State<_ConsultaFichasTab> createState() => _ConsultaFichasTabState();
 }
@@ -8738,6 +10147,56 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
     super.dispose();
   }
 
+  Future<void> _confirmarEliminarFicha(FichaTecnicaDoc f) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text(
+          'Eliminar ficha técnica',
+          style: TextStyle(fontFamily: _kFont),
+        ),
+        content: Text(
+          '¿Eliminar la ficha de "${f.productoNombre}" (${f.marcaNombre}) de ${f.proveedorNombre}?\n\nEsta acción eliminará el documento y su historial. No se puede deshacer.',
+          style: const TextStyle(fontFamily: _kFont),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kComprasRed),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      try {
+        await widget.svc.eliminarFichaTecnica(f);
+        setState(() => _todos?.removeWhere((x) => x.id == f.id));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ficha técnica eliminada'),
+              backgroundColor: kComprasGreen,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al eliminar: $e'),
+              backgroundColor: kComprasRed,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _buscar() async {
     if (_desde == null || _hasta == null) return;
     setState(() {
@@ -8746,9 +10205,31 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
     });
     try {
       final lista = await widget.svc.getFichasTecnicas(widget.empresaId);
+      final desde = DateTime(_desde!.year, _desde!.month, _desde!.day);
+      final hasta = DateTime(
+        _hasta!.year,
+        _hasta!.month,
+        _hasta!.day,
+        23,
+        59,
+        59,
+      );
+      final filtradas =
+          lista.where((f) {
+            final fecha = f.documentoActual?.fechaSubida?.toDate();
+            if (fecha == null) return false;
+            return !fecha.isBefore(desde) && !fecha.isAfter(hasta);
+          }).toList()..sort((a, b) {
+            final fa = a.documentoActual?.fechaSubida;
+            final fb = b.documentoActual?.fechaSubida;
+            if (fa == null && fb == null) return 0;
+            if (fa == null) return 1;
+            if (fb == null) return -1;
+            return fb.compareTo(fa);
+          });
       if (!mounted) return;
       setState(() {
-        _todos = lista;
+        _todos = filtradas;
         _loading = false;
       });
     } catch (_) {
@@ -9050,6 +10531,21 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            if (widget.esAdmin)
+                              IconButton(
+                                onPressed: () => _confirmarEliminarFicha(f),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 17,
+                                  color: kComprasRed,
+                                ),
+                                tooltip: 'Eliminar ficha',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 30,
+                                  minHeight: 30,
+                                ),
+                              ),
                             if (esReciente)
                               Container(
                                 margin: const EdgeInsets.only(right: 4),
@@ -9425,9 +10921,13 @@ class _ConsultasToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width >= 900;
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: isDesktop ? 16 : 12,
+        vertical: isDesktop ? 12 : 8,
+      ),
       child: Row(
         children: [
           Expanded(
@@ -9436,6 +10936,16 @@ class _ConsultasToolbar extends StatelessWidget {
               decoration: InputDecoration(
                 hintText: hint,
                 prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: searchCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          searchCtrl.clear();
+                          onSearchChanged();
+                        },
+                        icon: const Icon(Icons.close, size: 16),
+                        tooltip: 'Limpiar búsqueda',
+                      ),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -9452,13 +10962,24 @@ class _ConsultasToolbar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            '$total',
-            style: const TextStyle(
-              fontFamily: _kFont,
-              fontSize: 13,
-              color: Colors.black45,
-              fontWeight: FontWeight.w600,
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isDesktop ? 12 : 10,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Text(
+              isDesktop ? '$total registros' : '$total',
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: Color(0xFF475569),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           const SizedBox(width: 8),
@@ -9469,6 +10990,34 @@ class _ConsultasToolbar extends StatelessWidget {
                   child: Padding(
                     padding: EdgeInsets.all(8),
                     child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : isDesktop
+              ? OutlinedButton.icon(
+                  onPressed: total == 0 ? null : onExportar,
+                  icon: const Icon(
+                    Icons.download_rounded,
+                    size: 16,
+                    color: Color(0xFF283593),
+                  ),
+                  label: const Text(
+                    'Exportar',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF283593),
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF283593)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 )
               : IconButton(

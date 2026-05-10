@@ -11,6 +11,7 @@ const Map<String, String> kAppIdNormalizationMap = {
   'gestiondocumental': 'gestiondocumentaldashboard',
   'nutricion': 'nutriciondashboard',
   'gerencia': 'gerenciadashboard',
+  'interventoria': 'interventoriadashboard',
 };
 
 /// Normaliza una lista de app IDs cortos a su forma canónica completa.
@@ -95,10 +96,7 @@ List<String> extractUserEmpresaIds(Map<String, dynamic> data) {
   return ordered;
 }
 
-List<String> extractUserApps(
-  Map<String, dynamic> data, {
-  String? empresaId,
-}) {
+List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
   final ordered = <String>[];
   final seen = <String>{};
 
@@ -132,15 +130,13 @@ bool isDeveloperUser(Map<String, dynamic> data) {
   return resolveGlobalRole(data) == 'desarrollador';
 }
 
-bool userHasApp(
-  Map<String, dynamic> data,
-  String? appId, {
-  String? empresaId,
-}) {
+bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   final target = normalizeAppId(appId);
   if (target == null) return false;
-  return extractUserApps(data, empresaId: empresaId)
-      .any((candidate) => appIdsEquivalent(candidate, target));
+  return extractUserApps(
+    data,
+    empresaId: empresaId,
+  ).any((candidate) => appIdsEquivalent(candidate, target));
 }
 
 String? resolveValidEmpresaId({
@@ -164,7 +160,10 @@ String? resolveValidEmpresaId({
   return allowedIds.first;
 }
 
-Map<String, dynamic>? getUserCompanyDetail(Map<String, dynamic> data, String? empresaId) {
+Map<String, dynamic>? getUserCompanyDetail(
+  Map<String, dynamic> data,
+  String? empresaId,
+) {
   final target = (empresaId ?? '').trim();
   if (target.isEmpty) return null;
 
@@ -180,11 +179,11 @@ Map<String, dynamic>? getUserCompanyDetail(Map<String, dynamic> data, String? em
 }
 
 dynamic getScopedField(
-    Map<String, dynamic> data,
-    String? empresaId,
-    String key,
-    String fallbackKey,
-    ) {
+  Map<String, dynamic> data,
+  String? empresaId,
+  String key,
+  String fallbackKey,
+) {
   final detail = getUserCompanyDetail(data, empresaId);
   if (detail != null && detail.containsKey(key)) {
     final value = detail[key];
@@ -195,21 +194,21 @@ dynamic getScopedField(
 }
 
 String resolveScopedString(
-    Map<String, dynamic> data,
-    String? empresaId,
-    String key,
-    String fallbackKey,
-    ) {
+  Map<String, dynamic> data,
+  String? empresaId,
+  String key,
+  String fallbackKey,
+) {
   final value = getScopedField(data, empresaId, key, fallbackKey);
   return (value ?? '').toString();
 }
 
 String resolveScopedStringWithFallbacks(
-    Map<String, dynamic> data,
-    String? empresaId,
-    List<String> scopedKeys,
-    List<String> fallbackKeys,
-    ) {
+  Map<String, dynamic> data,
+  String? empresaId,
+  List<String> scopedKeys,
+  List<String> fallbackKeys,
+) {
   for (final key in scopedKeys) {
     final value = getScopedField(data, empresaId, key, key);
     if (value != null && value.toString().trim().isNotEmpty) {

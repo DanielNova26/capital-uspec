@@ -9,9 +9,11 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../gestion_documental/widgets/gd_pdf_preview.dart';
 import '../../gestion_documental/widgets/gd_ui_widgets.dart';
@@ -63,6 +65,10 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
       planillaId: widget.planillaId,
     );
     await _service.repararPdfFirmadoSiHaceFalta(
+      empresaId: widget.empresaId,
+      planillaId: widget.planillaId,
+    );
+    await _service.sincronizarMetadataPdfDescarga(
       empresaId: widget.empresaId,
       planillaId: widget.planillaId,
     );
@@ -752,8 +758,11 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     );
   }
 
-  Future<Uint8List> _loadPdf(String url) async {
-    final bytes = await loadBinaryFromUrl(url);
+  Future<Uint8List> _loadPdf(PpPlanilla planilla) async {
+    final bytes = await _fetchPdfBytes(
+      url: planilla.urlPdf,
+      path: planilla.pathPdf,
+    );
     if (bytes == null || bytes.isEmpty) {
       throw Exception('No se pudo descargar el PDF.');
     }
@@ -770,11 +779,107 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         '${planilla.planillaId}-${planilla.updatedAt?.millisecondsSinceEpoch ?? 0}-${planilla.urlPdf}';
     return buildGdPdfPreview(
       url: planilla.urlPdf!,
-      pdfFuture: _loadPdf(planilla.urlPdf!),
-      fileName: planilla.nombreArchivoOriginal,
+      pdfFuture: _loadPdf(planilla),
+      fileName: _downloadFileName(planilla),
       refreshKey: refreshKey,
     );
   }
+
+  String _downloadFileName(PpPlanilla planilla) {
+    final preferido = (planilla.nombrePlanillaDetectado ?? '').trim();
+    final fallback = planilla.nombreArchivoOriginal.trim();
+    final base = preferido.isNotEmpty ? preferido : fallback;
+    final safe = base
+        .replaceAll(RegExp(r'[<>:"/\\|?*\n\r]'), '_')
+        .trim()
+        .replaceAll(RegExp(r'[. ]+$'), '');
+    final resolved = safe.isEmpty ? planilla.planillaId : safe;
+    return resolved.toLowerCase().endsWith('.pdf') ? resolved : '$resolved.pdf';
+  }
+
+  String _downloadBaseName(String fileName) {
+    return fileName.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
+  }
+
+  Widget _buildDescargarButton(PpPlanilla planilla) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        icon: _isDownloading
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.download_rounded, size: 18),
+        label: Text(
+          _isDownloading ? 'Descargando...' : 'Descargar PDF',
+          style: const TextStyle(
+            fontFamily: 'Arial',
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: GdPalette.primary,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        onPressed: _isDownloading ? null : () => _descargarPdf(planilla),
+      ),
+    );
+  }
+
+  Future<void> _descargarPdf(PpPlanilla planilla) async {
+    if (planilla.urlPdf == null && planilla.pathPdf == null) return;
+    setState(() => _isDownloading = true);
+    try {
+      final bytes = await _fetchPdfBytes(
+        url: planilla.urlPdf,
+        path: planilla.pathPdf,
+      );
+      final fileName = _downloadFileName(planilla);
+      if (bytes != null && bytes.isNotEmpty) {
+        await FileSaver.instance.saveFile(
+          name: _downloadBaseName(fileName),
+          bytes: bytes,
+          fileExtension: 'pdf',
+          mimeType: MimeType.pdf,
+        );
+      } else {
+        // Fallback: get a fresh signed URL and open it externally.
+        final safePath = (planilla.pathPdf ?? '').trim();
+        final safeUrl = (planilla.urlPdf ?? '').trim();
+        String? openUrl;
+        if (safePath.isNotEmpty) {
+          try {
+            openUrl = await _storage.ref(safePath).getDownloadURL();
+          } catch (_) {}
+        }
+        openUrl ??= safeUrl.isNotEmpty ? safeUrl : null;
+        if (openUrl != null) {
+          final uri = Uri.tryParse(openUrl);
+          if (uri != null) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
+        } else {
+          throw Exception('No se pudo obtener el PDF.');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al descargar: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  bool _isDownloading = false;
 
   Widget _buildInfoPanel(PpPlanilla planilla) {
     final acciones = _accionesDisponibles(planilla);
@@ -955,6 +1060,13 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         _buildHistorial(planilla.planillaId),
 
         const SizedBox(height: 24),
+
+        // Botón descargar PDF (visible para todos los roles cuando hay PDF)
+        if (planilla.urlPdf != null || planilla.pathPdf != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _buildDescargarButton(planilla),
+          ),
 
         // Acciones disponibles
         if (acciones.isNotEmpty && !_actioning)
