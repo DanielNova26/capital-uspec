@@ -2248,6 +2248,67 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
               ],
             ),
           ),
+        // ── Scan card (OCR source) ───────────────────────────────────────
+        Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Escanear acta para OCR',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Sube o escanea el acta y el texto se extrae automáticamente.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (kIsWeb)
+                      OutlinedButton.icon(
+                        onPressed: _pickWeb,
+                        icon: const Icon(Icons.upload_file_rounded, size: 16),
+                        label: const Text('Subir PDF/imagen'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )
+                    else ...[
+                      OutlinedButton.icon(
+                        onPressed: _pickCamera,
+                        icon: const Icon(
+                          Icons.document_scanner_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('Escanear'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _pickGallery,
+                        icon: const Icon(
+                          Icons.photo_library_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('Galería'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
         // OCR text field
         if (_extracting)
           const Padding(
