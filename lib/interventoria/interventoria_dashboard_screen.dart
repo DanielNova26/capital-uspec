@@ -12,6 +12,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/guarded_module_page.dart';
+import '../utils/mobile_ocr.dart';
 import '../utils/pdf_extractor.dart';
 import '../widgets/internal_module_layout.dart';
 import 'interventoria_models.dart';
@@ -2536,13 +2537,97 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     }
   }
 
-  Future<void> _pickCamera() =>
-      _pickImage(ImageSource.camera, 'mobile_camera');
-  Future<void> _pickGallery() =>
-      _pickImage(ImageSource.gallery, 'mobile_gallery');
+  /// Escaneo multi-página tipo CamScanner: cámara → OCR → ¿otra página? → acumular.
+  Future<void> _pickCamera() async {
+    final buffer = StringBuffer();
+    if (_ocrCtrl.text.trim().isNotEmpty) buffer.write(_ocrCtrl.text.trim());
+    int pageCount = 0;
 
-  Future<void> _pickImage(ImageSource src, String origen) async {
-    final img = await ImagePicker().pickImage(source: src, imageQuality: 88);
+    while (true) {
+      final img = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        imageQuality: 92,
+      );
+      if (img == null) break;
+
+      // Guardar archivo para adjunto
+      final bytes = await img.readAsBytes();
+      final idx = _files.length + pageCount;
+      final sufijo = idx > 0 ? '_${idx + 1}' : '';
+      final nombre =
+          _nombreActa('jpg').replaceAll(RegExp(r'(\.\w+)$'), '$sufijo.jpg');
+      setState(() {
+        _files.add(
+          _PickedActa(
+            bytes: bytes,
+            nombre: nombre,
+            contentType: 'image/jpeg',
+            origen: 'mobile_camera',
+          ),
+        );
+        _extracting = true;
+      });
+
+      // OCR con ML Kit
+      final text = await recognizeTextFromXFile(img);
+      pageCount++;
+      if (text.isNotEmpty) {
+        if (buffer.isNotEmpty) buffer.write('\n\n');
+        buffer.write(text);
+      }
+      if (mounted) {
+        setState(() {
+          _extracting = false;
+          _ocrCtrl.text = buffer.toString();
+        });
+      }
+      if (!mounted) break;
+
+      // Preguntar si hay más páginas
+      final more = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          title: Text('Página $pageCount escaneada'),
+          content: Text(
+            text.isEmpty
+                ? 'No se detectó texto en esta imagen.\n¿Desea escanear otra página?'
+                : '✓ ${text.length} caracteres detectados.\n¿Agregar otra página?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Listo'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Otra página'),
+            ),
+          ],
+        ),
+      );
+      if (more != true) break;
+    }
+
+    if (pageCount > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$pageCount página(s) escaneada(s). '
+            'Revisa el texto y toca "Detectar hallazgos".',
+          ),
+          backgroundColor: _kOk,
+        ),
+      );
+    }
+  }
+
+  /// Galería: selecciona imagen → OCR → agrega al texto existente.
+  Future<void> _pickGallery() async {
+    final img = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 92,
+    );
     if (img == null) return;
     final bytes = await img.readAsBytes();
     final nombre = _nombreActa('jpg');
@@ -2552,10 +2637,32 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           bytes: bytes,
           nombre: nombre,
           contentType: 'image/jpeg',
-          origen: origen,
+          origen: 'mobile_gallery',
         ),
       );
+      _extracting = true;
     });
+    final text = await recognizeTextFromXFile(img);
+    if (mounted) {
+      setState(() {
+        _extracting = false;
+        if (text.isNotEmpty) {
+          _ocrCtrl.text = _ocrCtrl.text.isEmpty
+              ? text
+              : '${_ocrCtrl.text}\n\n$text';
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            text.isEmpty
+                ? 'No se detectó texto en la imagen'
+                : '✓ ${text.length} caracteres detectados.',
+          ),
+          backgroundColor: text.isEmpty ? null : _kOk,
+        ),
+      );
+    }
   }
 
   void _detectarHallazgos() {
@@ -2683,7 +2790,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 // Row editable de un hallazgo detectado por OCR
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _HallazgoEditorRow extends StatelessWidget {
+class _HallazgoEditorRow extends StatefulWidget {
   final int index;
   final InterventoriaHallazgo hallazgo;
   final ValueChanged<InterventoriaHallazgo> onChanged;
@@ -2697,7 +2804,58 @@ class _HallazgoEditorRow extends StatelessWidget {
   });
 
   @override
+  State<_HallazgoEditorRow> createState() => _HallazgoEditorRowState();
+}
+
+class _HallazgoEditorRowState extends State<_HallazgoEditorRow> {
+  late final TextEditingController _descCtrl;
+  bool _scanning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _descCtrl = TextEditingController(text: widget.hallazgo.descripcion);
+  }
+
+  @override
+  void didUpdateWidget(_HallazgoEditorRow old) {
+    super.didUpdateWidget(old);
+    if (widget.hallazgo.descripcion != old.hallazgo.descripcion &&
+        widget.hallazgo.descripcion != _descCtrl.text) {
+      _descCtrl.text = widget.hallazgo.descripcion;
+    }
+  }
+
+  @override
+  void dispose() {
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scanDescripcion() async {
+    final img = await ImagePicker().pickImage(
+      source: ImageSource.camera,
+      imageQuality: 92,
+    );
+    if (img == null) return;
+    setState(() => _scanning = true);
+    final text = await recognizeTextFromXFile(img);
+    if (mounted) {
+      setState(() => _scanning = false);
+      if (text.isNotEmpty) {
+        _descCtrl.text = text;
+        widget.onChanged(widget.hallazgo.copyWith(descripcion: text));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se detectó texto en la imagen')),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final h = widget.hallazgo;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
@@ -2714,26 +2872,25 @@ class _HallazgoEditorRow extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: hallazgo.fuente == 'ocr'
+                    color: h.fuente == 'ocr'
                         ? _kAccent.withValues(alpha: 0.12)
                         : _kWarning.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    hallazgo.fuente == 'ocr' ? 'OCR' : 'Manual',
+                    h.fuente == 'ocr' ? 'OCR' : 'Manual',
                     style: TextStyle(
                       fontSize: 11,
-                      color: hallazgo.fuente == 'ocr' ? _kAccent : _kWarning,
+                      color: h.fuente == 'ocr' ? _kAccent : _kWarning,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                // N° hallazgo editable
                 SizedBox(
                   width: 90,
                   child: TextFormField(
-                    initialValue: hallazgo.numeroHallazgo,
+                    initialValue: h.numeroHallazgo,
                     decoration: const InputDecoration(
                       labelText: 'N°',
                       hintText: 'ej. 1.1',
@@ -2748,32 +2905,68 @@ class _HallazgoEditorRow extends StatelessWidget {
                       fontWeight: FontWeight.w900,
                       fontSize: 13,
                     ),
-                    onChanged: (v) =>
-                        onChanged(hallazgo.copyWith(numeroHallazgo: v.trim())),
+                    onChanged: (v) => widget.onChanged(
+                      h.copyWith(numeroHallazgo: v.trim()),
+                    ),
                   ),
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    color: Colors.red.shade400,
+                  ),
                   iconSize: 18,
                   tooltip: 'Eliminar',
-                  onPressed: onDelete,
+                  onPressed: widget.onDelete,
                 ),
               ],
             ),
             const SizedBox(height: 8),
 
-            // Descripción
-            TextFormField(
-              initialValue: hallazgo.descripcion,
-              minLines: 2,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'Descripción del hallazgo',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (v) => onChanged(hallazgo.copyWith(descripcion: v)),
+            // Descripción con botón de escaneo individual
+            Stack(
+              alignment: Alignment.topRight,
+              children: [
+                TextField(
+                  controller: _descCtrl,
+                  minLines: 2,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Descripción del hallazgo',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.fromLTRB(12, 10, 46, 10),
+                  ),
+                  onChanged: (v) =>
+                      widget.onChanged(h.copyWith(descripcion: v)),
+                ),
+                if (!kIsWeb)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: _scanning
+                        ? const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : IconButton(
+                            icon: const Icon(
+                              Icons.document_scanner_rounded,
+                              size: 18,
+                            ),
+                            color: _kAccent,
+                            tooltip: 'Escanear descripción',
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(),
+                            onPressed: _scanDescripcion,
+                          ),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
 
@@ -2784,9 +2977,7 @@ class _HallazgoEditorRow extends StatelessWidget {
                 Expanded(
                   flex: 3,
                   child: DropdownButtonFormField<String>(
-                    value: hallazgo.dptoEncargado.isEmpty
-                        ? null
-                        : hallazgo.dptoEncargado,
+                    value: h.dptoEncargado.isEmpty ? null : h.dptoEncargado,
                     decoration: const InputDecoration(
                       labelText: 'Dpto encargado',
                       isDense: true,
@@ -2797,16 +2988,17 @@ class _HallazgoEditorRow extends StatelessWidget {
                           (d) => DropdownMenuItem(value: d, child: Text(d)),
                         )
                         .toList(),
-                    onChanged: (v) =>
-                        onChanged(hallazgo.copyWith(dptoEncargado: v ?? '')),
+                    onChanged: (v) => widget.onChanged(
+                      h.copyWith(dptoEncargado: v ?? ''),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   flex: 2,
                   child: TextFormField(
-                    initialValue: hallazgo.valorCorreccion != null
-                        ? hallazgo.valorCorreccion!.toStringAsFixed(0)
+                    initialValue: h.valorCorreccion != null
+                        ? h.valorCorreccion!.toStringAsFixed(0)
                         : '',
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
@@ -2819,7 +3011,9 @@ class _HallazgoEditorRow extends StatelessWidget {
                     ),
                     onChanged: (v) {
                       final parsed = double.tryParse(v.replaceAll(',', '.'));
-                      onChanged(hallazgo.copyWith(valorCorreccion: parsed));
+                      widget.onChanged(
+                        h.copyWith(valorCorreccion: parsed),
+                      );
                     },
                   ),
                 ),
