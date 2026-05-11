@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:excel/excel.dart' as xl;
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:intl/intl.dart';
 
 import 'interventoria_models.dart';
 
@@ -159,6 +161,202 @@ class InterventoriaService {
 
   Future<void> eliminarRol(String id) =>
       _db.collection('TBL_INTERVENTORIA_ROLES').doc(id).delete();
+
+  // ── Hallazgos ────────────────────────────────────────────────────────────
+
+  Stream<List<InterventoriaHallazgo>> streamHallazgos(
+    String empresaId, {
+    String? centroId,
+    String? estado,
+  }) {
+    var q = _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaId);
+    if (centroId != null && centroId.isNotEmpty) {
+      q = q.where('centroCostoId', isEqualTo: centroId);
+    }
+    if (estado != null && estado.isNotEmpty) {
+      q = q.where('estado', isEqualTo: estado);
+    }
+    return q.snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => InterventoriaHallazgo.fromMap(d.id, d.data()))
+          .toList();
+      list.sort((a, b) {
+        final byFecha = b.fechaHallazgo.compareTo(a.fechaHallazgo);
+        return byFecha != 0
+            ? byFecha
+            : a.numeroHallazgo.compareTo(b.numeroHallazgo);
+      });
+      return list;
+    });
+  }
+
+  Future<String> guardarHallazgo(InterventoriaHallazgo hallazgo) async {
+    final ref = hallazgo.id.isEmpty
+        ? _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc()
+        : _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgo.id);
+    await ref.set(hallazgo.toMap(), SetOptions(merge: true));
+    return ref.id;
+  }
+
+  Future<void> guardarHallazgos(
+    List<InterventoriaHallazgo> hallazgos,
+  ) async {
+    final batch = _db.batch();
+    for (final h in hallazgos) {
+      final ref = h.id.isEmpty
+          ? _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc()
+          : _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(h.id);
+      batch.set(ref, h.toMap(), SetOptions(merge: true));
+    }
+    await batch.commit();
+  }
+
+  Future<void> eliminarHallazgo(String hallazgoId) =>
+      _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId).delete();
+
+  Future<void> marcarSubsanado({
+    required String hallazgoId,
+    required DateTime fechaSubsanacion,
+    String seguimiento = '',
+  }) => _db
+      .collection('TBL_INTERVENTORIA_HALLAZGOS')
+      .doc(hallazgoId)
+      .set({
+        'estado': 'subsanado',
+        'fechaSubsanacion': Timestamp.fromDate(fechaSubsanacion),
+        if (seguimiento.isNotEmpty) 'seguimiento': seguimiento,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+  Future<void> reabrirHallazgo(String hallazgoId) => _db
+      .collection('TBL_INTERVENTORIA_HALLAZGOS')
+      .doc(hallazgoId)
+      .set({
+        'estado': 'activo',
+        'fechaSubsanacion': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+  // ── OCR hallazgos parser ─────────────────────────────────────────────────
+
+  /// Toma el texto pegado/OCR y detecta hallazgos numerados (ej. "1.1 El contratista...")
+  List<InterventoriaHallazgo> parseHallazgosOcr({
+    required String texto,
+    required String empresaId,
+    required String centroCostoId,
+    required String centroCostoNombre,
+    String visitaId = '',
+    String grupoId = '',
+    String? tipoActa,
+  }) {
+    final hallazgos = <InterventoriaHallazgo>[];
+    // Detecta líneas que empiezan por número tipo 1.1 / 10.20
+    final numRx = RegExp(r'^(\d{1,2}\.\d{1,3})\s+(.+)');
+    // Detecta fechas para asignar al hallazgo
+    DateTime? fechaGlobal = _extractFecha(texto);
+
+    final lines = texto.split('\n');
+    String? currentNum;
+    final descBuf = StringBuffer();
+
+    void flush() {
+      if (currentNum == null) return;
+      final desc = descBuf.toString().trim();
+      if (desc.isNotEmpty) {
+        hallazgos.add(
+          InterventoriaHallazgo(
+            empresaId: empresaId,
+            visitaId: visitaId,
+            centroCostoId: centroCostoId,
+            centroCostoNombre: centroCostoNombre,
+            grupoId: grupoId,
+            tipoActa: tipoActa,
+            numeroHallazgo: currentNum!,
+            descripcion: desc,
+            fechaHallazgo: Timestamp.fromDate(fechaGlobal ?? DateTime.now()),
+            fuente: 'ocr',
+            createdAt: Timestamp.now(),
+          ),
+        );
+      }
+      currentNum = null;
+      descBuf.clear();
+    }
+
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+      if (line.isEmpty) {
+        flush();
+        continue;
+      }
+      final m = numRx.firstMatch(line);
+      if (m != null) {
+        flush();
+        currentNum = m.group(1)!;
+        descBuf.write(m.group(2)!);
+      } else if (currentNum != null) {
+        if (descBuf.isNotEmpty) descBuf.write(' ');
+        descBuf.write(line);
+      }
+    }
+    flush();
+    return hallazgos;
+  }
+
+  // ── Excel export ─────────────────────────────────────────────────────────
+
+  Uint8List exportarHallazgosExcel(List<InterventoriaHallazgo> hallazgos) {
+    final excel = xl.Excel.createExcel();
+    excel.rename('Sheet1', 'Seguimiento');
+    final sheet = excel['Seguimiento'];
+    final fmt = DateFormat('dd/MM/yyyy');
+
+    final headers = [
+      'GRUPO',
+      'ESTRUCTURA',
+      'ESTADO',
+      'TIPO DE ACTA',
+      'N° HALLAZGO',
+      'HALLAZGOS',
+      'FECHA DEL HALLAZGO',
+      'PERSISTE',
+      'DPTO ENCARGADO',
+      'OBSERVACIONES',
+      'PLAN DE MEJORA',
+      'VALOR DE LA CORRECCIÓN',
+      'FECHA DE SUBSANACIÓN',
+      'SEGUIMIENTO',
+    ];
+    sheet.appendRow(headers.map((h) => xl.TextCellValue(h)).toList());
+
+    for (final h in hallazgos) {
+      sheet.appendRow([
+        xl.TextCellValue(h.grupoId),
+        xl.TextCellValue(h.centroCostoNombre),
+        xl.TextCellValue(h.estado.toUpperCase()),
+        xl.TextCellValue(h.tipoActa ?? ''),
+        xl.TextCellValue(h.numeroHallazgo),
+        xl.TextCellValue(h.descripcion),
+        xl.TextCellValue(fmt.format(h.fechaHallazgo.toDate())),
+        xl.TextCellValue(h.persiste ? 'SI' : ''),
+        xl.TextCellValue(h.dptoEncargado),
+        xl.TextCellValue(h.observaciones),
+        xl.TextCellValue(h.planMejora),
+        h.valorCorreccion != null
+            ? xl.DoubleCellValue(h.valorCorreccion!)
+            : xl.TextCellValue(''),
+        xl.TextCellValue(
+          h.fechaSubsanacion != null
+              ? fmt.format(h.fechaSubsanacion!.toDate())
+              : '',
+        ),
+        xl.TextCellValue(h.seguimiento),
+      ]);
+    }
+    return Uint8List.fromList(excel.encode()!);
+  }
 
   Future<void> asegurarConfigBase(String empresaId) async {
     await _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId).set({

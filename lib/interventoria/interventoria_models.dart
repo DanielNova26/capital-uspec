@@ -380,3 +380,183 @@ String interventoriaSemaforo(double porcentaje) {
   if (porcentaje >= 70) return 'amarillo';
   return 'rojo';
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hallazgos
+// ─────────────────────────────────────────────────────────────────────────────
+
+const List<String> kDptosInterventoria = [
+  'ADMINISTRADOR',
+  'BODEGA',
+  'CALIDAD',
+  'COMPRAS',
+  'DIRECTIVA',
+  'EQUIPO Y MENAJE',
+  'INGENIERO DE PRODUCCIÓN',
+  'MANTENIMIENTO',
+  'NUTRICIONISTA',
+  'PLANEACIÓN',
+  'TALENTO HUMANO',
+];
+
+const List<String> kTiposActaInterventoria = [
+  'CHS',
+  'CONTINGENCIA',
+  'EQUIPOS',
+  'INFRAESTRUCTURA',
+];
+
+class InterventoriaHallazgo {
+  final String id;
+  final String empresaId;
+  final String visitaId;
+  final String centroCostoId;
+  final String centroCostoNombre;
+  final String grupoId;
+  final String estado; // 'activo' | 'subsanado'
+  final String? tipoActa;
+  final String numeroHallazgo; // e.g. "1.1", "10.20"
+  final String descripcion;
+  final Timestamp fechaHallazgo;
+  final bool persiste;
+  final String dptoEncargado;
+  final String observaciones;
+  final String planMejora;
+  final double? valorCorreccion;
+  final Timestamp? fechaSubsanacion;
+  final String seguimiento;
+  final String fuente; // 'manual' | 'ocr'
+  final Timestamp createdAt;
+  final Timestamp? updatedAt;
+
+  const InterventoriaHallazgo({
+    this.id = '',
+    required this.empresaId,
+    this.visitaId = '',
+    required this.centroCostoId,
+    required this.centroCostoNombre,
+    this.grupoId = '',
+    this.estado = 'activo',
+    this.tipoActa,
+    this.numeroHallazgo = '',
+    required this.descripcion,
+    required this.fechaHallazgo,
+    this.persiste = false,
+    this.dptoEncargado = '',
+    this.observaciones = '',
+    this.planMejora = '',
+    this.valorCorreccion,
+    this.fechaSubsanacion,
+    this.seguimiento = '',
+    this.fuente = 'manual',
+    required this.createdAt,
+    this.updatedAt,
+  });
+
+  bool get isSubsanado => estado == 'subsanado';
+
+  int get seccion {
+    final parts = numeroHallazgo.split('.');
+    return int.tryParse(parts.first) ?? 0;
+  }
+
+  factory InterventoriaHallazgo.fromMap(
+    String id,
+    Map<String, dynamic> data,
+  ) => InterventoriaHallazgo(
+    id: id,
+    empresaId: (data['empresaId'] ?? '').toString(),
+    visitaId: (data['visitaId'] ?? '').toString(),
+    centroCostoId: (data['centroCostoId'] ?? '').toString(),
+    centroCostoNombre: (data['centroCostoNombre'] ?? '').toString(),
+    grupoId: (data['grupoId'] ?? '').toString(),
+    estado: (data['estado'] ?? 'activo').toString(),
+    tipoActa: data['tipoActa']?.toString(),
+    numeroHallazgo: (data['numeroHallazgo'] ?? '').toString(),
+    descripcion: (data['descripcion'] ?? '').toString(),
+    fechaHallazgo: data['fechaHallazgo'] as Timestamp? ?? Timestamp.now(),
+    persiste: data['persiste'] == true,
+    dptoEncargado: (data['dptoEncargado'] ?? '').toString(),
+    observaciones: (data['observaciones'] ?? '').toString(),
+    planMejora: (data['planMejora'] ?? '').toString(),
+    valorCorreccion: data['valorCorreccion'] is num
+        ? (data['valorCorreccion'] as num).toDouble()
+        : null,
+    fechaSubsanacion: data['fechaSubsanacion'] as Timestamp?,
+    seguimiento: (data['seguimiento'] ?? '').toString(),
+    fuente: (data['fuente'] ?? 'manual').toString(),
+    createdAt: data['createdAt'] as Timestamp? ?? Timestamp.now(),
+    updatedAt: data['updatedAt'] as Timestamp?,
+  );
+
+  Map<String, dynamic> toMap() => {
+    'empresaId': empresaId,
+    'visitaId': visitaId,
+    'centroCostoId': centroCostoId,
+    'centroCostoNombre': centroCostoNombre,
+    'grupoId': grupoId,
+    'estado': estado,
+    'tipoActa': tipoActa,
+    'numeroHallazgo': numeroHallazgo,
+    'descripcion': descripcion,
+    'fechaHallazgo': fechaHallazgo,
+    'persiste': persiste,
+    'dptoEncargado': dptoEncargado,
+    'observaciones': observaciones,
+    'planMejora': planMejora,
+    'valorCorreccion': valorCorreccion,
+    'fechaSubsanacion': fechaSubsanacion,
+    'seguimiento': seguimiento,
+    'fuente': fuente,
+    'createdAt': createdAt,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  InterventoriaHallazgo copyWith({
+    String? estado,
+    String? dptoEncargado,
+    String? observaciones,
+    String? planMejora,
+    double? valorCorreccion,
+    bool clearValorCorreccion = false,
+    Timestamp? fechaSubsanacion,
+    bool clearFechaSubsanacion = false,
+    String? seguimiento,
+    bool? persiste,
+    String? descripcion,
+  }) => InterventoriaHallazgo(
+    id: id,
+    empresaId: empresaId,
+    visitaId: visitaId,
+    centroCostoId: centroCostoId,
+    centroCostoNombre: centroCostoNombre,
+    grupoId: grupoId,
+    estado: estado ?? this.estado,
+    tipoActa: tipoActa,
+    numeroHallazgo: numeroHallazgo,
+    descripcion: descripcion ?? this.descripcion,
+    fechaHallazgo: fechaHallazgo,
+    persiste: persiste ?? this.persiste,
+    dptoEncargado: dptoEncargado ?? this.dptoEncargado,
+    observaciones: observaciones ?? this.observaciones,
+    planMejora: planMejora ?? this.planMejora,
+    valorCorreccion: clearValorCorreccion
+        ? null
+        : (valorCorreccion ?? this.valorCorreccion),
+    fechaSubsanacion: clearFechaSubsanacion
+        ? null
+        : (fechaSubsanacion ?? this.fechaSubsanacion),
+    seguimiento: seguimiento ?? this.seguimiento,
+    fuente: fuente,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+  );
+}
+
+double calcularScoreHallazgos(List<InterventoriaHallazgo> hallazgos) {
+  if (hallazgos.isEmpty) return 0;
+  final subsanados = hallazgos.where((h) => h.isSubsanado).length;
+  return double.parse(
+    (subsanados / hallazgos.length * 100).toStringAsFixed(2),
+  );
+}
