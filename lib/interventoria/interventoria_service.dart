@@ -358,6 +358,48 @@ class InterventoriaService {
     return Uint8List.fromList(excel.encode()!);
   }
 
+  /// Exporta la matriz de puntajes por visita/establecimiento al formato Excel.
+  Uint8List exportarVisitasExcel(List<InterventoriaVisita> visitas) {
+    final excel = xl.Excel.createExcel();
+    excel.rename('Sheet1', 'Análisis');
+    final sheet = excel['Análisis'];
+    final fmt = DateFormat('dd/MM/yyyy');
+
+    // Cabecera: SECCIÓN + un centro por columna
+    final headers = <xl.CellValue>[
+      xl.TextCellValue('SECCIÓN'),
+      ...visitas.map(
+        (v) => xl.TextCellValue(
+          '${v.centroCostoCodigo.isNotEmpty ? v.centroCostoCodigo : v.centroCostoNombre}\n${fmt.format(v.fechaVisita.toDate())}',
+        ),
+      ),
+    ];
+    sheet.appendRow(headers);
+
+    // Filas de sección
+    for (final cat in kInterventoriaCategorias) {
+      final row = <xl.CellValue>[xl.TextCellValue(cat.label)];
+      for (final v in visitas) {
+        final item = v.items[cat.key];
+        if (item == null || item.noEvaluado || item.valor == null) {
+          row.add(xl.TextCellValue('NE'));
+        } else {
+          row.add(xl.DoubleCellValue(item.valor!));
+        }
+      }
+      sheet.appendRow(row);
+    }
+
+    // Fila de total
+    final totalRow = <xl.CellValue>[xl.TextCellValue('Total condiciones del servicio')];
+    for (final v in visitas) {
+      totalRow.add(xl.DoubleCellValue(v.porcentajeGeneral));
+    }
+    sheet.appendRow(totalRow);
+
+    return Uint8List.fromList(excel.encode()!);
+  }
+
   Future<void> asegurarConfigBase(String empresaId) async {
     await _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId).set({
       'empresaId': empresaId,

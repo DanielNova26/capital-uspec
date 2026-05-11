@@ -71,6 +71,10 @@ class _InterventoriaDashboardScreenState
 
           final tabs = <InternalModuleTabItem>[
             const InternalModuleTabItem(
+              label: 'Visitas',
+              icon: Icons.assignment_rounded,
+            ),
+            const InternalModuleTabItem(
               label: 'Hallazgos',
               icon: Icons.report_problem_rounded,
             ),
@@ -88,7 +92,7 @@ class _InterventoriaDashboardScreenState
 
           return InternalModuleLayout(
             title: 'Interventoria',
-            subtitle: 'Hallazgos, seguimiento y actas por centro de costos',
+            subtitle: 'Puntajes, hallazgos y seguimiento por centro de costos',
             badge: rol.isEmpty
                 ? 'Solo consulta'
                 : (kInterventoriaRoleLabels[rol] ?? rol),
@@ -122,60 +126,84 @@ class _InterventoriaDashboardScreenState
                   compact: MediaQuery.of(context).size.width < 900,
                 ),
                 Expanded(
-                  child: StreamBuilder<List<InterventoriaHallazgo>>(
-                    stream: _svc.streamHallazgos(
-                      widget.empresaId,
-                      centroId: _centroFiltro.isEmpty ? null : _centroFiltro,
-                      estado: _estadoFiltro.isEmpty ? null : _estadoFiltro,
-                    ),
-                    builder: (context, snap) {
-                      final todos = snap.data ?? [];
-                      final filtrados = _aplicarFiltros(todos);
-
-                      if (_tab == 1) {
-                        return _SeguimientoMatriz(
-                          hallazgos: filtrados,
-                          centroFiltro: _centroFiltro,
-                          fechaDesde: _fechaDesde,
-                          fechaHasta: _fechaHasta,
-                          onCentroChanged: (v) =>
-                              setState(() => _centroFiltro = v),
-                          onFechaDesdeChanged: (v) =>
-                              setState(() => _fechaDesde = v),
-                          onFechaHastaChanged: (v) =>
-                              setState(() => _fechaHasta = v),
-                        );
-                      }
-                      if (_tab == 2 && canDirectivo) {
-                        return _AnalisisDirectivo(
-                          hallazgos: todos,
+                  child: IndexedStack(
+                    index: _tab,
+                    children: [
+                      // Tab 0: Visitas
+                      _VisitasTab(
+                        empresaId: widget.empresaId,
+                        userId: widget.userId,
+                        canWrite: canWrite,
+                        service: _svc,
+                        onRegistrar: () => _abrirRegistrarActa(context),
+                      ),
+                      // Tab 1: Hallazgos
+                      StreamBuilder<List<InterventoriaHallazgo>>(
+                        stream: _svc.streamHallazgos(
+                          widget.empresaId,
+                          centroId: _centroFiltro.isEmpty
+                              ? null
+                              : _centroFiltro,
+                          estado: _estadoFiltro.isEmpty
+                              ? null
+                              : _estadoFiltro,
+                        ),
+                        builder: (context, snap) {
+                          final todos = snap.data ?? [];
+                          final filtrados = _aplicarFiltros(todos);
+                          return _HallazgosTab(
+                            hallazgos: filtrados,
+                            todosHallazgos: todos,
+                            canWrite: canWrite,
+                            centroFiltro: _centroFiltro,
+                            estadoFiltro: _estadoFiltro,
+                            dptoFiltro: _dptoFiltro,
+                            fechaDesde: _fechaDesde,
+                            fechaHasta: _fechaHasta,
+                            onCentroChanged: (v) =>
+                                setState(() => _centroFiltro = v),
+                            onEstadoChanged: (v) =>
+                                setState(() => _estadoFiltro = v),
+                            onDptoChanged: (v) =>
+                                setState(() => _dptoFiltro = v),
+                            onFechaDesdeChanged: (v) =>
+                                setState(() => _fechaDesde = v),
+                            onFechaHastaChanged: (v) =>
+                                setState(() => _fechaHasta = v),
+                            onRegistrar: () => _abrirRegistrarActa(context),
+                            service: _svc,
+                          );
+                        },
+                      ),
+                      // Tab 2: Seguimiento
+                      StreamBuilder<List<InterventoriaHallazgo>>(
+                        stream: _svc.streamHallazgos(widget.empresaId),
+                        builder: (context, snap) {
+                          final filtrados =
+                              _aplicarFiltros(snap.data ?? []);
+                          return _SeguimientoMatriz(
+                            hallazgos: filtrados,
+                            centroFiltro: _centroFiltro,
+                            fechaDesde: _fechaDesde,
+                            fechaHasta: _fechaHasta,
+                            onCentroChanged: (v) =>
+                                setState(() => _centroFiltro = v),
+                            onFechaDesdeChanged: (v) =>
+                                setState(() => _fechaDesde = v),
+                            onFechaHastaChanged: (v) =>
+                                setState(() => _fechaHasta = v),
+                          );
+                        },
+                      ),
+                      // Tab 3: Análisis (solo directivos)
+                      if (canDirectivo)
+                        _AnalisisDirectivo(
                           empresaId: widget.empresaId,
                           service: _svc,
-                        );
-                      }
-                      return _HallazgosTab(
-                        hallazgos: filtrados,
-                        todosHallazgos: todos,
-                        canWrite: canWrite,
-                        centroFiltro: _centroFiltro,
-                        estadoFiltro: _estadoFiltro,
-                        dptoFiltro: _dptoFiltro,
-                        fechaDesde: _fechaDesde,
-                        fechaHasta: _fechaHasta,
-                        onCentroChanged: (v) =>
-                            setState(() => _centroFiltro = v),
-                        onEstadoChanged: (v) =>
-                            setState(() => _estadoFiltro = v),
-                        onDptoChanged: (v) =>
-                            setState(() => _dptoFiltro = v),
-                        onFechaDesdeChanged: (v) =>
-                            setState(() => _fechaDesde = v),
-                        onFechaHastaChanged: (v) =>
-                            setState(() => _fechaHasta = v),
-                        onRegistrar: () => _abrirRegistrarActa(context),
-                        service: _svc,
-                      );
-                    },
+                        )
+                      else
+                        const SizedBox.shrink(),
+                    ],
                   ),
                 ),
               ],
@@ -1114,130 +1142,622 @@ class _SeguimientoMatriz extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Widget: fila de puntaje por sección en el formulario de registro
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ItemPuntajeRow extends StatelessWidget {
+  final InterventoriaItem item;
+  final ValueChanged<InterventoriaItem> onChanged;
+
+  const _ItemPuntajeRow({required this.item, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = item.noEvaluado
+        ? const Color(0xFF94A3B8)
+        : _percentColor(item.valor ?? 0);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                // Dot de color
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Label
+                Expanded(
+                  child: Text(
+                    item.label,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                // Toggle NE
+                GestureDetector(
+                  onTap: () => onChanged(
+                    item.copyWith(
+                      noEvaluado: !item.noEvaluado,
+                      clearValor: !item.noEvaluado,
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: item.noEvaluado
+                          ? const Color(0xFF64748B)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: item.noEvaluado
+                            ? const Color(0xFF64748B)
+                            : const Color(0xFFCBD5E1),
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'NE',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: item.noEvaluado
+                            ? Colors.white
+                            : const Color(0xFFCBD5E1),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Input de porcentaje
+                SizedBox(
+                  width: 76,
+                  child: TextFormField(
+                    enabled: !item.noEvaluado,
+                    key: ValueKey('${item.key}_${item.noEvaluado}'),
+                    initialValue: item.valor != null
+                        ? item.valor!.toStringAsFixed(1)
+                        : '',
+                    textAlign: TextAlign.center,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      suffixText: '%',
+                      border: const OutlineInputBorder(),
+                      filled: true,
+                      fillColor: item.noEvaluado
+                          ? const Color(0xFFF1F5F9)
+                          : color.withValues(alpha: 0.08),
+                    ),
+                    onChanged: (v) {
+                      final p = double.tryParse(v.replaceAll(',', '.'));
+                      if (p != null) {
+                        onChanged(item.copyWith(valor: p.clamp(0, 100)));
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+            // Observación (colapsada por defecto)
+            const SizedBox(height: 6),
+            TextFormField(
+              initialValue: item.observacion,
+              decoration: const InputDecoration(
+                labelText: 'Observación (opcional)',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              style: const TextStyle(fontSize: 12),
+              onChanged: (v) => onChanged(item.copyWith(observacion: v)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab Visitas
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _VisitasTab extends StatelessWidget {
+  final String empresaId;
+  final String userId;
+  final bool canWrite;
+  final InterventoriaService service;
+  final VoidCallback onRegistrar;
+
+  const _VisitasTab({
+    required this.empresaId,
+    required this.userId,
+    required this.canWrite,
+    required this.service,
+    required this.onRegistrar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<InterventoriaVisita>>(
+      stream: service.streamVisitas(empresaId),
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final visitas = snap.data ?? [];
+        if (visitas.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.assignment_outlined,
+                  size: 52,
+                  color: Color(0xFF94A3B8),
+                ),
+                const SizedBox(height: 12),
+                const Text('Sin actas registradas'),
+                if (canWrite) ...[
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: onRegistrar,
+                    icon: const Icon(Icons.document_scanner_rounded),
+                    label: const Text('Registrar primera acta'),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }
+        final isWeb = MediaQuery.of(ctx).size.width >= 900;
+        return InternalModuleViewport(
+          maxWidth: 1300,
+          padding: EdgeInsets.all(isWeb ? 22 : 14),
+          child: ListView.separated(
+            itemCount: visitas.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (_, i) => _VisitaCard(
+              visita: visitas[i],
+              canWrite: canWrite,
+              service: service,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _VisitaCard extends StatefulWidget {
+  final InterventoriaVisita visita;
+  final bool canWrite;
+  final InterventoriaService service;
+
+  const _VisitaCard({
+    required this.visita,
+    required this.canWrite,
+    required this.service,
+  });
+
+  @override
+  State<_VisitaCard> createState() => _VisitaCardState();
+}
+
+class _VisitaCardState extends State<_VisitaCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = widget.visita;
+    final pct = v.porcentajeGeneral;
+    final color = _percentColor(pct);
+    final fmt = DateFormat('dd/MM/yyyy');
+
+    return Card(
+      child: Column(
+        children: [
+          // Cabecera
+          ListTile(
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Center(
+                child: Text(
+                  '${pct.toStringAsFixed(0)}%',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+            title: Text(
+              v.centroCostoNombre,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              '${fmt.format(v.fechaVisita.toDate())}  ·  '
+              '${v.observaciones.isNotEmpty ? v.observaciones : 'Sin grupo'}',
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.canWrite)
+                  IconButton(
+                    tooltip: 'Eliminar',
+                    icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
+                    onPressed: () => _confirmarEliminar(context),
+                  ),
+                IconButton(
+                  icon: Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                  ),
+                  onPressed: () => setState(() => _expanded = !_expanded),
+                ),
+              ],
+            ),
+          ),
+          // Detalle expandido
+          if (_expanded) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Column(
+                children: kInterventoriaCategorias.map((cat) {
+                  final item =
+                      v.items[cat.key] ?? InterventoriaItem.empty(cat);
+                  return _VisitaItemRow(item: item);
+                }).toList(),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmarEliminar(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Eliminar acta'),
+        content: Text(
+          '¿Eliminar el acta de ${widget.visita.centroCostoNombre} '
+          '(${DateFormat('dd/MM/yyyy').format(widget.visita.fechaVisita.toDate())})?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kDanger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await widget.service.eliminarVisita(widget.visita.id);
+    }
+  }
+}
+
+class _VisitaItemRow extends StatelessWidget {
+  final InterventoriaItem item;
+
+  const _VisitaItemRow({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final isNe = item.noEvaluado;
+    final pct = item.valor;
+    final color = isNe ? const Color(0xFF94A3B8) : _percentColor(pct ?? 0);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              item.label,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          if (isNe)
+            const Text(
+              'NE',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF94A3B8),
+                fontWeight: FontWeight.w700,
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '${pct?.toStringAsFixed(1) ?? '–'}%',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          if (item.observacion.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: item.observacion,
+              child: const Icon(Icons.info_outline_rounded, size: 14),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tab Análisis (directivos)
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AnalisisDirectivo extends StatelessWidget {
-  final List<InterventoriaHallazgo> hallazgos;
   final String empresaId;
   final InterventoriaService service;
 
   const _AnalisisDirectivo({
-    required this.hallazgos,
     required this.empresaId,
     required this.service,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Agrupar por establecimiento, orden: más bajo score primero
-    final porCentro = <String, List<InterventoriaHallazgo>>{};
-    for (final h in hallazgos) {
-      porCentro.putIfAbsent(h.centroCostoNombre, () => []).add(h);
-    }
-    final entradas = porCentro.entries.toList()
-      ..sort(
-        (a, b) => calcularScoreHallazgos(a.value).compareTo(
-          calcularScoreHallazgos(b.value),
-        ),
-      );
+    return StreamBuilder<List<InterventoriaVisita>>(
+      stream: service.streamVisitas(empresaId),
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final visitas = snap.data ?? [];
+        // Última visita por centro
+        final ultimaPorCentro = <String, InterventoriaVisita>{};
+        for (final v in visitas) {
+          final existing = ultimaPorCentro[v.centroCostoNombre];
+          if (existing == null ||
+              v.fechaVisita.compareTo(existing.fechaVisita) > 0) {
+            ultimaPorCentro[v.centroCostoNombre] = v;
+          }
+        }
+        // Centros ordenados: menor puntaje primero
+        final centros = ultimaPorCentro.values.toList()
+          ..sort(
+            (a, b) =>
+                a.porcentajeGeneral.compareTo(b.porcentajeGeneral),
+          );
 
-    final scoreGlobal = calcularScoreHallazgos(hallazgos);
+        final fmt = DateFormat('dd/MM/yy');
 
-    return InternalModuleViewport(
-      maxWidth: 1300,
-      padding: const EdgeInsets.all(22),
-      child: Column(
-        children: [
-          // Header + exportar
-          Row(
+        return InternalModuleViewport(
+          maxWidth: 1800,
+          padding: const EdgeInsets.all(20),
+          child: Column(
             children: [
-              const Expanded(
-                child: Text(
-                  'Score de subsanación por establecimiento',
-                  style: TextStyle(
-                    fontFamily: _kFont,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                  ),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: hallazgos.isEmpty
-                    ? null
-                    : () => _exportarExcel(context),
-                icon: const Icon(Icons.download_rounded),
-                label: const Text('Exportar Excel'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Métricas globales
-          Row(
-            children: [
-              Expanded(
-                child: _MetricCard(
-                  label: 'Total hallazgos',
-                  value: '${hallazgos.length}',
-                  color: const Color(0xFF475569),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MetricCard(
-                  label: 'Activos',
-                  value: '${hallazgos.where((h) => !h.isSubsanado).length}',
-                  color: _kDanger,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MetricCard(
-                  label: 'Subsanados',
-                  value: '${hallazgos.where((h) => h.isSubsanado).length}',
-                  color: _kOk,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _MetricCard(
-                  label: 'Score global',
-                  value: '${scoreGlobal.toStringAsFixed(1)}%',
-                  color: _percentColor(scoreGlobal),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Gráfica de barras por establecimiento
-          Expanded(
-            child: entradas.isEmpty
-                ? const Center(child: Text('Sin datos'))
-                : Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: ListView.builder(
-                        itemCount: entradas.length,
-                        itemBuilder: (_, i) => _BarraScore(
-                          nombre: entradas[i].key,
-                          hallazgos: entradas[i].value,
-                        ),
+              // Header + botón exportar
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Análisis de puntajes por establecimiento',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
                       ),
                     ),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: visitas.isEmpty
+                        ? null
+                        : () => _exportarExcel(ctx, visitas),
+                    icon: const Icon(Icons.download_rounded),
+                    label: const Text('Exportar Excel'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // Matriz cruzada
+              Expanded(
+                child: centros.isEmpty
+                    ? const Center(child: Text('Sin visitas registradas'))
+                    : Card(
+                        child: Scrollbar(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SingleChildScrollView(
+                              child: DataTable(
+                                headingRowColor: WidgetStateProperty.all(
+                                  const Color(0xFFF1F5F9),
+                                ),
+                                columnSpacing: 16,
+                                columns: [
+                                  // Columna fija: nombre de sección
+                                  const DataColumn(
+                                    label: Text(
+                                      'SECCIÓN',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                  // Una columna por centro
+                                  ...centros.map(
+                                    (v) => DataColumn(
+                                      label: SizedBox(
+                                        width: 90,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              v.centroCostoCodigo.isNotEmpty
+                                                  ? v.centroCostoCodigo
+                                                  : v.centroCostoNombre,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 11,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Text(
+                                              fmt.format(
+                                                v.fechaVisita.toDate(),
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                color: Color(0xFF64748B),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                rows: [
+                                  // Fila por categoría
+                                  ...kInterventoriaCategorias.map((cat) {
+                                    return DataRow(
+                                      cells: [
+                                        DataCell(
+                                          SizedBox(
+                                            width: 200,
+                                            child: Text(
+                                              cat.label,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        ...centros.map((v) {
+                                          final item = v.items[cat.key];
+                                          return DataCell(
+                                            _CeldaPuntaje(item: item),
+                                          );
+                                        }),
+                                      ],
+                                    );
+                                  }),
+                                  // Fila de total
+                                  DataRow(
+                                    color: WidgetStateProperty.all(
+                                      const Color(0xFFF8FAFC),
+                                    ),
+                                    cells: [
+                                      const DataCell(
+                                        Text(
+                                          'Total condiciones del servicio',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ),
+                                      ...centros.map((v) {
+                                        final pct = v.porcentajeGeneral;
+                                        final color = _percentColor(pct);
+                                        return DataCell(
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: color.withValues(
+                                                alpha: 0.15,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(4),
+                                            ),
+                                            child: Text(
+                                              '${pct.toStringAsFixed(1)}%',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 12,
+                                                color: color,
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Future<void> _exportarExcel(BuildContext context) async {
+  Future<void> _exportarExcel(
+    BuildContext context,
+    List<InterventoriaVisita> visitas,
+  ) async {
     try {
-      final bytes = service.exportarHallazgosExcel(hallazgos);
+      final bytes = service.exportarVisitasExcel(visitas);
       final nombre =
-          'Seguimiento_Interventoria_${DateFormat('yyyyMMdd').format(DateTime.now())}';
+          'Analisis_Interventoria_${DateFormat('yyyyMMdd').format(DateTime.now())}';
       if (kIsWeb) {
         await FileSaver.instance.saveFile(
           name: nombre,
@@ -1258,6 +1778,44 @@ class _AnalisisDirectivo extends StatelessWidget {
         );
       }
     }
+  }
+}
+
+// Celda de la matriz con color semafórico
+class _CeldaPuntaje extends StatelessWidget {
+  final InterventoriaItem? item;
+
+  const _CeldaPuntaje({this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    if (item == null || item!.noEvaluado || item!.valor == null) {
+      return const Text(
+        'NE',
+        style: TextStyle(
+          fontSize: 11,
+          color: Color(0xFF94A3B8),
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+    final pct = item!.valor!;
+    final color = _percentColor(pct);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        '${pct.toStringAsFixed(1)}%',
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
   }
 }
 
@@ -1285,11 +1843,17 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   DateTime _fecha = DateTime.now();
   String? _tipoActa;
   String _grupoId = '';
+  // Puntajes por sección
+  final Map<String, InterventoriaItem> _items = {
+    for (final cat in kInterventoriaCategorias)
+      cat.key: InterventoriaItem.empty(cat),
+  };
+  // Hallazgos OCR
   final _ocrCtrl = TextEditingController();
   final List<_PickedActa> _files = [];
   List<InterventoriaHallazgo> _hallazgosDetectados = [];
   bool _saving = false;
-  bool _extracting = false; // PDF text extraction in progress
+  bool _extracting = false;
 
   @override
   void dispose() {
@@ -1305,358 +1869,473 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       padding: EdgeInsets.only(bottom: bottom),
       child: DraggableScrollableSheet(
         expand: false,
-        initialChildSize: isWeb ? 0.86 : 0.96,
-        maxChildSize: 0.98,
+        initialChildSize: isWeb ? 0.9 : 0.97,
+        maxChildSize: 0.99,
         minChildSize: 0.5,
-        builder: (_, ctrl) => Material(
-          color: const Color(0xFFF8FAFC),
-          child: ListView(
-            controller: ctrl,
-            padding: const EdgeInsets.all(18),
-            children: [
-              // Header
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Registrar acta de interventoría',
-                      style: TextStyle(
-                        fontFamily: _kFont,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 20,
-                      ),
+        builder: (_, _) => DefaultTabController(
+          length: 2,
+          child: Material(
+            color: const Color(0xFFF8FAFC),
+            child: Column(
+              children: [
+                // ── Drag handle ───────────────────────────────────────────
+                Center(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // Establecimiento
-              StreamBuilder<List<CentroCostoRef>>(
-                stream: widget.service.streamCentrosCosto(widget.empresaId),
-                builder: (_, snap) {
-                  final centros = snap.data ?? [];
-                  return DropdownButtonFormField<CentroCostoRef>(
-                    value: _centro,
-                    decoration: const InputDecoration(
-                      labelText: 'Establecimiento / centro de costos',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: centros
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c,
-                            child: Text(
-                              '${c.codigo.isEmpty ? c.centroId : c.codigo} — ${c.nombre}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) => setState(() => _centro = v),
-                    validator: (v) =>
-                        v == null ? 'Selecciona un establecimiento' : null,
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-
-              // Fila: Fecha + Tipo acta + Grupo
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  SizedBox(
-                    width: isWeb ? 200 : double.infinity,
-                    child: ListTile(
-                      tileColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: const BorderSide(color: Color(0xFFE2E8F0)),
-                      ),
-                      dense: true,
-                      leading: const Icon(Icons.event_rounded),
-                      title: const Text('Fecha del acta'),
-                      subtitle: Text(
-                        DateFormat('dd/MM/yyyy').format(_fecha),
-                      ),
-                      onTap: _pickFecha,
-                    ),
-                  ),
-                  SizedBox(
-                    width: isWeb ? 200 : double.infinity,
-                    child: DropdownButtonFormField<String>(
-                      value: _tipoActa,
-                      decoration: const InputDecoration(
-                        labelText: 'Tipo de acta',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('Sin tipo'),
-                        ),
-                        ...kTiposActaInterventoria.map(
-                          (t) => DropdownMenuItem(
-                            value: t,
-                            child: Text(t),
-                          ),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _tipoActa = v),
-                    ),
-                  ),
-                  SizedBox(
-                    width: isWeb ? 200 : double.infinity,
-                    child: TextFormField(
-                      initialValue: _grupoId,
-                      decoration: const InputDecoration(
-                        labelText: 'Grupo (ej. GRUPO 9)',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      onChanged: (v) => _grupoId = v.trim(),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Panel OCR + adjuntos
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        kIsWeb
-                            ? 'Subir acta (PDF / imagen)'
-                            : 'Escanear acta con cámara',
-                        style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (kIsWeb)
-                            OutlinedButton.icon(
-                              onPressed: _pickWeb,
-                              icon: const Icon(Icons.upload_file_rounded),
-                              label: const Text('Subir PDF/imagen'),
-                            )
-                          else ...[
-                            OutlinedButton.icon(
-                              onPressed: _pickCamera,
-                              icon: const Icon(
-                                Icons.document_scanner_rounded,
-                              ),
-                              label: const Text('Escanear'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: _pickGallery,
-                              icon: const Icon(Icons.photo_library_rounded),
-                              label: const Text('Galería'),
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (_files.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 6,
-                          children: _files
-                              .map(
-                                (f) => Chip(
-                                  avatar: const Icon(
-                                    Icons.attach_file_rounded,
-                                    size: 16,
-                                  ),
-                                  label: Text(f.nombre),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      if (_extracting)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                              SizedBox(width: 10),
-                              Text(
-                                'Extrayendo texto del PDF...',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      TextField(
-                        controller: _ocrCtrl,
-                        minLines: 4,
-                        maxLines: 10,
-                        decoration: InputDecoration(
-                          labelText: 'Texto del acta',
-                          helperText:
-                              'El PDF se extrae automáticamente. '
-                              'Formato hallazgo: "1.1 El contratista incumple..."',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: _ocrCtrl.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear_rounded),
-                                  onPressed: () =>
-                                      setState(() => _ocrCtrl.clear()),
-                                )
-                              : null,
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                      const SizedBox(height: 10),
-                      FilledButton.tonalIcon(
-                        onPressed:
-                            (_centro == null || _ocrCtrl.text.trim().isEmpty)
-                                ? null
-                                : _detectarHallazgos,
-                        icon: const Icon(Icons.auto_fix_high_rounded),
-                        label: const Text('Detectar hallazgos del texto'),
-                      ),
-                    ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
 
-              // Banner INFRAESTRUCTURA
-              if (_tipoActa == 'INFRAESTRUCTURA') ...[
-                Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _kWarning.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: _kWarning.withValues(alpha: 0.5)),
-                  ),
+                // ── Header fijo ───────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 10, 0),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline_rounded, color: _kWarning, size: 18),
-                      const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
-                          'Visita de INFRAESTRUCTURA: solo se permiten hallazgos de la sección 2 (instalaciones físicas).',
-                          style: TextStyle(fontSize: 13),
+                          'Registrar acta de interventoría',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                          ),
                         ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded),
                       ),
                     ],
                   ),
                 ),
-              ],
 
-              // ── Sección de hallazgos (siempre visible) ───────────────────
-              Row(
-                children: [
-                  Text(
-                    _hallazgosDetectados.isEmpty
-                        ? 'Hallazgos'
-                        : '${_hallazgosDetectados.length} hallazgos',
-                    style: const TextStyle(
-                      fontFamily: _kFont,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
+                // ── Campos comunes ────────────────────────────────────────
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Column(
+                    children: [
+                      // Centro de costos
+                      StreamBuilder<List<CentroCostoRef>>(
+                        stream: widget.service.streamCentrosCosto(
+                          widget.empresaId,
+                        ),
+                        builder: (_, snap) {
+                          final centros = snap.data ?? [];
+                          return DropdownButtonFormField<CentroCostoRef>(
+                            value: _centro,
+                            decoration: const InputDecoration(
+                              labelText: 'Establecimiento / centro de costos',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: centros
+                                .map(
+                                  (c) => DropdownMenuItem(
+                                    value: c,
+                                    child: Text(
+                                      '${c.codigo.isEmpty ? c.centroId : c.codigo} — ${c.nombre}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setState(() => _centro = v),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      // Fecha + Tipo + Grupo
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          InkWell(
+                            onTap: _pickFecha,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: const Color(0xFFCBD5E1),
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.event_rounded,
+                                    size: 16,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    DateFormat('dd/MM/yyyy').format(_fecha),
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: isWeb ? 180 : double.infinity,
+                            child: DropdownButtonFormField<String>(
+                              value: _tipoActa,
+                              decoration: const InputDecoration(
+                                labelText: 'Tipo de acta',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: [
+                                const DropdownMenuItem(
+                                  value: null,
+                                  child: Text('Sin tipo'),
+                                ),
+                                ...kTiposActaInterventoria.map(
+                                  (t) =>
+                                      DropdownMenuItem(value: t, child: Text(t)),
+                                ),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _tipoActa = v),
+                            ),
+                          ),
+                          SizedBox(
+                            width: isWeb ? 180 : double.infinity,
+                            child: TextFormField(
+                              initialValue: _grupoId,
+                              decoration: const InputDecoration(
+                                labelText: 'Grupo (ej. GRUPO 9)',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              onChanged: (v) => _grupoId = v.trim(),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Pestañas internas ──────────────────────────────────────
+                const SizedBox(height: 8),
+                TabBar(
+                  labelColor: _kAccent,
+                  unselectedLabelColor: const Color(0xFF64748B),
+                  indicatorColor: _kAccent,
+                  tabs: const [
+                    Tab(icon: Icon(Icons.percent_rounded), text: 'Puntajes'),
+                    Tab(
+                      icon: Icon(Icons.report_problem_outlined),
+                      text: 'Hallazgos',
+                    ),
+                  ],
+                ),
+
+                // ── Contenido de las pestañas ─────────────────────────────
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      // ── Tab Puntajes ───────────────────────────────────
+                      _buildPuntajesTab(isWeb),
+                      // ── Tab Hallazgos ──────────────────────────────────
+                      _buildHallazgosTab(),
+                    ],
+                  ),
+                ),
+
+                // ── Botón guardar (fijo al fondo) ─────────────────────────
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _kAccent,
+                        ),
+                        onPressed: _saving || _centro == null ? null : _save,
+                        icon: _saving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.save_rounded),
+                        label: Text(
+                          _saving
+                              ? 'Guardando...'
+                              : 'Guardar acta'
+                                  '${_hallazgosDetectados.isNotEmpty ? ' + ${_hallazgosDetectados.length} hallazgos' : ''}',
+                        ),
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: _centro == null
-                        ? null
-                        : () => setState(() {
-                              final numPre =
-                                  _tipoActa == 'INFRAESTRUCTURA' ? '2.' : '';
-                              _hallazgosDetectados.add(
-                                InterventoriaHallazgo(
-                                  empresaId: widget.empresaId,
-                                  centroCostoId: _centro?.centroId ?? '',
-                                  centroCostoNombre: _centro?.nombre ?? '',
-                                  grupoId: _grupoId,
-                                  tipoActa: _tipoActa,
-                                  numeroHallazgo: numPre,
-                                  descripcion: '',
-                                  fechaHallazgo: Timestamp.fromDate(_fecha),
-                                  fuente: 'manual',
-                                  createdAt: Timestamp.now(),
-                                ),
-                              );
-                            }),
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Agregar manual'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-
-              if (_hallazgosDetectados.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                ..._hallazgosDetectados.asMap().entries.map(
-                  (entry) => _HallazgoEditorRow(
-                    index: entry.key,
-                    hallazgo: entry.value,
-                    onChanged: (updated) => setState(() {
-                      _hallazgosDetectados[entry.key] = updated;
-                    }),
-                    onDelete: () => setState(() {
-                      _hallazgosDetectados.removeAt(entry.key);
-                    }),
-                  ),
                 ),
-                const SizedBox(height: 16),
               ],
-
-              // Botón guardar
-              FilledButton.icon(
-                onPressed: _saving || _centro == null ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.save_rounded),
-                label: Text(
-                  _saving
-                      ? 'Guardando...'
-                      : _hallazgosDetectados.isEmpty
-                      ? 'Guardar acta (solo adjuntos)'
-                      : 'Guardar ${_hallazgosDetectados.length} hallazgos',
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  // ── Tab: Puntajes por sección ─────────────────────────────────────────────
+  Widget _buildPuntajesTab(bool isWeb) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
+      children: [
+        if (_tipoActa == 'INFRAESTRUCTURA')
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _kWarning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _kWarning.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: _kWarning, size: 16),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'INFRAESTRUCTURA: solo aplica sección 2. '
+                    'Las demás secciones márquelas como NE.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        // Adjuntos (subida de acta)
+        Card(
+          margin: const EdgeInsets.only(bottom: 10),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Adjuntar acta',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (kIsWeb)
+                      OutlinedButton.icon(
+                        onPressed: _pickWeb,
+                        icon: const Icon(Icons.upload_file_rounded, size: 16),
+                        label: const Text('Subir PDF/imagen'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      )
+                    else ...[
+                      OutlinedButton.icon(
+                        onPressed: _pickCamera,
+                        icon: const Icon(
+                          Icons.document_scanner_rounded,
+                          size: 16,
+                        ),
+                        label: const Text('Escanear'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _pickGallery,
+                        icon: const Icon(Icons.photo_library_rounded, size: 16),
+                        label: const Text('Galería'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (_files.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 4,
+                    children: _files
+                        .map(
+                          (f) => Chip(
+                            avatar: const Icon(
+                              Icons.attach_file_rounded,
+                              size: 14,
+                            ),
+                            label: Text(
+                              f.nombre,
+                              style: const TextStyle(fontSize: 11),
+                            ),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        // Filas de puntaje
+        ...kInterventoriaCategorias.map((cat) {
+          final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
+          return _ItemPuntajeRow(
+            item: item,
+            onChanged: (updated) => setState(() => _items[cat.key] = updated),
+          );
+        }),
+      ],
+    );
+  }
+
+  // ── Tab: Hallazgos OCR/manual ────────────────────────────────────────────
+  Widget _buildHallazgosTab() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
+      children: [
+        if (_tipoActa == 'INFRAESTRUCTURA')
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: _kWarning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _kWarning.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, color: _kWarning, size: 16),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'INFRAESTRUCTURA: solo se permitirán hallazgos de la sección 2.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        // OCR text field
+        if (_extracting)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Extrayendo texto del PDF...',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+          ),
+        TextField(
+          controller: _ocrCtrl,
+          minLines: 3,
+          maxLines: 8,
+          decoration: InputDecoration(
+            labelText: 'Texto del acta',
+            helperText:
+                'El PDF se extrae automáticamente. '
+                'Formato: "1.1 El contratista incumple..."',
+            border: const OutlineInputBorder(),
+            isDense: true,
+            suffixIcon: _ocrCtrl.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear_rounded),
+                    onPressed: () => setState(() => _ocrCtrl.clear()),
+                  )
+                : null,
+          ),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 8),
+        FilledButton.tonalIcon(
+          onPressed:
+              (_centro == null || _ocrCtrl.text.trim().isEmpty)
+                  ? null
+                  : _detectarHallazgos,
+          icon: const Icon(Icons.auto_fix_high_rounded),
+          label: const Text('Detectar hallazgos del texto'),
+        ),
+        const SizedBox(height: 14),
+        // Lista de hallazgos
+        Row(
+          children: [
+            Text(
+              _hallazgosDetectados.isEmpty
+                  ? 'Hallazgos'
+                  : '${_hallazgosDetectados.length} hallazgos',
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _centro == null
+                  ? null
+                  : () => setState(() {
+                        final numPre =
+                            _tipoActa == 'INFRAESTRUCTURA' ? '2.' : '';
+                        _hallazgosDetectados.add(
+                          InterventoriaHallazgo(
+                            empresaId: widget.empresaId,
+                            centroCostoId: _centro?.centroId ?? '',
+                            centroCostoNombre: _centro?.nombre ?? '',
+                            grupoId: _grupoId,
+                            tipoActa: _tipoActa,
+                            numeroHallazgo: numPre,
+                            descripcion: '',
+                            fechaHallazgo: Timestamp.fromDate(_fecha),
+                            fuente: 'manual',
+                            createdAt: Timestamp.now(),
+                          ),
+                        );
+                      }),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Agregar manual'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ..._hallazgosDetectados.asMap().entries.map(
+          (entry) => _HallazgoEditorRow(
+            index: entry.key,
+            hallazgo: entry.value,
+            onChanged: (updated) =>
+                setState(() => _hallazgosDetectados[entry.key] = updated),
+            onDelete: () => setState(() =>
+                _hallazgosDetectados.removeAt(entry.key)),
+          ),
+        ),
+        const SizedBox(height: 80),
+      ],
     );
   }
 
@@ -1817,30 +2496,54 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     if (_centro == null) return;
     setState(() => _saving = true);
     try {
-      // Subir adjuntos primero (sin visitaId — lo asociamos después)
+      // 1. Guardar la visita con puntajes
+      final pctGeneral = calcularPorcentajeGeneral(_items);
+      final visita = InterventoriaVisita(
+        empresaId: widget.empresaId,
+        centroCostoId: _centro!.centroId,
+        centroCostoCodigo: _centro!.codigo,
+        centroCostoNombre: _centro!.nombre,
+        fechaVisita: Timestamp.fromDate(_fecha),
+        fechaRegistro: Timestamp.now(),
+        creadoPor: widget.userId,
+        porcentajeGeneral: pctGeneral,
+        items: _items,
+        observaciones: _grupoId,
+        createdAt: Timestamp.now(),
+      );
+      final visitaId = await widget.service.guardarVisita(visita);
+
+      // 2. Subir adjuntos
       final adjuntos = <InterventoriaAdjunto>[];
       for (final f in _files) {
         adjuntos.add(
           await widget.service.subirActaBytes(
             bytes: f.bytes,
             empresaId: widget.empresaId,
-            visitaId: 'standalone_${DateTime.now().millisecondsSinceEpoch}',
+            visitaId: visitaId,
             nombre: f.nombre,
             contentType: f.contentType,
             origen: f.origen,
           ),
         );
       }
+      if (adjuntos.isNotEmpty) {
+        await widget.service.agregarAdjuntos(
+          visitaId: visitaId,
+          adjuntos: adjuntos,
+        );
+      }
 
-      // Guardar todos los hallazgos en batch
+      // 3. Guardar hallazgos (si hay)
       final toSave = _hallazgosDetectados
           .where((h) => h.descripcion.isNotEmpty)
           .map(
             (h) => InterventoriaHallazgo(
               empresaId: h.empresaId,
+              visitaId: visitaId,
               centroCostoId: h.centroCostoId,
               centroCostoNombre: h.centroCostoNombre,
-              grupoId: h.grupoId,
+              grupoId: _grupoId,
               tipoActa: h.tipoActa ?? _tipoActa,
               numeroHallazgo: h.numeroHallazgo,
               descripcion: h.descripcion,
@@ -1848,12 +2551,12 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
               dptoEncargado: h.dptoEncargado,
               observaciones: h.observaciones,
               planMejora: h.planMejora,
+              valorCorreccion: h.valorCorreccion,
               fuente: h.fuente,
               createdAt: Timestamp.now(),
             ),
           )
           .toList();
-
       if (toSave.isNotEmpty) {
         await widget.service.guardarHallazgos(toSave);
       }
@@ -1862,10 +2565,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
+            backgroundColor: _kOk,
             content: Text(
-              toSave.isEmpty
-                  ? 'Acta guardada (sin hallazgos)'
-                  : '${toSave.length} hallazgos registrados correctamente',
+              'Acta guardada — ${pctGeneral.toStringAsFixed(1)}%'
+              '${toSave.isNotEmpty ? ' · ${toSave.length} hallazgos' : ''}',
             ),
           ),
         );
@@ -2213,28 +2916,6 @@ class _EstadoChip extends StatelessWidget {
   }
 }
 
-class _PercentChip extends StatelessWidget {
-  final double value;
-
-  const _PercentChip({required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _percentColor(value);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
-        color: color.withValues(alpha: 0.14),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-      ),
-      child: Text(
-        '${value.toStringAsFixed(1)}%',
-        style: TextStyle(color: color, fontWeight: FontWeight.w900),
-      ),
-    );
-  }
-}
 
 class _MetricCard extends StatelessWidget {
   final String label;
@@ -2394,118 +3075,6 @@ class _FechaTile extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Barra de score visual para el análisis
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _BarraScore extends StatelessWidget {
-  final String nombre;
-  final List<InterventoriaHallazgo> hallazgos;
-
-  const _BarraScore({required this.nombre, required this.hallazgos});
-
-  @override
-  Widget build(BuildContext context) {
-    final total = hallazgos.length;
-    final subsanados = hallazgos.where((h) => h.isSubsanado).length;
-    final activos = total - subsanados;
-    final pct = total == 0 ? 0.0 : subsanados / total;
-    final score = pct * 100;
-    final color = _percentColor(score);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Nombre + chip porcentaje
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  nombre,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _PercentChip(value: score),
-            ],
-          ),
-          const SizedBox(height: 6),
-          // Barra con gradiente
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: SizedBox(
-              height: 28,
-              child: Stack(
-                children: [
-                  // Fondo
-                  Container(color: const Color(0xFFE2E8F0)),
-                  // Relleno
-                  FractionallySizedBox(
-                    widthFactor: pct.clamp(0.0, 1.0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: score < 50
-                              ? [_kDanger, _kDanger.withValues(alpha: 0.7)]
-                              : score < 80
-                              ? [_kWarning, _kWarning.withValues(alpha: 0.8)]
-                              : [_kOk, _kOk.withValues(alpha: 0.75)],
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Texto interior
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Row(
-                        children: [
-                          Text(
-                            '$subsanados/$total subsanados',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: pct > 0.35 ? Colors.white : color,
-                            ),
-                          ),
-                          const Spacer(),
-                          if (activos > 0)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '$activos activo${activos == 1 ? '' : 's'}',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 Color _percentColor(double value) {
   if (value >= 90) return Colors.green.shade700;
