@@ -33,6 +33,33 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <!-- PDF.js para extracción de texto de actas -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+  <script type="module">
+    import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+    window._extractPdfText = async function(uint8array) {
+      try {
+        const pdf = await pdfjsLib.getDocument({ data: uint8array }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items
+            .map(item => item.str || '')
+            .join(' ');
+          fullText += pageText + '\n';
+        }
+        return fullText.trim();
+      } catch (e) {
+        console.error('[PDF extract]', e);
+        return '';
+      }
+    };
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

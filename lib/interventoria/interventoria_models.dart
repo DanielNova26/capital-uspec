@@ -514,6 +514,8 @@ class InterventoriaHallazgo {
 
   InterventoriaHallazgo copyWith({
     String? estado,
+    String? numeroHallazgo,
+    String? descripcion,
     String? dptoEncargado,
     String? observaciones,
     String? planMejora,
@@ -523,7 +525,6 @@ class InterventoriaHallazgo {
     bool clearFechaSubsanacion = false,
     String? seguimiento,
     bool? persiste,
-    String? descripcion,
   }) => InterventoriaHallazgo(
     id: id,
     empresaId: empresaId,
@@ -533,7 +534,7 @@ class InterventoriaHallazgo {
     grupoId: grupoId,
     estado: estado ?? this.estado,
     tipoActa: tipoActa,
-    numeroHallazgo: numeroHallazgo,
+    numeroHallazgo: numeroHallazgo ?? this.numeroHallazgo,
     descripcion: descripcion ?? this.descripcion,
     fechaHallazgo: fechaHallazgo,
     persiste: persiste ?? this.persiste,

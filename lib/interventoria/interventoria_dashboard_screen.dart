@@ -12,6 +12,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/guarded_module_page.dart';
+import '../utils/pdf_extractor.dart';
 import '../widgets/internal_module_layout.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
@@ -50,6 +51,8 @@ class _InterventoriaDashboardScreenState
   String _centroFiltro = '';
   String _estadoFiltro = ''; // '' | 'activo' | 'subsanado'
   String _dptoFiltro = '';
+  DateTime? _fechaDesde;
+  DateTime? _fechaHasta;
 
   @override
   Widget build(BuildContext context) {
@@ -133,8 +136,14 @@ class _InterventoriaDashboardScreenState
                         return _SeguimientoMatriz(
                           hallazgos: filtrados,
                           centroFiltro: _centroFiltro,
+                          fechaDesde: _fechaDesde,
+                          fechaHasta: _fechaHasta,
                           onCentroChanged: (v) =>
                               setState(() => _centroFiltro = v),
+                          onFechaDesdeChanged: (v) =>
+                              setState(() => _fechaDesde = v),
+                          onFechaHastaChanged: (v) =>
+                              setState(() => _fechaHasta = v),
                         );
                       }
                       if (_tab == 2 && canDirectivo) {
@@ -151,12 +160,18 @@ class _InterventoriaDashboardScreenState
                         centroFiltro: _centroFiltro,
                         estadoFiltro: _estadoFiltro,
                         dptoFiltro: _dptoFiltro,
+                        fechaDesde: _fechaDesde,
+                        fechaHasta: _fechaHasta,
                         onCentroChanged: (v) =>
                             setState(() => _centroFiltro = v),
                         onEstadoChanged: (v) =>
                             setState(() => _estadoFiltro = v),
                         onDptoChanged: (v) =>
                             setState(() => _dptoFiltro = v),
+                        onFechaDesdeChanged: (v) =>
+                            setState(() => _fechaDesde = v),
+                        onFechaHastaChanged: (v) =>
+                            setState(() => _fechaHasta = v),
                         onRegistrar: () => _abrirRegistrarActa(context),
                         service: _svc,
                       );
@@ -183,6 +198,22 @@ class _InterventoriaDashboardScreenState
     }
     if (_dptoFiltro.isNotEmpty) {
       r = r.where((h) => h.dptoEncargado == _dptoFiltro).toList();
+    }
+    if (_fechaDesde != null) {
+      final desde = DateTime(
+        _fechaDesde!.year, _fechaDesde!.month, _fechaDesde!.day,
+      );
+      r = r
+          .where((h) => !h.fechaHallazgo.toDate().isBefore(desde))
+          .toList();
+    }
+    if (_fechaHasta != null) {
+      final hasta = DateTime(
+        _fechaHasta!.year, _fechaHasta!.month, _fechaHasta!.day, 23, 59, 59,
+      );
+      r = r
+          .where((h) => !h.fechaHallazgo.toDate().isAfter(hasta))
+          .toList();
     }
     return r;
   }
@@ -212,9 +243,13 @@ class _HallazgosTab extends StatelessWidget {
   final String centroFiltro;
   final String estadoFiltro;
   final String dptoFiltro;
+  final DateTime? fechaDesde;
+  final DateTime? fechaHasta;
   final ValueChanged<String> onCentroChanged;
   final ValueChanged<String> onEstadoChanged;
   final ValueChanged<String> onDptoChanged;
+  final ValueChanged<DateTime?> onFechaDesdeChanged;
+  final ValueChanged<DateTime?> onFechaHastaChanged;
   final VoidCallback onRegistrar;
   final InterventoriaService service;
 
@@ -225,9 +260,13 @@ class _HallazgosTab extends StatelessWidget {
     required this.centroFiltro,
     required this.estadoFiltro,
     required this.dptoFiltro,
+    this.fechaDesde,
+    this.fechaHasta,
     required this.onCentroChanged,
     required this.onEstadoChanged,
     required this.onDptoChanged,
+    required this.onFechaDesdeChanged,
+    required this.onFechaHastaChanged,
     required this.onRegistrar,
     required this.service,
   });
@@ -291,9 +330,13 @@ class _HallazgosTab extends StatelessWidget {
             centroFiltro: centroFiltro,
             estadoFiltro: estadoFiltro,
             dptoFiltro: dptoFiltro,
+            fechaDesde: fechaDesde,
+            fechaHasta: fechaHasta,
             onCentroChanged: onCentroChanged,
             onEstadoChanged: onEstadoChanged,
             onDptoChanged: onDptoChanged,
+            onFechaDesdeChanged: onFechaDesdeChanged,
+            onFechaHastaChanged: onFechaHastaChanged,
           ),
           const SizedBox(height: 14),
           // Lista
@@ -308,7 +351,7 @@ class _HallazgosTab extends StatelessWidget {
                   )
                 : ListView.separated(
                     itemCount: hallazgos.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (ctx, i) => _HallazgoCard(
                       hallazgo: hallazgos[i],
                       canWrite: canWrite,
@@ -878,32 +921,54 @@ class _HallazgoFormState extends State<_HallazgoForm> {
 class _SeguimientoMatriz extends StatelessWidget {
   final List<InterventoriaHallazgo> hallazgos;
   final String centroFiltro;
+  final DateTime? fechaDesde;
+  final DateTime? fechaHasta;
   final ValueChanged<String> onCentroChanged;
+  final ValueChanged<DateTime?> onFechaDesdeChanged;
+  final ValueChanged<DateTime?> onFechaHastaChanged;
 
   const _SeguimientoMatriz({
     required this.hallazgos,
     required this.centroFiltro,
+    this.fechaDesde,
+    this.fechaHasta,
     required this.onCentroChanged,
+    required this.onFechaDesdeChanged,
+    required this.onFechaHastaChanged,
   });
 
   @override
   Widget build(BuildContext context) {
+    final fmt = DateFormat('dd/MM/yy');
     final centros = {
       for (final h in hallazgos) h.centroCostoId: h.centroCostoNombre,
     };
+    // Orden: fecha DESC, luego establecimiento alfa
+    final sorted = hallazgos.toList()
+      ..sort((a, b) {
+        final byFecha = b.fechaHallazgo.compareTo(a.fechaHallazgo);
+        return byFecha != 0
+            ? byFecha
+            : a.centroCostoNombre.compareTo(b.centroCostoNombre);
+      });
+
     return InternalModuleViewport(
       maxWidth: 1800,
       padding: const EdgeInsets.all(18),
       child: Column(
         children: [
-          Row(
+          // Filtros de la matriz
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
             children: [
-              Expanded(
+              SizedBox(
+                width: 220,
                 child: DropdownButtonFormField<String>(
                   key: ValueKey(centroFiltro),
                   initialValue: centroFiltro,
                   decoration: const InputDecoration(
-                    labelText: 'Filtrar establecimiento',
+                    labelText: 'Establecimiento',
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -919,11 +984,30 @@ class _SeguimientoMatriz extends StatelessWidget {
                   onChanged: (v) => onCentroChanged(v ?? ''),
                 ),
               ),
+              _FechaTile(
+                label: 'Desde',
+                fecha: fechaDesde,
+                onChanged: onFechaDesdeChanged,
+              ),
+              _FechaTile(
+                label: 'Hasta',
+                fecha: fechaHasta,
+                onChanged: onFechaHastaChanged,
+              ),
+              if (fechaDesde != null || fechaHasta != null)
+                TextButton.icon(
+                  onPressed: () {
+                    onFechaDesdeChanged(null);
+                    onFechaHastaChanged(null);
+                  },
+                  icon: const Icon(Icons.clear_rounded, size: 16),
+                  label: const Text('Limpiar fechas'),
+                ),
             ],
           ),
           const SizedBox(height: 14),
           Expanded(
-            child: hallazgos.isEmpty
+            child: sorted.isEmpty
                 ? const Center(child: Text('Sin hallazgos para mostrar'))
                 : Card(
                     child: Scrollbar(
@@ -948,20 +1032,18 @@ class _SeguimientoMatriz extends StatelessWidget {
                               DataColumn(label: Text('Plan de mejora')),
                               DataColumn(label: Text('F. Subsanación')),
                             ],
-                            rows: hallazgos.map((h) {
-                              final fmt = DateFormat('dd/MM/yy');
+                            rows: sorted.map((h) {
                               return DataRow(
-                                color: WidgetStateProperty.resolveWith((s) =>
-                                    h.isSubsanado
-                                        ? _kOk.withValues(alpha: 0.08)
-                                        : _kDanger.withValues(alpha: 0.04)),
+                                color: WidgetStateProperty.resolveWith(
+                                  (_) => h.isSubsanado
+                                      ? _kOk.withValues(alpha: 0.08)
+                                      : _kDanger.withValues(alpha: 0.04),
+                                ),
                                 cells: [
                                   DataCell(Text(h.grupoId)),
                                   DataCell(Text(h.centroCostoNombre)),
                                   DataCell(
-                                    _EstadoChip(
-                                      isSubsanado: h.isSubsanado,
-                                    ),
+                                    _EstadoChip(isSubsanado: h.isSubsanado),
                                   ),
                                   DataCell(Text(h.tipoActa ?? '')),
                                   DataCell(
@@ -983,13 +1065,9 @@ class _SeguimientoMatriz extends StatelessWidget {
                                     ),
                                   ),
                                   DataCell(
-                                    Text(
-                                      fmt.format(h.fechaHallazgo.toDate()),
-                                    ),
+                                    Text(fmt.format(h.fechaHallazgo.toDate())),
                                   ),
-                                  DataCell(
-                                    Text(h.persiste ? 'SI' : ''),
-                                  ),
+                                  DataCell(Text(h.persiste ? 'SI' : '')),
                                   DataCell(Text(h.dptoEncargado)),
                                   DataCell(
                                     SizedBox(
@@ -1052,21 +1130,26 @@ class _AnalisisDirectivo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Score por establecimiento
+    // Agrupar por establecimiento, orden: más bajo score primero
     final porCentro = <String, List<InterventoriaHallazgo>>{};
     for (final h in hallazgos) {
       porCentro.putIfAbsent(h.centroCostoNombre, () => []).add(h);
     }
-    final scores = porCentro.entries
-        .map((e) => (e.key, calcularScoreHallazgos(e.value)))
-        .toList()
-      ..sort((a, b) => a.$2.compareTo(b.$2));
+    final entradas = porCentro.entries.toList()
+      ..sort(
+        (a, b) => calcularScoreHallazgos(a.value).compareTo(
+          calcularScoreHallazgos(b.value),
+        ),
+      );
+
+    final scoreGlobal = calcularScoreHallazgos(hallazgos);
 
     return InternalModuleViewport(
       maxWidth: 1300,
       padding: const EdgeInsets.all(22),
       child: Column(
         children: [
+          // Header + exportar
           Row(
             children: [
               const Expanded(
@@ -1089,97 +1172,60 @@ class _AnalisisDirectivo extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+
+          // Métricas globales
+          Row(
+            children: [
+              Expanded(
+                child: _MetricCard(
+                  label: 'Total hallazgos',
+                  value: '${hallazgos.length}',
+                  color: const Color(0xFF475569),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MetricCard(
+                  label: 'Activos',
+                  value: '${hallazgos.where((h) => !h.isSubsanado).length}',
+                  color: _kDanger,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MetricCard(
+                  label: 'Subsanados',
+                  value: '${hallazgos.where((h) => h.isSubsanado).length}',
+                  color: _kOk,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _MetricCard(
+                  label: 'Score global',
+                  value: '${scoreGlobal.toStringAsFixed(1)}%',
+                  color: _percentColor(scoreGlobal),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Gráfica de barras por establecimiento
           Expanded(
-            child: scores.isEmpty
+            child: entradas.isEmpty
                 ? const Center(child: Text('Sin datos'))
-                : Column(
-                    children: [
-                      Expanded(
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ...scores.map(
-                                  (entry) => Padding(
-                                    padding:
-                                        const EdgeInsets.only(bottom: 12),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                entry.$1,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ),
-                                            _PercentChip(
-                                              value: entry.$2,
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        LinearProgressIndicator(
-                                          value: entry.$2 / 100,
-                                          backgroundColor:
-                                              const Color(0xFFE2E8F0),
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                            _percentColor(entry.$2),
-                                          ),
-                                          minHeight: 8,
-                                          borderRadius:
-                                              BorderRadius.circular(4),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                : Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: ListView.builder(
+                        itemCount: entradas.length,
+                        itemBuilder: (_, i) => _BarraScore(
+                          nombre: entradas[i].key,
+                          hallazgos: entradas[i].value,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      // Métricas globales
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _MetricCard(
-                              label: 'Total hallazgos',
-                              value: '${hallazgos.length}',
-                              color: const Color(0xFF475569),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _MetricCard(
-                              label: 'Activos',
-                              value:
-                                  '${hallazgos.where((h) => !h.isSubsanado).length}',
-                              color: _kDanger,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _MetricCard(
-                              label: 'Score global',
-                              value:
-                                  '${calcularScoreHallazgos(hallazgos).toStringAsFixed(1)}%',
-                              color: _percentColor(
-                                calcularScoreHallazgos(hallazgos),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                    ),
                   ),
           ),
         ],
@@ -1243,6 +1289,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   final List<_PickedActa> _files = [];
   List<InterventoriaHallazgo> _hallazgosDetectados = [];
   bool _saving = false;
+  bool _extracting = false; // PDF text extraction in progress
 
   @override
   void dispose() {
@@ -1441,21 +1488,53 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                         ),
                       ],
                       const SizedBox(height: 12),
+                      if (_extracting)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                              SizedBox(width: 10),
+                              Text(
+                                'Extrayendo texto del PDF...',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       TextField(
                         controller: _ocrCtrl,
                         minLines: 4,
-                        maxLines: 8,
-                        decoration: const InputDecoration(
-                          labelText:
-                              'Pega aquí el texto del acta para detectar hallazgos',
+                        maxLines: 10,
+                        decoration: InputDecoration(
+                          labelText: 'Texto del acta',
                           helperText:
-                              'Formato esperado: "1.1 El contratista incumple..." — un hallazgo por línea.',
-                          border: OutlineInputBorder(),
+                              'El PDF se extrae automáticamente. '
+                              'Formato hallazgo: "1.1 El contratista incumple..."',
+                          border: const OutlineInputBorder(),
+                          suffixIcon: _ocrCtrl.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear_rounded),
+                                  onPressed: () =>
+                                      setState(() => _ocrCtrl.clear()),
+                                )
+                              : null,
                         ),
+                        onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: 10),
                       FilledButton.tonalIcon(
-                        onPressed: _centro == null ? null : _detectarHallazgos,
+                        onPressed:
+                            (_centro == null || _ocrCtrl.text.trim().isEmpty)
+                                ? null
+                                : _detectarHallazgos,
                         icon: const Icon(Icons.auto_fix_high_rounded),
                         label: const Text('Detectar hallazgos del texto'),
                       ),
@@ -1465,41 +1544,77 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
               ),
               const SizedBox(height: 16),
 
-              // Hallazgos detectados (editables)
-              if (_hallazgosDetectados.isNotEmpty) ...[
-                Row(
-                  children: [
-                    Text(
-                      '${_hallazgosDetectados.length} hallazgos detectados',
-                      style: const TextStyle(
-                        fontFamily: _kFont,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15,
+              // Banner INFRAESTRUCTURA
+              if (_tipoActa == 'INFRAESTRUCTURA') ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _kWarning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _kWarning.withValues(alpha: 0.5)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: _kWarning, size: 18),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Visita de INFRAESTRUCTURA: solo se permiten hallazgos de la sección 2 (instalaciones físicas).',
+                          style: TextStyle(fontSize: 13),
+                        ),
                       ),
-                    ),
-                    const Spacer(),
-                    TextButton.icon(
-                      onPressed: () => setState(() {
-                        _hallazgosDetectados.add(
-                          InterventoriaHallazgo(
-                            empresaId: widget.empresaId,
-                            centroCostoId: _centro?.centroId ?? '',
-                            centroCostoNombre: _centro?.nombre ?? '',
-                            grupoId: _grupoId,
-                            tipoActa: _tipoActa,
-                            numeroHallazgo: '',
-                            descripcion: '',
-                            fechaHallazgo: Timestamp.fromDate(_fecha),
-                            fuente: 'manual',
-                            createdAt: Timestamp.now(),
-                          ),
-                        );
-                      }),
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Agregar manual'),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+              ],
+
+              // ── Sección de hallazgos (siempre visible) ───────────────────
+              Row(
+                children: [
+                  Text(
+                    _hallazgosDetectados.isEmpty
+                        ? 'Hallazgos'
+                        : '${_hallazgosDetectados.length} hallazgos',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: _centro == null
+                        ? null
+                        : () => setState(() {
+                              final numPre =
+                                  _tipoActa == 'INFRAESTRUCTURA' ? '2.' : '';
+                              _hallazgosDetectados.add(
+                                InterventoriaHallazgo(
+                                  empresaId: widget.empresaId,
+                                  centroCostoId: _centro?.centroId ?? '',
+                                  centroCostoNombre: _centro?.nombre ?? '',
+                                  grupoId: _grupoId,
+                                  tipoActa: _tipoActa,
+                                  numeroHallazgo: numPre,
+                                  descripcion: '',
+                                  fechaHallazgo: Timestamp.fromDate(_fecha),
+                                  fuente: 'manual',
+                                  createdAt: Timestamp.now(),
+                                ),
+                              );
+                            }),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Agregar manual'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+
+              if (_hallazgosDetectados.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 ..._hallazgosDetectados.asMap().entries.map(
                   (entry) => _HallazgoEditorRow(
@@ -1545,6 +1660,16 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     );
   }
 
+  /// Nombre de archivo con el formato {centro}_{fecha}_interventoria.{ext}
+  String _nombreActa(String ext) {
+    final centro = (_centro?.nombre ?? 'acta')
+        .replaceAll(RegExp(r'[^\wáéíóúÁÉÍÓÚñÑ ]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '_');
+    final fechaStr = DateFormat('yyyyMMdd').format(_fecha);
+    return '${centro}_${fechaStr}_interventoria.$ext';
+  }
+
   Future<void> _pickFecha() async {
     final p = await showDatePicker(
       context: context,
@@ -1563,26 +1688,83 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg'],
     );
     if (r == null) return;
-    setState(() {
-      _files.addAll(
-        r.files.where((f) => f.bytes != null).map((f) {
-          final ext = (f.extension ?? '').toLowerCase();
-          return _PickedActa(
-            bytes: f.bytes!,
-            nombre: f.name,
-            contentType: ext == 'pdf'
-                ? 'application/pdf'
-                : ext == 'png'
-                ? 'image/png'
-                : 'image/jpeg',
-            origen: 'web_upload',
-          );
-        }),
+
+    final nuevos = <_PickedActa>[];
+    final pdfBytes = <Uint8List>[]; // collect PDFs for text extraction
+
+    for (var i = 0; i < r.files.length; i++) {
+      final f = r.files[i];
+      if (f.bytes == null) continue;
+      final ext = (f.extension ?? 'pdf').toLowerCase();
+      final base = _nombreActa(ext);
+      final sufijo = (_files.length + i) > 0 ? '_${_files.length + i + 1}' : '';
+      final nombre = base.replaceAll(RegExp(r'(\.\w+)$'), '$sufijo.$ext');
+      nuevos.add(
+        _PickedActa(
+          bytes: f.bytes!,
+          nombre: nombre,
+          contentType: ext == 'pdf'
+              ? 'application/pdf'
+              : ext == 'png'
+              ? 'image/png'
+              : 'image/jpeg',
+          origen: 'web_upload',
+        ),
       );
+      if (ext == 'pdf') pdfBytes.add(f.bytes!);
+    }
+    setState(() {
+      _files.addAll(nuevos);
+      if (pdfBytes.isNotEmpty) _extracting = true;
     });
+
+    // Auto-extract text from PDFs
+    if (pdfBytes.isNotEmpty) {
+      final buffer = StringBuffer();
+      for (final bytes in pdfBytes) {
+        final text = await extractPdfTextFromBytes(bytes);
+        if (text.isNotEmpty) buffer.writeln(text);
+      }
+      final extracted = buffer.toString().trim();
+      if (mounted) {
+        setState(() {
+          _extracting = false;
+          if (extracted.isNotEmpty) {
+            // Append to existing text (user may have typed something)
+            if (_ocrCtrl.text.isNotEmpty) {
+              _ocrCtrl.text = '${_ocrCtrl.text}\n\n$extracted';
+            } else {
+              _ocrCtrl.text = extracted;
+            }
+          }
+        });
+        if (extracted.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'No se pudo extraer texto del PDF (puede ser escaneado). '
+                'Pega el texto manualmente en el campo de abajo.',
+              ),
+              duration: Duration(seconds: 5),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Texto extraído del PDF (${extracted.length} caracteres). '
+                'Revisa y haz clic en "Detectar hallazgos".',
+              ),
+              backgroundColor: _kOk,
+            ),
+          );
+        }
+      }
+    }
   }
 
-  Future<void> _pickCamera() => _pickImage(ImageSource.camera, 'mobile_camera');
+  Future<void> _pickCamera() =>
+      _pickImage(ImageSource.camera, 'mobile_camera');
   Future<void> _pickGallery() =>
       _pickImage(ImageSource.gallery, 'mobile_gallery');
 
@@ -1590,11 +1772,12 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     final img = await ImagePicker().pickImage(source: src, imageQuality: 88);
     if (img == null) return;
     final bytes = await img.readAsBytes();
+    final nombre = _nombreActa('jpg');
     setState(() {
       _files.add(
         _PickedActa(
           bytes: bytes,
-          nombre: img.name,
+          nombre: nombre,
           contentType: 'image/jpeg',
           origen: origen,
         ),
@@ -1604,7 +1787,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   void _detectarHallazgos() {
     if (_centro == null) return;
-    final detected = widget.service.parseHallazgosOcr(
+    var detected = widget.service.parseHallazgosOcr(
       texto: _ocrCtrl.text,
       empresaId: widget.empresaId,
       centroCostoId: _centro!.centroId,
@@ -1612,12 +1795,18 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       grupoId: _grupoId,
       tipoActa: _tipoActa,
     );
+    // Restricción INFRAESTRUCTURA: solo sección 2
+    if (_tipoActa == 'INFRAESTRUCTURA') {
+      detected = detected.where((h) => h.seccion == 2).toList();
+    }
     setState(() => _hallazgosDetectados = detected);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           detected.isEmpty
-              ? 'No se detectaron hallazgos numerados (formato: "1.1 texto...")'
+              ? _tipoActa == 'INFRAESTRUCTURA'
+                  ? 'Solo se permiten hallazgos de la sección 2 (infraestructura)'
+                  : 'No se detectaron hallazgos numerados (formato: "1.1 texto...")'
               : '${detected.length} hallazgos detectados — revisa y guarda',
         ),
       ),
@@ -1719,45 +1908,69 @@ class _HallazgoEditorRow extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header: origen + número editable + borrar
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
-                    color: _kAccent.withValues(alpha: 0.12),
+                    color: hallazgo.fuente == 'ocr'
+                        ? _kAccent.withValues(alpha: 0.12)
+                        : _kWarning.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    hallazgo.numeroHallazgo.isEmpty
-                        ? '${index + 1}'
-                        : hallazgo.numeroHallazgo,
+                    hallazgo.fuente == 'ocr' ? 'OCR' : 'Manual',
                     style: TextStyle(
-                      color: _kAccent,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 13,
+                      fontSize: 11,
+                      color: hallazgo.fuente == 'ocr' ? _kAccent : _kWarning,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  hallazgo.fuente == 'ocr' ? 'OCR' : 'Manual',
-                  style:
-                      const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                // N° hallazgo editable
+                SizedBox(
+                  width: 90,
+                  child: TextFormField(
+                    initialValue: hallazgo.numeroHallazgo,
+                    decoration: const InputDecoration(
+                      labelText: 'N°',
+                      hintText: 'ej. 1.1',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                    ),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                    onChanged: (v) =>
+                        onChanged(hallazgo.copyWith(numeroHallazgo: v.trim())),
+                  ),
                 ),
                 const Spacer(),
                 IconButton(
                   icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
                   iconSize: 18,
+                  tooltip: 'Eliminar',
                   onPressed: onDelete,
                 ),
               ],
             ),
             const SizedBox(height: 8),
+
+            // Descripción
             TextFormField(
               initialValue: hallazgo.descripcion,
               minLines: 2,
-              maxLines: 4,
+              maxLines: 5,
               decoration: const InputDecoration(
                 labelText: 'Descripción del hallazgo',
                 isDense: true,
@@ -1766,22 +1979,54 @@ class _HallazgoEditorRow extends StatelessWidget {
               onChanged: (v) => onChanged(hallazgo.copyWith(descripcion: v)),
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: hallazgo.dptoEncargado.isEmpty
-                  ? null
-                  : hallazgo.dptoEncargado,
-              decoration: const InputDecoration(
-                labelText: 'Dpto encargado',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-              items: kDptosInterventoria
-                  .map(
-                    (d) => DropdownMenuItem(value: d, child: Text(d)),
-                  )
-                  .toList(),
-              onChanged: (v) =>
-                  onChanged(hallazgo.copyWith(dptoEncargado: v ?? '')),
+
+            // Dpto + Valor de corrección
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    value: hallazgo.dptoEncargado.isEmpty
+                        ? null
+                        : hallazgo.dptoEncargado,
+                    decoration: const InputDecoration(
+                      labelText: 'Dpto encargado',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    items: kDptosInterventoria
+                        .map(
+                          (d) => DropdownMenuItem(value: d, child: Text(d)),
+                        )
+                        .toList(),
+                    onChanged: (v) =>
+                        onChanged(hallazgo.copyWith(dptoEncargado: v ?? '')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    initialValue: hallazgo.valorCorreccion != null
+                        ? hallazgo.valorCorreccion!.toStringAsFixed(0)
+                        : '',
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Valor corrección \$',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      prefixText: '\$ ',
+                    ),
+                    onChanged: (v) {
+                      final parsed = double.tryParse(v.replaceAll(',', '.'));
+                      onChanged(hallazgo.copyWith(valorCorreccion: parsed));
+                    },
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1799,35 +2044,77 @@ class _FiltrosHallazgos extends StatelessWidget {
   final String centroFiltro;
   final String estadoFiltro;
   final String dptoFiltro;
+  final DateTime? fechaDesde;
+  final DateTime? fechaHasta;
   final ValueChanged<String> onCentroChanged;
   final ValueChanged<String> onEstadoChanged;
   final ValueChanged<String> onDptoChanged;
+  final ValueChanged<DateTime?> onFechaDesdeChanged;
+  final ValueChanged<DateTime?> onFechaHastaChanged;
 
   const _FiltrosHallazgos({
     required this.centros,
     required this.centroFiltro,
     required this.estadoFiltro,
     required this.dptoFiltro,
+    this.fechaDesde,
+    this.fechaHasta,
     required this.onCentroChanged,
     required this.onEstadoChanged,
     required this.onDptoChanged,
+    required this.onFechaDesdeChanged,
+    required this.onFechaHastaChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final isWeb = MediaQuery.of(context).size.width >= 900;
+    final dateRow = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _FechaTile(
+          label: 'Desde',
+          fecha: fechaDesde,
+          onChanged: onFechaDesdeChanged,
+        ),
+        _FechaTile(
+          label: 'Hasta',
+          fecha: fechaHasta,
+          onChanged: onFechaHastaChanged,
+        ),
+        if (fechaDesde != null || fechaHasta != null)
+          TextButton.icon(
+            onPressed: () {
+              onFechaDesdeChanged(null);
+              onFechaHastaChanged(null);
+            },
+            icon: const Icon(Icons.clear_rounded, size: 15),
+            label: const Text('Limpiar fechas', style: TextStyle(fontSize: 13)),
+          ),
+      ],
+    );
+
     if (isWeb) {
-      return Row(
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: _centroDropdown()),
-          const SizedBox(width: 12),
-          Expanded(child: _estadoDropdown()),
-          const SizedBox(width: 12),
-          Expanded(child: _dptoDropdown()),
+          Row(
+            children: [
+              Expanded(child: _centroDropdown()),
+              const SizedBox(width: 12),
+              Expanded(child: _estadoDropdown()),
+              const SizedBox(width: 12),
+              Expanded(child: _dptoDropdown()),
+            ],
+          ),
+          const SizedBox(height: 10),
+          dateRow,
         ],
       );
     }
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _centroDropdown(),
         const SizedBox(height: 8),
@@ -1838,6 +2125,8 @@ class _FiltrosHallazgos extends StatelessWidget {
             Expanded(child: _dptoDropdown()),
           ],
         ),
+        const SizedBox(height: 8),
+        dateRow,
       ],
     );
   }
@@ -2029,6 +2318,193 @@ class _PickedActa {
     required this.contentType,
     required this.origen,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Selector de fecha tipo tile — reutilizable en filtros y seguimiento
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _FechaTile extends StatelessWidget {
+  final String label;
+  final DateTime? fecha;
+  final ValueChanged<DateTime?> onChanged;
+
+  const _FechaTile({
+    required this.label,
+    required this.fecha,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('dd/MM/yy');
+    final active = fecha != null;
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: fecha ?? DateTime.now(),
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2035),
+        );
+        if (picked != null) onChanged(picked);
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: active ? _kAccent : const Color(0xFFCBD5E1),
+          ),
+          borderRadius: BorderRadius.circular(8),
+          color: active ? _kAccent.withValues(alpha: 0.07) : Colors.white,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.calendar_today_rounded,
+              size: 15,
+              color: active ? _kAccent : const Color(0xFF94A3B8),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              active ? '$label: ${fmt.format(fecha!)}' : label,
+              style: TextStyle(
+                fontSize: 13,
+                color: active ? _kAccent : const Color(0xFF64748B),
+                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+            if (active) ...[
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => onChanged(null),
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 14,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Barra de score visual para el análisis
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _BarraScore extends StatelessWidget {
+  final String nombre;
+  final List<InterventoriaHallazgo> hallazgos;
+
+  const _BarraScore({required this.nombre, required this.hallazgos});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = hallazgos.length;
+    final subsanados = hallazgos.where((h) => h.isSubsanado).length;
+    final activos = total - subsanados;
+    final pct = total == 0 ? 0.0 : subsanados / total;
+    final score = pct * 100;
+    final color = _percentColor(score);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Nombre + chip porcentaje
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  nombre,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _PercentChip(value: score),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Barra con gradiente
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              height: 28,
+              child: Stack(
+                children: [
+                  // Fondo
+                  Container(color: const Color(0xFFE2E8F0)),
+                  // Relleno
+                  FractionallySizedBox(
+                    widthFactor: pct.clamp(0.0, 1.0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: score < 50
+                              ? [_kDanger, _kDanger.withValues(alpha: 0.7)]
+                              : score < 80
+                              ? [_kWarning, _kWarning.withValues(alpha: 0.8)]
+                              : [_kOk, _kOk.withValues(alpha: 0.75)],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Texto interior
+                  Positioned.fill(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Row(
+                        children: [
+                          Text(
+                            '$subsanados/$total subsanados',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: pct > 0.35 ? Colors.white : color,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (activos > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '$activos activo${activos == 1 ? '' : 's'}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 Color _percentColor(double value) {
