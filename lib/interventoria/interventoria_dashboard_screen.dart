@@ -1159,13 +1159,13 @@ class _ItemPuntajeRow extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Fila 1: dot + label (ocupa todo el ancho) ────────────
             Row(
               children: [
-                // Dot de color
                 Container(
                   width: 10,
                   height: 10,
@@ -1175,7 +1175,6 @@ class _ItemPuntajeRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Label
                 Expanded(
                   child: Text(
                     item.label,
@@ -1183,8 +1182,16 @@ class _ItemPuntajeRow extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                       fontSize: 13,
                     ),
+                    // sin overflow — el label tiene todo el ancho disponible
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // ── Fila 2: NE toggle + input % (alineados a la derecha) ─
+            Row(
+              children: [
+                const Spacer(),
                 // Toggle NE
                 GestureDetector(
                   onTap: () => onChanged(
@@ -1193,10 +1200,11 @@ class _ItemPuntajeRow extends StatelessWidget {
                       clearValor: !item.noEvaluado,
                     ),
                   ),
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 3,
+                      horizontal: 10,
+                      vertical: 5,
                     ),
                     decoration: BoxDecoration(
                       color: item.noEvaluado
@@ -1207,24 +1215,24 @@ class _ItemPuntajeRow extends StatelessWidget {
                             ? const Color(0xFF64748B)
                             : const Color(0xFFCBD5E1),
                       ),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       'NE',
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                         color: item.noEvaluado
                             ? Colors.white
-                            : const Color(0xFFCBD5E1),
+                            : const Color(0xFFB0BEC5),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Input de porcentaje
+                const SizedBox(width: 10),
+                // Input porcentaje
                 SizedBox(
-                  width: 76,
+                  width: 86,
                   child: TextFormField(
                     enabled: !item.noEvaluado,
                     key: ValueKey('${item.key}_${item.noEvaluado}'),
@@ -1235,8 +1243,15 @@ class _ItemPuntajeRow extends StatelessWidget {
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: item.noEvaluado
+                          ? const Color(0xFF94A3B8)
+                          : color,
+                    ),
                     decoration: InputDecoration(
                       isDense: true,
+                      hintText: '—',
                       suffixText: '%',
                       border: const OutlineInputBorder(),
                       filled: true,
@@ -1254,8 +1269,8 @@ class _ItemPuntajeRow extends StatelessWidget {
                 ),
               ],
             ),
-            // Observación (colapsada por defecto)
-            const SizedBox(height: 6),
+            // ── Fila 3: Observación ───────────────────────────────────
+            const SizedBox(height: 8),
             TextFormField(
               initialValue: item.observacion,
               decoration: const InputDecoration(
@@ -2004,8 +2019,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                                       DropdownMenuItem(value: t, child: Text(t)),
                                 ),
                               ],
-                              onChanged: (v) =>
-                                  setState(() => _tipoActa = v),
+                              onChanged: _onTipoActaChanged,
                             ),
                           ),
                           SizedBox(
@@ -2337,6 +2351,25 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         const SizedBox(height: 80),
       ],
     );
+  }
+
+  /// Al cambiar tipo de acta, auto-marca NE según las reglas:
+  /// INFRAESTRUCTURA → todas las secciones como NE, excepto la 2.
+  void _onTipoActaChanged(String? newTipo) {
+    setState(() {
+      _tipoActa = newTipo;
+      if (newTipo == 'INFRAESTRUCTURA') {
+        for (final cat in kInterventoriaCategorias) {
+          final esSeccion2 = cat.key == 'instalacionesFisicas';
+          final current =
+              _items[cat.key] ?? InterventoriaItem.empty(cat);
+          _items[cat.key] = current.copyWith(
+            noEvaluado: !esSeccion2,
+            clearValor: !esSeccion2,
+          );
+        }
+      }
+    });
   }
 
   /// Nombre de archivo con el formato {centro}_{fecha}_interventoria.{ext}
