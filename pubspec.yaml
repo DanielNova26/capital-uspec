@@ -66,6 +66,7 @@ dependencies:
   # Localización
   flutter_localizations:
     sdk: flutter
+  speech_to_text: ^7.3.0
 
 dependency_overrides:
   flutter_keyboard_visibility: ^6.0.0

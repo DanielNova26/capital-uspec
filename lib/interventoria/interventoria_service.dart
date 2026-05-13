@@ -5,7 +5,11 @@ import 'package:excel/excel.dart' as xl;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 
+import '../services/org_service.dart';
 import 'interventoria_models.dart';
+
+// Re-exportamos Area para que el dashboard no tenga que importar org_service.dart
+export '../services/org_service.dart' show Area;
 
 class InterventoriaOcrResult {
   final DateTime? fechaVisita;
@@ -65,8 +69,18 @@ class InterventoriaService {
     return ref.id;
   }
 
-  Future<void> eliminarVisita(String visitaId) =>
-      _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visitaId).delete();
+  Future<void> eliminarVisita(String visitaId) async {
+    final hallazgos = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('visitaId', isEqualTo: visitaId)
+        .get();
+    final batch = _db.batch();
+    for (final doc in hallazgos.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(_db.collection('TBL_INTERVENTORIA_VISITAS').doc(visitaId));
+    await batch.commit();
+  }
 
   Future<InterventoriaAdjunto> subirActaBytes({
     required Uint8List bytes,
@@ -200,9 +214,7 @@ class InterventoriaService {
     return ref.id;
   }
 
-  Future<void> guardarHallazgos(
-    List<InterventoriaHallazgo> hallazgos,
-  ) async {
+  Future<void> guardarHallazgos(List<InterventoriaHallazgo> hallazgos) async {
     final batch = _db.batch();
     for (final h in hallazgos) {
       final ref = h.id.isEmpty
@@ -220,20 +232,15 @@ class InterventoriaService {
     required String hallazgoId,
     required DateTime fechaSubsanacion,
     String seguimiento = '',
-  }) => _db
-      .collection('TBL_INTERVENTORIA_HALLAZGOS')
-      .doc(hallazgoId)
-      .set({
-        'estado': 'subsanado',
-        'fechaSubsanacion': Timestamp.fromDate(fechaSubsanacion),
-        if (seguimiento.isNotEmpty) 'seguimiento': seguimiento,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+  }) => _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId).set({
+    'estado': 'subsanado',
+    'fechaSubsanacion': Timestamp.fromDate(fechaSubsanacion),
+    if (seguimiento.isNotEmpty) 'seguimiento': seguimiento,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 
-  Future<void> reabrirHallazgo(String hallazgoId) => _db
-      .collection('TBL_INTERVENTORIA_HALLAZGOS')
-      .doc(hallazgoId)
-      .set({
+  Future<void> reabrirHallazgo(String hallazgoId) =>
+      _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId).set({
         'estado': 'activo',
         'fechaSubsanacion': null,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -391,7 +398,9 @@ class InterventoriaService {
     }
 
     // Fila de total
-    final totalRow = <xl.CellValue>[xl.TextCellValue('Total condiciones del servicio')];
+    final totalRow = <xl.CellValue>[
+      xl.TextCellValue('Total condiciones del servicio'),
+    ];
     for (final v in visitas) {
       totalRow.add(xl.DoubleCellValue(v.porcentajeGeneral));
     }
@@ -534,5 +543,139 @@ class InterventoriaService {
     var out = text;
     accents.forEach((a, b) => out = out.replaceAll(a, b));
     return out.toLowerCase().replaceAll(RegExp(r'[^\w%,.\n ]+'), ' ');
+  }
+
+  // ── Áreas de la empresa ──────────────────────────────────────────────────
+
+  Future<List<Area>> getAreas(String empresaId) =>
+      OrgService(db: _db).listAreas(empresaId: empresaId);
+
+  // ── Director de un área ──────────────────────────────────────────────────
+
+  /// Busca en TBL_USUARIOS el usuario del área cuyo cargo contenga 'director'.
+  /// Devuelve un map con los campos: id (cédula/docId), nombre, cargo, areaId.
+  Future<Map<String, dynamic>?> getDirectorDeArea(String areaId) async {
+    if (areaId.trim().isEmpty) return null;
+    final q = await _db
+        .collection('TBL_USUARIOS')
+        .where('areaId', isEqualTo: areaId)
+        .get();
+    for (final doc in q.docs) {
+      final data = doc.data();
+      final cargo = (data['cargo'] ?? data['cargoNombre'] ?? '')
+          .toString()
+          .toLowerCase();
+      if (cargo.contains('director')) {
+        final nombre = _nombreUsuario(data);
+        return {'id': doc.id, 'nombre': nombre, ...data};
+      }
+    }
+    // Fallback: busca en empresasDetalle (multi-empresa)
+    final qAll = await _db.collection('TBL_USUARIOS').get();
+    for (final doc in qAll.docs) {
+      final data = doc.data();
+      final detalle = data['empresasDetalle'];
+      if (detalle is! Map) continue;
+      for (final entry in detalle.entries) {
+        final det = entry.value;
+        if (det is! Map) continue;
+        if ((det['areaId'] ?? '').toString() != areaId) continue;
+        final cargo = (det['cargo'] ?? det['cargoNombre'] ?? '')
+            .toString()
+            .toLowerCase();
+        if (cargo.contains('director')) {
+          return {'id': doc.id, 'nombre': _nombreUsuario(data), ...data};
+        }
+      }
+    }
+    return null;
+  }
+
+  String _nombreUsuario(Map<String, dynamic> data) {
+    final nombres = (data['nombres'] ?? data['nombre'] ?? '').toString().trim();
+    final apellidos =
+        (data['apellidos'] ?? data['apellido'] ?? '').toString().trim();
+    if (nombres.isNotEmpty && apellidos.isNotEmpty) return '$nombres $apellidos';
+    if (nombres.isNotEmpty) return nombres;
+    return (data['displayName'] ?? data['email'] ?? data['id'] ?? '')
+        .toString()
+        .trim();
+  }
+
+  // ── Crear tarea + notificar al director ─────────────────────────────────
+
+  /// Crea una tarea en TBL_TAREAS asignada al director del área y le envía
+  /// una notificación. Retorna el ID de la tarea creada o null si no hay director.
+  Future<String?> crearTareaYNotificarHallazgo({
+    required InterventoriaHallazgo hallazgo,
+    required String creadorId,
+    required String creadorNombre,
+  }) async {
+    final director = await getDirectorDeArea(hallazgo.areaId);
+    final directorId = director?['id']?.toString() ?? '';
+    final directorNombre =
+        director != null ? _nombreUsuario(director) : '';
+
+    // Crear tarea
+    final titulo =
+        'Hallazgo ${hallazgo.numeroHallazgo.isNotEmpty ? hallazgo.numeroHallazgo : ''}'
+        ' — ${hallazgo.centroCostoNombre}';
+    final descripcion =
+        '${hallazgo.descripcion}\n\n'
+        'Centro: ${hallazgo.centroCostoNombre}\n'
+        'Sección: ${hallazgo.dptoEncargado}\n'
+        'Fecha: ${DateFormat('dd/MM/yyyy').format(hallazgo.fechaHallazgo.toDate())}\n'
+        'Origen: Interventoría';
+
+    final payload = <String, dynamic>{
+      'titulo': titulo,
+      'descripcion': descripcion,
+      'prioridad': 'alta',
+      'fecha_creacion': FieldValue.serverTimestamp(),
+      'fecha_limite': null,
+      'estado': 'en_progreso',
+      'visto': false,
+      'reasignado': false,
+      'areaId': hallazgo.areaId,
+      'areaNombre': hallazgo.dptoEncargado,
+      'asignado_uid': directorId,
+      'asignado_nombre': directorNombre,
+      'creador_id': creadorId,
+      'creador_nombre': creadorNombre,
+      'empresaId': hallazgo.empresaId,
+      'empresas': [hallazgo.empresaId],
+      // Metadata de enlace con interventoría
+      'hallazgoId': hallazgo.id,
+      'visitaId': hallazgo.visitaId,
+      'centroCostoId': hallazgo.centroCostoId,
+      'origen': 'interventoria',
+      'notify': true,
+    };
+
+    final ref = await _db.collection('TBL_TAREAS').add(payload);
+
+    // Notificar al director si se encontró
+    if (directorId.isNotEmpty) {
+      await _db
+          .collection('TBL_NOTIFICACIONES')
+          .doc(directorId)
+          .collection('notifications')
+          .add({
+        'title': '📋 Nuevo hallazgo de interventoría',
+        'description':
+            'Hallazgo ${hallazgo.numeroHallazgo} asignado a ${hallazgo.dptoEncargado} '
+            '— ${hallazgo.centroCostoNombre}',
+        'type': 'hallazgo_interventoria',
+        'taskId': ref.id,
+        'hallazgoId': hallazgo.id,
+        'fromId': creadorId,
+        'fromName': creadorNombre,
+        'empresaId': hallazgo.empresaId,
+        'createdAt': Timestamp.now(),
+        'read': false,
+      });
+    }
+
+    return ref.id;
   }
 }
