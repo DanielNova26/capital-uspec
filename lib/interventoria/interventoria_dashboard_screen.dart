@@ -488,6 +488,10 @@ class _HallazgosTab extends StatelessWidget {
           // Filtros
           _FiltrosHallazgos(
             centros: centros,
+            dptos: {
+              for (final h in todosHallazgos)
+                if (h.dptoEncargado.isNotEmpty) h.dptoEncargado: h.dptoEncargado,
+            },
             centroFiltro: centroFiltro,
             estadoFiltro: estadoFiltro,
             dptoFiltro: dptoFiltro,
@@ -678,17 +682,60 @@ class _HallazgoCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 13),
             ),
-            if (h.dptoEncargado.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Dpto: ${h.dptoEncargado}',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-              ),
-            ],
             const SizedBox(height: 6),
-            Text(
-              DateFormat('dd/MM/yyyy').format(h.fechaHallazgo.toDate()),
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            Row(
+              children: [
+                const Icon(
+                  Icons.calendar_today_rounded,
+                  size: 11,
+                  color: Color(0xFF94A3B8),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  DateFormat('dd/MM/yyyy').format(h.fechaHallazgo.toDate()),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Indicador de área asignada
+                if (h.dptoEncargado.isNotEmpty) ...[
+                  const Icon(
+                    Icons.corporate_fare_rounded,
+                    size: 11,
+                    color: Color(0xFF0F766E),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      h.dptoEncargado,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF0F766E),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ] else if (canWrite) ...[
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 11,
+                    color: Color(0xFFD97706),
+                  ),
+                  const SizedBox(width: 4),
+                  const Text(
+                    'Sin área asignada',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFD97706),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
             ),
             if (canWrite && h.id.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -4110,6 +4157,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
 class _FiltrosHallazgos extends StatelessWidget {
   final Map<String, String> centros;
+  /// dptos: map de nombre→nombre, derivado de hallazgos reales de la empresa.
+  final Map<String, String> dptos;
   final String centroFiltro;
   final String estadoFiltro;
   final String dptoFiltro;
@@ -4123,6 +4172,7 @@ class _FiltrosHallazgos extends StatelessWidget {
 
   const _FiltrosHallazgos({
     required this.centros,
+    required this.dptos,
     required this.centroFiltro,
     required this.estadoFiltro,
     required this.dptoFiltro,
@@ -4233,22 +4283,25 @@ class _FiltrosHallazgos extends StatelessWidget {
     onChanged: (v) => onEstadoChanged(v ?? ''),
   );
 
-  Widget _dptoDropdown() => DropdownButtonFormField<String>(
-    key: ValueKey(dptoFiltro),
-    initialValue: dptoFiltro,
-    decoration: const InputDecoration(
-      labelText: 'Departamento',
-      border: OutlineInputBorder(),
-      isDense: true,
-    ),
-    items: [
-      const DropdownMenuItem(value: '', child: Text('Todos')),
-      ...kDptosInterventoria.map(
-        (d) => DropdownMenuItem(value: d, child: Text(d)),
+  Widget _dptoDropdown() {
+    final sorted = dptos.keys.toList()..sort();
+    return DropdownButtonFormField<String>(
+      key: ValueKey(dptoFiltro),
+      initialValue: dptos.containsKey(dptoFiltro) || dptoFiltro.isEmpty
+          ? dptoFiltro
+          : null,
+      decoration: const InputDecoration(
+        labelText: 'Departamento',
+        border: OutlineInputBorder(),
+        isDense: true,
       ),
-    ],
-    onChanged: (v) => onDptoChanged(v ?? ''),
-  );
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Todos')),
+        ...sorted.map((d) => DropdownMenuItem(value: d, child: Text(d))),
+      ],
+      onChanged: (v) => onDptoChanged(v ?? ''),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

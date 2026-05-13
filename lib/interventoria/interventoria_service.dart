@@ -609,8 +609,23 @@ class InterventoriaService {
   Future<String?> crearTareaYNotificarHallazgo({
     required InterventoriaHallazgo hallazgo,
     required String creadorId,
-    required String creadorNombre,
+    String creadorNombre = '',
   }) async {
+    // Resolver nombre real del creador desde TBL_USUARIOS
+    String creadorNombreReal = creadorNombre;
+    if (creadorId.isNotEmpty) {
+      try {
+        final userDoc = await _db
+            .collection('TBL_USUARIOS')
+            .doc(creadorId)
+            .get();
+        if (userDoc.exists) {
+          creadorNombreReal = _nombreUsuario(userDoc.data()!);
+        }
+      } catch (_) {}
+    }
+    if (creadorNombreReal.isEmpty) creadorNombreReal = creadorId;
+
     final director = await getDirectorDeArea(hallazgo.areaId);
     final directorId = director?['id']?.toString() ?? '';
     final directorNombre =
@@ -641,7 +656,7 @@ class InterventoriaService {
       'asignado_uid': directorId,
       'asignado_nombre': directorNombre,
       'creador_id': creadorId,
-      'creador_nombre': creadorNombre,
+      'creador_nombre': creadorNombreReal,
       'empresaId': hallazgo.empresaId,
       'empresas': [hallazgo.empresaId],
       // Metadata de enlace con interventoría
@@ -669,7 +684,7 @@ class InterventoriaService {
         'taskId': ref.id,
         'hallazgoId': hallazgo.id,
         'fromId': creadorId,
-        'fromName': creadorNombre,
+        'fromName': creadorNombreReal,
         'empresaId': hallazgo.empresaId,
         'createdAt': Timestamp.now(),
         'read': false,
