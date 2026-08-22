@@ -25,9 +25,9 @@ class EntradaDiagnosticosScreen extends StatefulWidget {
       _EntradaDiagnosticosScreenState();
 }
 
-class _EntradaDiagnosticosScreenState
-    extends State<EntradaDiagnosticosScreen> with SingleTickerProviderStateMixin {
-  final _service = DiagnosticosService();
+class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
+    with SingleTickerProviderStateMixin {
+  late final DiagnosticosService _service;
   late TabController _tabController;
 
   // Diagnóstico Médico
@@ -57,6 +57,10 @@ class _EntradaDiagnosticosScreenState
   @override
   void initState() {
     super.initState();
+    _service = DiagnosticosService(
+      empresaId: widget.empresaId,
+      userId: widget.userId,
+    );
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -95,7 +99,9 @@ class _EntradaDiagnosticosScreenState
 
     setState(() => _buscandoNutri = true);
     try {
-      final resultados = await _service.buscarDiagnosticosNutricionales(termino);
+      final resultados = await _service.buscarDiagnosticosNutricionales(
+        termino,
+      );
       setState(() {
         _resultadosNutri = resultados;
         _buscandoNutri = false;
@@ -115,7 +121,8 @@ class _EntradaDiagnosticosScreenState
     if (_diagnosticoMedicoSeleccionado == null &&
         _diagnosticoNutricionalSeleccionado == null) {
       _mostrarError(
-          'Debe seleccionar al menos un diagnóstico (médico o nutricional)');
+        'Debe seleccionar al menos un diagnóstico (médico o nutricional)',
+      );
       return;
     }
 
@@ -146,11 +153,12 @@ class _EntradaDiagnosticosScreenState
         userId: widget.userId,
         diagnosticoMedicoCie11: _diagnosticoMedicoSeleccionado?.codigoCie11,
         diagnosticoNutricionalCodigo:
-        _diagnosticoNutricionalSeleccionado?.codigo,
+            _diagnosticoNutricionalSeleccionado?.codigo,
         comorbilidades: _comorbilidades,
         medicamentos: _medicamentos,
-        pruebasLaboratorio:
-        _pruebasLaboratorio.isEmpty ? null : _pruebasLaboratorio,
+        pruebasLaboratorio: _pruebasLaboratorio.isEmpty
+            ? null
+            : _pruebasLaboratorio,
         estadoFisiologico: _estadoFisiologico,
         estadio: _estadio,
         gravedad: _gravedad,
@@ -199,9 +207,7 @@ class _EntradaDiagnosticosScreenState
         ),
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -214,14 +220,8 @@ class _EntradaDiagnosticosScreenState
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            Tab(
-              icon: Icon(Icons.medical_services),
-              text: 'Diagnóstico Médico',
-            ),
-            Tab(
-              icon: Icon(Icons.restaurant),
-              text: 'Diagnóstico Nutricional',
-            ),
+            Tab(icon: Icon(Icons.medical_services), text: 'Diagnóstico Médico'),
+            Tab(icon: Icon(Icons.restaurant), text: 'Diagnóstico Nutricional'),
           ],
         ),
       ),
@@ -301,9 +301,9 @@ class _EntradaDiagnosticosScreenState
         // 🔍 Búsqueda CIE-11
         Text(
           '1. Core Técnico: Búsqueda CIE-11',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -314,13 +314,11 @@ class _EntradaDiagnosticosScreenState
             prefixIcon: const Icon(Icons.search),
             suffixIcon: _buscandoMedico
                 ? const Padding(
-              padding: EdgeInsets.all(12),
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (value) {
             _buscarDiagnosticosMedicos(value);
@@ -348,7 +346,8 @@ class _EntradaDiagnosticosScreenState
                   onTap: () {
                     setState(() {
                       _diagnosticoMedicoSeleccionado = dx;
-                      _busquedaMedicoCtrl.text = '${dx.codigoCie11} - ${dx.nombre}';
+                      _busquedaMedicoCtrl.text =
+                          '${dx.codigoCie11} - ${dx.nombre}';
                       _resultadosMedicos = [];
                     });
                   },
@@ -366,7 +365,9 @@ class _EntradaDiagnosticosScreenState
             child: ListTile(
               leading: const Icon(Icons.check_circle, color: Colors.green),
               title: Text(_diagnosticoMedicoSeleccionado!.nombre),
-              subtitle: Text('CIE-11: ${_diagnosticoMedicoSeleccionado!.codigoCie11}'),
+              subtitle: Text(
+                'CIE-11: ${_diagnosticoMedicoSeleccionado!.codigoCie11}',
+              ),
               trailing: IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () {
@@ -387,9 +388,9 @@ class _EntradaDiagnosticosScreenState
         // 2️⃣ Variables Críticas (Flags Médicos)
         Text(
           '2. Variables Críticas (Flags Médicos)',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
 
@@ -416,9 +417,7 @@ class _EntradaDiagnosticosScreenState
           value: _estadoFisiologico,
           decoration: InputDecoration(
             labelText: 'Estado Fisiológico',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           items: const [
             DropdownMenuItem(value: 'embarazo', child: Text('Embarazo')),
@@ -482,9 +481,9 @@ class _EntradaDiagnosticosScreenState
         // Búsqueda diagnóstico nutricional
         Text(
           'Diagnóstico Nutricional',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -495,13 +494,11 @@ class _EntradaDiagnosticosScreenState
             prefixIcon: const Icon(Icons.search),
             suffixIcon: _buscandoNutri
                 ? const Padding(
-              padding: EdgeInsets.all(12),
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
           ),
           onChanged: (value) {
             _buscarDiagnosticosNutricionales(value);
@@ -550,8 +547,11 @@ class _EntradaDiagnosticosScreenState
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Código: ${_diagnosticoNutricionalSeleccionado!.codigo}'),
-                  if (_diagnosticoNutricionalSeleccionado!.tipoDietaSugerida != null)
+                  Text(
+                    'Código: ${_diagnosticoNutricionalSeleccionado!.codigo}',
+                  ),
+                  if (_diagnosticoNutricionalSeleccionado!.tipoDietaSugerida !=
+                      null)
                     Text(
                       'Dieta sugerida: ${_diagnosticoNutricionalSeleccionado!.tipoDietaSugerida}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
@@ -583,7 +583,7 @@ class _EntradaDiagnosticosScreenState
             'Reducir peso',
             'Aumentar masa muscular',
             'Mejorar perfil lipídico',
-            'Controlar glucemia'
+            'Controlar glucemia',
           ],
         ),
 
@@ -605,7 +605,7 @@ class _EntradaDiagnosticosScreenState
           options: [
             'Monitorear peso semanal',
             'Control glucemia',
-            'Control presión arterial'
+            'Control presión arterial',
           ],
         ),
       ],
@@ -622,9 +622,9 @@ class _EntradaDiagnosticosScreenState
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
         Wrap(

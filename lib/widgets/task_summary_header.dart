@@ -7,7 +7,8 @@ class TaskSummaryHeader extends StatelessWidget {
   final int inProgress;
   final int overdue;
   final int pendingApproval;
-  final String activeFilter; // 'todas' | 'en_progreso' | 'retrasada' | 'por_aprobar'
+  final String
+  activeFilter; // 'todas' | 'en_progreso' | 'retrasada' | 'por_aprobar'
   final VoidCallback? onTapTotal;
   final VoidCallback? onTapInProgress;
   final VoidCallback? onTapOverdue;
@@ -28,56 +29,81 @@ class TaskSummaryHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isWide = screenWidth >= 900;
+    final gap = isWide ? 10.0 : 12.0;
+    final availableWidth = screenWidth - (isWide ? 40 : 32);
+    final contentWidth = availableWidth < 1180 ? availableWidth : 1180.0;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      padding: EdgeInsets.symmetric(
+        horizontal: isWide ? 20 : 16,
+        vertical: isWide ? 12 : 16,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(
           bottom: BorderSide(
-            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5),
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
           ),
         ),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _SummaryCard(
-              title: 'Total',
-              count: total,
-              color: Colors.blueGrey.shade700,
-              icon: Icons.assignment_rounded,
-              selected: activeFilter == 'todas',
-              onTap: onTapTotal,
+      child: Align(
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: isWide ? 1180 : double.infinity,
+          ),
+          child: SizedBox(
+            width: isWide ? contentWidth : null,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _SummaryCard(
+                    title: 'Total',
+                    count: total,
+                    color: Colors.blueGrey.shade700,
+                    icon: Icons.assignment_rounded,
+                    selected: activeFilter == 'todas',
+                    onTap: onTapTotal,
+                    compact: isWide,
+                  ),
+                  SizedBox(width: gap),
+                  _SummaryCard(
+                    title: 'Activas',
+                    count: inProgress,
+                    color: Colors.blue.shade700,
+                    icon: Icons.trending_up_rounded,
+                    selected: activeFilter == 'en_progreso',
+                    onTap: onTapInProgress,
+                    compact: isWide,
+                  ),
+                  SizedBox(width: gap),
+                  _SummaryCard(
+                    title: 'Vencidas',
+                    count: overdue,
+                    color: Colors.red.shade700,
+                    icon: Icons.error_outline_rounded,
+                    selected: activeFilter == 'retrasada',
+                    onTap: onTapOverdue,
+                    compact: isWide,
+                  ),
+                  SizedBox(width: gap),
+                  _SummaryCard(
+                    title: 'Por Aprobar',
+                    count: pendingApproval,
+                    color: Colors.orange.shade800,
+                    icon: Icons.notification_important_rounded,
+                    selected: activeFilter == 'por_aprobar',
+                    onTap: onTapPendingApproval,
+                    compact: isWide,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 12),
-            _SummaryCard(
-              title: 'Activas',
-              count: inProgress,
-              color: Colors.blue.shade700,
-              icon: Icons.trending_up_rounded,
-              selected: activeFilter == 'en_progreso',
-              onTap: onTapInProgress,
-            ),
-            const SizedBox(width: 12),
-            _SummaryCard(
-              title: 'Vencidas',
-              count: overdue,
-              color: Colors.red.shade700,
-              icon: Icons.error_outline_rounded,
-              selected: activeFilter == 'retrasada',
-              onTap: onTapOverdue,
-            ),
-            const SizedBox(width: 12),
-            _SummaryCard(
-              title: 'Por Aprobar',
-              count: pendingApproval,
-              color: Colors.orange.shade800,
-              icon: Icons.notification_important_rounded,
-              selected: activeFilter == 'por_aprobar',
-              onTap: onTapPendingApproval,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -91,6 +117,7 @@ class _SummaryCard extends StatelessWidget {
   final IconData icon;
   final bool selected;
   final VoidCallback? onTap;
+  final bool compact;
 
   const _SummaryCard({
     required this.title,
@@ -99,25 +126,37 @@ class _SummaryCard extends StatelessWidget {
     required this.icon,
     this.selected = false,
     this.onTap,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final width = compact ? 132.0 : 140.0;
+    final padding = EdgeInsets.all(compact ? 12 : 16);
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        width: 140,
-        padding: const EdgeInsets.all(16),
+        width: width,
+        padding: padding,
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : color.withOpacity(0.05),
-          borderRadius: BorderRadius.circular(20),
+          color: selected
+              ? color.withValues(alpha: 0.12)
+              : color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(compact ? 12 : 18),
           border: Border.all(
-            color: selected ? color : color.withOpacity(0.15),
+            color: selected ? color : color.withValues(alpha: 0.15),
             width: selected ? 2 : 1.5,
           ),
           boxShadow: selected
-              ? [BoxShadow(color: color.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 3))]
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.16),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
               : [],
         ),
         child: Column(
@@ -128,16 +167,16 @@ class _SummaryCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(selected ? 0.2 : 0.1),
+                    color: color.withValues(alpha: selected ? 0.2 : 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, size: 16, color: color),
+                  child: Icon(icon, size: compact ? 15 : 16, color: color),
                 ),
                 const Spacer(),
                 Text(
                   '$count',
                   style: TextStyle(
-                    fontSize: 22,
+                    fontSize: compact ? 20 : 22,
                     fontWeight: FontWeight.w900,
                     color: color,
                     fontFamily: kArial,
@@ -145,7 +184,7 @@ class _SummaryCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 10 : 12),
             Row(
               children: [
                 Expanded(
@@ -154,7 +193,7 @@ class _SummaryCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w900,
-                      color: color.withOpacity(0.8),
+                      color: color.withValues(alpha: 0.8),
                       letterSpacing: 1.0,
                       fontFamily: kArial,
                     ),
@@ -162,9 +201,11 @@ class _SummaryCard extends StatelessWidget {
                 ),
                 if (onTap != null)
                   Icon(
-                    selected ? Icons.filter_alt_rounded : Icons.filter_alt_off_rounded,
+                    selected
+                        ? Icons.filter_alt_rounded
+                        : Icons.filter_alt_off_rounded,
                     size: 12,
-                    color: color.withOpacity(0.5),
+                    color: color.withValues(alpha: 0.5),
                   ),
               ],
             ),

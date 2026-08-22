@@ -23,12 +23,20 @@ import '../admin/admin_dashboard_screen.dart' hide kArial;
 import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
+import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
 import '../compras/compras_service.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
 import '../interventoria/interventoria_models.dart';
 import '../interventoria/interventoria_service.dart';
+import '../facturacion/facturacion_dashboard_screen.dart';
+import '../facturacion/facturacion_models.dart';
+import '../rutas/rutas_dashboard_screen.dart';
+import '../rutas/rutas_models.dart';
+import '../rutas/rutas_service.dart';
+import '../correo/correo_dashboard_screen.dart';
+import '../tokens_dian/dian_tokens_dashboard_screen.dart';
 import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
@@ -38,6 +46,7 @@ import 'create_task_screen.dart' hide kArial;
 import 'team_screen.dart' hide kArial;
 import '../core/access_guard.dart';
 import '../core/task_route_guard.dart';
+import '../facturacion/facturacion_navigation.dart';
 
 import 'home_shell.dart';
 import 'widgets/home_shared_widgets.dart';
@@ -100,7 +109,10 @@ class _HomeScreenState extends State<HomeScreen> {
         await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
       return;
     }
-    if ((type == 'doc_rechazado' || type == 'correccion_requerida') &&
+    if ((type == 'doc_rechazado' ||
+            type == 'correccion_requerida' ||
+            type == 'nuevo_proveedor' ||
+            type == 'documento_por_vencer') &&
         taskId.startsWith('proveedor:')) {
       final empresaId = normalizeEmpresaId(
         EmpresaScope.of(context, listen: false).selectedEmpresaId,
@@ -122,7 +134,8 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       return;
     }
-    if (type == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
+    if ((type == 'ficha_rechazada' || type == 'documento_por_vencer') &&
+        taskId.startsWith('ficha:')) {
       final empresaId = normalizeEmpresaId(
         EmpresaScope.of(context, listen: false).selectedEmpresaId,
       );
@@ -141,6 +154,74 @@ class _HomeScreenState extends State<HomeScreen> {
           userId: cedula,
           fichaId: fichaId,
         );
+      return;
+    }
+    if (await tryOpenFacturacionDocumentTask(
+      context,
+      userId: cedula,
+      taskId: taskId,
+    )) {
+      return;
+    }
+    if ((type == 'recepcion_doc_rechazado' || type == 'documento_por_vencer') &&
+        taskId.startsWith('recepcion:')) {
+      final empresaId = normalizeEmpresaId(
+        EmpresaScope.of(context, listen: false).selectedEmpresaId,
+      );
+      if (empresaId == null) return;
+      final comprasAllowed = await _guardModuleNavigation(
+        userData: userData,
+        empresaId: empresaId,
+        appId: 'comprasdashboard',
+        deniedMessage: 'Sin acceso a Compras.',
+      );
+      if (!comprasAllowed) return;
+      if (mounted) {
+        await abrirDetalleRecepcionCompras(
+          context,
+          userId: cedula,
+          recepcionId: taskId,
+        );
+      }
+      return;
+    }
+    if ((type == 'documento_por_vencer' || type == 'marca_doc_rechazado') &&
+        taskId.startsWith('marca:')) {
+      final empresaId = normalizeEmpresaId(
+        EmpresaScope.of(context, listen: false).selectedEmpresaId,
+      );
+      if (empresaId == null) return;
+      final comprasAllowed = await _guardModuleNavigation(
+        userData: userData,
+        empresaId: empresaId,
+        appId: 'comprasdashboard',
+        deniedMessage: 'Sin acceso a Compras.',
+      );
+      if (!comprasAllowed) return;
+      final marcaId = taskId.replaceFirst('marca:', '').trim();
+      if (marcaId.isNotEmpty && mounted) {
+        await abrirDocumentosMarcaCompras(
+          context,
+          userId: cedula,
+          marcaId: marcaId,
+        );
+      }
+      return;
+    }
+    if (taskId.trim().isEmpty) {
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => NotificationsScreen(
+              userId: cedula,
+              empresaId: normalizeEmpresaId(
+                EmpresaScope.of(context, listen: false).selectedEmpresaId,
+              ),
+            ),
+          ),
+        );
+      }
       return;
     }
     final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
@@ -191,6 +272,19 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return;
     }
+    if (routeDecision.target == TaskRouteTarget.approvalTasks) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CreatedTasksScreen(
+            userId: cedula,
+            highlightTaskId: taskId,
+            approvalMode: true,
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -200,8 +294,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // VAPID key for web push (FCM). Get it from:
+  // Firebase Console → Project Settings → Cloud Messaging → Web Push certificates → Key pair
+  static const String _kVapidKey =
+      'BM-x7bSttfxkBKB2mlALEZbBHSYmoBDhrPik9pNrW8y9T3k1W8YavykXmHaHTlwjbtmG-QtsIxKTYHruQGpeBVo';
+
   Future<String?> _getFcmTokenWithRetries() async {
     try {
+      if (kIsWeb) {
+        return await FirebaseMessaging.instance.getToken(vapidKey: _kVapidKey);
+      }
       return await FirebaseMessaging.instance.getToken();
     } catch (_) {
       return null;
@@ -365,6 +467,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (t.contains('planillas')) return 'PLANILLAS';
     if (t.contains('rechazado') || t.contains('correccion')) return 'COMPRAS';
     if (t.contains('talento') || t.contains('th_')) return 'TALENTO H.';
+    if (t.startsWith('fac_')) return 'FACTURACIÓN';
     return 'NOTIFICACIÓN';
   }
 
@@ -420,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
     )) {
       String? rolCompras;
       try {
-        rolCompras = (await ComprasService().getRolUsuario(
+        rolCompras = (await ComprasService().resolveRolUsuario(
           empresaId,
           userId,
         ))?.rol;
@@ -466,6 +569,121 @@ class _HomeScreenState extends State<HomeScreen> {
               userId: userId,
               empresaId: empresaId,
               rolInterventoria: rolInterventoria,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _abrirRutas(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: kRutasAppId,
+      deniedMessage: 'Sin acceso a Rutas.',
+    )) {
+      String? rolRutas;
+      try {
+        rolRutas = (await RutasService().getRolUsuario(empresaId, userId))?.rol;
+      } catch (_) {}
+      final developerOverride = isDeveloperUser(userData, empresaId: empresaId);
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RutasDashboardScreen(
+              userId: userId,
+              empresaId: empresaId,
+              rolRutas: rolRutas,
+              desarrolladorOverride: developerOverride,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _abrirFacturacion(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: kFacAppId,
+      deniedMessage: 'Sin acceso a Facturación.',
+    )) {
+      if (context.mounted)
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => FacturacionDashboardScreen(
+              userId: userId,
+              empresaId: empresaId,
+              developerOverride: isDeveloperUser(
+                userData,
+                empresaId: empresaId,
+              ),
+            ),
+          ),
+        );
+    }
+  }
+
+  Future<void> _abrirCorreo(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: 'correodashboard',
+      deniedMessage: 'Sin acceso a Correo.',
+    )) {
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                CorreoDashboardScreen(userId: userId, empresaId: empresaId),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _abrirTokensDian(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: kDianTokensAppId,
+      deniedMessage: 'Sin acceso a Tokens DIAN.',
+    )) {
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DianTokensDashboardScreen(
+              userId: userId,
+              empresaId: empresaId,
+              adminMode:
+                  isDeveloperUser(userData, empresaId: empresaId) ||
+                  userHasApp(userData, 'admindashboard', empresaId: empresaId),
             ),
           ),
         );
@@ -537,7 +755,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final userData = userSnap.data?.data() ?? {};
         final apps = extractUserApps(userData, empresaId: scopeEmpresa);
-        final isDev = isDeveloperUser(userData);
+        final isDev = isDeveloperUser(userData, empresaId: scopeEmpresa);
         final nombreUsuario =
             userData['primerNombre'] ?? userData['nombres'] ?? cedula;
 
@@ -610,8 +828,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     }
 
+                    final showTareas = _moduleVisible(
+                      apps,
+                      isDev,
+                      'tareasdashboard',
+                      disabledAppIds,
+                    );
+
                     return HomeShell(
                       userId: cedula,
+                      showTareas: showTareas,
                       appBar: _isWebShell
                           ? null
                           : AppBar(
@@ -753,7 +979,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}',
                     ),
                     const SizedBox(height: 12),
-                    _buildSelectedDayTasksCard(cedula, empresaId),
+                    _buildSelectedDayTasksCard(cedula, empresaId, userData),
                   ],
                 ),
               ),
@@ -821,7 +1047,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          _buildSelectedDayTasksCard(cedula, empresaId),
+          _buildSelectedDayTasksCard(cedula, empresaId, userData),
         ],
       ),
     );
@@ -1013,6 +1239,27 @@ class _HomeScreenState extends State<HomeScreen> {
     return apps.any((app) => appIdsEquivalent(app, fullAppId));
   }
 
+  bool _planillasVisible(
+    Map<String, dynamic> userData,
+    String empresaId,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+  ) {
+    if (disabledAppIds.any((id) => appIdsEquivalent(id, kPlanillasPagoAppId))) {
+      return false;
+    }
+    if (_moduleVisible(apps, isDev, kPlanillasPagoAppId, disabledAppIds)) {
+      return true;
+    }
+    final detail = getUserCompanyDetail(userData, empresaId);
+    final legacyRole =
+        (detail?['rolPlanillas'] ?? userData['rolPlanillas'] ?? '')
+            .toString()
+            .trim();
+    return legacyRole.isNotEmpty;
+  }
+
   List<Widget> _getModuleWidgets(
     String cedula,
     String empresaId,
@@ -1110,7 +1357,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ))
         ModuleCard(
           width: cardWidth,
-          title: 'Gestión Documental',
+          title: 'Gestión de Correspondencia',
           icon: Icons.auto_stories_rounded,
           color: const Color(0xFF0D9488),
           compact: !isWeb,
@@ -1126,6 +1373,32 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(
                     builder: (_) => DocumentManagementScreen(
                       currentUserId: cedula,
+                      empresaId: empresaId,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+
+      if (_planillasVisible(userData, empresaId, apps, isDev, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Planillas de Pago',
+          icon: Icons.request_quote_rounded,
+          color: const Color(0xFFB45309),
+          compact: !isWeb,
+          onTap: () async =>
+              (await _guardModuleNavigation(
+                userData: userData,
+                empresaId: empresaId,
+                appId: kPlanillasPagoAppId,
+                deniedMessage: 'Sin acceso a Planillas de Pago',
+              ))
+              ? Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PlanillasPagoModuleScreen(
+                      userId: cedula,
                       empresaId: empresaId,
                     ),
                   ),
@@ -1169,6 +1442,26 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: () => _abrirCompras(context, cedula, empresaId, userData),
         ),
 
+      if (_moduleVisible(apps, isDev, 'correodashboard', disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Correo',
+          icon: Icons.mark_email_unread_rounded,
+          color: const Color(0xFF0F766E),
+          compact: !isWeb,
+          onTap: () => _abrirCorreo(context, cedula, empresaId, userData),
+        ),
+
+      if (_moduleVisible(apps, isDev, kDianTokensAppId, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Tokens DIAN',
+          icon: Icons.vpn_key_rounded,
+          color: const Color(0xFF0E7490),
+          compact: !isWeb,
+          onTap: () => _abrirTokensDian(context, cedula, empresaId, userData),
+        ),
+
       if (_moduleVisible(apps, isDev, kInterventoriaAppId, disabledAppIds))
         ModuleCard(
           width: cardWidth,
@@ -1178,6 +1471,26 @@ class _HomeScreenState extends State<HomeScreen> {
           compact: !isWeb,
           onTap: () =>
               _abrirInterventoria(context, cedula, empresaId, userData),
+        ),
+
+      if (_moduleVisible(apps, isDev, kFacAppId, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Facturación',
+          icon: Icons.receipt_long_rounded,
+          color: const Color(0xFF0369A1),
+          compact: !isWeb,
+          onTap: () => _abrirFacturacion(context, cedula, empresaId, userData),
+        ),
+
+      if (_moduleVisible(apps, isDev, kRutasAppId, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Rutas',
+          icon: Icons.local_shipping_rounded,
+          color: kRutasColor,
+          compact: !isWeb,
+          onTap: () => _abrirRutas(context, cedula, empresaId, userData),
         ),
     ];
   }
@@ -1252,7 +1565,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSelectedDayTasksCard(String cedula, String scopeEmpresa) {
+  Widget _buildSelectedDayTasksCard(
+    String cedula,
+    String scopeEmpresa,
+    Map<String, dynamic> userData,
+  ) {
     final tasks = _getEventsForDay(_selectedDay);
     final scheme = Theme.of(context).colorScheme;
 
@@ -1450,14 +1767,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => NotificationsScreen(
-                    userId: cedula,
-                    empresaId: scopeEmpresa,
-                  ),
-                ),
+              onTap: () => _openNotificationTask(
+                type: type,
+                taskId: (t['taskId'] ?? '').toString(),
+                cedula: cedula,
+                userData: userData,
               ),
             ),
           );

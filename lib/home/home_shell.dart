@@ -13,18 +13,21 @@ class HomeShell extends StatelessWidget {
   final PreferredSizeWidget? appBar;
   final Widget? floatingActionButton;
 
+  /// Controla si se muestran las opciones de Tareas en el drawer/sidebar.
+  /// Por defecto true para compatibilidad con usos anteriores.
+  final bool showTareas;
+
   const HomeShell({
     super.key,
     required this.userId,
     required this.body,
     this.appBar,
     this.floatingActionButton,
+    this.showTareas = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Si es Web y la pantalla es lo suficientemente ancha, usamos la versión de escritorio.
-    // Usamos un breakpoint de 900px para decidir.
     return LayoutBuilder(
       builder: (context, constraints) {
         if (kIsWeb && constraints.maxWidth >= 900) {
@@ -33,6 +36,7 @@ class HomeShell extends StatelessWidget {
             body: body,
             appBar: appBar,
             floatingActionButton: floatingActionButton,
+            showTareas: showTareas,
           );
         } else {
           return _MobileShell(
@@ -40,6 +44,7 @@ class HomeShell extends StatelessWidget {
             body: body,
             appBar: appBar,
             floatingActionButton: floatingActionButton,
+            showTareas: showTareas,
           );
         }
       },
@@ -52,19 +57,21 @@ class _MobileShell extends StatelessWidget {
   final Widget body;
   final PreferredSizeWidget? appBar;
   final Widget? floatingActionButton;
+  final bool showTareas;
 
   const _MobileShell({
     required this.userId,
     required this.body,
     this.appBar,
     this.floatingActionButton,
+    required this.showTareas,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: appBar,
-      drawer: AppDrawer(userId: userId),
+      drawer: AppDrawer(userId: userId, showTareas: showTareas),
       body: body,
       floatingActionButton: floatingActionButton,
     );
@@ -76,19 +83,22 @@ class _WebShell extends StatelessWidget {
   final Widget body;
   final PreferredSizeWidget? appBar;
   final Widget? floatingActionButton;
+  final bool showTareas;
 
   const _WebShell({
     required this.userId,
     required this.body,
     this.appBar,
     this.floatingActionButton,
+    required this.showTareas,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final empresaId = EmpresaScope.of(context).selectedEmpresaId ?? 'Sin empresa';
+    final empresaId =
+        EmpresaScope.of(context).selectedEmpresaId ?? 'Sin empresa';
 
     return Scaffold(
       body: Row(
@@ -104,7 +114,6 @@ class _WebShell extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  // Encabezado del Sidebar con info de empresa
                   Container(
                     padding: const EdgeInsets.all(20),
                     color: scheme.primaryContainer.withOpacity(0.3),
@@ -112,10 +121,11 @@ class _WebShell extends StatelessWidget {
                       bottom: false,
                       child: Row(
                         children: [
-                          CircleAvatar(
+                          CompanyLogoAvatar(
+                            empresaId: empresaId,
+                            radius: 20,
                             backgroundColor: scheme.primary,
                             foregroundColor: scheme.onPrimary,
-                            child: Text(empresaId.substring(0, empresaId.length >= 2 ? 2 : 1).toUpperCase()),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -130,6 +140,7 @@ class _WebShell extends StatelessWidget {
                                 ),
                                 CompanyNameWidget(
                                   empresaId: empresaId,
+                                  showIdIfNotFound: false,
                                   style: theme.textTheme.titleMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Arial',
@@ -143,10 +154,8 @@ class _WebShell extends StatelessWidget {
                     ),
                   ),
                   const Divider(height: 1),
-                  // Reutilizamos el AppDrawer pero sin el Scaffold/Drawer wrapper
-                  // para que se comporte como un panel lateral estático.
                   Expanded(
-                    child: AppDrawer(userId: userId),
+                    child: AppDrawer(userId: userId, showTareas: showTareas),
                   ),
                 ],
               ),

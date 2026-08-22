@@ -72,6 +72,8 @@ class Icd11Service {
   static Future<Icd11SearchResult> buscarConDetalle(
     String query, {
     String language = 'es',
+    String? userId,
+    String? empresaId,
   }) async {
     if (!enabled) {
       return const Icd11SearchResult(
@@ -98,6 +100,8 @@ class Icd11Service {
       final result = await callable.call<Map<dynamic, dynamic>>({
         'query': query.trim(),
         'language': language,
+        if ((userId ?? '').trim().isNotEmpty) 'userId': userId!.trim(),
+        if ((empresaId ?? '').trim().isNotEmpty) 'empresaId': empresaId!.trim(),
       });
 
       final data = Map<String, dynamic>.from(result.data);
@@ -107,14 +111,16 @@ class Icd11Service {
 
       final diagnosticos = raw
           .cast<Map>()
-          .map((r) => DiagnosticoMedico(
-                codigoCie11: r['icdCode']?.toString() ?? '',
-                nombre: r['icdTitle']?.toString() ?? '',
-                icdUri: r['icdUri']?.toString(),
-                source: 'who_icd11',
-                language: language,
-                icdRelease: r['icdRelease']?.toString(),
-              ))
+          .map(
+            (r) => DiagnosticoMedico(
+              codigoCie11: r['icdCode']?.toString() ?? '',
+              nombre: r['icdTitle']?.toString() ?? '',
+              icdUri: r['icdUri']?.toString(),
+              source: 'who_icd11',
+              language: language,
+              icdRelease: r['icdRelease']?.toString(),
+            ),
+          )
           .where((dx) => dx.codigoCie11.isNotEmpty && dx.nombre.isNotEmpty)
           .toList();
 
@@ -128,7 +134,8 @@ class Icd11Service {
       return Icd11SearchResult(
         resultados: [],
         fallbackCliente: true,
-        errorDetalleCliente: 'FirebaseFunctionsException [${e.code}]: ${e.message}',
+        errorDetalleCliente:
+            'FirebaseFunctionsException [${e.code}]: ${e.message}',
       );
     } catch (e) {
       return Icd11SearchResult(
@@ -144,8 +151,15 @@ class Icd11Service {
   static Future<List<DiagnosticoMedico>> buscar(
     String query, {
     String language = 'es',
+    String? userId,
+    String? empresaId,
   }) async {
-    final resultado = await buscarConDetalle(query, language: language);
+    final resultado = await buscarConDetalle(
+      query,
+      language: language,
+      userId: userId,
+      empresaId: empresaId,
+    );
 
     if (kDebugMode) {
       debugPrint(resultado.toString());

@@ -7,6 +7,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/user_company.dart';
 
+import '../core/task_permissions.dart';
+import '../services/auth_prefs.dart';
+import '../widgets/user_avatar.dart';
+
 // Ajusta este import según tu estructura real (mayúsculas/minúsculas).
 import '../login/login_screen.dart';
 
@@ -17,6 +21,7 @@ import 'task_history_screen.dart';
 import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
 import 'team_overview_screen.dart';
+import 'widgets/home_shared_widgets.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
@@ -26,12 +31,16 @@ const String kArial = 'Arial';
 /// Tareas asignadas, Ver equipo, Cambiar empresa, Cerrar sesión.
 class AppDrawer extends StatelessWidget {
   final String userId; // cédula / id del usuario logueado
+  /// Si es false, oculta todas las opciones de Tareas del drawer.
+  /// Controlado por TBL_APPS (appId: tareasdashboard).
+  final bool showTareas;
 
-  const AppDrawer({Key? key, required this.userId}) : super(key: key);
+  const AppDrawer({super.key, required this.userId, this.showTareas = true});
 
   // ----------------------- HELPERS: ESTRUCTURA -----------------------
   Future<DocumentSnapshot<Map<String, dynamic>>?> _getEstructuraOnce(
-      String uid) async {
+    String uid,
+  ) async {
     try {
       final snap = await FirebaseFirestore.instance
           .collection('TBL_ESTRUCTURA_ORGANIZACIONAL')
@@ -44,69 +53,47 @@ class AppDrawer extends StatelessWidget {
   }
 
   // ----------------------- HELPERS: EMPRESAS -----------------------
-  Set<String> _empresasDeUsuario(Map<String, dynamic>? data) {
-    final out = <String>{};
-    if (data == null) return out;
-
-    // empresaId principal
-    final primary = (data['empresaId'] as String? ?? '').trim();
-    if (primary.isNotEmpty) out.add(primary);
-
-    // lista "empresas": [...]
-    final list = data['empresas'] as List<dynamic>?;
-    if (list != null) {
-      for (final e in list) {
-        final id = (e as String?)?.trim() ?? '';
-        if (id.isNotEmpty) out.add(id);
-      }
-    }
-
-    // map "empresasDetalle": { "EMPRESA_001": {...}, ... }
-    final detalle = data['empresasDetalle'] as Map<String, dynamic>?;
-    if (detalle != null) {
-      for (final k in detalle.keys) {
-        final id = k.toString().trim();
-        if (id.isNotEmpty) out.add(id);
-      }
-    }
-
-    return out;
-  }
-
   Future<Map<String, String>> _loadEmpresaNames(Set<String> ids) async {
     if (ids.isEmpty) return {};
     final col = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
     final out = <String, String>{};
 
-    await Future.wait(ids.map((id) async {
-      try {
-        final doc = await col.doc(id).get();
-        final nombre = (doc.data()?['nombre'] as String?)?.trim();
-        out[id] = (nombre != null && nombre.isNotEmpty) ? nombre : id;
-      } catch (_) {
-        out[id] = id;
-      }
-    }));
+    await Future.wait(
+      ids.map((id) async {
+        try {
+          final doc = await col.doc(id).get();
+          final nombre = (doc.data()?['nombre'] as String?)?.trim();
+          out[id] = (nombre != null && nombre.isNotEmpty) ? nombre : '';
+        } catch (_) {
+          out[id] = '';
+        }
+      }),
+    );
 
     // Asegura fallback
     for (final id in ids) {
-      out[id] = out[id] ?? id;
+      out[id] = out[id] ?? '';
     }
     return out;
   }
 
   Future<String?> _selectEmpresaIdBottomSheet(
-      BuildContext context,
-      List<String> empresaIds, {
-        String? preselectedId,
-      }) async {
-    final ids = empresaIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    BuildContext context,
+    List<String> empresaIds, {
+    String? preselectedId,
+  }) async {
+    final ids = empresaIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
     if (ids.isEmpty) return null;
     ids.sort();
 
     if (ids.length == 1) return ids.first;
 
     final nombres = await _loadEmpresaNames(ids.toSet());
+    if (!context.mounted) return null;
 
     return showModalBottomSheet<String>(
       context: context,
@@ -141,7 +128,8 @@ class AppDrawer extends StatelessWidget {
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: ids.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 10),
                     itemBuilder: (_, i) {
                       final id = ids[i];
                       final nombre = (nombres[id] ?? id).trim();
@@ -155,43 +143,41 @@ class AppDrawer extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => Navigator.of(ctx).pop(id),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
                             child: Row(
                               children: [
-                                CircleAvatar(
+                                CompanyLogoAvatar(
+                                  empresaId: id,
                                   radius: 18,
                                   backgroundColor: scheme.primaryContainer,
-                                  child: Text(
-                                    id.substring(0, id.length >= 2 ? 2 : 1).toUpperCase(),
-                                    style: TextStyle(
-                                      color: scheme.onPrimaryContainer,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
+                                  foregroundColor: scheme.onPrimaryContainer,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        nombre.isEmpty ? 'Empresa sin nombre' : nombre,
-                                        style: theme.textTheme.bodyLarge?.copyWith(
-                                          fontFamily: kArial,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      Text(
-                                        id,
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          fontFamily: kArial,
-                                          color: scheme.onSurfaceVariant,
-                                        ),
+                                        nombre.isEmpty
+                                            ? 'Empresa sin nombre'
+                                            : nombre,
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(
+                                              fontFamily: kArial,
+                                              fontWeight: FontWeight.w800,
+                                            ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                                Icon(
+                                  Icons.chevron_right,
+                                  color: scheme.onSurfaceVariant,
+                                ),
                               ],
                             ),
                           ),
@@ -216,15 +202,26 @@ class AppDrawer extends StatelessWidget {
           .get();
       final nombre = (empDoc.data()?['nombre'] as String?)?.trim();
 
-      await FirebaseFirestore.instance.collection('TBL_USUARIOS').doc(userId).set(
-        {
-          'empresaId': empresaId,
-          if (nombre != null && nombre.isNotEmpty) 'empresaNombre': nombre,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await FirebaseFirestore.instance
+          .collection('TBL_USUARIOS')
+          .doc(userId)
+          .set({
+            'empresaId': empresaId,
+            if (nombre != null && nombre.isNotEmpty) 'empresaNombre': nombre,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
     } catch (_) {}
+  }
+
+  bool _shouldShowTeamPanel({
+    required Map<String, dynamic>? user,
+    required Map<String, dynamic>? estruct,
+    required String? scopeEmpresa,
+    required bool tareasEnabled,
+  }) {
+    return tareasEnabled &&
+        user != null &&
+        canViewTaskTeam(user, structureData: estruct, empresaId: scopeEmpresa);
   }
 
   // ----------------------- UI -----------------------
@@ -247,14 +244,16 @@ class AppDrawer extends StatelessWidget {
             final estruct = estrSnap.data?.data();
 
             // Nombre
-            final nombres = (user?['nombres'] as String? ??
-                user?['primerNombre'] as String? ??
-                '')
-                .trim();
-            final apellidos = (user?['apellidos'] as String? ??
-                user?['primerApellido'] as String? ??
-                '')
-                .trim();
+            final nombres =
+                (user?['nombres'] as String? ??
+                        user?['primerNombre'] as String? ??
+                        '')
+                    .trim();
+            final apellidos =
+                (user?['apellidos'] as String? ??
+                        user?['primerApellido'] as String? ??
+                        '')
+                    .trim();
             String nombreFull = '$nombres $apellidos'.trim();
             if (nombreFull.isEmpty) {
               nombreFull = (estruct?['nombre'] as String? ?? '').trim();
@@ -272,23 +271,37 @@ class AppDrawer extends StatelessWidget {
             final cargoScoped = user == null
                 ? ''
                 : resolveScopedStringWithFallbacks(
-              user,
-              scopeEmpresa,
-              const ['cargo'],
-              const ['cargo'],
-            ).trim();
+                    user,
+                    scopeEmpresa,
+                    const ['cargo'],
+                    const ['cargo'],
+                  ).trim();
             final cargo = cargoScoped.isNotEmpty
                 ? cargoScoped
                 : ((estruct?['cargo'] as String?) ?? '').trim();
 
             // Foto
-            final fotoUrl = ((user?['fotoUrl'] as String?) ??
-                (estruct?['fotoUrl'] as String?) ??
-                '')
-                .trim();
+            final fotoUrl =
+                ((user?['fotoUrl'] as String?) ??
+                        (estruct?['fotoUrl'] as String?) ??
+                        '')
+                    .trim();
 
-            // Empresa actual (lo que tenga guardado el usuario)
+            // Empresa actual y empresas autorizadas.
             final empresaActual = (user?['empresaId'] as String? ?? '').trim();
+            final activeEmpresa = (scopeEmpresa?.trim().isNotEmpty ?? false)
+                ? scopeEmpresa!.trim()
+                : empresaActual;
+            final empresas = user == null
+                ? <String>[]
+                : extractUserEmpresaIds(user);
+            final canChangeEmpresa = empresas.length >= 2;
+            final showTeamPanel = _shouldShowTeamPanel(
+              user: user,
+              estruct: estruct,
+              scopeEmpresa: activeEmpresa,
+              tareasEnabled: showTareas,
+            );
 
             final listContent = ListView(
               padding: EdgeInsets.zero,
@@ -296,20 +309,21 @@ class AppDrawer extends StatelessWidget {
                 if (!isSidebar)
                   UserAccountsDrawerHeader(
                     decoration: const BoxDecoration(color: kMarronOscuro),
-                    currentAccountPicture: CircleAvatar(
+                    currentAccountPicture: UserAvatar(
+                      userId: userId,
+                      nameHint: nombreFull,
+                      fotoUrlHint: fotoUrl,
+                      radius: 36,
                       backgroundColor: Colors.white,
-                      backgroundImage: (fotoUrl.isNotEmpty) ? NetworkImage(fotoUrl) : null,
-                      child: fotoUrl.isEmpty
-                          ? const Icon(Icons.person, size: 48, color: kMarronOscuro)
-                          : null,
+                      foregroundColor: kMarronOscuro,
                     ),
                     accountName: Text(
                       (('$primerNombre ${primerApellido.isNotEmpty ? primerApellido : ''}')
-                          .trim()
-                          .isEmpty)
-                      ? userId
-                      : '$primerNombre ${primerApellido.isNotEmpty ? primerApellido : ''}'
-                      .trim(),
+                              .trim()
+                              .isEmpty)
+                          ? userId
+                          : '$primerNombre ${primerApellido.isNotEmpty ? primerApellido : ''}'
+                                .trim(),
                       style: const TextStyle(fontFamily: kArial, fontSize: 18),
                     ),
                     accountEmail: Text(
@@ -324,12 +338,11 @@ class AppDrawer extends StatelessWidget {
                     padding: const EdgeInsets.all(16.0),
                     child: Row(
                       children: [
-                        CircleAvatar(
+                        UserAvatar(
+                          userId: userId,
+                          nameHint: nombreFull,
+                          fotoUrlHint: fotoUrl,
                           radius: 20,
-                          backgroundImage: (fotoUrl.isNotEmpty) ? NetworkImage(fotoUrl) : null,
-                          child: fotoUrl.isEmpty
-                              ? const Icon(Icons.person, size: 24)
-                              : null,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -347,7 +360,9 @@ class AppDrawer extends StatelessWidget {
                               Text(
                                 cargo.isEmpty ? 'Usuario' : cargo,
                                 style: TextStyle(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                   fontSize: 12,
                                 ),
                                 overflow: TextOverflow.ellipsis,
@@ -362,176 +377,299 @@ class AppDrawer extends StatelessWidget {
                 ],
 
                 // ✅ CAMBIAR EMPRESA SIN CERRAR SESIÓN
-                ListTile(
-                  leading: const Icon(Icons.swap_horiz),
-                  title: const Text('Cambiar empresa', style: TextStyle(fontFamily: kArial)),
-                  subtitle: empresaActual.isEmpty
-                      ? null
-                      : Text(
-                    'Actual: $empresaActual',
-                    style: const TextStyle(fontFamily: kArial, fontSize: 12),
-                  ),
-                  onTap: () async {
-                    final empresas = _empresasDeUsuario(user).toList();
-                    if (empresas.isEmpty) {
+                if (canChangeEmpresa) ...[
+                  ListTile(
+                    leading: const Icon(Icons.swap_horiz),
+                    title: const Text(
+                      'Cambiar empresa',
+                      style: TextStyle(fontFamily: kArial),
+                    ),
+                    subtitle: activeEmpresa.isEmpty
+                        ? null
+                        : Row(
+                            children: [
+                              const Text(
+                                'Actual: ',
+                                style: TextStyle(
+                                  fontFamily: kArial,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              Expanded(
+                                child: CompanyNameWidget(
+                                  empresaId: activeEmpresa,
+                                  showIdIfNotFound: false,
+                                  style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                    onTap: () async {
+                      final selected = await _selectEmpresaIdBottomSheet(
+                        context,
+                        empresas,
+                        preselectedId: activeEmpresa.isNotEmpty
+                            ? activeEmpresa
+                            : null,
+                      );
+
+                      if (!context.mounted) return;
+                      if (selected == null || selected.trim().isEmpty) return;
+
+                      // 1) Setear scope
+                      try {
+                        EmpresaScope.of(
+                          context,
+                          listen: false,
+                        ).setSelectedEmpresaId(selected);
+                      } catch (_) {}
+
+                      // 2) Persistir en el usuario (para que quede guardado)
+                      await _persistSelectedEmpresa(userId, selected);
+
+                      // 3) Cerrar drawer si aplica
                       if (!isSidebar && context.mounted) Navigator.pop(context);
+
+                      // 4) Aviso
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Este usuario no tiene empresas asociadas')),
+                          const SnackBar(
+                            content: Text('Empresa activa actualizada'),
+                          ),
                         );
                       }
-                      return;
-                    }
+                    },
+                  ),
 
-                    final selected = await _selectEmpresaIdBottomSheet(
-                      context,
-                      empresas,
-                      preselectedId: empresaActual.isNotEmpty ? empresaActual : null,
-                    );
-
-                    if (selected == null || selected.trim().isEmpty) return;
-
-                    // 1) Setear scope
-                    try {
-                      EmpresaScope.of(context, listen: false).setSelectedEmpresaId(selected);
-                    } catch (_) {}
-
-                    // 2) Persistir en el usuario (para que quede guardado)
-                    await _persistSelectedEmpresa(userId, selected);
-
-                    // 3) Cerrar drawer si aplica
-                    if (!isSidebar && context.mounted) Navigator.pop(context);
-
-                    // 4) Aviso
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Empresa activa: $selected')),
-                      );
-                    }
-                  },
-                ),
-
-                const Divider(),
+                  const Divider(),
+                ],
 
                 // — Menú principal —
                 ListTile(
-                  leading: const Icon(Icons.person),
-                  title: const Text('Perfil', style: TextStyle(fontFamily: kArial)),
+                  leading: const Icon(Icons.assignment_ind_rounded),
+                  title: const Text(
+                    'Mi hoja de vida',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
+                  subtitle: const Text(
+                    'Editar datos y subir soportes',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                   onTap: () => Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)),
+                    MaterialPageRoute(
+                      builder: (_) => ProfileScreen(
+                        userId: userId,
+                        empresaId: (scopeEmpresa?.trim().isNotEmpty ?? false)
+                            ? scopeEmpresa
+                            : empresaActual,
+                      ),
+                    ),
                   ),
                 ),
                 ListTile(
                   leading: const Icon(Icons.group),
-                  title:
-                  const Text('Mi equipo de trabajo', style: TextStyle(fontFamily: kArial)),
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => TeamScreen(userId: userId)),
+                  title: const Text(
+                    'Mi equipo de trabajo',
+                    style: TextStyle(fontFamily: kArial),
                   ),
-                ),
-
-                const Divider(),
-
-                // ── SECCIÓN GESTIÓN DE TAREAS ──
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    'GESTIÓN DE TAREAS',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
-                      letterSpacing: 1.1,
-                    ),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.add_task_rounded, color: kMarronOscuro),
-                  title: const Text('Crear nueva tarea', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w600)),
-                  onTap: () {
-                    if (!isSidebar) Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CreateTaskScreen(currentUserId: userId),
-                      ),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.assignment_ind_rounded, color: kMarronOscuro),
-                  title: const Text('Mis tareas asignadas',
-                      style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Activas para resolver',
-                      style: TextStyle(fontFamily: kArial, fontSize: 11)),
-                  onTap: () {
-                    if (!isSidebar) Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AssignedTasksScreen(userId: userId),
-                      ),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.manage_accounts_rounded, color: kMarronOscuro),
-                  title: const Text('Tareas que yo asigné',
-                      style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Seguimiento de equipo',
-                      style: TextStyle(fontFamily: kArial, fontSize: 11)),
-                  onTap: () {
-                    if (!isSidebar) Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CreatedTasksScreen(userId: userId),
-                      ),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.history_rounded, color: kMarronOscuro),
-                  title: const Text('Historial de tareas',
-                      style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w500)),
-                  subtitle: const Text('Finalizadas y cerradas',
-                      style: TextStyle(fontFamily: kArial, fontSize: 11)),
-                  onTap: () {
-                    if (!isSidebar) Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            TaskHistoryScreen(currentUserId: userId),
-                      ),
-                    );
-                  },
-                ),
-
-                const Divider(),
-
-                ListTile(
-                  leading: const Icon(Icons.group_work_rounded),
-                  title: const Text('Panel de mi equipo',
-                      style: TextStyle(fontFamily: kArial)),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => TeamOverviewScreen(
-                        currentUserId: userId,
-                      ),
+                      builder: (_) => TeamScreen(userId: userId),
                     ),
                   ),
                 ),
+
+                // ── SECCIÓN GESTIÓN DE TAREAS (solo si el módulo está habilitado) ──
+                if (showTareas) ...[
+                  const Divider(),
+
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Text(
+                      'GESTIÓN DE TAREAS',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.7),
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.add_task_rounded,
+                      color: kMarronOscuro,
+                    ),
+                    title: const Text(
+                      'Crear nueva tarea',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    onTap: () {
+                      if (!isSidebar) Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CreateTaskScreen(currentUserId: userId),
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.assignment_ind_rounded,
+                      color: kMarronOscuro,
+                    ),
+                    title: const Text(
+                      'Mis tareas',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Activas para resolver',
+                      style: TextStyle(fontFamily: kArial, fontSize: 11),
+                    ),
+                    onTap: () {
+                      if (!isSidebar) Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AssignedTasksScreen(userId: userId),
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.manage_accounts_rounded,
+                      color: kMarronOscuro,
+                    ),
+                    title: const Text(
+                      'Tareas que asigné',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Seguimiento de equipo',
+                      style: TextStyle(fontFamily: kArial, fontSize: 11),
+                    ),
+                    onTap: () {
+                      if (!isSidebar) Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CreatedTasksScreen(userId: userId),
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.fact_check_rounded,
+                      color: kMarronOscuro,
+                    ),
+                    title: const Text(
+                      'Tareas por aprobar',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Cierres y devoluciones',
+                      style: TextStyle(fontFamily: kArial, fontSize: 11),
+                    ),
+                    onTap: () {
+                      if (!isSidebar) Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CreatedTasksScreen(
+                            userId: userId,
+                            approvalMode: true,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+
+                if (showTeamPanel) ...[
+                  ListTile(
+                    leading: const Icon(Icons.group_work_rounded),
+                    title: const Text(
+                      'Tareas de mi equipo',
+                      style: TextStyle(fontFamily: kArial),
+                    ),
+                    subtitle: const Text(
+                      'Agrupadas por responsable',
+                      style: TextStyle(fontFamily: kArial, fontSize: 11),
+                    ),
+                    onTap: () {
+                      if (!isSidebar) Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              TeamOverviewScreen(currentUserId: userId),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+
+                if (showTareas)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.history_rounded,
+                      color: kMarronOscuro,
+                    ),
+                    title: const Text(
+                      'Historial de tareas',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Finalizadas y cerradas',
+                      style: TextStyle(fontFamily: kArial, fontSize: 11),
+                    ),
+                    onTap: () {
+                      if (!isSidebar) Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              TaskHistoryScreen(currentUserId: userId),
+                        ),
+                      );
+                    },
+                  ),
 
                 const Divider(),
 
                 ListTile(
                   leading: const Icon(Icons.exit_to_app),
-                  title: const Text('Cerrar sesión', style: TextStyle(fontFamily: kArial)),
+                  title: const Text(
+                    'Cerrar sesión',
+                    style: TextStyle(fontFamily: kArial),
+                  ),
                   onTap: () => _logout(context),
                 ),
               ],
@@ -550,6 +688,12 @@ class AppDrawer extends StatelessWidget {
     try {
       await FirebaseAuth.instance.signOut();
     } catch (_) {}
+    // Borra la sesión guardada y apaga el auto-ingreso (mantener sesión /
+    // biometría). Conserva "recordar usuario" para comodidad en el próximo login.
+    try {
+      await AuthPrefs.instance.clearSession();
+    } catch (_) {}
+    if (!context.mounted) return;
     try {
       EmpresaScope.of(context, listen: false).clear();
     } catch (_) {}
@@ -558,7 +702,7 @@ class AppDrawer extends StatelessWidget {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (_) => false,
+        (_) => false,
       );
     }
   }

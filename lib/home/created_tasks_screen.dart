@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:todo/state/empresa_scope.dart';
@@ -10,19 +9,24 @@ import 'package:todo/widgets/skeleton_loader.dart';
 import 'package:todo/widgets/task_filters_panel.dart';
 import 'package:todo/widgets/task_responsive_layout.dart';
 import 'package:todo/widgets/task_modern_card.dart';
-import 'package:todo/widgets/task_summary_header.dart';
+import 'package:todo/widgets/user_avatar.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import '../facturacion/facturacion_models.dart';
+import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
+import '../services/task_service.dart';
 
 const String _kFont = 'Arial';
 
 class CreatedTasksScreen extends StatefulWidget {
   final String userId;
   final String? highlightTaskId;
+  final bool approvalMode;
 
   const CreatedTasksScreen({
     super.key,
     required this.userId,
     this.highlightTaskId,
+    this.approvalMode = false,
   });
 
   @override
@@ -35,12 +39,19 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   String _areaFilter = 'todas';
   String _cargoFilter = 'todas';
   bool _didAutoOpen = false;
+  bool _showAllTasks = false;
 
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
   Map<String, String> _areaNames = const {};
   Map<String, String> _cargoNames = const {};
   Map<String, Map<String, String>> _userMeta = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.approvalMode) _statusFilter = 'por_aprobar';
+  }
 
   @override
   void didChangeDependencies() {
@@ -87,7 +98,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         };
         _cargoNames = {
           for (final d in cargosSnap.docs)
-            d.id: (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id).toString(),
+            d.id: (d.data()['nombre'] ?? d.data()['descripcion'] ?? d.id)
+                .toString(),
         };
         _userMeta = {
           for (final d in usersSnap.docs)
@@ -110,14 +122,58 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
-    Query<Map<String, dynamic>> q = FirebaseFirestore.instance
-        .collection('TBL_TAREAS')
-        .where('creador_id', isEqualTo: widget.userId);
+    Query<Map<String, dynamic>> q = FirebaseFirestore.instance.collection(
+      'TBL_TAREAS',
+    );
+    q = widget.approvalMode
+        ? q.where(
+            Filter.or(
+              Filter('aprobador_uid', isEqualTo: widget.userId),
+              // Compatibilidad con tareas históricas anteriores al contrato v2.
+              Filter('jefe_uid', isEqualTo: widget.userId),
+            ),
+          )
+        : q.where('creador_id', isEqualTo: widget.userId);
     final empId = _selectedEmpresaId;
     if (empId != null && empId.isNotEmpty) {
       q = q.where('empresaId', isEqualTo: empId);
     }
     return q.snapshots();
+  }
+
+  DateTime? _toDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) return DateTime.tryParse(value);
+    try {
+      return (value as dynamic).toDate() as DateTime;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  DateTime? _dueDateOf(Map<String, dynamic> data) {
+    return _toDate(data['fecha_limite'] ?? data['dueDate']);
+  }
+
+  int _compareByDueDate(
+    QueryDocumentSnapshot<Map<String, dynamic>> a,
+    QueryDocumentSnapshot<Map<String, dynamic>> b,
+  ) {
+    final da = _dueDateOf(a.data());
+    final db = _dueDateOf(b.data());
+    if (da == null && db == null) {
+      final ua = _toDate(a.data()['updatedAt'] ?? a.data()['createdAt']);
+      final ub = _toDate(b.data()['updatedAt'] ?? b.data()['createdAt']);
+      return (ub?.millisecondsSinceEpoch ?? 0).compareTo(
+        ua?.millisecondsSinceEpoch ?? 0,
+      );
+    }
+    if (da == null) return 1;
+    if (db == null) return -1;
+    return da.compareTo(db);
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
@@ -129,8 +185,28 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       final status = resolveTaskStatus(m);
       if (status == 'finalizado') return false;
       final title = (m['titulo'] ?? m['title'] ?? '').toString().toLowerCase();
+      final description = (m['descripcion'] ?? m['description'] ?? '')
+          .toString()
+          .toLowerCase();
       final responsable = (m['asignado_nombre'] ?? '').toString().toLowerCase();
-      if (q.isNotEmpty && !title.contains(q) && !responsable.contains(q)) return false;
+      final responsableId = (m['asignado_uid'] ?? '').toString().toLowerCase();
+      final areaId = (m['areaId'] ?? '').toString().trim();
+      final areaName = (_areaNames[areaId] ?? '').toLowerCase();
+      final uid = (m['asignado_uid'] ?? '').toString().trim();
+      final userAreaName = (_userMeta[uid]?['area'] ?? '').toLowerCase();
+      final cargoId = (_userMeta[uid]?['cargoId'] ?? '').toString().trim();
+      final cargoName = (_cargoNames[cargoId] ?? _userMeta[uid]?['cargo'] ?? '')
+          .toLowerCase();
+      if (q.isNotEmpty &&
+          !title.contains(q) &&
+          !description.contains(q) &&
+          !responsable.contains(q) &&
+          !responsableId.contains(q) &&
+          !areaName.contains(q) &&
+          !userAreaName.contains(q) &&
+          !cargoName.contains(q)) {
+        return false;
+      }
       if (_statusFilter == 'en_progreso') {
         // "Activas" = en progreso + vencidas (ambas requieren acción)
         if (status != 'en_progreso' && status != 'retrasada') return false;
@@ -141,55 +217,20 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       if (_areaFilter != 'todas') {
         final taskAreaId = (m['areaId'] ?? '').toString().trim();
         // También revisar el área del responsable si el doc no trae areaId
-        final uid = (m['asignado_uid'] ?? '').toString().trim();
         final userAreaId = _userMeta[uid]?['areaId'] ?? '';
-        if (taskAreaId != _areaFilter && userAreaId != _areaFilter) return false;
+        if (taskAreaId != _areaFilter && userAreaId != _areaFilter)
+          return false;
       }
       // Filtro por cargo del responsable
       if (_cargoFilter != 'todas') {
-        final uid = (m['asignado_uid'] ?? '').toString().trim();
         final userCargoId = _userMeta[uid]?['cargoId'] ?? '';
         if (userCargoId != _cargoFilter) return false;
       }
       return true;
     }).toList();
 
-    result.sort((a, b) {
-      final da = a.data()['fecha_limite'] ?? a.data()['dueDate'];
-      final db = b.data()['fecha_limite'] ?? b.data()['dueDate'];
-      final ta = da is Timestamp ? da.seconds : (da is int ? da ~/ 1000 : null);
-      final tb = db is Timestamp ? db.seconds : (db is int ? db ~/ 1000 : null);
-      if (ta == null && tb == null) return 0;
-      if (ta == null) return 1;  // sin fecha al final
-      if (tb == null) return -1;
-      return ta.compareTo(tb); // más próxima primero
-    });
+    result.sort(_compareByDueDate);
     return result;
-  }
-
-  // --- Logic for stats ---
-  Map<String, int> _calcStats(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
-    int total = 0;
-    int inProgress = 0;
-    int overdue = 0;
-    int pendingApproval = 0;
-
-    for (final d in docs) {
-      final m = d.data();
-      final status = resolveTaskStatus(m);
-      if (status == 'finalizado') continue;
-      total++;
-      if (status == 'en_progreso' || status == 'retrasada') inProgress++;
-      if (status == 'retrasada') overdue++;
-      if (status == 'por_aprobar') pendingApproval++;
-    }
-
-    return {
-      'total': total,
-      'inProgress': inProgress,
-      'overdue': overdue,
-      'pendingApproval': pendingApproval,
-    };
   }
 
   List<Map<String, String>> _extractAttachments(Map<String, dynamic> data) {
@@ -215,7 +256,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           'name': (m['name'] ?? m['filename'] ?? 'archivo').toString(),
           'url': (m['url'] ?? '').toString(),
           'path': (m['path'] ?? '').toString(),
-          'desc': (m['desc'] ?? m['description'] ?? m['process'] ?? '').toString(),
+          'desc': (m['desc'] ?? m['description'] ?? m['process'] ?? '')
+              .toString(),
         });
       }
     }
@@ -228,12 +270,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     if (raw is! List) return out;
     for (final e in raw) {
       if (e is String) {
-        out.add({
-          'name': e.split('/').last,
-          'url': e,
-          'path': '',
-          'desc': '',
-        });
+        out.add({'name': e.split('/').last, 'url': e, 'path': '', 'desc': ''});
         continue;
       }
       if (e is! Map) continue;
@@ -305,7 +342,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     return null;
   }
 
-  List<Map<String, String>> _collectionItemAttachments(Map<String, dynamic> data) {
+  List<Map<String, String>> _collectionItemAttachments(
+    Map<String, dynamic> data,
+  ) {
     final merged = <Map<String, String>>[];
     final seen = <String>{};
 
@@ -314,8 +353,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         final key = (att['url'] ?? '').trim().isNotEmpty
             ? att['url']!.trim()
             : ((att['path'] ?? '').trim().isNotEmpty
-                ? att['path']!.trim()
-                : (att['name'] ?? '').trim());
+                  ? att['path']!.trim()
+                  : (att['name'] ?? '').trim());
         if (key.isEmpty || seen.contains(key)) continue;
         seen.add(key);
         merged.add(att);
@@ -334,12 +373,17 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     if (!mounted) return;
     await showModalBottomSheet(
       context: context,
+      constraints: taskPanelConstraints(context),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.6,
+          height: taskPanelHeight(
+            context,
+            mobileFraction: 0.6,
+            desktopMaxHeight: 560,
+          ),
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -351,49 +395,31 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              TaskPanelHeader(
+                title: title,
+                onBack: () => Navigator.of(sheetContext).pop(),
               ),
               const Divider(height: 1),
               Expanded(
                 child: attachments.isEmpty
-                    ? const Center(child: Text('Este registro no tiene adjuntos.'))
+                    ? const Center(
+                        child: Text('Este registro no tiene adjuntos.'),
+                      )
                     : ListView.builder(
                         padding: const EdgeInsets.all(16),
                         itemCount: attachments.length,
                         itemBuilder: (_, i) {
                           final att = attachments[i];
-                          return ListTile(
-                            leading: const Icon(Icons.attach_file_rounded),
-                            title: Text(
-                              att['name'] ?? 'archivo',
-                              style: const TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            subtitle: Text(
-                              (att['desc'] ?? '').trim().isEmpty
-                                  ? 'Toca para abrir'
-                                  : att['desc']!,
-                            ),
-                            onTap: () async {
+                          return _AttachmentActionTile(
+                            attachment: att,
+                            onOpen: () async {
                               final ok = await _openAttachment(att);
                               if (!ok && mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('No se pudo abrir el archivo.'),
+                                    content: Text(
+                                      'No se pudo abrir el archivo.',
+                                    ),
                                   ),
                                 );
                               }
@@ -419,12 +445,13 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      constraints: taskPanelConstraints(context, desktopMaxWidth: 1000),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.72,
+          height: taskPanelHeight(context, desktopMaxHeight: 620),
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -436,28 +463,15 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '${docs.length}',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+              TaskPanelHeader(
+                title: title,
+                onBack: () => Navigator.of(sheetContext).pop(),
+                trailing: Text(
+                  '${docs.length}',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               const Divider(height: 1),
@@ -475,7 +489,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (_, i) {
                           final data = docs[i].data();
-                          final itemAttachments = _collectionItemAttachments(data);
+                          final itemAttachments = _collectionItemAttachments(
+                            data,
+                          );
                           return Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -506,12 +522,18 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                   Align(
                                     alignment: Alignment.centerRight,
                                     child: TextButton.icon(
-                                      onPressed: () => _showItemAttachmentsDialog(
-                                        title: 'Adjuntos del registro',
-                                        attachments: itemAttachments,
+                                      onPressed: () =>
+                                          _showItemAttachmentsDialog(
+                                            title: 'Adjuntos del registro',
+                                            attachments: itemAttachments,
+                                          ),
+                                      icon: const Icon(
+                                        Icons.attach_file_rounded,
+                                        size: 18,
                                       ),
-                                      icon: const Icon(Icons.attach_file_rounded, size: 18),
-                                      label: Text('${itemAttachments.length} adjunto(s)'),
+                                      label: Text(
+                                        '${itemAttachments.length} adjunto(s)',
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -564,18 +586,25 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       update['lastEventText'] = 'No se aprobó la fecha propuesta en un avance';
     }
 
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).update(update);
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(taskId).collection('novedades').add({
-      'type': 'respuesta_avance',
-      'message': mode == 'accept'
-          ? 'Se aprobó la fecha sugerida en el avance.'
-          : (mode == 'other'
-              ? 'Se asignó una nueva fecha a partir del avance.'
-              : 'No se aprobó la fecha sugerida en el avance.'),
-      if (mode == 'other' && pickedDate != null)
-        'newDueDate': Timestamp.fromDate(pickedDate),
-      'createdAt': now,
-    });
+    await FirebaseFirestore.instance
+        .collection('TBL_TAREAS')
+        .doc(taskId)
+        .update(update);
+    await FirebaseFirestore.instance
+        .collection('TBL_TAREAS')
+        .doc(taskId)
+        .collection('novedades')
+        .add({
+          'type': 'respuesta_avance',
+          'message': mode == 'accept'
+              ? 'Se aprobó la fecha sugerida en el avance.'
+              : (mode == 'other'
+                    ? 'Se asignó una nueva fecha a partir del avance.'
+                    : 'No se aprobó la fecha sugerida en el avance.'),
+          if (mode == 'other' && pickedDate != null)
+            'newDueDate': Timestamp.fromDate(pickedDate),
+          'createdAt': now,
+        });
   }
 
   Future<void> _showAvancesDialog(String taskId) async {
@@ -584,12 +613,17 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      constraints: taskPanelConstraints(context, desktopMaxWidth: 1000),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.78,
+          height: taskPanelHeight(
+            context,
+            mobileFraction: 0.76,
+            desktopMaxHeight: 680,
+          ),
           child: Column(
             children: [
               const SizedBox(height: 12),
@@ -601,22 +635,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Avances de la tarea',
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+              TaskPanelHeader(
+                title: 'Avances de la tarea',
+                onBack: () => Navigator.of(sheetContext).pop(),
               ),
               const Divider(height: 1),
               Expanded(
@@ -645,7 +666,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                   children: [
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             _messageOf(data),
@@ -668,11 +690,14 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                     if (attachments.isNotEmpty)
                                       IconButton(
                                         tooltip: 'Ver adjuntos',
-                                        onPressed: () => _showItemAttachmentsDialog(
-                                          title: 'Adjuntos del avance',
-                                          attachments: attachments,
+                                        onPressed: () =>
+                                            _showItemAttachmentsDialog(
+                                              title: 'Adjuntos del avance',
+                                              attachments: attachments,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.attach_file_rounded,
                                         ),
-                                        icon: const Icon(Icons.attach_file_rounded),
                                       ),
                                   ],
                                 ),
@@ -683,10 +708,13 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                     decoration: BoxDecoration(
                                       color: Colors.teal.withOpacity(0.08),
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.teal.withOpacity(0.16)),
+                                      border: Border.all(
+                                        color: Colors.teal.withOpacity(0.16),
+                                      ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         const Text(
                                           'FECHA SUGERIDA EN EL AVANCE',
@@ -699,7 +727,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                         ),
                                         const SizedBox(height: 6),
                                         Text(
-                                          DateFormat('dd/MM/yyyy').format(suggested),
+                                          DateFormat(
+                                            'dd/MM/yyyy',
+                                          ).format(suggested),
                                           style: const TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w800,
@@ -735,7 +765,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                             mode: 'other',
                                           );
                                         },
-                                        icon: const Icon(Icons.edit_calendar_rounded),
+                                        icon: const Icon(
+                                          Icons.edit_calendar_rounded,
+                                        ),
                                         label: const Text('Asignar otra'),
                                       ),
                                       TextButton.icon(
@@ -766,96 +798,6 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     );
   }
 
-  Future<void> _showAttachmentsDialog(Map<String, dynamic> data) async {
-    final attachments = _extractAttachments(data);
-    if (!mounted) return;
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.68,
-          child: Column(
-            children: [
-              const SizedBox(height: 12),
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Adjuntos de la tarea',
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 20,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: attachments.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('No hay adjuntos cargados en esta tarea.'),
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: attachments.length,
-                        itemBuilder: (_, i) {
-                          final att = attachments[i];
-                          return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 4,
-                            ),
-                            leading: const Icon(Icons.attach_file_rounded),
-                            title: Text(
-                              att['name'] ?? 'archivo',
-                              style: const TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            subtitle: Text(
-                              (att['desc'] ?? '').trim().isEmpty
-                                  ? 'Toca para abrir'
-                                  : att['desc']!,
-                            ),
-                            onTap: () async {
-                              final ok = await _openAttachment(att);
-                              if (!ok && mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('No se pudo abrir el archivo.'),
-                                  ),
-                                );
-                              }
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _showAllAttachmentsDialog(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
@@ -874,19 +816,29 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         final key = (att['url'] ?? '').trim().isNotEmpty
             ? att['url']!.trim()
             : ((att['path'] ?? '').trim().isNotEmpty
-                ? att['path']!.trim()
-                : (att['name'] ?? '').trim());
+                  ? att['path']!.trim()
+                  : (att['name'] ?? '').trim());
         if (key.isEmpty || seenByGroup[group]!.contains(key)) continue;
         seenByGroup[group]!.add(key);
         grouped[group]!.add(att);
       }
     }
 
-    const _processLabels = {'Finalización', 'Evidencia', 'Avance', 'Avances', 'Novedad', 'Novedades'};
-    addAll('Iniciales', _extractAttachments(doc.data()).where((a) {
-      final desc = (a['desc'] ?? '').trim();
-      return desc.isEmpty || !_processLabels.contains(desc);
-    }).toList());
+    const _processLabels = {
+      'Finalización',
+      'Evidencia',
+      'Avance',
+      'Avances',
+      'Novedad',
+      'Novedades',
+    };
+    addAll(
+      'Iniciales',
+      _extractAttachments(doc.data()).where((a) {
+        final desc = (a['desc'] ?? '').trim();
+        return desc.isEmpty || !_processLabels.contains(desc);
+      }).toList(),
+    );
 
     const groupByCollection = {
       'novedades': 'Novedades',
@@ -911,12 +863,17 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      constraints: taskPanelConstraints(context, desktopMaxWidth: 1080),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.76,
+          height: taskPanelHeight(
+            context,
+            mobileFraction: 0.74,
+            desktopMaxHeight: 700,
+          ),
           child: tabs.isEmpty
               ? Column(
                   children: [
@@ -929,29 +886,18 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Adjuntos y evidencias',
-                              style: TextStyle(
-                                fontFamily: _kFont,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 20,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                    TaskPanelHeader(
+                      title: 'Adjuntos y evidencias',
+                      onBack: () => Navigator.of(sheetContext).pop(),
                     ),
                     const Divider(height: 1),
                     const Expanded(
                       child: Center(
                         child: Padding(
                           padding: EdgeInsets.all(24),
-                          child: Text('No hay archivos disponibles para esta tarea.'),
+                          child: Text(
+                            'No hay archivos disponibles para esta tarea.',
+                          ),
                         ),
                       ),
                     ),
@@ -970,22 +916,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(20, 18, 20, 12),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Adjuntos y evidencias',
-                                style: TextStyle(
-                                  fontFamily: _kFont,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 20,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                      TaskPanelHeader(
+                        title: 'Adjuntos y evidencias',
+                        onBack: () => Navigator.of(sheetContext).pop(),
                       ),
                       TabBar(
                         isScrollable: true,
@@ -1007,25 +940,18 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                 itemCount: grouped[tab]!.length,
                                 itemBuilder: (_, i) {
                                   final att = grouped[tab]![i];
-                                  return ListTile(
-                                    leading: const Icon(Icons.attach_file_rounded),
-                                    title: Text(
-                                      att['name'] ?? 'archivo',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      (att['desc'] ?? '').trim().isEmpty
-                                          ? 'Toca para abrir'
-                                          : att['desc']!,
-                                    ),
-                                    onTap: () async {
+                                  return _AttachmentActionTile(
+                                    attachment: att,
+                                    onOpen: () async {
                                       final ok = await _openAttachment(att);
                                       if (!ok && mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           const SnackBar(
-                                            content: Text('No se pudo abrir el archivo.'),
+                                            content: Text(
+                                              'No se pudo abrir el archivo.',
+                                            ),
                                           ),
                                         );
                                       }
@@ -1044,108 +970,62 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     );
   }
 
-  Future<void> _showProcessMenu(
+  Future<void> _approveFinish(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    await showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20, width: double.infinity),
-              const Text(
-                'Proceso de la tarea',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 20,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _ActionTile(
-                icon: Icons.markunread_mailbox_rounded,
-                color: Colors.blue,
-                title: 'Novedades',
-                subtitle: 'Comentarios, devoluciones y mensajes registrados.',
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _showCollectionDialog(
-                    title: 'Novedades de la tarea',
-                    taskId: doc.id,
-                    collection: 'novedades',
-                  );
-                },
-              ),
-              _ActionTile(
-                icon: Icons.trending_up_rounded,
-                color: Colors.teal,
-                title: 'Avances',
-                subtitle: 'Reportes de progreso del responsable.',
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _showAvancesDialog(doc.id);
-                },
-              ),
-              _ActionTile(
-                icon: Icons.verified_rounded,
-                color: Colors.green,
-                title: 'Finalización',
-                subtitle: 'Evidencias y registro de cierre de la tarea.',
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _showCollectionDialog(
-                    title: 'Finalización de la tarea',
-                    taskId: doc.id,
-                    collection: 'finalizacion',
-                  );
-                },
-              ),
-              _ActionTile(
-                icon: Icons.attach_file_rounded,
-                color: Colors.blueGrey,
-                title: 'Adjuntos',
-                subtitle: 'Archivos y evidencias disponibles.',
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _showAllAttachmentsDialog(doc);
-                },
-              ),
-            ],
+    final ref = FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id);
+    final now = Timestamp.now();
+    try {
+      await FirebaseFirestore.instance.runTransaction((trx) async {
+        final snap = await trx.get(ref);
+        final data = snap.data() ?? <String, dynamic>{};
+        final pendingFinish =
+            (data['solicitud_finalizacion_estado'] ?? '')
+                .toString()
+                .toLowerCase() ==
+            'pendiente';
+        if (!pendingFinish) {
+          throw StateError(
+            'La solicitud de finalización ya no está pendiente.',
+          );
+        }
+        trx.update(ref, {
+          'estado': 'finalizado',
+          'status': 'finalizado',
+          'approved': true,
+          'approvedAt': now,
+          'solicitud_finalizacion_estado': 'aprobado',
+          'updatedAt': now,
+          'lastEventType': 'aprobada',
+          'lastEventAt': now,
+        });
+        if ((data['origen'] ?? '').toString() == kFacTaskOrigin) {
+          final obsId = (data['facObservacionId'] ?? '').toString().trim();
+          if (obsId.isNotEmpty) {
+            trx.update(
+              FirebaseFirestore.instance
+                  .collection('TBL_FAC_OBSERVACIONES')
+                  .doc(obsId),
+              {'tareaEstado': 'finalizado', 'finalizadaAt': now},
+            );
+          }
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is StateError ? e.message : 'No se pudo aprobar la finalización.',
           ),
         ),
-      ),
-    );
+      );
+    }
   }
 
-  Future<void> _approveFinish(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id).update({
-      'estado': 'finalizado',
-      'status': 'finalizado',
-      'approved': true,
-      'approvedAt': Timestamp.now(),
-      'solicitud_finalizacion_estado': 'aprobado',
-      'updatedAt': Timestamp.now(),
-      'lastEventType': 'aprobada',
-      'lastEventAt': Timestamp.now(),
-    });
-  }
-
-  Future<void> _returnTask(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> _returnTask(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     DateTime? nuevaFecha;
     final motivoCtrl = TextEditingController();
 
@@ -1171,7 +1051,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Explica por qué se devuelve y asigna una nueva fecha.'),
+                const Text(
+                  'Explica por qué se devuelve y asigna una nueva fecha.',
+                ),
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: pickFecha,
@@ -1213,130 +1095,332 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     }
 
     final now = Timestamp.now();
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id).update({
-      'estado': 'devuelta',
-      'status': 'devuelta',
-      'fecha_limite': Timestamp.fromDate(nuevaFecha!),
-      'approved': false,
-      'approvedAt': FieldValue.delete(),
-      'solicitud_finalizacion_estado': FieldValue.delete(),
-      'solicitud_finalizacion_at': FieldValue.delete(),
-      'solicitud_finalizacion_by_uid': FieldValue.delete(),
-      'solicitud_finalizacion_by_nombre': FieldValue.delete(),
-      'updatedAt': now,
-      'lastEventType': 'task_devuelta',
-      'lastEventAt': now,
-      'lastEventText': 'Tarea devuelta con nueva fecha',
-    });
-
-    await FirebaseFirestore.instance
-        .collection('TBL_TAREAS')
-        .doc(doc.id)
-        .collection('novedades')
-        .add({
-      'type': 'devolucion',
-      'reason': motivoCtrl.text.trim(),
-      'newDueDate': Timestamp.fromDate(nuevaFecha!),
-      'createdAt': now,
+    final ref = FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id);
+    final novedadRef = ref.collection('novedades').doc();
+    try {
+      await FirebaseFirestore.instance.runTransaction((trx) async {
+        final snap = await trx.get(ref);
+        final data = snap.data() ?? <String, dynamic>{};
+        final pendingFinish =
+            (data['solicitud_finalizacion_estado'] ?? '')
+                .toString()
+                .toLowerCase() ==
+            'pendiente';
+        if (!pendingFinish) {
+          throw StateError(
+            'La solicitud de finalización ya no está pendiente.',
+          );
+        }
+        trx.update(ref, {
+          'estado': 'devuelta',
+          'status': 'devuelta',
+          'fecha_limite': Timestamp.fromDate(nuevaFecha!),
+          'approved': false,
+          'approvedAt': FieldValue.delete(),
+          'solicitud_finalizacion_estado': FieldValue.delete(),
+          'solicitud_finalizacion_at': FieldValue.delete(),
+          'solicitud_finalizacion_by_uid': FieldValue.delete(),
+          'solicitud_finalizacion_by_nombre': FieldValue.delete(),
+          'updatedAt': now,
+          'lastEventType': 'task_devuelta',
+          'lastEventAt': now,
+          'lastEventText': 'Tarea devuelta con nueva fecha',
         });
+        if ((data['origen'] ?? '').toString() == kFacTaskOrigin) {
+          final obsId = (data['facObservacionId'] ?? '').toString().trim();
+          if (obsId.isNotEmpty) {
+            trx.update(
+              FirebaseFirestore.instance
+                  .collection('TBL_FAC_OBSERVACIONES')
+                  .doc(obsId),
+              {
+                'tareaEstado': 'devuelta',
+                'fechaLimite': Timestamp.fromDate(nuevaFecha!),
+                'motivoDevolucion': motivoCtrl.text.trim(),
+              },
+            );
+          }
+        }
+        trx.set(novedadRef, {
+          'type': 'devolucion',
+          'reason': motivoCtrl.text.trim(),
+          'newDueDate': Timestamp.fromDate(nuevaFecha!),
+          'createdAt': now,
+        });
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is StateError ? e.message : 'No se pudo devolver la tarea.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _resolveReassign(
     QueryDocumentSnapshot<Map<String, dynamic>> doc, {
     required bool approve,
   }) async {
-    final data = doc.data();
+    final initialData = doc.data();
     final now = Timestamp.now();
 
-    if (approve) {
-      final newUid =
-          (data['solicitud_reasignacion_to_uid'] ?? '').toString().trim();
-      final newName =
-          (data['solicitud_reasignacion_to_nombre'] ?? '').toString().trim();
-      final newArea =
-          (data['solicitud_reasignacion_areaId'] ?? '').toString().trim();
-      if (newUid.isEmpty) return;
+    final titulo = (initialData['titulo'] ?? initialData['title'] ?? 'Tarea')
+        .toString();
+    final empresaId = (initialData['empresaId'] ?? '').toString().trim();
+    final prevAsignadoId = (initialData['asignado_uid'] ?? '')
+        .toString()
+        .trim();
 
-      await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id).update({
-        'asignado_uid': newUid,
-        if (newName.isNotEmpty) 'asignado_nombre': newName,
-        if (newArea.isNotEmpty) 'areaId': newArea,
-        'estado': 'en_progreso',
-        'status': 'en_progreso',
-        'reasignado': false,
-        'solicitud_reasignacion_estado': 'aprobada',
-        'reasignacion_resuelta_at': now,
-        'lastEventType': 'reasignacion_aprobada',
-        'lastEventAt': now,
-        'updatedAt': now,
-      });
+    if (approve) {
+      final newUid = (initialData['solicitud_reasignacion_to_uid'] ?? '')
+          .toString()
+          .trim();
+      final newName = (initialData['solicitud_reasignacion_to_nombre'] ?? '')
+          .toString()
+          .trim();
+      if (newUid.isEmpty) return;
+      var approvedNewUid = newUid;
+      var approvedNewName = newName;
+
+      try {
+        await FirebaseFirestore.instance.runTransaction((trx) async {
+          final ref = FirebaseFirestore.instance
+              .collection('TBL_TAREAS')
+              .doc(doc.id);
+          final snap = await trx.get(ref);
+          final latest = snap.data() ?? <String, dynamic>{};
+          final pending =
+              (latest['solicitud_reasignacion_estado'] ?? '')
+                  .toString()
+                  .toLowerCase() ==
+              'pendiente';
+          if (!pending) {
+            throw StateError(
+              'La solicitud de reasignación ya no está pendiente.',
+            );
+          }
+          final latestNewUid = (latest['solicitud_reasignacion_to_uid'] ?? '')
+              .toString()
+              .trim();
+          final latestNewName =
+              (latest['solicitud_reasignacion_to_nombre'] ?? '')
+                  .toString()
+                  .trim();
+          final latestNewArea = (latest['solicitud_reasignacion_areaId'] ?? '')
+              .toString()
+              .trim();
+          final latestNewCargoId =
+              (latest['solicitud_reasignacion_cargoId'] ?? '')
+                  .toString()
+                  .trim();
+          final latestNewCargoName =
+              (latest['solicitud_reasignacion_cargoNombre'] ?? '')
+                  .toString()
+                  .trim();
+          if (latestNewUid.isEmpty) {
+            throw StateError('La solicitud no tiene responsable destino.');
+          }
+          approvedNewUid = latestNewUid;
+          approvedNewName = latestNewName;
+          trx.update(ref, {
+            'asignado_uid': latestNewUid,
+            if (latestNewName.isNotEmpty) 'asignado_nombre': latestNewName,
+            if (latestNewArea.isNotEmpty) 'areaId': latestNewArea,
+            if (latestNewCargoId.isNotEmpty)
+              'asignado_cargo_id': latestNewCargoId,
+            if (latestNewCargoName.isNotEmpty)
+              'asignado_cargo_nombre': latestNewCargoName,
+            'estado': 'en_progreso',
+            'status': 'en_progreso',
+            'reasignado': false,
+            'solicitud_reasignacion_estado': 'aprobada',
+            'reasignacion_resuelta_at': now,
+            'lastEventType': 'reasignacion_aprobada',
+            'lastEventAt': now,
+            'updatedAt': now,
+          });
+        });
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is StateError
+                  ? e.message
+                  : 'No se pudo aprobar la reasignación.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Notificar al asignado anterior que la reasignación fue aprobada
+      if (prevAsignadoId.isNotEmpty && prevAsignadoId != approvedNewUid) {
+        try {
+          await TaskService().pushNotification(
+            toUserId: prevAsignadoId,
+            title: 'Reasignación aprobada',
+            description:
+                '$titulo · Ahora asignada a ${approvedNewName.isNotEmpty ? approvedNewName : approvedNewUid}',
+            taskId: doc.id,
+            type: 'task_reasignacion_aprobada',
+            fromId: widget.userId,
+            fromName: widget.userId,
+            empresaId: empresaId.isNotEmpty ? empresaId : null,
+          );
+        } catch (_) {}
+      }
       return;
     }
 
-    await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(doc.id).update({
-      'solicitud_reasignacion_estado': 'rechazada',
-      'reasignacion_resuelta_at': now,
-      'lastEventType': 'reasignacion_rechazada',
-      'lastEventAt': now,
-      'updatedAt': now,
-    });
+    try {
+      await FirebaseFirestore.instance.runTransaction((trx) async {
+        final ref = FirebaseFirestore.instance
+            .collection('TBL_TAREAS')
+            .doc(doc.id);
+        final snap = await trx.get(ref);
+        final latest = snap.data() ?? <String, dynamic>{};
+        final pending =
+            (latest['solicitud_reasignacion_estado'] ?? '')
+                .toString()
+                .toLowerCase() ==
+            'pendiente';
+        if (!pending) {
+          throw StateError(
+            'La solicitud de reasignación ya no está pendiente.',
+          );
+        }
+        trx.update(ref, {
+          'solicitud_reasignacion_estado': 'rechazada',
+          'reasignacion_resuelta_at': now,
+          'lastEventType': 'reasignacion_rechazada',
+          'lastEventAt': now,
+          'updatedAt': now,
+        });
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is StateError
+                ? e.message
+                : 'No se pudo rechazar la reasignación.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Notificar al asignado que su solicitud fue rechazada
+    if (prevAsignadoId.isNotEmpty) {
+      try {
+        await TaskService().pushNotification(
+          toUserId: prevAsignadoId,
+          title: 'Solicitud de reasignación rechazada',
+          description: titulo,
+          taskId: doc.id,
+          type: 'task_reasignacion_rechazada',
+          fromId: widget.userId,
+          fromName: widget.userId,
+          empresaId: empresaId.isNotEmpty ? empresaId : null,
+        );
+      } catch (_) {}
+    }
   }
 
   void _showActions(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final task = doc.data();
+    final source = task['source'] is Map
+        ? Map<String, dynamic>.from(task['source'] as Map)
+        : const <String, dynamic>{};
+    final correspondenceId =
+        (task['correspondenciaId'] ?? source['entityId'] ?? '')
+            .toString()
+            .trim();
+    final sourceType = (task['sourceType'] ?? source['type'] ?? '').toString();
+    if (correspondenceId.isNotEmpty && sourceType == 'correspondencia_correo') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => GdCorrespondenciaScreen(
+            userId: widget.userId,
+            empresaId: (task['empresaId'] ?? '').toString(),
+            initialExpedienteId: correspondenceId,
+          ),
+        ),
+      );
+      return;
+    }
     final data = doc.data();
     final status = resolveTaskStatus(data);
     final hasPendingFinish =
-        (data['solicitud_finalizacion_estado'] ?? '').toString().toLowerCase() ==
-            'pendiente';
+        (data['solicitud_finalizacion_estado'] ?? '')
+            .toString()
+            .toLowerCase() ==
+        'pendiente';
     final hasPendingReassign =
-        (data['solicitud_reasignacion_estado'] ?? '').toString().toLowerCase() ==
-            'pendiente';
-    final lastEventType = (data['lastEventType'] ?? '').toString().toLowerCase();
+        (data['solicitud_reasignacion_estado'] ?? '')
+            .toString()
+            .toLowerCase() ==
+        'pendiente';
+    final lastEventType = (data['lastEventType'] ?? '')
+        .toString()
+        .toLowerCase();
     final lastEventText = (data['lastEventText'] ?? '').toString().trim();
     final hasAvance = lastEventType == 'task_avance';
     final hasNovedad = lastEventType == 'task_novedad';
     final assignee = (data['asignado_nombre'] ?? '—').toString();
-    final reassignToName =
-        (data['solicitud_reasignacion_to_nombre'] ?? '').toString().trim();
-    final reassignToUid =
-        (data['solicitud_reasignacion_to_uid'] ?? '').toString().trim();
+    final reassignToName = (data['solicitud_reasignacion_to_nombre'] ?? '')
+        .toString()
+        .trim();
+    final reassignToUid = (data['solicitud_reasignacion_to_uid'] ?? '')
+        .toString()
+        .trim();
     final rawReassignAreaName =
         (data['solicitud_reasignacion_areaNombre'] ?? '').toString().trim();
-    final rawReassignAreaId =
-        (data['solicitud_reasignacion_areaId'] ?? '').toString().trim();
+    final rawReassignAreaId = (data['solicitud_reasignacion_areaId'] ?? '')
+        .toString()
+        .trim();
     final rawReassignCargoName =
         (data['solicitud_reasignacion_cargoNombre'] ?? '').toString().trim();
-    final rawReassignCargoId =
-        (data['solicitud_reasignacion_cargoId'] ?? '').toString().trim();
+    final rawReassignCargoId = (data['solicitud_reasignacion_cargoId'] ?? '')
+        .toString()
+        .trim();
     final userAreaName = (_userMeta[reassignToUid]?['area'] ?? '').trim();
     final userCargoName = (_userMeta[reassignToUid]?['cargo'] ?? '').trim();
     final reassignTarget = reassignToName.isNotEmpty
         ? reassignToName
-        : (reassignToUid.isNotEmpty ? reassignToUid : 'destinatario no definido');
+        : (reassignToUid.isNotEmpty
+              ? reassignToUid
+              : 'destinatario no definido');
     final resolvedAreaName = userAreaName.isNotEmpty
         ? userAreaName
         : (rawReassignAreaName.isNotEmpty
-        ? rawReassignAreaName
-        : (_areaNames[rawReassignAreaId] ??
-            (rawReassignAreaId.contains('_')
-                ? rawReassignAreaId.split('_').last
-                : rawReassignAreaId)));
+              ? rawReassignAreaName
+              : (_areaNames[rawReassignAreaId] ??
+                    (rawReassignAreaId.contains('_')
+                        ? rawReassignAreaId.split('_').last
+                        : rawReassignAreaId)));
     final resolvedCargoName = userCargoName.isNotEmpty
         ? userCargoName
         : (rawReassignCargoName.isNotEmpty
-        ? rawReassignCargoName
-        : (_cargoNames[rawReassignCargoId] ??
-            (rawReassignCargoId.contains('_')
-                ? rawReassignCargoId.split('_').last
-                : rawReassignCargoId)));
+              ? rawReassignCargoName
+              : (_cargoNames[rawReassignCargoId] ??
+                    (rawReassignCargoId.contains('_')
+                        ? rawReassignCargoId.split('_').last
+                        : rawReassignCargoId)));
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      constraints: taskPanelConstraints(context, desktopMaxWidth: 980),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Wrap(
@@ -1376,8 +1460,11 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          'Asignada a: $assignee',
+                        UserNameText(
+                          (data['asignado_uid'] ?? data['assignedTo'] ?? '')
+                              .toString(),
+                          fallbackName: assignee,
+                          prefix: 'Asignada a: ',
                           style: const TextStyle(
                             color: Colors.black54,
                             fontSize: 13,
@@ -1388,6 +1475,12 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     ),
                   ),
                   _StatusBadge(status: status),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
                 ],
               ),
               if (hasAvance || hasNovedad) ...[
@@ -1419,9 +1512,13 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Icon(
-                          hasAvance ? Icons.trending_up_rounded : Icons.markunread_mailbox_rounded,
+                          hasAvance
+                              ? Icons.trending_up_rounded
+                              : Icons.markunread_mailbox_rounded,
                           size: 20,
-                          color: hasAvance ? const Color(0xFF0D9488) : const Color(0xFF3B82F6),
+                          color: hasAvance
+                              ? const Color(0xFF0D9488)
+                              : const Color(0xFF3B82F6),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1435,7 +1532,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                 fontWeight: FontWeight.w900,
                                 fontSize: 10,
                                 letterSpacing: 1,
-                                color: hasAvance ? const Color(0xFF0D9488) : const Color(0xFF3B82F6),
+                                color: hasAvance
+                                    ? const Color(0xFF0D9488)
+                                    : const Color(0xFF3B82F6),
                               ),
                             ),
                             if (lastEventText.isNotEmpty) ...[
@@ -1479,7 +1578,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     icon: Icons.attach_file_rounded,
                     color: Colors.indigo,
                     title: 'Ver evidencias enviadas',
-                    subtitle: 'Revisa los adjuntos antes de aprobar o devolver.',
+                    subtitle:
+                        'Revisa los adjuntos antes de aprobar o devolver.',
                     onTap: () async {
                       await _showCollectionDialog(
                         title: 'Evidencias de finalización',
@@ -1524,7 +1624,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.purple.withOpacity(0.22)),
+                      border: Border.all(
+                        color: Colors.purple.withOpacity(0.22),
+                      ),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1569,7 +1671,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                   height: 1.1,
                                 ),
                               ),
-                              if (resolvedAreaName.isNotEmpty || resolvedCargoName.isNotEmpty) ...[
+                              if (resolvedAreaName.isNotEmpty ||
+                                  resolvedCargoName.isNotEmpty) ...[
                                 const SizedBox(height: 8),
                                 Wrap(
                                   spacing: 8,
@@ -1608,8 +1711,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     icon: Icons.close_rounded,
                     color: Colors.redAccent,
                     title: 'Rechazar reasignación',
-                    subtitle:
-                        'Mantener el responsable actual de la tarea.',
+                    subtitle: 'Mantener el responsable actual de la tarea.',
                     onTap: () async {
                       Navigator.pop(context);
                       await _resolveReassign(doc, approve: false);
@@ -1632,22 +1734,11 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
               ),
               const SizedBox(height: 12, width: double.infinity),
               _ActionTile(
-                icon: Icons.layers_rounded,
-                color: Colors.indigo,
-                title: 'Ver proceso completo',
-                subtitle: 'Consulta novedades, avances y finalización.',
-                onTap: () async {
-                  Navigator.pop(context);
-                  await _showProcessMenu(doc);
-                },
-              ),
-              _ActionTile(
                 icon: Icons.markunread_mailbox_rounded,
                 color: Colors.blue,
                 title: 'Ver novedades',
                 subtitle: 'Revisa comunicaciones y devoluciones registradas.',
                 onTap: () async {
-                  Navigator.pop(context);
                   await _showCollectionDialog(
                     title: 'Novedades de la tarea',
                     taskId: doc.id,
@@ -1661,7 +1752,6 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                 title: 'Ver avances',
                 subtitle: 'Consulta avances reportados por el responsable.',
                 onTap: () async {
-                  Navigator.pop(context);
                   await _showAvancesDialog(doc.id);
                 },
               ),
@@ -1671,7 +1761,6 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                 title: 'Ver adjuntos',
                 subtitle: 'Abre archivos y evidencias cargadas en la tarea.',
                 onTap: () async {
-                  Navigator.pop(context);
                   await _showAllAttachmentsDialog(doc);
                 },
               ),
@@ -1688,13 +1777,16 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _stream(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return const Scaffold(body: SkeletonList(items: 5));
-        
+        if (snap.connectionState == ConnectionState.waiting)
+          return const Scaffold(body: SkeletonList(items: 5));
+
         final allDocs = snap.data?.docs ?? [];
-        
+
         // Auto-open highlight from notification
         if (widget.highlightTaskId != null && !_didAutoOpen) {
-          final hit = allDocs.where((d) => d.id == widget.highlightTaskId).toList();
+          final hit = allDocs
+              .where((d) => d.id == widget.highlightTaskId)
+              .toList();
           if (hit.isNotEmpty) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!_didAutoOpen) {
@@ -1705,72 +1797,95 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
           }
         }
 
-        final tasks = _applyFilters(allDocs);
-        final stats = _calcStats(allDocs);
-
+        final focusMode = widget.highlightTaskId != null && !_showAllTasks;
+        final tasks = focusMode
+            ? allDocs.where((d) => d.id == widget.highlightTaskId).toList()
+            : _applyFilters(allDocs);
         return TaskResponsiveLayout(
-          title: 'Tareas que yo asigné',
-          header: Column(
-            children: [
-              if (widget.highlightTaskId != null && !_didAutoOpen) _buildHighlightHeader(),
-              TaskSummaryHeader(
-                total: stats['total']!,
-                inProgress: stats['inProgress']!,
-                overdue: stats['overdue']!,
-                pendingApproval: stats['pendingApproval']!,
-                activeFilter: '__none__',
-              ),
-            ],
-          ),
+          title: widget.approvalMode
+              ? 'Tareas por aprobar'
+              : 'Tareas que asigné',
+          subtitle: focusMode
+              ? 'Mostrando únicamente la tarea seleccionada'
+              : (widget.approvalMode
+                    ? 'Solicitudes de cierre bajo tu aprobación'
+                    : 'Seguimiento de las tareas que asignaste'),
+          header: focusMode ? _buildHighlightHeader() : null,
           filters: _buildFiltersPanel(),
           content: tasks.isEmpty
               ? EmptyStateWidget(
-                  icon: Icons.assignment_outlined, 
-                  title: 'Sin tareas activas', 
-                  message: 'No tienes tareas pendientes asignadas por ti en esta empresa.', 
-                  actionLabel: 'Limpiar filtros', 
-                  onAction: _clearAllFilters)
+                  icon: Icons.assignment_outlined,
+                  title: 'Sin tareas activas',
+                  message: widget.approvalMode
+                      ? 'No tienes solicitudes de cierre pendientes en esta empresa.'
+                      : 'No tienes tareas pendientes asignadas por ti en esta empresa.',
+                  actionLabel: 'Limpiar filtros',
+                  onAction: _clearAllFilters,
+                )
               : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 20,
+                  ),
                   itemCount: tasks.length,
                   itemBuilder: (_, i) {
                     final m = tasks[i].data();
                     final uid = (m['asignado_uid'] ?? '').toString().trim();
-                    final areaId = (m['areaId'] ?? _userMeta[uid]?['areaId'] ?? '').toString().trim();
+                    final areaId =
+                        (m['areaId'] ?? _userMeta[uid]?['areaId'] ?? '')
+                            .toString()
+                            .trim();
                     final areaName = _areaNames[areaId] ?? '';
-                    final responsable = (m['asignado_nombre'] ?? '').toString().trim();
-                    final cargoId = (_userMeta[uid]?['cargoId'] ?? '').toString().trim();
-                    final cargoName = _cargoNames[cargoId] ?? _userMeta[uid]?['cargo'] ?? '';
+                    final responsable = (m['asignado_nombre'] ?? '')
+                        .toString()
+                        .trim();
+                    final cargoId = (_userMeta[uid]?['cargoId'] ?? '')
+                        .toString()
+                        .trim();
+                    final cargoName =
+                        _cargoNames[cargoId] ?? _userMeta[uid]?['cargo'] ?? '';
 
-                    return TaskModernCard(
-                      data: m,
-                      onTap: () => _showActions(tasks[i]),
-                      badge: (_hasPending(m) ? 1 : 0),
-                      hasNewActivity: _hasNewActivity(m),
-                      chips: [
-                        if (responsable.isNotEmpty)
-                          TaskCardChip(
-                            label: responsable,
-                            icon: Icons.person_rounded,
-                            onTap: () => setState(() => _searchCtrl.text = responsable),
-                          ),
-                        if (areaName.isNotEmpty)
-                          TaskCardChip(
-                            label: areaName,
-                            icon: Icons.apartment_rounded,
-                            onTap: (areaId.isNotEmpty && _areaNames.containsKey(areaId))
-                                ? () => setState(() => _areaFilter = areaId)
-                                : null,
-                          ),
-                        if (cargoName.isNotEmpty)
-                          TaskCardChip(
-                            label: cargoName,
-                            icon: Icons.badge_rounded,
-                            onTap: (cargoId.isNotEmpty && _cargoNames.containsKey(cargoId))
-                                ? () => setState(() => _cargoFilter = cargoId)
-                                : null,
-                          ),
-                      ],
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1180),
+                        child: TaskModernCard(
+                          data: m,
+                          onTap: () => _showActions(tasks[i]),
+                          badge: (_hasPending(m) ? 1 : 0),
+                          hasNewActivity: _hasNewActivity(m),
+                          chips: [
+                            if (responsable.isNotEmpty)
+                              TaskCardChip(
+                                label: responsable,
+                                icon: Icons.person_rounded,
+                                onTap: () => setState(
+                                  () => _searchCtrl.text = responsable,
+                                ),
+                              ),
+                            if (areaName.isNotEmpty)
+                              TaskCardChip(
+                                label: areaName,
+                                icon: Icons.apartment_rounded,
+                                onTap:
+                                    (areaId.isNotEmpty &&
+                                        _areaNames.containsKey(areaId))
+                                    ? () => setState(() => _areaFilter = areaId)
+                                    : null,
+                              ),
+                            if (cargoName.isNotEmpty)
+                              TaskCardChip(
+                                label: cargoName,
+                                icon: Icons.badge_rounded,
+                                onTap:
+                                    (cargoId.isNotEmpty &&
+                                        _cargoNames.containsKey(cargoId))
+                                    ? () =>
+                                          setState(() => _cargoFilter = cargoId)
+                                    : null,
+                              ),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -1786,18 +1901,34 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          const Icon(Icons.notifications_active_outlined, color: Colors.blue, size: 18),
+          const Icon(
+            Icons.notifications_active_outlined,
+            color: Colors.blue,
+            size: 18,
+          ),
           const SizedBox(width: 10),
-          const Expanded(child: Text('Accediendo a tarea desde notificación', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-          IconButton(onPressed: () => setState(() => _didAutoOpen = true), icon: const Icon(Icons.close, size: 16)),
+          const Expanded(
+            child: Text(
+              'Mostrando únicamente la tarea seleccionada',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _showAllTasks = true),
+            child: const Text('Ver todas'),
+          ),
         ],
       ),
     );
   }
 
   bool _hasPending(Map<String, dynamic> m) {
-    final sf = (m['solicitud_finalizacion_estado'] ?? '').toString().toLowerCase() == 'pendiente';
-    final sr = (m['solicitud_reasignacion_estado'] ?? '').toString().toLowerCase() == 'pendiente';
+    final sf =
+        (m['solicitud_finalizacion_estado'] ?? '').toString().toLowerCase() ==
+        'pendiente';
+    final sr =
+        (m['solicitud_reasignacion_estado'] ?? '').toString().toLowerCase() ==
+        'pendiente';
     return sf || sr;
   }
 
@@ -1807,11 +1938,11 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   }
 
   void _clearAllFilters() => setState(() {
-        _searchCtrl.clear();
-        _statusFilter = 'todas';
-        _areaFilter = 'todas';
-        _cargoFilter = 'todas';
-      });
+    _searchCtrl.clear();
+    _statusFilter = 'todas';
+    _areaFilter = 'todas';
+    _cargoFilter = 'todas';
+  });
 
   bool get _hasActiveFilters =>
       _searchCtrl.text.isNotEmpty ||
@@ -1872,9 +2003,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       hasActiveFilters: _hasActiveFilters,
     );
   }
-
 }
-
 
 class _StatusBadge extends StatelessWidget {
   final String status;
@@ -1884,8 +2013,20 @@ class _StatusBadge extends StatelessWidget {
     final color = taskStatusColor(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10), border: Border.all(color: color.withOpacity(0.3))),
-      child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 0.5)),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w900,
+          fontSize: 10,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }
@@ -1896,7 +2037,13 @@ class _ActionTile extends StatelessWidget {
   final String title, subtitle;
   final VoidCallback? onTap;
 
-  const _ActionTile({required this.icon, required this.color, required this.title, required this.subtitle, required this.onTap});
+  const _ActionTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1905,13 +2052,132 @@ class _ActionTile extends StatelessWidget {
       enabled: onTap != null,
       contentPadding: const EdgeInsets.symmetric(vertical: 4),
       leading: Container(
-        width: 44, height: 44,
-        decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: Icon(icon, color: color),
       ),
-      title: Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: onTap == null ? Colors.grey : null)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 15,
+          color: onTap == null ? Colors.grey : null,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(fontSize: 12, color: Colors.black54),
+      ),
       trailing: const Icon(Icons.chevron_right_rounded, color: Colors.black12),
+    );
+  }
+}
+
+class _AttachmentActionTile extends StatelessWidget {
+  final Map<String, String> attachment;
+  final Future<void> Function() onOpen;
+
+  const _AttachmentActionTile({required this.attachment, required this.onOpen});
+
+  IconData _iconFor(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.pdf')) return Icons.picture_as_pdf_rounded;
+    if (lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp')) {
+      return Icons.image_rounded;
+    }
+    if (lower.endsWith('.doc') || lower.endsWith('.docx')) {
+      return Icons.description_rounded;
+    }
+    if (lower.endsWith('.xls') || lower.endsWith('.xlsx')) {
+      return Icons.table_chart_rounded;
+    }
+    if (lower.endsWith('.ppt') || lower.endsWith('.pptx')) {
+      return Icons.slideshow_rounded;
+    }
+    if (lower.endsWith('.zip') || lower.endsWith('.rar')) {
+      return Icons.folder_zip_outlined;
+    }
+    return Icons.attach_file_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (attachment['name'] ?? 'archivo').trim();
+    final desc = (attachment['desc'] ?? '').trim();
+    final hasUrl =
+        (attachment['url'] ?? '').trim().isNotEmpty ||
+        (attachment['path'] ?? '').trim().isNotEmpty;
+    final color = Theme.of(context).colorScheme.primary;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: hasUrl ? onOpen : null,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(_iconFor(name), color: color),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        desc.isEmpty
+                            ? (hasUrl
+                                  ? 'Toca para abrir'
+                                  : 'Sin enlace disponible')
+                            : desc,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  hasUrl ? Icons.open_in_new_rounded : Icons.link_off_rounded,
+                  size: 18,
+                  color: hasUrl ? color : Colors.grey,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1920,10 +2186,7 @@ class _ReassignMetaPill extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  const _ReassignMetaPill({
-    required this.icon,
-    required this.label,
-  });
+  const _ReassignMetaPill({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -1941,10 +2204,7 @@ class _ReassignMetaPill extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
           ),
         ],
       ),

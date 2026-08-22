@@ -11,6 +11,7 @@ import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 import '../core/guarded_module_page.dart';
 import '../widgets/internal_module_layout.dart';
+import '../widgets/user_avatar.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
 const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
@@ -543,10 +544,12 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            CircleAvatar(
+            UserAvatar(
+              userId: widget.userId,
+              nameHint: nombre,
               radius: 28,
-            backgroundColor: _brand.withOpacity(0.1),
-            child: Icon(Icons.workspace_premium, color: _brand, size: 30),
+              backgroundColor: _brand.withOpacity(0.1),
+              foregroundColor: _brand,
             ),
             const SizedBox(width: 12),
             Expanded(

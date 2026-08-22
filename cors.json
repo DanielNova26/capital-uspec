@@ -1,0 +1,22 @@
+[
+  {
+    "origin": [
+      "https://to-do-gestion.com",
+      "https://www.to-do-gestion.com",
+      "https://to-do-gestion.web.app",
+      "https://to-do-gestion.firebaseapp.com",
+      "http://localhost:5000",
+      "http://localhost:8080"
+    ],
+    "method": ["GET", "HEAD", "POST", "PUT", "DELETE"],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization",
+      "Content-Length",
+      "Content-Range",
+      "Accept-Ranges",
+      "x-goog-resumable"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

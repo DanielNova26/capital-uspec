@@ -96,7 +96,10 @@ class CitasNutricionService {
       'pacienteId': pacienteId,
       'pacienteNombre': pacienteNombre,
       'read': false,
-      'createdAt': FieldValue.serverTimestamp(),
+      // Timestamp.now() (no serverTimestamp): el centro de notificaciones y el
+      // badge ordenan por createdAt; serverTimestamp deja createdAt=null por un
+      // instante en el snapshot local y desordena la campana.
+      'createdAt': Timestamp.now(),
       if (empresaId.isNotEmpty) 'empresaId': empresaId,
     });
   }

@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>La aplicación necesita usar la cámara para capturar fotos y evidencias relacionadas con los procesos internos de la empresa.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>La aplicación usa Face ID para permitirte iniciar sesión de forma rápida y segura sin escribir tu contraseña.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>La aplicación necesita acceder a los archivos locales para cargar y consultar documentos relacionados con las operaciones internas.</string>
 	<key>NSFileProviderDomainUsageDescription</key>
@@ -38,10 +40,14 @@
 	<string>La aplicación puede acceder a tu ubicación para optimizar tareas internas relacionadas con desplazamientos y monitoreo.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>La aplicación necesita tu ubicación mientras está en uso para registrar rutas, ubicaciones o validar operaciones logísticas internas.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>La aplicación necesita usar el micrófono para dictar observaciones, conclusiones y hallazgos de interventoría.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>La aplicación necesita guardar imágenes tomadas o generadas durante los procesos de gestión.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>La aplicación necesita acceder a tu galería de fotos para cargar y visualizar imágenes de soporte interno.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>La aplicación necesita reconocimiento de voz para convertir dictados de interventoría en texto editable.</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>La aplicación usa notificaciones para informarte sobre novedades, recordatorios y actualizaciones internas.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

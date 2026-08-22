@@ -1,0 +1,780 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+
+import 'interventoria_models.dart';
+import 'interventoria_service.dart';
+
+/// Tablero de asignación de hallazgos.
+///
+/// Reemplaza a la tabla ancha como vista por defecto: la tabla obliga a
+/// desplazarse en horizontal para saber quién responde y para cuándo, y no
+/// permite asignar. Aquí cada hallazgo es una tarjeta y la acción principal
+/// —ponerle responsable— está a un clic.
+///
+/// El orden de los grupos no es decorativo: primero lo que nadie ha tomado,
+/// luego lo que ya se venció, después lo que está en curso y de último lo
+/// resuelto. Es una bandeja de trabajo, no un reporte.
+class InterventoriaTableroAsignacion extends StatefulWidget {
+  final List<InterventoriaHallazgo> hallazgos;
+  final InterventoriaService service;
+  final String userId;
+  final String empresaId;
+  final bool canWrite;
+  final void Function(InterventoriaHallazgo hallazgo) onAbrirSeguimiento;
+
+  /// true cuando el padre ya scrollea (móvil: gráficas y tablero fluyen
+  /// juntos). En ese caso el tablero no puede traer su propio scroll: un
+  /// ListView sin altura acotada dentro de un Column no se dibuja.
+  final bool dentroDeScroll;
+
+  const InterventoriaTableroAsignacion({
+    super.key,
+    required this.hallazgos,
+    required this.service,
+    required this.userId,
+    required this.empresaId,
+    required this.canWrite,
+    required this.onAbrirSeguimiento,
+    this.dentroDeScroll = false,
+  });
+
+  @override
+  State<InterventoriaTableroAsignacion> createState() =>
+      _InterventoriaTableroAsignacionState();
+}
+
+class _InterventoriaTableroAsignacionState
+    extends State<InterventoriaTableroAsignacion> {
+  static const _ink = Color(0xFF0F172A);
+  static const _muted = Color(0xFF64748B);
+  static const _accent = Color(0xFF0F766E);
+  static const _danger = Color(0xFFDC2626);
+  static const _warn = Color(0xFFB45309);
+  static const _ok = Color(0xFF16A34A);
+
+  List<InterventoriaUsuario> _usuarios = const [];
+  bool _cargandoUsuarios = true;
+  final Set<String> _asignando = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarUsuarios();
+  }
+
+  @override
+  void didUpdateWidget(InterventoriaTableroAsignacion old) {
+    super.didUpdateWidget(old);
+    if (old.empresaId != widget.empresaId) _cargarUsuarios();
+  }
+
+  /// Los usuarios se cargan UNA vez y las sugerencias se resuelven en memoria.
+  /// Consultarlos por tarjeta haría una lectura completa de TBL_USUARIOS por
+  /// cada hallazgo en pantalla.
+  Future<void> _cargarUsuarios() async {
+    setState(() => _cargandoUsuarios = true);
+    try {
+      final rows = await widget.service.listarUsuariosAsignables(
+        widget.empresaId,
+      );
+      if (mounted) {
+        setState(() {
+          _usuarios = rows;
+          _cargandoUsuarios = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _cargandoUsuarios = false);
+    }
+  }
+
+  /// Los hallazgos asignados con el flujo anterior no tienen `responsableNombre`
+  /// pero sí departamento y tarea: siguen estando asignados, aunque a un área
+  /// en vez de a una persona. Ignorarlo los mandaba de vuelta a "Sin asignar".
+  bool _sinAsignar(InterventoriaHallazgo h) =>
+      h.responsableNombre.trim().isEmpty &&
+      h.tareaId.trim().isEmpty &&
+      h.dptoEncargado.trim().isEmpty;
+
+  bool _tieneDueno(InterventoriaHallazgo h) =>
+      h.responsableNombre.trim().isNotEmpty ||
+      h.dptoEncargado.trim().isNotEmpty;
+
+  bool _vencido(InterventoriaHallazgo h) {
+    final limite = h.fechaLimite?.toDate();
+    return !h.isSubsanado && limite != null && limite.isBefore(DateTime.now());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sinAsignar = <InterventoriaHallazgo>[];
+    final vencidos = <InterventoriaHallazgo>[];
+    final enGestion = <InterventoriaHallazgo>[];
+    final subsanados = <InterventoriaHallazgo>[];
+
+    for (final h in widget.hallazgos) {
+      if (h.isSubsanado) {
+        subsanados.add(h);
+      } else if (_sinAsignar(h)) {
+        sinAsignar.add(h);
+      } else if (_vencido(h)) {
+        vencidos.add(h);
+      } else {
+        enGestion.add(h);
+      }
+    }
+
+    int porFecha(InterventoriaHallazgo a, InterventoriaHallazgo b) =>
+        b.fechaHallazgo.compareTo(a.fechaHallazgo);
+    for (final grupo in [sinAsignar, vencidos, enGestion, subsanados]) {
+      grupo.sort(porFecha);
+    }
+
+    if (widget.hallazgos.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 48),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.verified_rounded, size: 52, color: _ok),
+              SizedBox(height: 12),
+              Text(
+                'No hay hallazgos para este filtro',
+                style: TextStyle(color: _muted),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Web y móvil no comparten composición: en pantalla ancha las tarjetas
+        // van en rejilla, en angosta en una columna. La lógica es la misma.
+        final columnas = constraints.maxWidth >= 1180
+            ? 3
+            : constraints.maxWidth >= 760
+            ? 2
+            : 1;
+        final secciones = <Widget>[
+          _seccion(
+            titulo: 'Sin asignar',
+            detalle: 'Nadie responde por estos hallazgos todavía',
+            color: _warn,
+            icono: Icons.person_off_outlined,
+            rows: sinAsignar,
+            columnas: columnas,
+          ),
+          _seccion(
+            titulo: 'Vencidos',
+            detalle: 'Pasó la fecha límite y siguen sin subsanar',
+            color: _danger,
+            icono: Icons.error_outline,
+            rows: vencidos,
+            columnas: columnas,
+          ),
+          _seccion(
+            titulo: 'En gestión',
+            detalle: 'Asignados y dentro del plazo',
+            color: _accent,
+            icono: Icons.pending_actions_outlined,
+            rows: enGestion,
+            columnas: columnas,
+          ),
+          _seccion(
+            titulo: 'Subsanados',
+            detalle: 'Cerrados por el responsable',
+            color: _ok,
+            icono: Icons.task_alt_outlined,
+            rows: subsanados,
+            columnas: columnas,
+          ),
+        ];
+
+        if (widget.dentroDeScroll) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: secciones,
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: secciones,
+        );
+      },
+    );
+  }
+
+  Widget _seccion({
+    required String titulo,
+    required String detalle,
+    required Color color,
+    required IconData icono,
+    required List<InterventoriaHallazgo> rows,
+    required int columnas,
+  }) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 18, 2, 10),
+          child: Row(
+            children: [
+              Icon(icono, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                titulo,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${rows.length}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  detalle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: _muted),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (columnas == 1)
+          ...rows.map(_tarjeta)
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: rows
+                .map(
+                  (h) => SizedBox(
+                    width: columnas == 3 ? 360 : 420,
+                    child: _tarjeta(h),
+                  ),
+                )
+                .toList(),
+          ),
+      ],
+    );
+  }
+
+  Widget _tarjeta(InterventoriaHallazgo h) {
+    final sugerido = _cargandoUsuarios
+        ? null
+        : widget.service.sugerirResponsable(h, _usuarios);
+    final vencido = _vencido(h);
+    final ocupado = _asignando.contains(_claveOcupado(h));
+    final limite = h.fechaLimite?.toDate();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: vencido
+              ? _danger.withValues(alpha: .35)
+              : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => widget.onAbrirSeguimiento(h),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _chipNumeral(h),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      h.centroCostoNombre,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: _ink,
+                      ),
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'Fecha del acta',
+                    child: Text(
+                      'Acta ${DateFormat('dd/MM/yy').format(h.fechaHallazgo.toDate())}',
+                      style: const TextStyle(fontSize: 11, color: _muted),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                h.descripcion,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, height: 1.35),
+              ),
+              const SizedBox(height: 10),
+              if (_tieneDueno(h))
+                _lineaResponsable(h, limite, vencido)
+              else
+                _lineaSinResponsable(h, sugerido),
+              if (widget.canWrite) ...[
+                const SizedBox(height: 10),
+                _acciones(h, sugerido, ocupado),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chipNumeral(InterventoriaHallazgo h) {
+    // El numeral que vale es el del acta. `numeroHallazgo` es un ordinal
+    // interno y en los hallazgos viejos apunta a una sección que no existe,
+    // así que solo se muestra cuando no hay numeral real.
+    final numeral = h.numeralParaMatriz;
+    final texto = numeral.isNotEmpty ? numeral : h.numeroHallazgo;
+    if (texto.trim().isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: numeral.isNotEmpty
+            ? _accent.withValues(alpha: .10)
+            : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        texto,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+          color: numeral.isNotEmpty ? _accent : _muted,
+        ),
+      ),
+    );
+  }
+
+  Widget _lineaResponsable(
+    InterventoriaHallazgo h,
+    DateTime? limite,
+    bool vencido,
+  ) {
+    final porArea = h.responsableNombre.trim().isEmpty;
+    final texto = porArea
+        ? 'Área: ${h.dptoEncargado}'
+        : h.cargoResponsable.trim().isEmpty
+        ? h.responsableNombre
+        : '${h.responsableNombre} · ${h.cargoResponsable}';
+    return Row(
+      children: [
+        Icon(
+          porArea ? Icons.corporate_fare_outlined : Icons.person_outline,
+          size: 14,
+          color: _muted,
+        ),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(
+            texto,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: _muted),
+          ),
+        ),
+        if (limite != null) ...[
+          const SizedBox(width: 8),
+          Icon(
+            vencido ? Icons.event_busy_outlined : Icons.event_outlined,
+            size: 14,
+            color: vencido ? _danger : _muted,
+          ),
+          const SizedBox(width: 4),
+          Tooltip(
+            message: 'Fecha límite para subsanar',
+            child: Text(
+              'Límite ${DateFormat('dd/MM/yy').format(limite)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: vencido ? _danger : _muted,
+                fontWeight: vencido ? FontWeight.w800 : FontWeight.normal,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _lineaSinResponsable(
+    InterventoriaHallazgo h,
+    InterventoriaPersona? sugerido,
+  ) {
+    if (_cargandoUsuarios) {
+      return const Text(
+        'Buscando responsable…',
+        style: TextStyle(fontSize: 12, color: _muted),
+      );
+    }
+    if (sugerido != null) {
+      return Row(
+        children: [
+          const Icon(Icons.auto_awesome_outlined, size: 14, color: _accent),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              'El acta lo asigna a ${sugerido.cargoMatriz}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: _accent),
+            ),
+          ),
+        ],
+      );
+    }
+    final sinNumeral = h.numeralParaMatriz.isEmpty;
+    return Row(
+      children: [
+        const Icon(Icons.help_outline, size: 14, color: _warn),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(
+            sinNumeral
+                ? 'No se pudo identificar el numeral: elige tú el responsable'
+                : 'Nadie tiene el cargo que responde por ${h.numeralParaMatriz}',
+            maxLines: 2,
+            style: const TextStyle(fontSize: 12, color: _warn),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _acciones(
+    InterventoriaHallazgo h,
+    InterventoriaPersona? sugerido,
+    bool ocupado,
+  ) {
+    if (ocupado) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 6),
+        child: LinearProgressIndicator(minHeight: 3),
+      );
+    }
+    final asignado = _tieneDueno(h);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        if (!asignado && sugerido != null)
+          FilledButton.icon(
+            onPressed: () => _asignar(h, sugerido),
+            style: FilledButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              backgroundColor: _accent,
+            ),
+            icon: const Icon(Icons.check_rounded, size: 16),
+            label: Text(
+              'Asignar a ${_primerNombre(sugerido.nombre)}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: () => _elegirPersona(h),
+          style: OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+          ),
+          icon: Icon(
+            asignado ? Icons.swap_horiz_rounded : Icons.person_search_outlined,
+            size: 16,
+          ),
+          label: Text(
+            asignado ? 'Reasignar' : 'Elegir persona',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: () => widget.onAbrirSeguimiento(h),
+          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+          icon: const Icon(Icons.edit_note_rounded, size: 16),
+          label: const Text('Seguimiento', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+    );
+  }
+
+  String _primerNombre(String nombre) {
+    final parts = nombre.trim().split(RegExp(r'\s+'));
+    return parts.isEmpty ? nombre : parts.first;
+  }
+
+  Future<void> _elegirPersona(InterventoriaHallazgo h) async {
+    final sugerido = widget.service.sugerirResponsable(h, _usuarios);
+    final elegido = await showModalBottomSheet<InterventoriaUsuario>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => InterventoriaSelectorPersona(
+        usuarios: _usuarios,
+        sugeridoId: sugerido?.id ?? '',
+        centroCostoId: h.centroCostoId,
+      ),
+    );
+    if (elegido == null) return;
+    await _asignar(
+      h,
+      InterventoriaPersona(
+        id: elegido.id,
+        nombre: elegido.nombre,
+        cargo: elegido.cargo,
+        cargoMatriz: sugerido?.cargoMatriz ?? '',
+        delCentro: elegido.centroId == h.centroCostoId,
+      ),
+      forzado: true,
+    );
+  }
+
+  Future<void> _asignar(
+    InterventoriaHallazgo h,
+    InterventoriaPersona persona, {
+    bool forzado = false,
+  }) async {
+    final clave = _claveOcupado(h);
+    if (_asignando.contains(clave)) return;
+    setState(() => _asignando.add(clave));
+    try {
+      // Los hallazgos que salen de un acta todavía no son documento: existen
+      // solo en memoria hasta que alguien actúa sobre ellos. Sin persistirlos
+      // primero, la asignación creaba la tarea pero no tenía dónde guardar el
+      // responsable, y la tarjeta seguía diciendo "sin asignar".
+      var hallazgo = h;
+      if (hallazgo.id.isEmpty) {
+        final id = await widget.service.guardarHallazgo(hallazgo);
+        hallazgo = hallazgo.copyWithId(id);
+      }
+      await widget.service.crearTareaYNotificarHallazgo(
+        hallazgo: hallazgo,
+        creadorId: widget.userId,
+        creadorNombre: widget.userId,
+        responsableForzado: forzado ? persona : null,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: _ok,
+            content: Text(
+              'Asignado a ${persona.nombre} · tarea creada con fecha límite',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: _danger,
+            content: Text('No se pudo asignar: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _asignando.remove(clave));
+    }
+  }
+
+  /// Los hallazgos derivados de un acta no tienen id todavía, así que no se
+  /// pueden distinguir por él mientras se asignan.
+  String _claveOcupado(InterventoriaHallazgo h) => h.id.isNotEmpty
+      ? h.id
+      : '${h.visitaId}|${h.numeroHallazgo}|${h.descripcion}';
+}
+
+/// Buscador de personas para asignar un hallazgo a mano.
+///
+/// Marca al que sugiere el acta y a los del mismo establecimiento, que son
+/// los dos criterios con los que la gente decide.
+class InterventoriaSelectorPersona extends StatefulWidget {
+  final List<InterventoriaUsuario> usuarios;
+  final String sugeridoId;
+  final String centroCostoId;
+
+  const InterventoriaSelectorPersona({
+    super.key,
+    required this.usuarios,
+    required this.sugeridoId,
+    required this.centroCostoId,
+  });
+
+  @override
+  State<InterventoriaSelectorPersona> createState() => InterventoriaSelectorPersonaState();
+}
+
+class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPersona> {
+  final _ctrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _query.trim().toLowerCase();
+    final rows = widget.usuarios.where((u) {
+      if (query.isEmpty) return true;
+      return '${u.nombre} ${u.cargo}'.toLowerCase().contains(query);
+    }).toList();
+
+    // El sugerido primero, luego los del mismo establecimiento.
+    rows.sort((a, b) {
+      int rango(InterventoriaUsuario u) {
+        if (u.id == widget.sugeridoId) return 0;
+        if (widget.centroCostoId.isNotEmpty &&
+            u.centroId == widget.centroCostoId) {
+          return 1;
+        }
+        return 2;
+      }
+
+      final byRango = rango(a).compareTo(rango(b));
+      return byRango != 0 ? byRango : a.nombre.compareTo(b.nombre);
+    });
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .8,
+        builder: (_, scrollController) => Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFCBD5E1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Elegir responsable',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _ctrl,
+                    autofocus: true,
+                    onChanged: (v) => setState(() => _query = v),
+                    decoration: const InputDecoration(
+                      hintText: 'Buscar por nombre o cargo',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: rows.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Nadie coincide con la búsqueda',
+                        style: TextStyle(color: Color(0xFF64748B)),
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: scrollController,
+                      itemCount: rows.length,
+                      itemBuilder: (_, i) {
+                        final u = rows[i];
+                        final esSugerido = u.id == widget.sugeridoId;
+                        final delCentro =
+                            widget.centroCostoId.isNotEmpty &&
+                            u.centroId == widget.centroCostoId;
+                        return ListTile(
+                          onTap: () => Navigator.pop(context, u),
+                          leading: CircleAvatar(
+                            backgroundColor: esSugerido
+                                ? const Color(0xFF0F766E)
+                                : const Color(0xFFE2E8F0),
+                            child: Icon(
+                              esSugerido
+                                  ? Icons.auto_awesome
+                                  : Icons.person_outline,
+                              size: 18,
+                              color: esSugerido
+                                  ? Colors.white
+                                  : const Color(0xFF64748B),
+                            ),
+                          ),
+                          title: Text(u.nombre),
+                          subtitle: Text(
+                            u.cargo.isEmpty ? 'Sin cargo registrado' : u.cargo,
+                          ),
+                          trailing: esSugerido
+                              ? const Text(
+                                  'Según el acta',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F766E),
+                                  ),
+                                )
+                              : delCentro
+                              ? const Text(
+                                  'Mismo establecimiento',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                )
+                              : null,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

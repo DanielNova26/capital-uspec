@@ -2,7 +2,24 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && request.auth.token.authVersion == 2
+        && request.auth.token.userDocId is string;
+    }
+
+    // Credenciales, intentos y retos de recuperación son exclusivamente del
+    // backend. Nunca se exponen al cliente, ni siquiera a administradores.
+    match /TBL_AUTH_CREDENTIALS/{document=**} {
+      allow read, write: if false;
+    }
+    match /TBL_AUTH_LOGIN_ATTEMPTS/{document=**} {
+      allow read, write: if false;
+    }
+    match /TBL_AUTH_RECOVERY_CHALLENGES/{document=**} {
+      allow read, write: if false;
+    }
+    match /TBL_AUTH_ADMIN_AUDIT/{document=**} {
+      allow read, write: if false;
     }
 
     match /TBL_PACIENTES/{docId} {
@@ -36,8 +53,39 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
-    match /{document=**} {
-      allow read, write: if isSignedIn();
+    // Las credenciales de WhatsApp se administran exclusivamente mediante
+    // Cloud Functions. Ni siquiera un cliente autenticado puede leer el
+    // ciphertext ni alterar la URL, sesión o módulos habilitados.
+    // Los listados conservan su colección histórica para no romper reglas de
+    // Correo, pero sólo Administración puede modificarlos mediante Functions.
+    match /TBL_CORREO_LISTADOS/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Los enlaces Token DIAN y su auditoria solo se exponen mediante
+    // Cloud Functions. Esto impide que un cliente lea incluso el ciphertext.
+    match /TBL_DIAN_TOKENS/{document=**} {
+      allow read, write: if false;
+    }
+    match /TBL_DIAN_TOKEN_ACCESOS/{document=**} {
+      allow read, write: if false;
+    }
+    match /TBL_DIAN_TOKEN_CONFIG/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{collection}/{document=**} {
+      allow read, write: if isSignedIn()
+        && collection != 'TBL_WHATSAPP_CONFIG'
+        && collection != 'TBL_CORREO_LISTADOS'
+        && collection != 'TBL_DIAN_TOKENS'
+        && collection != 'TBL_DIAN_TOKEN_ACCESOS'
+        && collection != 'TBL_DIAN_TOKEN_CONFIG'
+        && collection != 'TBL_AUTH_CREDENTIALS'
+        && collection != 'TBL_AUTH_LOGIN_ATTEMPTS'
+        && collection != 'TBL_AUTH_RECOVERY_CHALLENGES'
+        && collection != 'TBL_AUTH_ADMIN_AUDIT';
     }
   }
 }

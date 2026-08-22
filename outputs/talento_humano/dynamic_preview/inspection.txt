@@ -1,0 +1,14 @@
+--- INSTRUCCIONES A1:F13 ---
+{"kind":"region","sheet":"INSTRUCCIONES","address":"A6:F11","rows":6,"cols":6,"nonEmpty":36,"text":36,"maxTextLength":45,"preview":[["Paso","Hoja","Uso","Qué contiene","Qué hace la aplicación","Recomendación"],["1","PERSONAL","Obligatoria","Una fila por colaborador","La cédula identifica y actualiza a la persona","No borres encabezados"],["2","AREAS","Opcional","Catálogo de áreas","También se infieren desde PERSONAL","Usa nombres consistentes"],["3","CARGOS","Opcional","Catálogo de cargos","También se infieren desde PERSONAL","Un cargo por fila"],["4","CENTROS_COSTOS","Opcional","Código y nombre","También se infieren desde PERSONAL","Evita duplicados"],["5","APPS","Opcional","Permisos adicionales","Separa varias apps con coma","La app valida antes de importar"]],"previewAddress":"A6:F11","previewRows":6,"previewCols":6}
+
+--- AREAS A1:C20 ---
+{"kind":"notice","message":"No records matched the requested kinds."}
+
+--- CARGOS A1:E25 ---
+{"kind":"region","sheet":"CARGOS","address":"A4:E4","rows":1,"cols":5,"nonEmpty":5,"text":5,"maxTextLength":12,"preview":[["nombre","area","descripcion","parent_cargo","activo"]],"previewAddress":"A4:E4","previewRows":1,"previewCols":5}
+
+--- CENTROS_COSTOS A1:B20 ---
+{"kind":"notice","message":"No records matched the requested kinds."}
+
+--- APPS A1:D20 ---
+{"kind":"region","sheet":"APPS","address":"A4:D4","rows":1,"cols":4,"nonEmpty":4,"text":4,"maxTextLength":11,"preview":[["appId","nombre","descripcion","enabled"]],"previewAddress":"A4:D4","previewRows":1,"previewCols":4}

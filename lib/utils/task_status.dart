@@ -58,6 +58,9 @@ String resolveTaskStatus(Map<String, dynamic> data) {
   if (raw == 'devuelta') return 'devuelta';
   if (_hasPendingReassign(data) || raw == 'reasignado') return 'reasignado';
 
+  // Estado inicial: tarea creada, esperando que el director la atienda/reasigne
+  if (raw == 'pendiente') return 'pendiente';
+
   final due = taskToDate(data['fecha_limite'] ?? data['dueDate']);
   final days = taskDaysLeft(due);
   if (raw == 'retrasada' ||
@@ -71,6 +74,8 @@ String resolveTaskStatus(Map<String, dynamic> data) {
 
 Color taskStatusColor(String status) {
   switch (status) {
+    case 'pendiente':
+      return Colors.blueGrey.shade500;
     case 'en_progreso':
       return Colors.blue.shade600;
     case 'por_aprobar':
@@ -85,5 +90,18 @@ Color taskStatusColor(String status) {
       return Colors.purple.shade500;
     default:
       return Colors.grey.shade600;
+  }
+}
+
+String taskStatusLabel(String status) {
+  switch (status) {
+    case 'pendiente':     return 'Pendiente';
+    case 'en_progreso':  return 'En progreso';
+    case 'por_aprobar':  return 'Por aprobar';
+    case 'finalizado':   return 'Finalizado';
+    case 'retrasada':    return 'Retrasada';
+    case 'devuelta':     return 'Devuelta';
+    case 'reasignado':   return 'Reasignado';
+    default:             return 'En progreso';
   }
 }

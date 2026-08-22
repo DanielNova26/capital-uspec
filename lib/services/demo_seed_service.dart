@@ -218,7 +218,7 @@ class DemoSeedService {
     );
     await _setApp(
       'GestionDocumental',
-      'Gestión Documental',
+      'Gestión de Correspondencia',
       'Control de versiones, firmas y estados de documentos.',
     );
     await _setApp(

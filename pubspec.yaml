@@ -10,6 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_svg: ^2.2.4
 
   # UI / Iconos
   cupertino_icons: ^1.0.8
@@ -35,8 +36,10 @@ dependencies:
   # Archivos / Imágenes
   file_picker: ^10.3.3
   image_picker: ^1.2.0
+  google_mlkit_document_scanner: ^0.5.0
   google_mlkit_text_recognition: ^0.13.1
   desktop_drop: ^0.4.0
+  cross_file: ^0.3.4+2
   signature: ^5.5.0
   image: ^4.3.0
   file_saver: ^0.3.1
@@ -52,11 +55,19 @@ dependencies:
   permission_handler: ^12.0.1
   table_calendar: ^3.2.0
   shared_preferences: ^2.5.3
+  crypto: ^3.0.7
+
+  # Inicio de sesión: biometría (huella / Face ID) + almacenamiento seguro
+  local_auth: ^2.3.0
+  flutter_secure_storage: ^9.2.4
 
   # 🔙 Volvemos a la API antigua que tu código usa
   flutter_typeahead: ^4.8.0
 
   http: ^1.5.0
+
+  # Gráficas
+  fl_chart: ^0.69.0
 
   # PDF
   pdf: ^3.11.1
@@ -67,6 +78,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   speech_to_text: ^7.3.0
+  pdfx: ^2.9.2
 
 dependency_overrides:
   flutter_keyboard_visibility: ^6.0.0
@@ -94,5 +106,8 @@ flutter:
     - assets/arial.ttf
     - assets/logo.png
     - assets/admin_icon.png
+    - assets/icons/whatsapp_support.svg
+    - assets/icons/security_shield.svg
     - assets/seeds/catalogos_base.xlsx
+    - assets/seeds/plantilla_personal_talento_humano.xlsx
     - assets/diagnosticos_template.xlsx

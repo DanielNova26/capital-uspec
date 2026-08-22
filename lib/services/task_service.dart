@@ -6,9 +6,13 @@
 //
 // Requiere: cloud_firestore, firebase_storage.
 
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:crypto/crypto.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+
+import '../core/task_contract.dart';
 
 class TaskAttachment {
   final String filename;
@@ -33,8 +37,8 @@ class TaskService {
   final FirebaseStorage _storage;
 
   TaskService({FirebaseFirestore? db, FirebaseStorage? storage})
-      : _db = db ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+    : _db = db ?? FirebaseFirestore.instance,
+      _storage = storage ?? FirebaseStorage.instance;
 
   // ---------------------------------------------------------------------------
   // Helpers de nombres / lectura segura
@@ -117,12 +121,14 @@ class TaskService {
   }) async {
     final out = <Map<String, dynamic>>[];
     for (final a in attachments) {
-      out.add(await _uploadAttachment(
-        taskId: taskId,
-        att: a,
-        folder: folder,
-        filePrefix: filePrefix,
-      ));
+      out.add(
+        await _uploadAttachment(
+          taskId: taskId,
+          att: a,
+          folder: folder,
+          filePrefix: filePrefix,
+        ),
+      );
     }
     return out;
   }
@@ -144,10 +150,17 @@ class TaskService {
     String? fromId,
     String? fromName,
     String? empresaId,
+    Map<String, dynamic>? extraData,
+    String? idempotencyKey,
   }) async {
     if (toUserId.trim().isEmpty) return;
 
-    final ref = _userNotifsCol(toUserId).doc();
+    final normalizedKey = idempotencyKey?.trim() ?? '';
+    final ref = normalizedKey.isEmpty
+        ? _userNotifsCol(toUserId).doc()
+        : _userNotifsCol(toUserId).doc(
+            sha256.convert(utf8.encode('$toUserId:$normalizedKey')).toString(),
+          );
     final payload = <String, dynamic>{
       'id': ref.id,
       'title': title,
@@ -158,10 +171,19 @@ class TaskService {
       'fromName': fromName ?? '',
       'createdAt': Timestamp.now(),
       'read': false,
+      if (normalizedKey.isNotEmpty) 'idempotencyKey': normalizedKey,
     };
+    if (extraData != null) payload.addAll(extraData);
     final eid = empresaId?.trim() ?? '';
     if (eid.isNotEmpty) payload['empresaId'] = eid;
-    await ref.set(payload);
+    if (normalizedKey.isEmpty) {
+      await ref.set(payload);
+      return;
+    }
+    await _db.runTransaction((transaction) async {
+      final existing = await transaction.get(ref);
+      if (!existing.exists) transaction.set(ref, payload);
+    });
   }
 
   Future<void> pushNotificationToMany({
@@ -173,6 +195,8 @@ class TaskService {
     String? fromId,
     String? fromName,
     String? empresaId,
+    Map<String, dynamic>? extraData,
+    String? idempotencyKey,
   }) async {
     final unique = <String>{};
     for (final u in toUserIds) {
@@ -190,6 +214,8 @@ class TaskService {
         fromId: fromId,
         fromName: fromName,
         empresaId: empresaId,
+        extraData: extraData,
+        idempotencyKey: idempotencyKey,
       );
     }
   }
@@ -199,9 +225,9 @@ class TaskService {
   // ---------------------------------------------------------------------------
 
   Stream<QuerySnapshot<Map<String, dynamic>>> streamTasksAssignedTo(
-      String userId, {
-        String? empresaId,
-      }) {
+    String userId, {
+    String? empresaId,
+  }) {
     Query<Map<String, dynamic>> query = _db
         .collection(tasksCol)
         .where('asignado_uid', isEqualTo: userId);
@@ -268,7 +294,8 @@ class TaskService {
             filePrefix: _slug(titulo, fallback: 'tarea'),
           );
 
-    final data = <String, dynamic>{
+    final rawData = <String, dynamic>{
+      if (extra != null) ...extra,
       'titulo': titulo,
       'descripcion': descripcion,
       'estado': estado,
@@ -289,15 +316,20 @@ class TaskService {
       'empresaId': empresaId ?? '',
 
       'fecha_creacion': Timestamp.fromDate(now),
-      'fecha_limite': fechaLimite == null ? null : Timestamp.fromDate(fechaLimite),
+      'fecha_limite': fechaLimite == null
+          ? null
+          : Timestamp.fromDate(fechaLimite),
 
       'ubicacion': ubicacion,
       'adjuntos': uploaded,
 
       'updatedAt': Timestamp.fromDate(now),
+      'createdAt': Timestamp.fromDate(now),
     };
 
-    if (extra != null) data.addAll(extra);
+    // El contrato se aplica al final para impedir que `extra` reemplace
+    // empresa, responsable, creador, estado u otros campos críticos.
+    final data = TaskContract.normalizeForCreate(rawData);
 
     await ref.set(data);
 
@@ -325,7 +357,11 @@ class TaskService {
 
     final uploaded = (attachments == null || attachments.isEmpty)
         ? <Map<String, dynamic>>[]
-        : await _uploadMany(taskId: taskId, attachments: attachments, folder: 'avances');
+        : await _uploadMany(
+            taskId: taskId,
+            attachments: attachments,
+            folder: 'avances',
+          );
 
     // Extraemos los datos de la tarea ANTES de la transacción para poder
     // notificar DESPUÉS de que la transacción commitee (sin riesgo de retry duplicado).
@@ -344,11 +380,12 @@ class TaskService {
           .toString()
           .trim()
           .toLowerCase();
-      final nextEstado = (currentEstado.isEmpty ||
-          currentEstado == 'pendiente' ||
-          currentEstado == 'devuelta' ||
-          currentEstado == 'activas' ||
-          currentEstado == 'reasignado')
+      final nextEstado =
+          (currentEstado.isEmpty ||
+              currentEstado == 'pendiente' ||
+              currentEstado == 'devuelta' ||
+              currentEstado == 'activas' ||
+              currentEstado == 'reasignado')
           ? 'en_progreso'
           : (tInner['estado'] ?? tInner['status'] ?? '');
 
@@ -376,12 +413,17 @@ class TaskService {
         updateData['estado'] = nextEstado;
         updateData['status'] = nextEstado;
       }
+      if (nextDate != null) {
+        updateData['fecha_limite'] = Timestamp.fromDate(nextDate);
+        updateData['dueDate'] = Timestamp.fromDate(nextDate);
+      }
       trx.update(taskRef, updateData);
     });
 
     // Notificar DESPUÉS de que la transacción commitee
     final recipients = <String>[];
-    if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
+    if (creadorId.isNotEmpty && creadorId != byUserId)
+      recipients.add(creadorId);
     if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
     if (recipients.isNotEmpty) {
       try {
@@ -396,6 +438,7 @@ class TaskService {
           fromId: byUserId,
           fromName: byUserName,
           empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
+          idempotencyKey: 'task_avance:$taskId:${doc.id}',
         );
       } catch (_) {}
     }
@@ -416,7 +459,11 @@ class TaskService {
 
     final uploaded = (attachments == null || attachments.isEmpty)
         ? <Map<String, dynamic>>[]
-        : await _uploadMany(taskId: taskId, attachments: attachments, folder: 'novedades');
+        : await _uploadMany(
+            taskId: taskId,
+            attachments: attachments,
+            folder: 'novedades',
+          );
 
     // Extraemos los datos de la tarea ANTES de la transacción para notificar
     // DESPUÉS de que la transacción commitee.
@@ -435,10 +482,11 @@ class TaskService {
           .toString()
           .trim()
           .toLowerCase();
-      final nextEstado = (currentEstado.isEmpty ||
-          currentEstado == 'devuelta' ||
-          currentEstado == 'activas' ||
-          currentEstado == 'reasignado')
+      final nextEstado =
+          (currentEstado.isEmpty ||
+              currentEstado == 'devuelta' ||
+              currentEstado == 'activas' ||
+              currentEstado == 'reasignado')
           ? 'en_progreso'
           : (tInner['estado'] ?? tInner['status'] ?? '');
 
@@ -470,7 +518,8 @@ class TaskService {
 
     // Notificar DESPUÉS de que la transacción commitee
     final recipients = <String>[];
-    if (creadorId.isNotEmpty && creadorId != byUserId) recipients.add(creadorId);
+    if (creadorId.isNotEmpty && creadorId != byUserId)
+      recipients.add(creadorId);
     if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
     if (recipients.isNotEmpty) {
       try {
@@ -483,6 +532,7 @@ class TaskService {
           fromId: byUserId,
           fromName: byUserName,
           empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
+          idempotencyKey: 'task_novedad:$taskId:${doc.id}',
         );
       } catch (_) {}
     }
@@ -513,111 +563,61 @@ class TaskService {
   }) async {
     final taskRef = _db.collection(tasksCol).doc(taskId);
 
-    final snap = await taskRef.get();
-    final t = snap.data() ?? <String, dynamic>{};
-
-    final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
-    final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
-
-    final prevAssignedUid = _s(t, ['asignado_uid', 'assignedTo']);
-    final prevAssignedName = _s(t, ['asignado_nombre', 'assignedToName']);
-
-    final creadorId = _s(t, ['creador_id', 'creatorId']);
-    final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
-
     // Prioridad del actor: byUserId/byUserName (UI) > performedBy/performedByName
     final actorId = (byUserId ?? performedBy ?? '').trim();
-    final actorName = (byUserName ?? performedByName ?? '').trim();
+    final targetUid = newAssignedTo.trim();
+    if (targetUid.isEmpty) {
+      throw ArgumentError('newAssignedTo no puede estar vacío.');
+    }
 
-    final fromId = actorId.isNotEmpty ? actorId : '';
-    final fromName = actorName.isNotEmpty
-        ? actorName
-        : (actorId.isNotEmpty ? actorId : 'Sistema');
+    await _db.runTransaction((trx) async {
+      final snap = await trx.get(taskRef);
+      final t = snap.data() ?? <String, dynamic>{};
+      final prevAssignedUid = _s(t, ['asignado_uid', 'assignedTo']);
+      final prevAssignedName = _s(t, ['asignado_nombre', 'assignedToName']);
 
-    await taskRef.update({
-      'asignado_uid': newAssignedTo,
-      if (newAssignedToName != null && newAssignedToName.trim().isNotEmpty)
-        'asignado_nombre': newAssignedToName.trim(),
-      if (newAreaId != null && newAreaId.trim().isNotEmpty) 'areaId': newAreaId.trim(),
+      final update = <String, dynamic>{
+        'asignado_uid': targetUid,
+        if (newAssignedToName != null && newAssignedToName.trim().isNotEmpty)
+          'asignado_nombre': newAssignedToName.trim(),
+        if (newAreaId != null && newAreaId.trim().isNotEmpty)
+          'areaId': newAreaId.trim(),
 
-      // estado recomendado al reasignar
-      'estado': 'en_progreso',
-      'status': 'en_progreso',
-      'reasignado': false,
-      
-      // trazabilidad
-      'reasignada_en': FieldValue.serverTimestamp(),
-      'reasignada_desde_uid': prevAssignedUid,
-      'reasignada_desde_nombre': prevAssignedName,
+        // estado recomendado al reasignar
+        'estado': 'en_progreso',
+        'status': 'en_progreso',
+        'reasignado': false,
 
-      // limpia solicitud pendiente si existiera
-      'reasignacion_pendiente': FieldValue.delete(),
+        // trazabilidad
+        'reasignada_en': FieldValue.serverTimestamp(),
+        'reasignada_desde_uid': prevAssignedUid,
+        'reasignada_desde_nombre': prevAssignedName,
+        if (actorId.isNotEmpty) 'reasignada_por_uid': actorId,
 
-      // updated
-      'updatedAt': FieldValue.serverTimestamp(),
-      'fecha_actualizacion': FieldValue.serverTimestamp(),
-      'actualizada_en': FieldValue.serverTimestamp(),
+        // limpia solicitudes pendientes si existieran
+        'reasignacion_pendiente': FieldValue.delete(),
+        'solicitud_reasignacion_estado': FieldValue.delete(),
+        'solicitud_reasignacion_at': FieldValue.delete(),
+        'solicitud_reasignacion_by_uid': FieldValue.delete(),
+        'solicitud_reasignacion_by_nombre': FieldValue.delete(),
+        'solicitud_reasignacion_to_uid': FieldValue.delete(),
+        'solicitud_reasignacion_to_nombre': FieldValue.delete(),
+        'solicitud_reasignacion_areaId': FieldValue.delete(),
+        'solicitud_reasignacion_areaNombre': FieldValue.delete(),
+        'solicitud_reasignacion_cargoId': FieldValue.delete(),
+        'solicitud_reasignacion_cargoNombre': FieldValue.delete(),
+
+        // updated
+        'updatedAt': FieldValue.serverTimestamp(),
+        'fecha_actualizacion': FieldValue.serverTimestamp(),
+        'actualizada_en': FieldValue.serverTimestamp(),
+        'lastEventType': 'reasignacion_directa',
+        'lastEventAt': FieldValue.serverTimestamp(),
+      };
+      trx.update(taskRef, update);
     });
 
-    // Notificar (sin duplicar)
-    final recipients = <String>{};
-
-    // nuevo asignado
-    if (newAssignedTo.trim().isNotEmpty) {
-      recipients.add(newAssignedTo.trim());
-    }
-
-    // creador y jefe
-    if (creadorId.isNotEmpty) recipients.add(creadorId);
-    if (jefeId.isNotEmpty) recipients.add(jefeId);
-
-    // por defecto, evitamos notificar al actor
-    if (actorId.isNotEmpty) recipients.remove(actorId);
-
-    // al nuevo asignado
-    if (recipients.contains(newAssignedTo)) {
-      await pushNotification(
-        toUserId: newAssignedTo,
-        title: 'Tarea reasignada',
-        description: titulo,
-        taskId: taskId,
-        type: 'task_reassigned',
-        fromId: fromId,
-        fromName: fromName,
-        empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
-      );
-    }
-
-    // a los demás (creador/jefe)
-    final others = recipients.where((u) => u != newAssignedTo).toList();
-    if (others.isNotEmpty) {
-      await pushNotificationToMany(
-        toUserIds: others,
-        title: 'Tarea reasignada',
-        description:
-        '$titulo · Nuevo responsable: ${(newAssignedToName ?? '').trim().isNotEmpty ? newAssignedToName!.trim() : newAssignedTo}',
-        taskId: taskId,
-        type: 'task_reassigned_info',
-        fromId: fromId,
-        fromName: fromName,
-        empresaId: empresaIdTask.isNotEmpty ? empresaIdTask : null,
-      );
-    }
-
-    // (Opcional) notificar al anterior asignado:
-    /*
-    if (prevAssignedUid.isNotEmpty && prevAssignedUid != newAssignedTo) {
-      await pushNotification(
-        toUserId: prevAssignedUid,
-        title: 'Tarea reasignada',
-        description: 'La tarea "$titulo" fue reasignada a otra persona.',
-        taskId: taskId,
-        type: 'task_reassigned_out',
-        fromId: fromId,
-        fromName: fromName,
-      );
-    }
-    */
+    // onTaskUpdated genera las notificaciones de reasignación.
   }
   // ---------------------------------------------------------------------------
   // Alias para compatibilidad con pantallas que llaman requestReassignTask
@@ -646,7 +646,8 @@ class TaskService {
     String? reason,
   }) async {
     final actorId = (requestedBy ?? byUserId ?? performedBy ?? '').trim();
-    final actorName = (requestedByName ?? byUserName ?? performedByName ?? '').trim();
+    final actorName = (requestedByName ?? byUserName ?? performedByName ?? '')
+        .trim();
 
     // Opción B: aplica la reasignación inmediatamente
     await reassignTask(
@@ -698,7 +699,11 @@ class TaskService {
       'bossId': str(['jefe_uid', 'bossId', 'delegatedTo']),
       'bossName': str(['jefe_nombre', 'bossName']),
       'createdAt': ts(['fecha_creacion', 'createdAt']),
-      'updatedAt': ts(['updatedAt', 'fecha_actualizacion', 'fecha_actualizacion']),
+      'updatedAt': ts([
+        'updatedAt',
+        'fecha_actualizacion',
+        'fecha_actualizacion',
+      ]),
       'dueDate': ts(['fecha_limite', 'dueDate']),
       'attachments': listMap(['adjuntos', 'attachments']),
       'pendingReassign': d['reasignacion_pendiente'],

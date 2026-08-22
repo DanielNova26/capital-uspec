@@ -26,7 +26,7 @@ class AccessGuard {
   final FirestoreUserRepository _repo;
 
   AccessGuard({FirestoreUserRepository? repo})
-      : _repo = repo ?? FirestoreUserRepository.instance;
+    : _repo = repo ?? FirestoreUserRepository.instance;
 
   Future<AccessDecision> canAccess({
     required Map<String, dynamic> userData,
@@ -46,11 +46,8 @@ class AccessGuard {
     // Desarrollador: bypass completo sin importar empresa ni app asignada.
     // Se verifica primero para que un desarrollador no sea bloqueado
     // por falta de membresía en la empresa activa.
-    if (isDeveloperUser(userData)) {
-      return const AccessDecision(
-        allowed: true,
-        isDeveloperOverride: true,
-      );
+    if (isDeveloperUser(userData, empresaId: normalizedEmpresaId)) {
+      return const AccessDecision(allowed: true, isDeveloperOverride: true);
     }
 
     if (!userBelongsToEmpresa(userData, normalizedEmpresaId)) {
@@ -61,7 +58,11 @@ class AccessGuard {
       );
     }
 
-    if (!userHasApp(userData, normalizedAppId, empresaId: normalizedEmpresaId)) {
+    if (!userHasApp(
+      userData,
+      normalizedAppId,
+      empresaId: normalizedEmpresaId,
+    )) {
       return AccessDecision(
         allowed: false,
         reason: AccessDenialReason.appNotAssigned,

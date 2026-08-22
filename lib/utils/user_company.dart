@@ -5,13 +5,20 @@ import 'package:flutter/foundation.dart';
 /// Si un módulo nuevo adopta el sufijo 'dashboard', se agrega aquí.
 const Map<String, String> kAppIdNormalizationMap = {
   'compras': 'comprasdashboard',
+  'correo': 'correodashboard',
   'admin': 'admindashboard',
   'talento': 'talentohumanodashboard',
   'talentohumano': 'talentohumanodashboard',
   'gestiondocumental': 'gestiondocumentaldashboard',
+  'planillas': 'planillaspagodashboard',
+  'planillaspago': 'planillaspagodashboard',
   'nutricion': 'nutriciondashboard',
   'gerencia': 'gerenciadashboard',
   'interventoria': 'interventoriadashboard',
+  'facturacion': 'facturaciondashboard',
+  'rutas': 'rutasdashboard',
+  'tokens': 'tokensdiandashboard',
+  'tokensdian': 'tokensdiandashboard',
 };
 
 /// Normaliza una lista de app IDs cortos a su forma canónica completa.
@@ -52,11 +59,12 @@ String? normalizeAppId(String? appId) {
 }
 
 String _canonicalAppId(String appId) {
-  if (appId.endsWith('dashboard')) {
-    final short = appId.substring(0, appId.length - 'dashboard'.length);
+  final mapped = kAppIdNormalizationMap[appId] ?? appId;
+  if (mapped.endsWith('dashboard')) {
+    final short = mapped.substring(0, mapped.length - 'dashboard'.length);
     if (short.isNotEmpty) return short;
   }
-  return appId;
+  return mapped;
 }
 
 bool appIdsEquivalent(String? rawA, String? rawB) {
@@ -106,6 +114,10 @@ List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
     ordered.add(appId);
   }
 
+  // Compatibilidad: muchas cuentas antiguas guardan la asignación de módulos
+  // en `apps` global. Las cuentas multiempresa nuevas también pueden tener
+  // `empresasDetalle[empresaId].apps`. Para no ocultar módulos existentes
+  // (por ejemplo Rutas) cuando el bloque scoped está incompleto, se combinan.
   final apps = data['apps'] as List<dynamic>? ?? const [];
   for (final app in apps) {
     addCandidate(app?.toString());
@@ -123,20 +135,93 @@ List<String> extractUserApps(Map<String, dynamic> data, {String? empresaId}) {
 }
 
 String resolveGlobalRole(Map<String, dynamic> data) {
-  return (data['role'] ?? '').toString().trim().toLowerCase();
+  return normalizeRoleKey(
+    (data['roleKey'] ?? data['role'] ?? data['rol'] ?? '').toString(),
+  );
 }
 
-bool isDeveloperUser(Map<String, dynamic> data) {
-  return resolveGlobalRole(data) == 'desarrollador';
+String normalizeRoleKey(String value) {
+  return value
+      .trim()
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ü', 'u')
+      .replaceAll('ñ', 'n')
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+}
+
+String resolveScopedRoleKey(Map<String, dynamic> data, {String? empresaId}) {
+  final detail = getUserCompanyDetail(data, empresaId);
+  final scopedKey = normalizeRoleKey(
+    (detail?['roleKey'] ?? detail?['role_key'] ?? '').toString(),
+  );
+  if (scopedKey.isNotEmpty) return scopedKey;
+
+  final scopedRoleId = (detail?['roleId'] ?? '').toString().trim();
+  if (scopedRoleId.isNotEmpty) {
+    final prefix = '${(empresaId ?? '').trim()}_';
+    return normalizeRoleKey(
+      prefix.length > 1 && scopedRoleId.startsWith(prefix)
+          ? scopedRoleId.substring(prefix.length)
+          : scopedRoleId,
+    );
+  }
+  return resolveGlobalRole(data);
+}
+
+String resolveScopedRoleName(Map<String, dynamic> data, {String? empresaId}) {
+  final detail = getUserCompanyDetail(data, empresaId);
+  for (final value in [
+    detail?['roleNombre'],
+    detail?['roleName'],
+    data['roleNombre'],
+    data['roleName'],
+  ]) {
+    final text = (value ?? '').toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return resolveScopedRoleKey(data, empresaId: empresaId);
+}
+
+bool isDeveloperUser(Map<String, dynamic> data, {String? empresaId}) {
+  final key = resolveScopedRoleKey(data, empresaId: empresaId);
+  if (key == 'desarrollador' || key == 'developer') return true;
+
+  final detail = getUserCompanyDetail(data, empresaId);
+  final roleId = (detail?['roleId'] ?? data['roleId'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  return roleId.endsWith('_desarrollador') || roleId.endsWith('_developer');
 }
 
 bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
   final target = normalizeAppId(appId);
   if (target == null) return false;
-  return extractUserApps(
+  final assigned = extractUserApps(
     data,
     empresaId: empresaId,
   ).any((candidate) => appIdsEquivalent(candidate, target));
+  if (assigned) return true;
+
+  // Compatibilidad de la separación de Planillas de Pago: antes de ser un
+  // módulo independiente, el acceso se expresaba únicamente con rolPlanillas.
+  // Así quienes ya operaban el flujo conservan acceso sin una migración
+  // destructiva; las asignaciones nuevas usan el appId independiente.
+  if (appIdsEquivalent(target, 'planillaspagodashboard')) {
+    final detail = getUserCompanyDetail(data, empresaId);
+    return (detail?['rolPlanillas'] ?? data['rolPlanillas'] ?? '')
+        .toString()
+        .trim()
+        .isNotEmpty;
+  }
+  return false;
 }
 
 String? resolveValidEmpresaId({
@@ -176,6 +261,19 @@ Map<String, dynamic>? getUserCompanyDetail(
     return raw.map((key, value) => MapEntry(key.toString(), value));
   }
   return null;
+}
+
+/// Combina un registro global con el bloque específico de la empresa activa.
+/// Los valores de `empresasDetalle[empresaId]` tienen prioridad, pero los
+/// campos globales se conservan como fallback para datos legacy.
+Map<String, dynamic> mergeCompanyScopedData(
+  Map<String, dynamic> data,
+  String? empresaId,
+) {
+  final detail = getUserCompanyDetail(data, empresaId);
+  return detail == null
+      ? Map<String, dynamic>.from(data)
+      : {...data, ...detail};
 }
 
 dynamic getScopedField(

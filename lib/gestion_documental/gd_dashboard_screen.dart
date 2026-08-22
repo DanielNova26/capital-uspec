@@ -6,10 +6,9 @@ import '../core/guarded_module_page.dart';
 import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
 import 'gd_detail_screen.dart';
-import 'gd_firmas_screen.dart';
 import 'gd_models.dart';
 import 'gd_service.dart';
-import 'planillas/pp_dashboard_screen.dart';
+import 'correspondencia/gd_control_dashboard_screen.dart';
 import 'widgets/gd_ui_widgets.dart';
 
 class GdDashboardScreen extends StatefulWidget {
@@ -32,76 +31,88 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   String? _selectedCategory;
   bool _selectionMode = false;
   bool _deletingSelection = false;
+  bool _showLibrary = false;
   final Set<String> _selectedDocIds = <String>{};
 
   @override
   Widget build(BuildContext context) {
+    if (!_showLibrary) {
+      return GuardedModulePage(
+        userIdentity: widget.userId,
+        appId: 'gestiondocumentaldashboard',
+        pageTitle: 'Gestión de Correspondencia',
+        fallbackEmpresaId: widget.empresaId,
+        child: GdControlDashboardScreen(
+          userId: widget.userId,
+          empresaId: widget.empresaId,
+          onOpenLibrary: () => setState(() => _showLibrary = true),
+        ),
+      );
+    }
     final width = MediaQuery.of(context).size.width;
     final isWeb = width >= 900;
 
     return GuardedModulePage(
       userIdentity: widget.userId,
       appId: 'gestiondocumentaldashboard',
-      pageTitle: 'Gestion Documental',
+      // Vista de biblioteca (subir/eliminar PDF, roles redactor/revisor/
+      // aprobador/firmante) — distinta del título del módulo, que ahora es
+      // "Gestión de Correspondencia" porque esa es la vista por defecto.
+      pageTitle: 'Biblioteca documental',
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('TBL_USUARIOS')
             .doc(widget.userId)
             .snapshots(),
         builder: (context, userSnap) {
-          final rolDocumental = _resolveRolDocumental(userSnap.data?.data(), widget.empresaId);
+          final rolDocumental = _resolveRolDocumental(
+            userSnap.data?.data(),
+            widget.empresaId,
+          );
           final canCreate = GdRoles.puedeEjecutar('subir_pdf', rolDocumental);
-          final canDelete = GdRoles.puedeEjecutar('eliminar_documento', rolDocumental);
+          final canDelete = GdRoles.puedeEjecutar(
+            'eliminar_documento',
+            rolDocumental,
+          );
 
           return InternalModuleLayout(
             userId: widget.userId,
             empresaId: widget.empresaId,
             title: 'Biblioteca Documental',
-            subtitle: 'Gestión centralizada de procesos, políticas e instructivos',
+            subtitle:
+                'Gestión centralizada de procesos, políticas e instructivos',
             badge: rolDocumental,
             accentColor: GdPalette.accent,
             headerActions: [
               if (isWeb)
                 OutlinedButton.icon(
-                  onPressed: _openFirmas,
-                  icon: const Icon(Icons.draw, size: 20),
+                  onPressed: _openCorrespondencia,
+                  icon: const Icon(Icons.markunread_mailbox_outlined, size: 20),
                   label: const Text(
-                    'MI IDENTIDAD DIGITAL',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 12),
+                    'CORRESPONDENCIA',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: GdPalette.primary,
                     side: const BorderSide(color: GdPalette.border),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 22,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 )
               else
                 IconButton(
-                  icon: const Icon(Icons.draw),
-                  onPressed: _openFirmas,
-                  tooltip: 'Mi Firma',
-                ),
-              if (isWeb)
-                OutlinedButton.icon(
-                  onPressed: _openPlanillas,
-                  icon: const Icon(Icons.receipt_long_outlined, size: 20),
-                  label: const Text(
-                    'PLANILLAS DE PAGO',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 12),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: GdPalette.primary,
-                    side: const BorderSide(color: GdPalette.border),
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                )
-              else
-                IconButton(
-                  icon: const Icon(Icons.receipt_long_outlined),
-                  onPressed: _openPlanillas,
-                  tooltip: 'Planillas de Pago',
+                  icon: const Icon(Icons.markunread_mailbox_outlined),
+                  onPressed: _openCorrespondencia,
+                  tooltip: 'Correspondencia',
                 ),
               if (isWeb && canDelete)
                 OutlinedButton.icon(
@@ -146,12 +157,19 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                       ? 'Cancelar selección'
                       : 'Seleccionar documentos',
                 ),
-              if (isWeb && canDelete && _selectionMode && _selectedDocIds.isNotEmpty)
+              if (isWeb &&
+                  canDelete &&
+                  _selectionMode &&
+                  _selectedDocIds.isNotEmpty)
                 ElevatedButton.icon(
                   onPressed: _deletingSelection
                       ? null
                       : () => _confirmDeleteSelected(rolDocumental!),
-                  icon: const Icon(Icons.delete_forever, size: 20, color: Colors.white),
+                  icon: const Icon(
+                    Icons.delete_forever,
+                    size: 20,
+                    color: Colors.white,
+                  ),
                   label: Text(
                     'ELIMINAR (${_selectedDocIds.length})',
                     style: const TextStyle(
@@ -164,99 +182,118 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.redAccent,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 22,
+                    ),
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               if (isWeb && canCreate)
                 ElevatedButton.icon(
                   onPressed: () => _showCreateDialog(rolDocumental!),
-                  icon: const Icon(Icons.add_task, size: 20, color: Colors.white),
+                  icon: const Icon(
+                    Icons.add_task,
+                    size: 20,
+                    color: Colors.white,
+                  ),
                   label: const Text(
                     'NUEVO DOCUMENTO',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5),
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: GdPalette.primary,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 22),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 22,
+                    ),
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
             ],
             floatingActionButton: !isWeb && canCreate
                 ? (_selectionMode && canDelete
-                    ? FloatingActionButton.extended(
-                        onPressed: _selectedDocIds.isEmpty || _deletingSelection
-                            ? null
-                            : () => _confirmDeleteSelected(rolDocumental!),
-                        backgroundColor: Colors.redAccent,
-                        icon: _deletingSelection
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.delete_forever),
-                        label: Text(
-                          _selectedDocIds.isEmpty
-                              ? 'Selecciona archivos'
-                              : 'Eliminar (${_selectedDocIds.length})',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
+                      ? FloatingActionButton.extended(
+                          onPressed:
+                              _selectedDocIds.isEmpty || _deletingSelection
+                              ? null
+                              : () => _confirmDeleteSelected(rolDocumental!),
+                          backgroundColor: Colors.redAccent,
+                          icon: _deletingSelection
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.delete_forever),
+                          label: Text(
+                            _selectedDocIds.isEmpty
+                                ? 'Selecciona archivos'
+                                : 'Eliminar (${_selectedDocIds.length})',
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                      )
-                    : FloatingActionButton.extended(
-                        onPressed: () => _showCreateDialog(rolDocumental!),
-                        backgroundColor: GdPalette.accent,
-                        icon: const Icon(Icons.add_task),
-                        label: const Text(
-                          'Nuevo Documento',
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
+                        )
+                      : FloatingActionButton.extended(
+                          onPressed: () => _showCreateDialog(rolDocumental!),
+                          backgroundColor: GdPalette.accent,
+                          icon: const Icon(Icons.add_task),
+                          label: const Text(
+                            'Nuevo Documento',
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                      ))
+                        ))
                 : (!isWeb && canDelete && _selectionMode)
-                    ? FloatingActionButton.extended(
-                        onPressed: _selectedDocIds.isEmpty || _deletingSelection
-                            ? null
-                            : () => _confirmDeleteSelected(rolDocumental!),
-                        backgroundColor: Colors.redAccent,
-                        icon: _deletingSelection
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.delete_forever),
-                        label: Text(
-                          _selectedDocIds.isEmpty
-                              ? 'Selecciona archivos'
-                              : 'Eliminar (${_selectedDocIds.length})',
-                          style: const TextStyle(
-                            fontFamily: kArial,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      )
-                    : null,
+                ? FloatingActionButton.extended(
+                    onPressed: _selectedDocIds.isEmpty || _deletingSelection
+                        ? null
+                        : () => _confirmDeleteSelected(rolDocumental!),
+                    backgroundColor: Colors.redAccent,
+                    icon: _deletingSelection
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.delete_forever),
+                    label: Text(
+                      _selectedDocIds.isEmpty
+                          ? 'Selecciona archivos'
+                          : 'Eliminar (${_selectedDocIds.length})',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                : null,
             child: Column(
               children: [
                 _buildFilters(isWeb),
-                if (_selectionMode && canDelete)
-                  _buildSelectionBanner(isWeb),
+                if (_selectionMode && canDelete) _buildSelectionBanner(isWeb),
                 if (userSnap.hasData && rolDocumental == null)
                   _buildRolDocumentalNotice(isWeb),
                 Expanded(
@@ -273,13 +310,15 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                       var docs = snapshot.data ?? [];
                       if (_searchQuery.isNotEmpty) {
                         docs = docs
-                            .where((d) =>
-                                d.titulo
-                                    .toLowerCase()
-                                    .contains(_searchQuery.toLowerCase()) ||
-                                d.codigo
-                                    .toLowerCase()
-                                    .contains(_searchQuery.toLowerCase()))
+                            .where(
+                              (d) =>
+                                  d.titulo.toLowerCase().contains(
+                                    _searchQuery.toLowerCase(),
+                                  ) ||
+                                  d.codigo.toLowerCase().contains(
+                                    _searchQuery.toLowerCase(),
+                                  ),
+                            )
                             .toList();
                       }
                       if (_selectedCategory != null) {
@@ -313,9 +352,15 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     if (userData == null) return null;
     if (isDeveloperUser(userData)) return GdRoles.desarrollador;
     final detail = getUserCompanyDetail(userData, empresaId);
-    final scoped = (detail?['rolDocumental'] ?? '').toString().trim().toLowerCase();
+    final scoped = (detail?['rolDocumental'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     if (scoped.isNotEmpty) return scoped;
-    final global = (userData['rolDocumental'] ?? '').toString().trim().toLowerCase();
+    final global = (userData['rolDocumental'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     if (global.isNotEmpty) return global;
     return null;
   }
@@ -360,7 +405,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         border: Border(bottom: BorderSide(color: GdPalette.border)),
       ),
       child: Row(
-        children: [          
+        children: [
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -400,36 +445,30 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             ],
           ),
           const Spacer(),
-          // Acciones de Usuario (Firma)
-          OutlinedButton.icon(
-            onPressed: _openFirmas,
-            icon: const Icon(Icons.draw, size: 20),
-            label: const Text(
-              'MI IDENTIDAD DIGITAL',
-              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 12),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: GdPalette.primary,
-              side: const BorderSide(color: GdPalette.border),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
           if (canCreate) ...[
-            const SizedBox(width: 16),
             ElevatedButton.icon(
               onPressed: () => _showCreateDialog(rolDocumental!),
               icon: const Icon(Icons.add_task, size: 20, color: Colors.white),
               label: const Text(
                 'NUEVO DOCUMENTO',
-                style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5),
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                  letterSpacing: 0.5,
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: GdPalette.primary,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 22),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 22,
+                ),
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ],
@@ -482,10 +521,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
       child: InternalModuleViewport(
         maxWidth: 1280,
         padding: EdgeInsets.zero,
-        child: ModuleCard(
-          padding: const EdgeInsets.all(16),
-          child: filters,
-        ),
+        child: ModuleCard(padding: const EdgeInsets.all(16), child: filters),
       ),
     );
   }
@@ -501,7 +537,11 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              const Icon(Icons.delete_sweep_outlined, color: Colors.redAccent, size: 20),
+              const Icon(
+                Icons.delete_sweep_outlined,
+                color: Colors.redAccent,
+                size: 20,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -568,26 +608,26 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
       padding: const EdgeInsets.all(16),
       itemCount: docs.length,
       separatorBuilder: (_, index) => const SizedBox(height: 12),
-      itemBuilder: (_, i) =>
-          _DocumentListItem(
-            doc: docs[i],
-            selectionMode: _selectionMode,
-            selected: _selectedDocIds.contains(docs[i].docId),
-            onSelectionChanged: (selected) =>
-                _toggleDocSelection(docs[i].docId, selected: selected),
-            onTap: () {
-              if (_selectionMode) {
-                _toggleDocSelection(docs[i].docId);
-                return;
-              }
-              _openDetail(docs[i]);
-            },
-          ),
+      itemBuilder: (_, i) => _DocumentListItem(
+        doc: docs[i],
+        selectionMode: _selectionMode,
+        selected: _selectedDocIds.contains(docs[i].docId),
+        onSelectionChanged: (selected) =>
+            _toggleDocSelection(docs[i].docId, selected: selected),
+        onTap: () {
+          if (_selectionMode) {
+            _toggleDocSelection(docs[i].docId);
+            return;
+          }
+          _openDetail(docs[i]);
+        },
+      ),
     );
   }
 
   Widget _buildWebView(List<DocumentoDoc> docs) {
-    final allSelected = docs.isNotEmpty && docs.every((d) => _selectedDocIds.contains(d.docId));
+    final allSelected =
+        docs.isNotEmpty && docs.every((d) => _selectedDocIds.contains(d.docId));
     final someSelected = docs.any((d) => _selectedDocIds.contains(d.docId));
 
     return SingleChildScrollView(
@@ -656,8 +696,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                     _buildTableCell(d.categoria ?? '-'),
                     _buildTableCell(d.versionActual),
                     Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 16,
+                      ),
                       child: GdStatusBadge(
                         estado: d.estado,
                         isVigente: d.estado == GdEstado.vigente,
@@ -666,8 +708,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                     Padding(
                       padding: const EdgeInsets.all(8),
                       child: IconButton(
-                        icon: const Icon(Icons.chevron_right,
-                            color: GdPalette.accent),
+                        icon: const Icon(
+                          Icons.chevron_right,
+                          color: GdPalette.accent,
+                        ),
                         onPressed: () => _openDetail(d),
                       ),
                     ),
@@ -727,14 +771,18 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                canCreate ? Icons.cloud_upload_outlined : Icons.library_books_outlined,
+                canCreate
+                    ? Icons.cloud_upload_outlined
+                    : Icons.library_books_outlined,
                 size: 80,
                 color: GdPalette.primary.withOpacity(0.1),
               ),
             ),
             const SizedBox(height: 32),
             Text(
-              canCreate ? 'Comienza tu Biblioteca' : 'No hay documentos publicados',
+              canCreate
+                  ? 'Comienza tu Biblioteca'
+                  : 'No hay documentos publicados',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: kArial,
@@ -745,9 +793,9 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              canCreate 
-                ? 'Sube el primer documento (PDF) para iniciar el flujo de revisión, aprobación y firma digital.'
-                : 'Cuando existan documentos vigentes y aprobados, aparecerán listados en esta sección.',
+              canCreate
+                  ? 'Sube el primer documento (PDF) para iniciar el flujo de revisión, aprobación y firma digital.'
+                  : 'Cuando existan documentos vigentes y aprobados, aparecerán listados en esta sección.',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: kArial,
@@ -763,14 +811,23 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                 icon: const Icon(Icons.add_task, size: 20),
                 label: const Text(
                   'CARGAR MI PRIMER DOCUMENTO',
-                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 13),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: GdPalette.accent,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 22),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 32,
+                    vertical: 22,
+                  ),
                   elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ],
@@ -793,30 +850,6 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     );
   }
 
-  void _openFirmas() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => GdFirmasScreen(
-          empresaId: widget.empresaId,
-          userId: widget.userId,
-        ),
-      ),
-    );
-  }
-
-  void _openPlanillas() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PpDashboardScreen(
-          userId: widget.userId,
-          empresaId: widget.empresaId,
-        ),
-      ),
-    );
-  }
-
   void _showCreateDialog(String rolDocumental) {
     showDialog(
       context: context,
@@ -827,6 +860,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         service: _service,
       ),
     );
+  }
+
+  void _openCorrespondencia() {
+    setState(() => _showLibrary = false);
   }
 
   void _toggleSelectionMode() {
@@ -925,9 +962,9 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _deletingSelection = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al eliminar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
     }
   }
 }
@@ -1065,18 +1102,29 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         children: [
           const Text(
             'Crear Nuevo Documento',
-            style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 20),
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 20,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             'Ingresa los datos base para iniciar el ciclo de vida del documento.',
-            style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w400, fontSize: 13, color: GdPalette.muted),
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w400,
+              fontSize: 13,
+              color: GdPalette.muted,
+            ),
           ),
         ],
       ),
       content: Container(
         width: 600,
-        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
         child: SingleChildScrollView(
           child: Form(
             key: _formKey,
@@ -1094,11 +1142,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                         decoration: InputDecoration(
                           labelText: 'Código',
                           hintText: 'Ej: SOP-RH-001',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                           prefixIcon: const Icon(Icons.tag, size: 20),
                         ),
                         onSaved: (v) => _codigo = (v ?? '').trim(),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Requerido' : null,
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Requerido' : null,
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -1107,14 +1158,31 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                       child: DropdownButtonFormField<String>(
                         decoration: InputDecoration(
                           labelText: 'Categoría',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          prefixIcon: const Icon(Icons.category_outlined, size: 20),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.category_outlined,
+                            size: 20,
+                          ),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'Procedimiento', child: Text('Procedimiento')),
-                          DropdownMenuItem(value: 'Politica', child: Text('Política')),
-                          DropdownMenuItem(value: 'Formato', child: Text('Formato')),
-                          DropdownMenuItem(value: 'Instructivo', child: Text('Instructivo')),
+                          DropdownMenuItem(
+                            value: 'Procedimiento',
+                            child: Text('Procedimiento'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Politica',
+                            child: Text('Política'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Formato',
+                            child: Text('Formato'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Instructivo',
+                            child: Text('Instructivo'),
+                          ),
                         ],
                         onChanged: (v) => _categoria = v,
                         validator: (v) => v == null ? 'Requerido' : null,
@@ -1127,33 +1195,52 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                   decoration: InputDecoration(
                     labelText: 'Título del Documento',
                     hintText: 'Nombre descriptivo del proceso o formato',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     prefixIcon: const Icon(Icons.title, size: 20),
                   ),
                   onSaved: (v) => _titulo = (v ?? '').trim(),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Requerido' : null,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Requerido' : null,
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
                   decoration: InputDecoration(
                     labelText: 'Área Responsable (Opcional)',
                     hintText: 'Ej: Talento Humano',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    prefixIcon: const Icon(Icons.business_center_outlined, size: 20),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.business_center_outlined,
+                      size: 20,
+                    ),
                   ),
                   onSaved: (v) => _area = (v ?? '').trim(),
                 ),
                 const SizedBox(height: 24),
                 const Text(
                   'CARGA INICIAL (PDF)',
-                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, fontSize: 11, color: GdPalette.muted, letterSpacing: 1),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11,
+                    color: GdPalette.muted,
+                    letterSpacing: 1,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 _buildFilePicker(isWeb),
                 const SizedBox(height: 8),
                 Text(
                   '* El documento iniciará en estado "Borrador" y requerirá ser enviado a revisión.',
-                  style: TextStyle(fontFamily: kArial, fontSize: 11, fontStyle: FontStyle.italic, color: GdPalette.muted),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: GdPalette.muted,
+                  ),
                 ),
               ],
             ),
@@ -1164,7 +1251,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('CANCELAR', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, color: GdPalette.muted)),
+          child: const Text(
+            'CANCELAR',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w800,
+              color: GdPalette.muted,
+            ),
+          ),
         ),
         const SizedBox(width: 8),
         ElevatedButton(
@@ -1173,12 +1267,27 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
             backgroundColor: GdPalette.primary,
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             elevation: 0,
           ),
           child: _loading
-              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Text('CREAR E INICIAR FLUJO', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900)),
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+              : const Text(
+                  'CREAR E INICIAR FLUJO',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
         ),
       ],
     );
@@ -1192,7 +1301,9 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         width: double.infinity,
         padding: EdgeInsets.all(isWeb ? 32 : 20),
         decoration: BoxDecoration(
-          color: _pdf == null ? GdPalette.background : GdPalette.success.withOpacity(0.05),
+          color: _pdf == null
+              ? GdPalette.background
+              : GdPalette.success.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: _pdf == null ? GdPalette.border : GdPalette.success,
@@ -1203,9 +1314,13 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         child: Column(
           children: [
             Icon(
-              _pdf == null ? Icons.cloud_upload_outlined : Icons.check_circle_outline,
+              _pdf == null
+                  ? Icons.cloud_upload_outlined
+                  : Icons.check_circle_outline,
               size: 48,
-              color: _pdf == null ? GdPalette.muted.withOpacity(0.5) : GdPalette.success,
+              color: _pdf == null
+                  ? GdPalette.muted.withOpacity(0.5)
+                  : GdPalette.success,
             ),
             const SizedBox(height: 12),
             Text(
@@ -1222,7 +1337,11 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
               const SizedBox(height: 4),
               Text(
                 'Haz clic aquí para buscar el archivo en tu dispositivo',
-                style: TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted.withOpacity(0.7)),
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: GdPalette.muted.withOpacity(0.7),
+                ),
               ),
             ],
           ],
@@ -1246,7 +1365,10 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
     if (!_formKey.currentState!.validate()) return;
     if (_pdf?.bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Debes seleccionar un PDF inicial.'), backgroundColor: GdPalette.error),
+        const SnackBar(
+          content: Text('Debes seleccionar un PDF inicial.'),
+          backgroundColor: GdPalette.error,
+        ),
       );
       return;
     }
@@ -1268,7 +1390,12 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: GdPalette.error));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: GdPalette.error,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);

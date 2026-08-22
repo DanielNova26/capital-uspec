@@ -3,7 +3,8 @@
 // Fuente de verdad: colección TBL_COMPRAS_REQ_DOCUMENTOS en Firestore.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'compras_models.dart' show DocAdjunto, kDocFichaTecnicaProv;
+import 'compras_models.dart'
+    show DocAdjunto, kDocProveedorOcultos, kDocRecepcionOcultos;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ReqDocumentoDoc  — un registro de la tabla TBL_COMPRAS_REQ_DOCUMENTOS
@@ -156,7 +157,7 @@ class ReqEngine {
               d.activo &&
               d.nivel == 'PROVEEDOR' &&
               d.etapa == 'INICIAL' &&
-              d.keyApp != kDocFichaTecnicaProv &&
+              !kDocProveedorOcultos.contains(d.keyApp) &&
               catSet.contains(d.categoriaApp),
         )
         .toList();
@@ -184,6 +185,7 @@ class ReqEngine {
               d.activo &&
               d.nivel == 'RECEPCION' &&
               d.etapa == etapa &&
+              !kDocRecepcionOcultos.contains(d.keyApp) &&
               (d.categoriaApp == categoriaProducto ||
                   d.categoriaApp == 'Todas') &&
               (d.origen == 'AMBOS' || d.origen == origenProducto),

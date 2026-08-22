@@ -61,7 +61,8 @@ class SeedExcelParser {
     List<Map<String, dynamic>> readSheetFlexible(List<String> candidates) {
       Sheet? sheet;
       for (final name in candidates) {
-        sheet = excel.tables[name] ??
+        sheet =
+            excel.tables[name] ??
             excel.tables[name.toUpperCase()] ??
             excel.tables[name.toLowerCase()];
         if (sheet != null) break;
@@ -72,14 +73,27 @@ class SeedExcelParser {
       if (rows.isEmpty) return [];
 
       // Encabezados
-      final rawHeaders = rows.first.map((cell) => _cellToString(cell?.value)).toList();
+      final rawHeaders = rows.first
+          .map((cell) => _cellToString(cell?.value))
+          .toList();
       final headers = rawHeaders.map(_canonHeader).toList();
 
       final out = <Map<String, dynamic>>[];
+      var consecutiveBlankRows = 0;
       for (var i = 1; i < rows.length; i++) {
         final row = rows[i];
-        final isBlank = row.every((c) => _cellToString(c?.value).trim().isEmpty);
-        if (isBlank) continue;
+        final isBlank = row.every(
+          (c) => _cellToString(c?.value).trim().isEmpty,
+        );
+        if (isBlank) {
+          consecutiveBlankRows++;
+          // Algunas plantillas tienen formato aplicado hasta la fila 1.048.576.
+          // Cortar una cola amplia de vacíos evita bloquear el navegador sin
+          // afectar tablas contiguas normales.
+          if (consecutiveBlankRows >= 250) break;
+          continue;
+        }
+        consecutiveBlankRows = 0;
 
         final m = <String, dynamic>{};
         for (var j = 0; j < headers.length; j++) {
@@ -94,27 +108,53 @@ class SeedExcelParser {
     }
 
     // Lee hojas crudas
-    final rawPersonal      = readSheetFlexible(['PERSONAL']);
-    final rawAreas         = readSheetFlexible(['AREAS', 'ÁREAS']);
-    final rawCargos        = readSheetFlexible(['CARGOS']);
-    final rawCentrosCostos = readSheetFlexible(['CENTROS_COSTOS', 'CENTROS', 'CC']);
-    final rawApps          = readSheetFlexible(['APPS', 'APLICACIONES']);
+    final rawPersonal = readSheetFlexible(['PERSONAL']);
+    final rawAreas = readSheetFlexible(['AREAS', 'ÁREAS']);
+    final rawCargos = readSheetFlexible(['CARGOS']);
+    final rawCentrosCostos = readSheetFlexible([
+      'CENTROS_COSTOS',
+      'CENTROS',
+      'CC',
+    ]);
+    final rawApps = readSheetFlexible(['APPS', 'APLICACIONES']);
 
     // Catálogos globales
-    final rawTiposDoc      = readSheetFlexible(['TIPOS_DOCUMENTO', 'TIPO_DOCUMENTO', 'DOCUMENTOS']);
-    final rawCiudades      = readSheetFlexible(['CIUDADES']);
-    final rawDeptos        = readSheetFlexible(['DEPARTAMENTOS']);
+    final rawTiposDoc = readSheetFlexible([
+      'TIPOS_DOCUMENTO',
+      'TIPO_DOCUMENTO',
+      'DOCUMENTOS',
+    ]);
+    final rawCiudades = readSheetFlexible(['CIUDADES']);
+    final rawDeptos = readSheetFlexible(['DEPARTAMENTOS']);
 
     // Normaliza a las llaves esperadas por el seeder
-    final personal = rawPersonal.map(_normalizePersonalRow).where(_notAllEmpty).toList();
-    final areas    = rawAreas.map(_normalizeAreaRow).where(_notAllEmpty).toList();
-    final cargos   = rawCargos.map(_normalizeCargoRow).where(_notAllEmpty).toList();
-    final centros  = rawCentrosCostos.map(_normalizeCentroRow).where(_notAllEmpty).toList();
-    final apps     = rawApps.map(_normalizeAppRow).where(_notAllEmpty).toList();
+    final personal = rawPersonal
+        .map(_normalizePersonalRow)
+        .where(_hasValidPersonnelId)
+        .toList();
+    final areas = rawAreas.map(_normalizeAreaRow).where(_notAllEmpty).toList();
+    final cargos = rawCargos
+        .map(_normalizeCargoRow)
+        .where(_notAllEmpty)
+        .toList();
+    final centros = rawCentrosCostos
+        .map(_normalizeCentroRow)
+        .where(_notAllEmpty)
+        .toList();
+    final apps = rawApps.map(_normalizeAppRow).where(_notAllEmpty).toList();
 
-    final tiposDoc = rawTiposDoc.map(_normalizeTipoDocRow).where(_notAllEmpty).toList();
-    final ciudades = rawCiudades.map(_normalizeCiudadRow).where(_notAllEmpty).toList();
-    final deptos   = rawDeptos.map(_normalizeDepartamentoRow).where(_notAllEmpty).toList();
+    final tiposDoc = rawTiposDoc
+        .map(_normalizeTipoDocRow)
+        .where(_notAllEmpty)
+        .toList();
+    final ciudades = rawCiudades
+        .map(_normalizeCiudadRow)
+        .where(_notAllEmpty)
+        .toList();
+    final deptos = rawDeptos
+        .map(_normalizeDepartamentoRow)
+        .where(_notAllEmpty)
+        .toList();
 
     return SeedWorkbook(
       personal: personal,
@@ -137,26 +177,34 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
 
     return {
-      'cedula'        : pick(['cedula', 'num_documento', 'documento', 'id']),
+      'cedula': pick(['cedula', 'num_documento', 'documento', 'id']),
       'tipo_documento': pick(['tipo_documento', 'tipodocumento', 'tipo']),
-      'nombres'       : pick(['nombres', 'primer_nombre', 'nombre']),
-      'apellidos'     : pick(['apellidos', 'primer_apellido', 'apellido']),
+      'nombres': pick(['nombres', 'primer_nombre', 'nombre']),
+      'apellidos': pick(['apellidos', 'primer_apellido', 'apellido']),
       'nombreCompleto': pick(['nombrecompleto', 'nombre_completo']),
-      'correo'        : pick(['correo', 'email']),
-      'area'          : pick(['area', 'área', 'areadepartamento', 'area_departamento', 'departamento', 'depto']),
-      'cargo'         : pick(['cargo', 'puesto']),
-      'centroCostos'  : pick(['centrocostos', 'centro_costos', 'centro', 'cc']),
-      'jefeId'        : pick(['jefeid', 'jefe_id', 'id_jefe']),
-      'jefeNombre'    : pick(['jefenombre', 'jefe_nombre', 'nombre_jefe']),
-      'cargoJefe'     : pick(['cargojefe', 'cargo_jefe']),
-      'estado'        : pick(['estado', 'estatus']),
-      'apps'          : pick(['apps', 'aplicaciones', 'permisos']),
+      'correo': pick(['correo', 'email']),
+      'area': pick([
+        'area',
+        'área',
+        'areadepartamento',
+        'area_departamento',
+        'departamento',
+        'depto',
+      ]),
+      'cargo': pick(['cargo', 'puesto']),
+      'centroCostos': pick(['centrocostos', 'centro_costos', 'centro', 'cc']),
+      'jefeId': pick(['jefeid', 'jefe_id', 'id_jefe']),
+      'jefeNombre': pick(['jefenombre', 'jefe_nombre', 'nombre_jefe']),
+      'cargoJefe': pick(['cargojefe', 'cargo_jefe']),
+      'estado': pick(['estado', 'estatus']),
+      'apps': pick(['apps', 'aplicaciones', 'permisos']),
     };
   }
 
@@ -164,15 +212,25 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
-    final nombre = pick(['nombre', 'area', 'área', 'areadepartamento', 'area_departamento', 'descripcion', 'descripción']);
+
+    final nombre = pick([
+      'nombre',
+      'area',
+      'área',
+      'areadepartamento',
+      'area_departamento',
+      'descripcion',
+      'descripción',
+    ]);
     return {
-      'nombre'     : nombre,
+      'nombre': nombre,
       'descripcion': pick(['descripcion', 'descripción', 'detalle']),
-      'activo'     : pick(['activo', 'habilitado', 'enabled']),
+      'activo': pick(['activo', 'habilitado', 'enabled']),
     };
   }
 
@@ -180,16 +238,58 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
-    final nombre = pick(['nombre', 'cargo', 'descripcion', 'descripción']);
+
+    var nombre = pick(['nombre', 'cargo', 'descripcion', 'descripción']);
+    var area = pick([
+      'area',
+      'área',
+      'areadepartamento',
+      'area_departamento',
+      'departamento',
+      'depto',
+    ]);
+    // Compatibilidad con plantillas antiguas de SERVIR: los cargos quedaron
+    // desplazados una columna y aparecen bajo `area`, sin nombre ni descripción.
+    if (nombre.isEmpty && area.isNotEmpty) {
+      nombre = area;
+      area = '';
+    }
     return {
-      'nombre'     : nombre,
-      'area'       : pick(['area', 'área', 'areadepartamento', 'area_departamento', 'departamento', 'depto']),
+      'nombre': nombre,
+      'area': area,
       'descripcion': pick(['descripcion', 'descripción', 'detalle']),
-      'activo'     : pick(['activo', 'habilitado', 'enabled']),
+      'parent_cargo': pick([
+        'parent_cargo',
+        'cargo_padre',
+        'cargopadre',
+        'cargo_superior',
+        'cargosuperior',
+        'reporta_a',
+        'reportaa',
+        'jefe_cargo',
+        'cargojefe',
+      ]),
+      'parent_desc': pick([
+        'parent_desc',
+        'cargo_padre_nombre',
+        'nombre_cargo_padre',
+        'descripcion_cargo_padre',
+        'reporta_a_nombre',
+        'cargo_jefe_nombre',
+      ]),
+      'parent_area': pick([
+        'parent_area',
+        'area_padre',
+        'areapadre',
+        'area_superior',
+        'areasuperior',
+      ]),
+      'activo': pick(['activo', 'habilitado', 'enabled']),
     };
   }
 
@@ -197,10 +297,12 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
+
     return {
       'codigo': pick(['codigo', 'código', 'id']),
       'nombre': pick(['nombre', 'descripcion', 'descripción']),
@@ -211,17 +313,19 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
+
     final appId = pick(['appid', 'app_id', 'id']);
     final nombre = pick(['nombre', 'name']);
     return {
-      'appId'      : appId,
-      'nombre'     : nombre,
+      'appId': appId,
+      'nombre': nombre,
       'descripcion': pick(['descripcion', 'descripción']),
-      'enabled'    : pick(['enabled', 'habilitada', 'activo']),
+      'enabled': pick(['enabled', 'habilitada', 'activo']),
     };
   }
 
@@ -229,13 +333,15 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
+
     return {
-      'codigo'      : pick(['codigo', 'código', 'id', 'abreviatura']),
-      'descripcion' : pick(['descripcion', 'descripción', 'nombre']),
+      'codigo': pick(['codigo', 'código', 'id', 'abreviatura']),
+      'descripcion': pick(['descripcion', 'descripción', 'nombre']),
       'tipo_persona': pick(['tipo_persona', 'personeria', 'persona']),
     };
   }
@@ -244,14 +350,27 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
+
     return {
-      'codigo_dane'     : pick(['codigo_dane', 'codigodane', 'codigo', 'código', 'id']),
-      'cod_departamento': pick(['cod_departamento', 'codigo_departamento', 'deptoid', 'coddepto']),
-      'nombre'          : pick(['nombre', 'descripcion', 'descripción']),
+      'codigo_dane': pick([
+        'codigo_dane',
+        'codigodane',
+        'codigo',
+        'código',
+        'id',
+      ]),
+      'cod_departamento': pick([
+        'cod_departamento',
+        'codigo_departamento',
+        'deptoid',
+        'coddepto',
+      ]),
+      'nombre': pick(['nombre', 'descripcion', 'descripción']),
     };
   }
 
@@ -259,13 +378,22 @@ class SeedExcelParser {
     String pick(List<String> keys) {
       for (final k in keys) {
         final v = r[k];
-        if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        if (v != null && v.toString().trim().isNotEmpty)
+          return v.toString().trim();
       }
       return '';
     }
+
     return {
-      'codigo_dane': pick(['codigo_dane', 'codigodane', 'codigo', 'código', 'id', 'cod_dane']),
-      'nombre'     : pick(['nombre', 'descripcion', 'descripción']),
+      'codigo_dane': pick([
+        'codigo_dane',
+        'codigodane',
+        'codigo',
+        'código',
+        'id',
+        'cod_dane',
+      ]),
+      'nombre': pick(['nombre', 'descripcion', 'descripción']),
     };
   }
 
@@ -275,17 +403,35 @@ class SeedExcelParser {
     if (cv == null) return '';
     try {
       if (cv is String) return cv;
-      if (cv is bool)   return cv ? 'true' : 'false';
-      if (cv is num)    return cv.toString();
+      if (cv is bool) return cv ? 'true' : 'false';
+      if (cv is num) return _numToString(cv);
       if (cv is DateTime) return cv.toIso8601String();
       // excel CellValue wrappers suelen tener .value
       final v = (cv as dynamic).value;
       if (v is DateTime) return v.toIso8601String();
+      if (v is num) return _numToString(v);
       if (v != null) return v.toString();
       return cv.toString();
     } catch (_) {
       return cv.toString();
     }
+  }
+
+  /// Convierte un número de celda a texto SIN romper cédulas/NIT.
+  ///
+  /// Excel guarda los números como `double`, así que una cédula como
+  /// 1019234567 llega como `1019234567.0` (o en notación científica para
+  /// valores grandes). Hacer `.toString()` deja el `.0` o la `E`, y el
+  /// downstream (`_digits`) entonces produce una cédula truncada/alterada.
+  /// Aquí los enteros almacenados como double se renderizan como entero plano.
+  String _numToString(num n) {
+    if (n is int) return n.toString();
+    final d = n.toDouble();
+    if (d.isFinite && d == d.roundToDouble()) {
+      // Entero disfrazado de double: sin `.0` ni notación científica.
+      return d.toStringAsFixed(0);
+    }
+    return d.toString();
   }
 
   String _canonHeader(String h) {
@@ -311,5 +457,11 @@ class SeedExcelParser {
       if (v != null && v.toString().trim().isNotEmpty) return true;
     }
     return false;
+  }
+
+  bool _hasValidPersonnelId(Map<String, dynamic> row) {
+    final raw = (row['cedula'] ?? '').toString();
+    final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+    return digits.length >= 5;
   }
 }

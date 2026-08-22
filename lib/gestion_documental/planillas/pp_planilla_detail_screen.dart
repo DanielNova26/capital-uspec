@@ -19,6 +19,7 @@ import '../../gestion_documental/widgets/gd_pdf_preview.dart';
 import '../../gestion_documental/widgets/gd_ui_widgets.dart';
 import '../../utils/url_binary_loader.dart';
 import '../../widgets/internal_module_layout.dart';
+import '../../widgets/user_avatar.dart';
 import 'pp_excel_parser.dart';
 import 'pp_models.dart';
 import 'pp_service.dart';
@@ -52,6 +53,9 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   bool _savingNombre = false;
   bool _infoPanelVisible = true;
   String? _lastRepairAttemptKey;
+  // Timestamp set after sincronizarMetadataPdfDescarga completes so the iframe
+  // always loads the URL with fresh headers (bypasses browser cache).
+  String _metaSyncKey = '';
 
   @override
   void initState() {
@@ -72,6 +76,9 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
       empresaId: widget.empresaId,
       planillaId: widget.planillaId,
     );
+    // After metadata sync the CDN serves updated Content-Disposition headers.
+    // Store a key so the iframe URL includes a cache-buster on first render.
+    _metaSyncKey = DateTime.now().millisecondsSinceEpoch.toString();
   }
 
   bool _shouldAttemptRepair(PpPlanilla planilla) {
@@ -776,7 +783,7 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
       );
     }
     final refreshKey =
-        '${planilla.planillaId}-${planilla.updatedAt?.millisecondsSinceEpoch ?? 0}-${planilla.urlPdf}';
+        '${planilla.planillaId}-${planilla.updatedAt?.millisecondsSinceEpoch ?? 0}-${planilla.urlPdf}-$_metaSyncKey';
     return buildGdPdfPreview(
       url: planilla.urlPdf!,
       pdfFuture: _loadPdf(planilla),
@@ -1024,20 +1031,22 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
 
         // Trazabilidad
         _buildCard('Trazabilidad', [
-          _infoRow(
+          _userInfoRow(
             'Cargado por',
-            planilla.nombreCargado ?? planilla.cargadoPor,
+            planilla.cargadoPor,
+            planilla.nombreCargado,
           ),
           if (planilla.cargoCargado != null)
             _infoRow('Cargo carga', planilla.cargoCargado!),
           if (planilla.nombreAuditorFirmante != null)
             _infoRow('Revisado por', planilla.nombreAuditorFirmante!)
           else if (planilla.revisadoPor != null)
-            _infoRow('Revisado por', planilla.revisadoPor!),
+            _userInfoRow('Revisado por', planilla.revisadoPor!, null),
           if (planilla.firmadoPor != null)
-            _infoRow(
+            _userInfoRow(
               'Firmado por',
-              planilla.nombreFirmante ?? planilla.firmadoPor!,
+              planilla.firmadoPor!,
+              planilla.nombreFirmante,
             ),
           if (planilla.firmadoEn != null)
             _infoRow('Firmado en', _formatTs(planilla.firmadoEn!)),
@@ -1163,6 +1172,39 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     ),
   );
 
+  /// Igual que [_infoRow] pero resuelve el nombre real cuando el valor
+  /// disponible es solo la cédula del usuario.
+  Widget _userInfoRow(String label, String userId, String? nombre) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 130,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: GdPalette.muted,
+            ),
+          ),
+        ),
+        Expanded(
+          child: UserNameText(
+            userId,
+            fallbackName: nombre ?? '',
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 13,
+              color: GdPalette.primary,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
   Widget _obsRow(Map<String, dynamic> obs) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: Column(
@@ -1170,8 +1212,9 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
       children: [
         Row(
           children: [
-            Text(
-              obs['nombreAutor']?.toString() ?? obs['autor']?.toString() ?? '',
+            UserNameText(
+              obs['autor']?.toString() ?? '',
+              fallbackName: obs['nombreAutor']?.toString() ?? '',
               style: const TextStyle(
                 fontFamily: kArial,
                 fontSize: 12,

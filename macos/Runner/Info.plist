@@ -24,9 +24,13 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>La aplicación necesita usar el micrófono para dictar observaciones, conclusiones y hallazgos de interventoría.</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>La aplicación necesita reconocimiento de voz para convertir dictados de interventoría en texto editable.</string>
 </dict>
 </plist>

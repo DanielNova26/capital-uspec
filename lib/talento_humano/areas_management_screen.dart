@@ -2,16 +2,22 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../core/hierarchy_order.dart';
 import '../widgets/internal_module_layout.dart';
+import '../widgets/user_avatar.dart';
 
-const Color _khPrimary   = Color(0xffc28942);
+const Color _khPrimary = Color(0xffc28942);
 const Color _khSecondary = Color(0xffe19e4c);
-const String _kFont      = 'Arial';
+const String _kFont = 'Arial';
 
 class AreasManagementScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
-  const AreasManagementScreen({Key? key, required this.userId, required this.empresaId}) : super(key: key);
+  const AreasManagementScreen({
+    Key? key,
+    required this.userId,
+    required this.empresaId,
+  }) : super(key: key);
 
   @override
   State<AreasManagementScreen> createState() => _AreasManagementScreenState();
@@ -26,6 +32,156 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
 
   String _s(dynamic v) => v == null ? '' : v.toString().trim();
 
+  String _nombreDeUsuario(Map<String, dynamic> ud) {
+    final completo = (ud['nombreCompleto'] as String?)?.trim() ?? '';
+    if (completo.isNotEmpty) return completo;
+    final nombres = (ud['nombres'] as String?)?.trim() ?? '';
+    final apellidos = (ud['apellidos'] as String?)?.trim() ?? '';
+    if (nombres.isNotEmpty || apellidos.isNotEmpty)
+      return '$nombres $apellidos'.trim();
+    final p1 = (ud['primerNombre'] as String?)?.trim() ?? '';
+    final p2 = (ud['segundoNombre'] as String?)?.trim() ?? '';
+    final a1 = (ud['primerApellido'] as String?)?.trim() ?? '';
+    final a2 = (ud['segundoApellido'] as String?)?.trim() ?? '';
+    return '$p1 $p2 $a1 $a2'.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  Future<String> _resolveNombreArea(String cedula) async {
+    final col = _db.collection('TBL_USUARIOS');
+    final direct = await col.doc(cedula).get();
+    if (direct.exists && direct.data() != null) {
+      final n = _nombreDeUsuario(direct.data()!);
+      if (n.isNotEmpty) return n;
+    }
+    final q = await col.where('cedula', isEqualTo: cedula).limit(1).get();
+    if (q.docs.isNotEmpty) {
+      final n = _nombreDeUsuario(q.docs.first.data());
+      if (n.isNotEmpty) return n;
+    }
+    return cedula;
+  }
+
+  Future<void> _showAreaUsersDialog(
+    String areaNombre,
+    List<dynamic> rawCedulas,
+  ) async {
+    final cedulas = rawCedulas
+        .map((e) => e.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final cargosSnap = await _db
+        .collection('TBL_CARGOS')
+        .where('empresaId', isEqualTo: widget.empresaId)
+        .get();
+    final cargoCatalog = cargosSnap.docs
+        .map((d) => <String, dynamic>{'id': d.id, ...d.data()})
+        .toList();
+    final hierarchy = CargoHierarchyIndex.fromCargos(cargoCatalog);
+    final cargoByCedula = <String, Map<String, dynamic>>{};
+    for (final cargo in cargoCatalog) {
+      final raw = cargo['cedulas'];
+      if (raw is! List) continue;
+      for (final value in raw) {
+        final cedula = _s(value);
+        if (cedula.isEmpty) continue;
+        final current = cargoByCedula[cedula];
+        if (current == null || hierarchy.compareCargos(cargo, current) < 0) {
+          cargoByCedula[cedula] = cargo;
+        }
+      }
+    }
+
+    final asignados = await Future.wait(
+      cedulas.map((ced) async {
+        final cargo = cargoByCedula[ced] ?? const <String, dynamic>{};
+        return <String, dynamic>{
+          'cedula': ced,
+          'nombre': await _resolveNombreArea(ced),
+          'cargoId': cargoIdOf(cargo),
+          'cargo': cargoNameOf(cargo),
+        };
+      }),
+    );
+    asignados.sort(hierarchy.comparePersonnel);
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        final dialogWidth = (MediaQuery.of(ctx).size.width - 64)
+            .clamp(280.0, 400.0)
+            .toDouble();
+        return AlertDialog(
+          title: Text(
+            'Personal en: $areaNombre',
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SizedBox(
+            width: dialogWidth,
+            child: asignados.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'No hay personal asignado a esta área.',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: asignados.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final u = asignados[i];
+                      final nombre = u['nombre']!;
+                      final cedula = u['cedula']!;
+                      final cargo = (u['cargo'] ?? '').toString();
+                      return ListTile(
+                        leading: UserAvatar(
+                          userId: cedula,
+                          nameHint: nombre,
+                          backgroundColor: _khPrimary,
+                          foregroundColor: Colors.white,
+                        ),
+                        title: UserNameText(
+                          cedula,
+                          fallbackName: nombre,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Text(
+                          cargo.isEmpty
+                              ? 'Cédula: $cedula'
+                              : '$cargo · Cédula: $cedula',
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar', style: TextStyle(fontFamily: _kFont)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   String _slug(String s) {
     final base = s
         .toLowerCase()
@@ -35,93 +191,230 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
     return base.isEmpty ? 'area' : base;
   }
 
-  Future<void> _openAreaDialog({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
+  Future<void> _openAreaDialog({
+    DocumentSnapshot<Map<String, dynamic>>? doc,
+  }) async {
     final isNew = doc == null;
     final data = doc?.data() ?? {};
-    final formKey = GlobalKey<FormState>();
 
-    final nombreCtrl = TextEditingController(text: isNew ? '' : _s(data['nombre']));
-    final descCtrl   = TextEditingController(text: isNew ? '' : _s(data['descripcion']));
+    final nombreCtrl = TextEditingController(
+      text: isNew ? '' : _s(data['nombre']),
+    );
+    final descCtrl = TextEditingController(
+      text: isNew ? '' : _s(data['descripcion']),
+    );
+    String generatedCode = doc?.id ?? '';
+
+    const border = OutlineInputBorder(
+      borderRadius: BorderRadius.all(Radius.circular(10)),
+    );
+    const inputDec = InputDecoration(
+      border: border,
+      contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    );
 
     await showDialog(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(isNew ? 'Crear área' : 'Editar área',
-              style: const TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold)),
-          content: Form(
-            key: formKey,
-            child: SizedBox(
-              width: 420,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx2, setStateDialog) {
+          final dialogWidth = (MediaQuery.of(ctx2).size.width - 64)
+              .clamp(280.0, 440.0)
+              .toDouble();
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+            contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _khPrimary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.hub_outlined,
+                    color: _khPrimary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  isNew ? 'Crear Área' : 'Editar Área',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: dialogWidth,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SizedBox(height: 8),
+
+                  // ── Nombre del área ─────────────────────────────────────────
                   TextFormField(
                     controller: nombreCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Nombre del área',
-                      border: OutlineInputBorder(),
+                    style: const TextStyle(fontFamily: _kFont),
+                    decoration: inputDec.copyWith(
+                      labelText: 'Nombre del área *',
+                      hintText: 'Ej: Recursos Humanos',
+                      prefixIcon: const Icon(Icons.title_rounded, size: 20),
                     ),
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Obligatorio'
-                        : null,
+                    onChanged: (val) {
+                      if (isNew) {
+                        setStateDialog(
+                          () => generatedCode =
+                              '${widget.empresaId}_${_slug(val)}',
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 6),
+
+                  // ── Código (auto-generado o readonly) ───────────────────────
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFCBD5E1)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.tag_rounded,
+                          size: 16,
+                          color: Color(0xFF94A3B8),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            generatedCode.isEmpty
+                                ? 'El código se genera al escribir el nombre'
+                                : generatedCode,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              color: generatedCode.isEmpty
+                                  ? const Color(0xFF94A3B8)
+                                  : const Color(0xFF334155),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 16),
+
+                  // ── Descripción ─────────────────────────────────────────────
                   TextFormField(
                     controller: descCtrl,
-                    decoration: const InputDecoration(
+                    style: const TextStyle(fontFamily: _kFont),
+                    decoration: inputDec.copyWith(
                       labelText: 'Descripción (opcional)',
-                      border: OutlineInputBorder(),
+                      hintText: 'Propósito y funciones del área',
+                      prefixIcon: const Icon(
+                        Icons.description_outlined,
+                        size: 20,
+                      ),
+                      alignLabelWithHint: true,
                     ),
                     maxLines: 3,
+                    minLines: 2,
                   ),
+                  const SizedBox(height: 8),
                 ],
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancelar'),
+            actionsPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 16,
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _khPrimary,
-                foregroundColor: Colors.white,
+            actions: [
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF64748B),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                ),
+                onPressed: () => Navigator.of(ctx2).pop(),
+                child: const Text(
+                  'Cancelar',
+                  style: TextStyle(fontFamily: _kFont),
+                ),
               ),
-              onPressed: () async {
-                if (!formKey.currentState!.validate()) return;
-
-                setState(() => _saving = true);
-                try {
-                  final payload = {
-                    'nombre': nombreCtrl.text.trim(),
-                    'descripcion': descCtrl.text.trim(),
-                    'empresaId': widget.empresaId,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  };
-
-                  if (isNew) {
-                    final id = '${widget.empresaId}_${_slug(nombreCtrl.text.trim())}';
-                    await _areasColl.doc(id).set(payload);
-                  } else {
-                    await doc.reference.update(payload);
-                  }
-                  if (mounted) Navigator.of(ctx).pop();
-                } catch (e) {
-                  if (mounted) {
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _khPrimary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                ),
+                onPressed: () async {
+                  final nombre = nombreCtrl.text.trim();
+                  if (nombre.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: $e')));
+                      const SnackBar(
+                        content: Text('El nombre del área es obligatorio'),
+                      ),
+                    );
+                    return;
                   }
-                } finally {
-                  if (mounted) setState(() => _saving = false);
-                }
-              },
-              child: const Text('Guardar'),
-            ),
-          ],
-        );
-      },
+                  setState(() => _saving = true);
+                  try {
+                    final payload = {
+                      'nombre': nombre,
+                      'descripcion': descCtrl.text.trim(),
+                      'empresaId': widget.empresaId,
+                      'updatedAt': FieldValue.serverTimestamp(),
+                    };
+                    if (isNew) {
+                      final id = '${widget.empresaId}_${_slug(nombre)}';
+                      await _areasColl.doc(id).set(payload);
+                    } else {
+                      await doc!.reference.update(payload);
+                    }
+                    if (mounted) Navigator.of(ctx2).pop();
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                    }
+                  } finally {
+                    if (mounted) setState(() => _saving = false);
+                  }
+                },
+                child: Text(
+                  isNew ? 'Crear área' : 'Guardar cambios',
+                  style: const TextStyle(fontFamily: _kFont),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -132,9 +425,15 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
         title: const Text('Eliminar área'),
         content: const Text('¿Estás seguro de eliminar esta área?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Eliminar'),
           ),
@@ -172,7 +471,9 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
           }
           final docs = snapshot.data?.docs ?? [];
           if (docs.isEmpty) {
-            return const Center(child: Text('No hay áreas registradas para esta empresa.'));
+            return const Center(
+              child: Text('No hay áreas registradas para esta empresa.'),
+            );
           }
 
           return ListView.separated(
@@ -191,7 +492,11 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                         color: _khPrimary.withOpacity(0.1),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(Icons.hub_outlined, color: _khPrimary, size: 20),
+                      child: const Icon(
+                        Icons.hub_outlined,
+                        color: _khPrimary,
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -220,12 +525,29 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.edit_outlined, color: Color(0xFF64748B)),
+                      icon: const Icon(
+                        Icons.group_outlined,
+                        color: Color(0xFF64748B),
+                      ),
+                      tooltip: 'Ver personal',
+                      onPressed: () => _showAreaUsersDialog(
+                        _s(data['nombre']),
+                        (data['cedulas'] as List<dynamic>?) ?? [],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        color: Color(0xFF64748B),
+                      ),
                       onPressed: () => _openAreaDialog(doc: doc),
                       tooltip: 'Editar',
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
                       onPressed: () => _deleteArea(doc.id),
                       tooltip: 'Eliminar',
                     ),

@@ -37,6 +37,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.icd11Search = void 0;
 const functions = __importStar(require("firebase-functions/v1")); // compat v1, coherente con index.ts
+const admin = __importStar(require("firebase-admin"));
 // ---------------------------------------------------------------------------
 // Constantes OMS
 // ---------------------------------------------------------------------------
@@ -93,21 +94,94 @@ function extractTitle(title) {
         return title;
     return title["@value"] ?? "";
 }
+function ensureAdminApp() {
+    if (!admin.apps.length) {
+        admin.initializeApp();
+    }
+    return admin.firestore();
+}
+function stringFrom(value) {
+    return (value ?? "").toString().trim();
+}
+function stringListFrom(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => stringFrom(item)).filter((item) => item.length > 0);
+    }
+    return [];
+}
+function userEmpresaIds(user) {
+    const ids = [];
+    const seen = new Set();
+    const add = (raw) => {
+        const value = stringFrom(raw);
+        if (!value || seen.has(value))
+            return;
+        seen.add(value);
+        ids.push(value);
+    };
+    stringListFrom(user.empresas).forEach(add);
+    const detalle = user.empresasDetalle;
+    if (detalle && typeof detalle === "object" && !Array.isArray(detalle)) {
+        Object.keys(detalle).forEach(add);
+    }
+    if (ids.length === 0)
+        add(user.empresaId);
+    return ids;
+}
+async function findUserByIdentity(identity) {
+    const db = ensureAdminApp();
+    const direct = await db.collection("TBL_USUARIOS").doc(identity).get();
+    if (direct.exists)
+        return direct;
+    const byCedula = await db
+        .collection("TBL_USUARIOS")
+        .where("cedula", "==", identity)
+        .limit(1)
+        .get();
+    if (!byCedula.empty)
+        return byCedula.docs[0];
+    const byUid = await db
+        .collection("TBL_USUARIOS")
+        .where("uid", "==", identity)
+        .limit(1)
+        .get();
+    return byUid.empty ? null : byUid.docs[0];
+}
+async function resolveCaller(data, context) {
+    const firebaseUid = context.auth?.uid?.trim();
+    const empresaId = stringFrom(data?.empresaId);
+    if (firebaseUid) {
+        return { userId: firebaseUid, empresaId, authMode: "firebase_auth" };
+    }
+    const userId = stringFrom(data?.userId ?? data?.appUserId ?? data?.usuario ?? data?.cedula);
+    if (!userId || !empresaId) {
+        throw new functions.https.HttpsError("unauthenticated", "Se requiere usuario y empresa para buscar diagnósticos ICD-11");
+    }
+    const userSnap = await findUserByIdentity(userId);
+    if (!userSnap?.exists) {
+        throw new functions.https.HttpsError("unauthenticated", "Usuario de aplicación no encontrado");
+    }
+    const user = userSnap.data() ?? {};
+    const estado = stringFrom(user.estado).toLowerCase();
+    if (estado && estado !== "activo") {
+        throw new functions.https.HttpsError("permission-denied", "Usuario inactivo para consultar ICD-11");
+    }
+    if (!userEmpresaIds(user).includes(empresaId)) {
+        throw new functions.https.HttpsError("permission-denied", "Usuario sin acceso a la empresa solicitada");
+    }
+    return { userId: userSnap.id, empresaId, authMode: "app_user" };
+}
 // ---------------------------------------------------------------------------
 // Cloud Function exportada: icd11Search (onCall autenticado)
 // ---------------------------------------------------------------------------
 exports.icd11Search = functions
     .region("us-central1")
     .https.onCall(async (data, context) => {
-    // Requiere usuario Firebase Auth autenticado
-    if (!context.auth) {
-        console.warn("[icd11Search] llamada sin autenticación — rechazando");
-        throw new functions.https.HttpsError("unauthenticated", "Se requiere autenticación para buscar diagnósticos ICD-11");
-    }
     const query = (data?.query ?? "").toString().trim();
     const language = (data?.language ?? "es").toString().trim() || "es";
-    const uid = context.auth.uid;
-    console.log(`[icd11Search] uid=${uid} query="${query}" lang=${language}`);
+    const caller = await resolveCaller(data, context);
+    console.log(`[icd11Search] user=${caller.userId} empresa=${caller.empresaId || "-"} ` +
+        `auth=${caller.authMode} query="${query}" lang=${language}`);
     if (query.length < 2) {
         console.log("[icd11Search] query muy corto, retornando vacío");
         return { results: [] };

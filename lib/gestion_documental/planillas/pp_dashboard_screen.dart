@@ -20,11 +20,13 @@ import 'pp_service.dart';
 class PpDashboardScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
+  final VoidCallback? onOpenIdentity;
 
   const PpDashboardScreen({
     super.key,
     required this.userId,
     required this.empresaId,
+    this.onOpenIdentity,
   });
 
   @override
@@ -44,6 +46,43 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
   bool _selectionMode = false;
   bool _deletingSelection = false;
   final Set<String> _selectedPlanillaIds = <String>{};
+
+  // Streams memoizadas: se crean UNA sola vez por clave (empresa/estado) y se
+  // reutilizan entre rebuilds. Recrear el listener en cada build (al escribir en
+  // el buscador, cambiar de pestaña o filtro) provocaba churn de suscripciones
+  // en el SDK de Firestore y el error "INTERNAL ASSERTION FAILED: Unexpected
+  // state" del WatchChangeAggregator. Ver PpService.streamPlanillasPorEmpresa.
+  Stream<List<PpPlanilla>>? _planillasStream;
+  PpEstado? _planillasStreamEstado;
+  bool _planillasStreamInit = false;
+  Stream<List<PpPlanilla>>? _firmadasStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _usuarioStream;
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _streamUsuario() {
+    return _usuarioStream ??= FirebaseFirestore.instance
+        .collection('TBL_USUARIOS')
+        .doc(widget.userId)
+        .snapshots();
+  }
+
+  Stream<List<PpPlanilla>> _streamPlanillas() {
+    if (!_planillasStreamInit || _planillasStreamEstado != _filtroEstado) {
+      _planillasStream = _service.streamPlanillasPorEmpresa(
+        widget.empresaId,
+        estado: _filtroEstado,
+      );
+      _planillasStreamEstado = _filtroEstado;
+      _planillasStreamInit = true;
+    }
+    return _planillasStream!;
+  }
+
+  Stream<List<PpPlanilla>> _streamFirmadas() {
+    return _firmadasStream ??= _service.streamPlanillasPorEmpresa(
+      widget.empresaId,
+      estado: PpEstado.firmada,
+    );
+  }
 
   @override
   void initState() {
@@ -157,10 +196,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
           );
         }
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('TBL_USUARIOS')
-              .doc(widget.userId)
-              .snapshots(),
+          stream: _streamUsuario(),
           builder: (context, userSnap) {
             final rolPlanillas = _resolveRolPlanillas(userSnap.data?.data());
             final nombreActor = _resolveNombreActor(userSnap.data?.data());
@@ -190,6 +226,28 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                   ),
                 ),
                 actions: [
+                  if (widget.onOpenIdentity != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: isWeb
+                          ? OutlinedButton.icon(
+                              onPressed: widget.onOpenIdentity,
+                              icon: const Icon(Icons.draw_outlined, size: 18),
+                              label: const Text(
+                                'MI IDENTIDAD DIGITAL',
+                                style: TextStyle(
+                                  fontFamily: kArial,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            )
+                          : IconButton(
+                              onPressed: widget.onOpenIdentity,
+                              tooltip: 'Mi identidad digital',
+                              icon: const Icon(Icons.draw_outlined),
+                            ),
+                    ),
                   if (rolPlanillas != null)
                     Container(
                       margin: const EdgeInsets.symmetric(
@@ -378,7 +436,9 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                         _buildSearchBar(),
                         if (inPlanillasTab) _buildFiltroEstado(),
                         if (inFirmadasTab) _buildFiltroFechaFirma(),
-                        if (_selectionMode && canDelete && (inPlanillasTab || inFirmadasTab))
+                        if (_selectionMode &&
+                            canDelete &&
+                            (inPlanillasTab || inFirmadasTab))
                           _buildSelectionBanner(),
                         Expanded(
                           child: TabBarView(
@@ -393,7 +453,9 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                       ],
                     ),
               floatingActionButton: !isWeb
-                  ? (_selectionMode && canDelete && (inPlanillasTab || inFirmadasTab)
+                  ? (_selectionMode &&
+                            canDelete &&
+                            (inPlanillasTab || inFirmadasTab)
                         ? FloatingActionButton.extended(
                             onPressed:
                                 _selectedPlanillaIds.isEmpty ||
@@ -684,10 +746,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
 
   Widget _buildPlanillasList(String rolPlanillas, String? nombreActor) {
     return StreamBuilder<List<PpPlanilla>>(
-      stream: _service.streamPlanillasPorEmpresa(
-        widget.empresaId,
-        estado: _filtroEstado,
-      ),
+      stream: _streamPlanillas(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Center(
@@ -734,10 +793,7 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
 
   Widget _buildFirmadasList(String rolPlanillas, String? nombreActor) {
     return StreamBuilder<List<PpPlanilla>>(
-      stream: _service.streamPlanillasPorEmpresa(
-        widget.empresaId,
-        estado: PpEstado.firmada,
-      ),
+      stream: _streamFirmadas(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Center(

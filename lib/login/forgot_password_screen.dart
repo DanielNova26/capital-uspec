@@ -1,7 +1,7 @@
 // lib/login/forgot_password_screen.dart
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../services/secure_auth_service.dart';
 import 'login_screen.dart'; // Ajusta la ruta si tu LoginScreen está en otra ubicación
 
 const Color kMarronOscuro = Color(0xffc28942);
@@ -30,68 +30,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   // Variables para almacenar preguntas/respuestas traídas de Firestore
   String? _storedPregunta1;
   String? _storedPregunta2;
-  String? _storedRespuesta1;
-  String? _storedRespuesta2;
-
-  // ID real de Firestore (puede ser el username o uno encontrado por cedula)
-  late String _docId; // se asignará al verificar al usuario
-
-  Future<DocumentSnapshot<Map<String, dynamic>>?> _selectEmpresa(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      ) async {
-    if (docs.length == 1) return docs.first;
-
-    final empresasCol = FirebaseFirestore.instance.collection('TBL_EMPRESAS');
-    final Map<String, String> nombres = {};
-    final ids = docs
-        .map((d) => (d.data()['empresaId'] as String?)?.trim() ?? '')
-        .where((id) => id.isNotEmpty)
-        .toSet();
-
-    await Future.wait(ids.map((id) async {
-      final emp = await empresasCol.doc(id).get();
-      if (emp.exists) {
-        final nombre = (emp.data()?['nombre'] as String?)?.trim();
-        if (nombre != null && nombre.isNotEmpty) nombres[id] = nombre;
-      }
-    }));
-
-    return showDialog<DocumentSnapshot<Map<String, dynamic>>>(
-      context: context,
-      builder: (_) {
-        return AlertDialog(
-          title: const Text('Selecciona tu empresa'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: docs.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, index) {
-                final doc = docs[index];
-                final empresaId =
-                    (doc.data()['empresaId'] as String?)?.trim() ?? '';
-                final nombre = nombres[empresaId];
-                final title =
-                nombre != null && nombre.isNotEmpty ? nombre : empresaId;
-
-                return ListTile(
-                  title: Text(title.isEmpty ? 'Empresa sin nombre' : title),
-                  subtitle: empresaId.isEmpty
-                      ? null
-                      : Text(
-                    empresaId,
-                    style: const TextStyle(fontFamily: kArial),
-                  ),
-                  onTap: () => Navigator.of(context).pop(doc),
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
+  String? _recoveryChallengeId;
 
   @override
   void dispose() {
@@ -122,74 +61,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     try {
-      final collectionRef = FirebaseFirestore.instance.collection('TBL_USUARIOS');
-
-      DocumentSnapshot<Map<String, dynamic>>? docSnapshot;
-
-      // 1) Intentamos leer directamente por ID (input como doc ID)
-      final byId = await collectionRef.doc(input).get();
-      if (byId.exists) {
-        docSnapshot = byId;
-      }
-
-      if (docSnapshot == null) {
-        // 2) Si no existe un doc con ese ID, buscamos por campo "cedula == input"
-        final querySnap = await collectionRef.where('cedula', isEqualTo: input).get();
-
-        if (querySnap.docs.isEmpty) {
-          setState(() {
-            _errorMessage = 'Usuario no encontrado';
-          });
-          return;
-        }
-
-        if (querySnap.docs.length == 1) {
-          docSnapshot = querySnap.docs.first;
-        } else {
-          final selected = await _selectEmpresa(querySnap.docs);
-          if (selected == null) {
-            setState(() {
-              _errorMessage = 'Selecciona la empresa para continuar';
-            });
-            return;
-          }
-          docSnapshot = selected;
-        }
-      }
-
-      // Si llegamos aquí, docSnapshot existe. Guardamos su ID real:
-      _docId = docSnapshot!.id;
-
-      // Extraemos preguntas/ respuestas almacenadas en Firestore:
-      final data = docSnapshot!.data()!;
-      final q1 = data['pregunta_seguridad_1'] as String?;
-      final q2 = data['pregunta_seguridad_2'] as String?;
-      final r1 = data['respuesta_seguridad_1'] as String?;
-      final r2 = data['respuesta_seguridad_2'] as String?;
-
-      // Verificamos que efectivamente haya preguntas configuradas
-      if (q1 == null || q2 == null || r1 == null || r2 == null) {
-        setState(() {
-          _errorMessage = 'El usuario no ha configurado preguntas de seguridad.';
-        });
-      } else {
-        // Guardamos en variables locales (convertimos respuestas a minúsculas
-        // para comparar de forma case-insensitive)
-        _storedPregunta1 = q1;
-        _storedPregunta2 = q2;
-        _storedRespuesta1 = r1.toLowerCase();
-        _storedRespuesta2 = r2.toLowerCase();
-
-        setState(() {
-          _userExists = true;
-          _questionsLoaded = true;
-          _errorMessage = null;
-        });
-      }
-    } catch (e) {
+      final challenge = await SecureAuthService().prepareRecovery(input);
       setState(() {
-        _errorMessage = 'Error al buscar usuario. Intenta de nuevo.';
+        _recoveryChallengeId = challenge.id;
+        _storedPregunta1 = challenge.question1;
+        _storedPregunta2 = challenge.question2;
+        _userExists = true;
+        _questionsLoaded = true;
+        _errorMessage = null;
       });
+    } on SecureAuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } catch (_) {
+      setState(
+        () => _errorMessage = 'Error al buscar usuario. Intenta de nuevo.',
+      );
     } finally {
       setState(() => _isLoading = false);
     }
@@ -202,17 +90,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       return;
     }
 
-    final answer1 = _answer1Ctrl.text.trim().toLowerCase();
-    final answer2 = _answer2Ctrl.text.trim().toLowerCase();
-
-    // Comparamos respuestas ingresadas con las almacenadas
-    if (answer1 != _storedRespuesta1 || answer2 != _storedRespuesta2) {
-      setState(() {
-        _errorMessage = 'Una o ambas respuestas de seguridad no son correctas.';
-      });
-      return;
-    }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -221,11 +98,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final nuevaClave = _newPassCtrl.text.trim();
 
     try {
-      // Actualizamos la contraseña en Firestore y marcamos needsPasswordChange = false
-      await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(_docId)
-          .update({'password': nuevaClave, 'needsPasswordChange': false});
+      await SecureAuthService().completeRecovery(
+        challengeId: _recoveryChallengeId!,
+        answer1: _answer1Ctrl.text.trim(),
+        answer2: _answer2Ctrl.text.trim(),
+        newPassword: nuevaClave,
+      );
 
       setState(() => _isLoading = false);
 
@@ -235,7 +113,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           title: const Text('¡Contraseña restablecida!'),
           content: const Text(
             'Tu contraseña ha sido actualizada correctamente.\n'
-                'Ahora puedes iniciar sesión con la nueva contraseña.',
+            'Ahora puedes iniciar sesión con la nueva contraseña.',
           ),
           actions: [
             TextButton(
@@ -244,7 +122,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 Navigator.pushAndRemoveUntil(
                   context,
                   MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      (route) => false,
+                  (route) => false,
                 );
               },
               child: const Text('OK'),
@@ -252,7 +130,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ],
         ),
       );
-    } catch (e) {
+    } on SecureAuthException catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.message;
+      });
+    } catch (_) {
       setState(() {
         _isLoading = false;
         _errorMessage = 'Error al actualizar la contraseña. Intenta de nuevo.';
@@ -306,10 +189,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   onPressed: _isLoading ? null : _checkUserAndLoadQuestions,
                   child: _isLoading
                       ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
                       : const Text('Verificar usuario'),
                 ),
               ),
@@ -329,7 +215,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       // Pregunta de seguridad 1 (solo se muestra como texto)
                       const Text(
                         'Pregunta 1:',
-                        style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -357,7 +246,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       // Pregunta de seguridad 2
                       const Text(
                         'Pregunta 2:',
-                        style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontFamily: kArial,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -395,8 +287,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           if (v == null || v.trim().isEmpty) {
                             return 'Ingresa la nueva contraseña';
                           }
-                          if (v.trim().length < 6) {
-                            return 'Mínimo 6 caracteres';
+                          if (v.trim().length < 8) {
+                            return 'Mínimo 8 caracteres';
                           }
                           return null;
                         },
@@ -427,7 +319,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                       if (_errorMessage != null) ...[
                         Text(
                           _errorMessage!,
-                          style: const TextStyle(color: Colors.red, fontFamily: kArial),
+                          style: const TextStyle(
+                            color: Colors.red,
+                            fontFamily: kArial,
+                          ),
                         ),
                         const SizedBox(height: 16),
                       ],
@@ -448,13 +343,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           onPressed: _isLoading ? null : _submitReset,
                           child: _isLoading
                               ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
                               : const Text('Restablecer contraseña'),
                         ),
                       ),

@@ -1,20 +1,21 @@
 //lib/login/preview_screen.dart
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'login_screen.dart'; // Asegúrate que el path sea correcto
+import 'login_screen.dart';
+import '../talento_humano/hoja_de_vida_service.dart';
 
 const Color _accentColor = Color(0xFF145DA0);
 
 class PreviewScreen extends StatelessWidget {
   final Map<String, dynamic> data;
 
-  const PreviewScreen({Key? key, required this.data}) : super(key: key);
+  const PreviewScreen({super.key, required this.data});
 
   Future<void> _openLink(BuildContext context, String url) async {
     if (!await launchUrlString(url, mode: LaunchMode.externalApplication)) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No se pudo abrir el enlace')),
       );
@@ -26,21 +27,21 @@ class PreviewScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: url == null
           ? Text(
-        '— $label: No cargado',
-        style: TextStyle(color: Colors.red[700]),
-      )
+              '— $label: No cargado',
+              style: TextStyle(color: Colors.red[700]),
+            )
           : ElevatedButton.icon(
-        onPressed: () => _openLink(context, url),
-        icon: const Icon(Icons.download),
-        label: Text(label),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          minimumSize: const Size.fromHeight(40),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-      ),
+              onPressed: () => _openLink(context, url),
+              icon: const Icon(Icons.download),
+              label: Text(label),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                minimumSize: const Size.fromHeight(40),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
     );
   }
 
@@ -75,72 +76,94 @@ class PreviewScreen extends StatelessWidget {
   }
 
   Future<void> _confirmAndRegister(BuildContext context) async {
-    // 1. Mostrar diálogo de confirmación
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Confirmar envío'),
-        content: const Text('¿Estás seguro de querer subir la información?'),
+        content: const Text(
+          '¿Estás seguro de querer enviar tu hoja de vida a Talento Humano?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('No'),
           ),
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sí'),
+            child: const Text('Sí, enviar'),
           ),
         ],
       ),
     );
+    if (!context.mounted) return;
     if (confirmed != true) return;
 
-    // 2. Preparamos los datos (quitamos los bytes en crudo)
-    final uploadData = Map<String, dynamic>.from(data)
-      ..remove('fotoBytes');
+    final cedula = (data['cedula'] as String?)?.trim() ?? '';
     final empresaId = (data['empresaId'] as String?)?.trim() ?? '';
-    if (empresaId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Falta el ID de la empresa.')),
-      );
+    if (cedula.isEmpty || empresaId.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Faltan datos requeridos.')));
       return;
     }
-    // 3. Subimos TODO + marcamos registrado + limpiamos revisión
-    final usuariosCol =
-    FirebaseFirestore.instance.collection('TBL_USUARIOS');
-    final cedula = data['cedula'] as String;
 
-    var docRef = usuariosCol.doc(cedula);
-    final existing = await docRef.get();
-    if (!existing.exists) {
-      final query = await usuariosCol
-          .where('cedula', isEqualTo: cedula)
-          .limit(1)
-          .get();
-      if (query.docs.isNotEmpty) {
-        docRef = query.docs.first.reference;
-      }
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(child: Text('Enviando hoja de vida…')),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final cvData = Map<String, dynamic>.from(data)
+        ..remove('fotoBytes')
+        ..remove('cedula')
+        ..remove('empresaId');
+
+      await HojaDeVidaService().saveHojaDeVida(cedula, empresaId, cvData);
+
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // cierra loading
+
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Hoja de vida enviada'),
+          content: Text(
+            'Talento Humano revisara tu informacion.\n\n'
+            'Para consultar la aprobacion o ver correcciones debes iniciar sesion en To Do App.\n\n'
+            'Usuario: $cedula\n'
+            'Contrasena temporal: 123456\n\n'
+            'Al ingresar, cambia tu contrasena y configura tus preguntas de seguridad.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Ir al login'),
+            ),
+          ],
+        ),
+      );
+
+      if (!context.mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al guardar: $e')));
     }
-
-    await docRef.set({
-      ...uploadData,
-      'registered': true,
-      'needsRevision': false,
-      'revisionNote': null,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'correctionCount': 0,
-    }, SetOptions(merge: true));
-
-    // 4. Aviso al usuario
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('¡Información confirmada y registrada!')),
-    );
-
-    // 5. Volver al login
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-          (route) => false,
-    );
   }
 
   @override
@@ -164,13 +187,15 @@ class PreviewScreen extends StatelessWidget {
                   // 1) Si el flujo normal subió bytes en memoria, no necesitamos Storage:
                   if (data['fotoBytes'] != null) return null;
                   final ced = data['cedula'] as String;
-                  final folderRef = FirebaseStorage.instance.ref('cedulas/$ced');
+                  final folderRef = FirebaseStorage.instance.ref(
+                    'cedulas/$ced',
+                  );
                   try {
                     // 2) Listamos todos los ficheros bajo cedulas/<ced>
                     final listing = await folderRef.listAll();
                     // 3) Buscamos el que empiece por "foto."
                     final fileRef = listing.items.firstWhere(
-                          (item) => item.name.startsWith('foto.'),
+                      (item) => item.name.startsWith('foto.'),
                       orElse: () => throw Exception('sin foto'),
                     );
                     // 4) Devolvemos su URL
@@ -204,13 +229,21 @@ class PreviewScreen extends StatelessWidget {
                           fit: BoxFit.cover,
                           width: 120,
                           height: 120,
-                          errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.broken_image, size: 60, color: Colors.grey),
+                          errorBuilder: (context, error, stackTrace) =>
+                              const Icon(
+                                Icons.broken_image,
+                                size: 60,
+                                color: Colors.grey,
+                              ),
                         ),
                       );
                     } else {
                       // d) No hay bytes ni URL: icono genérico
-                      child = const Icon(Icons.person, size: 60, color: Colors.grey);
+                      child = const Icon(
+                        Icons.person,
+                        size: 60,
+                        color: Colors.grey,
+                      );
                     }
                   }
 
@@ -245,7 +278,7 @@ class PreviewScreen extends StatelessWidget {
                   leading: const Icon(Icons.person, color: _accentColor),
                   title: Text(
                     '${data['primerNombre']} ${data['segundoNombre']} '
-                        '${data['primerApellido']} ${data['segundoApellido']}',
+                    '${data['primerApellido']} ${data['segundoApellido']}',
                     style: infoStyle,
                   ),
                 ),
@@ -268,19 +301,154 @@ class PreviewScreen extends StatelessWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.phone, color: _accentColor),
-                  title: Text('Teléfono: ${data['telefono']}', style: infoStyle),
+                  title: Text(
+                    'Teléfono: ${data['telefono']}',
+                    style: infoStyle,
+                  ),
                 ),
                 ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.home, color: _accentColor),
-                  title: Text('Dirección: ${data['direccion']}', style: infoStyle),
+                  title: Text(
+                    'Dirección: ${data['direccion']}',
+                    style: infoStyle,
+                  ),
                 ),
                 ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.location_city, color: _accentColor),
                   title: Text('Ciudad: ${data['ciudad']}', style: infoStyle),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.map, color: _accentColor),
+                  title: Text('Barrio: ${data['barrio']}', style: infoStyle),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.health_and_safety,
+                    color: _accentColor,
+                  ),
+                  title: Text('EPS: ${data['eps']}', style: infoStyle),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.account_balance,
+                    color: _accentColor,
+                  ),
+                  title: Text(
+                    'Fondo de pensiones: ${data['fondoPensiones']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.savings, color: _accentColor),
+                  title: Text(
+                    'Fondo de cesantías: ${data['fondoCesantias']}',
+                    style: infoStyle,
+                  ),
+                ),
+              ],
+            ),
+
+            _buildSectionCard(
+              context: context,
+              title: 'Perfil demográfico',
+              children: [
+                Text(
+                  'Esta información queda en la plataforma y no pasa al PDF de la hoja de vida.',
+                  style: TextStyle(color: Colors.grey[700], height: 1.35),
+                ),
+                const SizedBox(height: 8),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.favorite, color: _accentColor),
+                  title: Text(
+                    'Estado civil: ${data['estadoCivil']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.child_care, color: _accentColor),
+                  title: Text(
+                    'Número de hijos: ${data['numeroHijos']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bloodtype, color: _accentColor),
+                  title: Text(
+                    'Tipo de sangre: ${data['tipoSangre']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.contact_phone, color: _accentColor),
+                  title: Text(
+                    'Contacto emergencia: ${data['contactoEmergenciaNombre']} - ${data['contactoEmergenciaTelefono']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.cake, color: _accentColor),
+                  title: Text(
+                    'Nacimiento: ${data['fechaNacimiento']} · ${data['lugarNacimiento']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.person_outline,
+                    color: _accentColor,
+                  ),
+                  title: Text(
+                    'Edad: ${data['edad']} · Género: ${data['genero']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.family_restroom,
+                    color: _accentColor,
+                  ),
+                  title: Text(
+                    'Personas a cargo: ${data['personasCargo']} · Estrato: ${data['estrato']}',
+                    style: infoStyle,
+                  ),
+                ),
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.directions_car_filled,
+                    color: _accentColor,
+                  ),
+                  title: Text(
+                    'Movilización: ${data['tipoVehiculo']}',
+                    style: infoStyle,
+                  ),
                 ),
               ],
             ),
@@ -298,7 +466,7 @@ class PreviewScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     'Universidad: ${data['uniCarr']} en ${data['uniInst']} '
-                        '(${data['uniFecha']})',
+                    '(${data['uniFecha']})',
                     style: infoStyle,
                   ),
                 ],
@@ -307,7 +475,10 @@ class PreviewScreen extends StatelessWidget {
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.card_membership, color: _accentColor),
+                    leading: const Icon(
+                      Icons.card_membership,
+                      color: _accentColor,
+                    ),
                     title: Text(
                       'Tarjeta profesional: ${data['tarjetaNumero']}',
                       style: infoStyle,
@@ -318,7 +489,7 @@ class PreviewScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     'Segunda carrera: ${data['secCarr']} en ${data['secInst']} '
-                        '(${data['secFecha']})',
+                    '(${data['secFecha']})',
                     style: infoStyle,
                   ),
                 ],
@@ -326,7 +497,7 @@ class PreviewScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     'Especialización: ${data['espProg']} en ${data['espInst']} '
-                        '(${data['espFecha']})',
+                    '(${data['espFecha']})',
                     style: infoStyle,
                   ),
                 ],
@@ -334,7 +505,7 @@ class PreviewScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     'Maestría: ${data['maeProg']} en ${data['maeInst']} '
-                        '(${data['maeFecha']})',
+                    '(${data['maeFecha']})',
                     style: infoStyle,
                   ),
                 ],
@@ -361,7 +532,7 @@ class PreviewScreen extends StatelessWidget {
                 for (var exp in data['experiencias'] as List<dynamic>) ...[
                   Text(
                     '${exp['empresa']} — ${exp['cargo']} '
-                        '(${exp['inicio']} a ${exp['fin']})',
+                    '(${exp['inicio']} a ${exp['fin']})',
                     style: infoStyle,
                   ),
                 ],
@@ -383,6 +554,17 @@ class PreviewScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 _buildDownloadButton(context, data['cedulaDocUrl'], 'Cédula'),
+                _buildDownloadButton(context, data['epsUrl'], 'EPS'),
+                _buildDownloadButton(
+                  context,
+                  data['pensionUrl'],
+                  'Fondo de pensiones',
+                ),
+                _buildDownloadButton(
+                  context,
+                  data['cesantiasUrl'],
+                  'Fondo de cesantías',
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Antecedentes',
@@ -396,7 +578,11 @@ class PreviewScreen extends StatelessWidget {
                 _buildDownloadButton(context, data['procUrl'], 'Procuraduría'),
                 _buildDownloadButton(context, data['contrUrl'], 'Contraloría'),
                 _buildDownloadButton(context, data['polUrl'], 'Policía'),
-                _buildDownloadButton(context, data['medUrl'], 'Medidas Correctivas'),
+                _buildDownloadButton(
+                  context,
+                  data['medUrl'],
+                  'Medidas Correctivas',
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Formación Académica',
@@ -407,15 +593,31 @@ class PreviewScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                _buildDownloadButton(context, data['bachillerUrl'], 'Bachillerato'),
+                _buildDownloadButton(
+                  context,
+                  data['bachillerUrl'],
+                  'Bachillerato',
+                ),
                 if (data['hasUniversity'] == true)
                   _buildDownloadButton(context, data['uniUrl'], 'Universidad'),
                 if (data['hasTarjetaProf'] == true)
-                  _buildDownloadButton(context, data['tarjetaUrl'], 'Tarjeta Profesional'),
+                  _buildDownloadButton(
+                    context,
+                    data['tarjetaUrl'],
+                    'Tarjeta Profesional',
+                  ),
                 if (data['hasSecondCareer'] == true)
-                  _buildDownloadButton(context, data['secUrl'], 'Segunda Carrera'),
+                  _buildDownloadButton(
+                    context,
+                    data['secUrl'],
+                    'Segunda Carrera',
+                  ),
                 if (data['hasEspecializacion'] == true)
-                  _buildDownloadButton(context, data['espUrl'], 'Especialización'),
+                  _buildDownloadButton(
+                    context,
+                    data['espUrl'],
+                    'Especialización',
+                  ),
                 if (data['hasMaestria'] == true)
                   _buildDownloadButton(context, data['maeUrl'], 'Maestría'),
                 const SizedBox(height: 12),
@@ -435,26 +637,25 @@ class PreviewScreen extends StatelessWidget {
                     'Soporte ${exp['empresa']}',
                   ),
                 ],
-                if (data['hasCertificados'] == true)
-                  ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Cursos Complementarios',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _accentColor,
-                      ),
+                if (data['hasCertificados'] == true) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Cursos Complementarios',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: _accentColor,
                     ),
-                    const SizedBox(height: 4),
-                    for (var c in data['certificados'] as List<dynamic>) ...[
-                      _buildDownloadButton(
-                        context,
-                        c['url'] as String?,
-                        'Soporte ${c['nombre']}',
-                      ),
-                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  for (var c in data['certificados'] as List<dynamic>) ...[
+                    _buildDownloadButton(
+                      context,
+                      c['url'] as String?,
+                      'Soporte ${c['nombre']}',
+                    ),
                   ],
+                ],
               ],
             ),
 

@@ -6,11 +6,24 @@ import '../utils/task_status.dart';
 import '../utils/user_company.dart';
 import 'user_resolver.dart';
 
+String _firstTaskValue(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  return '';
+}
+
 enum TaskRouteTarget {
   /// Tareas activas asignadas al usuario (AssignedTasksScreen)
   assignedTasks,
+
   /// Tareas activas creadas/asignadas por el usuario (CreatedTasksScreen)
   createdTasks,
+
+  /// Tareas cuyo cierre debe decidir el aprobador (CreatedTasksScreen)
+  approvalTasks,
+
   /// Tareas históricas / finalizadas (TaskHistoryScreen)
   taskHistory,
 }
@@ -57,7 +70,7 @@ class TaskRouteGuard {
   final UserResolver _userResolver;
 
   TaskRouteGuard({UserResolver? userResolver})
-      : _userResolver = userResolver ?? UserResolver();
+    : _userResolver = userResolver ?? UserResolver();
 
   Future<TaskAccessValidation> validateTaskAccess(
     BuildContext context, {
@@ -110,7 +123,8 @@ class TaskRouteGuard {
     if (!userBelongsToEmpresa(userResolution.data, taskEmpresaId)) {
       return TaskAccessValidation(
         allowed: false,
-        message: 'La tarea pertenece a una empresa no autorizada para el usuario.',
+        message:
+            'La tarea pertenece a una empresa no autorizada para el usuario.',
         resolvedUserId: userResolution.docId,
         empresaId: taskEmpresaId,
       );
@@ -123,17 +137,26 @@ class TaskRouteGuard {
       ((userResolution.data['uid'] ?? '')).toString().trim(),
     }..removeWhere((value) => value.isEmpty);
 
-    final creatorId =
-        (taskData['creador_id'] ?? taskData['creatorId'] ?? '').toString().trim();
-    final assignedId = (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
+    final creatorId = (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
         .toString()
         .trim();
-    final bossId =
-        (taskData['jefe_uid'] ?? taskData['bossId'] ?? '').toString().trim();
+    final assignedId =
+        (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
+            .toString()
+            .trim();
+    final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
+        .toString()
+        .trim();
+    final approverId = _firstTaskValue([
+      taskData['aprobador_uid'],
+      taskData['approverId'],
+      bossId,
+    ]);
 
     if (!knownIds.contains(creatorId) &&
         !knownIds.contains(assignedId) &&
-        !knownIds.contains(bossId)) {
+        !knownIds.contains(bossId) &&
+        !knownIds.contains(approverId)) {
       return TaskAccessValidation(
         allowed: false,
         message: 'La tarea no está asignada ni vinculada al usuario actual.',
@@ -143,7 +166,9 @@ class TaskRouteGuard {
     }
 
     final empresaState = EmpresaScope.of(context, listen: false);
-    final selectedEmpresaId = normalizeEmpresaId(empresaState.selectedEmpresaId);
+    final selectedEmpresaId = normalizeEmpresaId(
+      empresaState.selectedEmpresaId,
+    );
     if (selectedEmpresaId == null) {
       empresaState.setSelectedEmpresaId(taskEmpresaId);
     } else if (selectedEmpresaId != taskEmpresaId) {
@@ -191,11 +216,16 @@ class TaskRouteGuard {
 
     final tabKey = processTabForNotificationType(type);
     final normalizedType = type.trim().toLowerCase();
-    final isReassignRequest = normalizedType == 'task_solicitud_reasignacion';
-    final isReassignResolution = normalizedType == 'task_reasignacion_aprobada' ||
-        normalizedType == 'task_reasignacion_rechazada';
+    final isReassignRequest =
+        normalizedType == 'task_solicitud_reasignacion' ||
+        normalizedType == 'solicitud_reasignacion';
+    final isReassignResolution =
+        normalizedType == 'task_reasignacion_aprobada' ||
+        normalizedType == 'task_reasignacion_rechazada' ||
+        normalizedType == 'task_reassign_rejected';
     // task_reassigned_info / task_reassigned_report → creator/boss gets informed of reassignment
-    final isReassignNotice = normalizedType == 'task_reassigned_info' ||
+    final isReassignNotice =
+        normalizedType == 'task_reassigned_info' ||
         normalizedType == 'task_reassigned_report';
     final knownIds = validation.knownUserIds;
     bool isMine(String candidate) =>
@@ -208,18 +238,32 @@ class TaskRouteGuard {
       if (isReassignRequest || isReassignResolution || isReassignNotice) {
         final taskData = validation.taskData ?? const <String, dynamic>{};
         final creatorId =
-            (taskData['creador_id'] ?? taskData['creatorId'] ?? '').toString().trim();
-        final bossId =
-            (taskData['jefe_uid'] ?? taskData['bossId'] ?? '').toString().trim();
+            (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
+                .toString()
+                .trim();
+        final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
+            .toString()
+            .trim();
+        final approverId = _firstTaskValue([
+          taskData['aprobador_uid'],
+          taskData['approverId'],
+          bossId,
+        ]);
         final assignedId =
-            (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '').toString().trim();
+            (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
+                .toString()
+                .trim();
 
         // Si la tarea está activa y el usuario es creador/jefe → CreatedTasksScreen
-        if (!taskIsFinalized && !isReassignNotice && !isMine(assignedId) &&
-            (isMine(creatorId) || isMine(bossId))) {
+        if (!taskIsFinalized &&
+            !isReassignNotice &&
+            !isMine(assignedId) &&
+            (isMine(creatorId) || isMine(bossId) || isMine(approverId))) {
           return TaskNotificationDecision(
             allowed: true,
-            target: TaskRouteTarget.createdTasks,
+            target: isMine(approverId) && !isMine(creatorId)
+                ? TaskRouteTarget.approvalTasks
+                : TaskRouteTarget.createdTasks,
             resolvedUserId: validation.resolvedUserId!,
             empresaId: validation.empresaId!,
           );
@@ -240,21 +284,35 @@ class TaskRouteGuard {
       }
 
       // task_assigned / task_reassigned
-      if (normalizedType == 'task_assigned' || normalizedType == 'task_reassigned') {
+      if (normalizedType == 'task_assigned' ||
+          normalizedType == 'task_reassigned') {
         final taskData = validation.taskData ?? const <String, dynamic>{};
         final creatorId =
-            (taskData['creador_id'] ?? taskData['creatorId'] ?? '').toString().trim();
-        final bossId =
-            (taskData['jefe_uid'] ?? taskData['bossId'] ?? '').toString().trim();
+            (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
+                .toString()
+                .trim();
+        final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
+            .toString()
+            .trim();
+        final approverId = _firstTaskValue([
+          taskData['aprobador_uid'],
+          taskData['approverId'],
+          bossId,
+        ]);
         final assignedId =
-            (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '').toString().trim();
-        if (!isMine(assignedId) && (isMine(creatorId) || isMine(bossId))) {
+            (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
+                .toString()
+                .trim();
+        if (!isMine(assignedId) &&
+            (isMine(creatorId) || isMine(bossId) || isMine(approverId))) {
           // Creator/boss notificado: si activa → CreatedTasksScreen; si finalizada → Historial
           return TaskNotificationDecision(
             allowed: true,
             target: taskIsFinalized
                 ? TaskRouteTarget.taskHistory
-                : TaskRouteTarget.createdTasks,
+                : (isMine(approverId) && !isMine(creatorId)
+                      ? TaskRouteTarget.approvalTasks
+                      : TaskRouteTarget.createdTasks),
             resolvedUserId: validation.resolvedUserId!,
             empresaId: validation.empresaId!,
             initialTabIndex: 1,
@@ -275,19 +333,29 @@ class TaskRouteGuard {
     // Si la tarea está ACTIVA → abrir la pantalla activa correspondiente (no historial).
     // Si la tarea está FINALIZADA → abrir TaskHistoryScreen con la pestaña del proceso.
     final taskData = validation.taskData ?? const <String, dynamic>{};
-    final creatorId =
-        (taskData['creador_id'] ?? taskData['creatorId'] ?? '').toString().trim();
-    final bossId =
-        (taskData['jefe_uid'] ?? taskData['bossId'] ?? '').toString().trim();
-    final assignedId = (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
+    final creatorId = (taskData['creador_id'] ?? taskData['creatorId'] ?? '')
         .toString()
         .trim();
+    final bossId = (taskData['jefe_uid'] ?? taskData['bossId'] ?? '')
+        .toString()
+        .trim();
+    final approverId = _firstTaskValue([
+      taskData['aprobador_uid'],
+      taskData['approverId'],
+      bossId,
+    ]);
+    final assignedId =
+        (taskData['asignado_uid'] ?? taskData['assignedTo'] ?? '')
+            .toString()
+            .trim();
 
     if (!taskIsFinalized) {
       // Tarea aún activa: llevar al contexto activo, no al historial.
       final target = isMine(assignedId)
           ? TaskRouteTarget.assignedTasks
-          : TaskRouteTarget.createdTasks;
+          : (isMine(approverId) && !isMine(creatorId)
+                ? TaskRouteTarget.approvalTasks
+                : TaskRouteTarget.createdTasks);
       return TaskNotificationDecision(
         allowed: true,
         target: target,
@@ -301,7 +369,7 @@ class TaskRouteGuard {
     int tabIndex = 1;
     if (isMine(assignedId)) {
       tabIndex = 0;
-    } else if (isMine(creatorId) || isMine(bossId)) {
+    } else if (isMine(creatorId) || isMine(bossId) || isMine(approverId)) {
       tabIndex = 1;
     }
 

@@ -1355,6 +1355,12 @@ class PpService {
     late final Map<String, dynamic> datosExcelActualizados;
     late final int? excelRowIndex;
 
+    final empresaNombrePlanilla = await _resolverNombreEmpresaPlanilla(
+      empresaId: empresaId,
+      nombreLogoPreferido: resolvedLogo.nombre,
+      planillaData: data,
+    );
+
     if (resolved.esConsolidado) {
       final filas = resolved.filas;
       final consolidado =
@@ -1371,13 +1377,18 @@ class PpService {
         consolidado: consolidado,
         filas: filas,
         logoBytes: logoBytes,
+        empresaNombre: empresaNombrePlanilla,
         nombreElaborado: actorSnapshot.nombre,
         cargoElaborado: actorSnapshot.cargo,
         firmaElaboradoUrl: actorSnapshot.urlFirma,
         firmaElaboradoPath: actorSnapshot.pathFirma,
         firmaElaboradoBlob: actorSnapshot.firmaBlob,
       );
-      nombreArchivo = _nombreArchivoConsolidado(consolidado, filas);
+      nombreArchivo = _nombreArchivoConsolidado(
+        consolidado,
+        filas,
+        empresaNombre: empresaNombrePlanilla,
+      );
       nombrePlanilla = consolidado;
       fechaPlanilla = _firstNonEmptyDate(filas);
       valorPlanilla = _sumarValores(filas);
@@ -1402,13 +1413,17 @@ class PpService {
       pdfBytes = await _generarPdfDesdeFila(
         fila: fila,
         logoBytes: logoBytes,
+        empresaNombre: empresaNombrePlanilla,
         nombreElaborado: actorSnapshot.nombre,
         cargoElaborado: actorSnapshot.cargo,
         firmaElaboradoUrl: actorSnapshot.urlFirma,
         firmaElaboradoPath: actorSnapshot.pathFirma,
         firmaElaboradoBlob: actorSnapshot.firmaBlob,
       );
-      nombreArchivo = _nombreArchivoFila(fila);
+      nombreArchivo = _nombreArchivoFila(
+        fila,
+        empresaNombre: empresaNombrePlanilla,
+      );
       nombrePlanilla = fila.nombrePlanilla;
       fechaPlanilla = fila.fecha;
       valorPlanilla = fila.valor;
@@ -3296,7 +3311,10 @@ class PpService {
         firmaElaboradoBlob: actorSnapshot.firmaBlob,
       );
 
-      final nombre = _nombreArchivoFila(fila);
+      final nombre = _nombreArchivoFila(
+        fila,
+        empresaNombre: empresaNombrePlanilla,
+      );
       final (pdfUrl, pdfPath) = await _subirPdf(
         empresaId: empresaId,
         loteId: loteId,
@@ -3503,7 +3521,11 @@ class PpService {
       firmaElaboradoBlob: firmaBlob,
     );
 
-    final nombreArchivo = _nombreArchivoConsolidado(consolidado, filas);
+    final nombreArchivo = _nombreArchivoConsolidado(
+      consolidado,
+      filas,
+      empresaNombre: empresaNombrePlanilla,
+    );
     final (pdfUrl, pdfPath) = await _subirPdf(
       empresaId: empresaId,
       loteId: loteId,
@@ -4029,31 +4051,18 @@ class PpService {
               ),
             ),
           pw.SizedBox(height: 12),
-          if (esAlimentarCapital)
-            pw.Center(
-              child: pw.SizedBox(
-                width: 220,
-                child: _buildElaboradoBlock(
-                  nombre: nombreElaborado,
-                  cargo: cargoElaborado,
-                  firma: firmaElaborado,
-                  ts: ts,
-                ),
-              ),
-            )
-          else
-            _buildFooterFirmas(
-              ts: ts,
-              nombreElaborado: nombreElaborado,
-              cargoElaborado: cargoElaborado,
-              firmaElaborado: firmaElaborado,
-              nombreAuditoria: nombreAuditoria,
-              cargoAuditoria: cargoAuditoria,
-              firmaAuditoria: firmaAuditoria,
-              nombreGerencia: nombreGerencia,
-              cargoGerencia: cargoGerencia,
-              firmaGerencia: firmaGerencia,
-            ),
+          _buildFooterFirmas(
+            ts: ts,
+            nombreElaborado: nombreElaborado,
+            cargoElaborado: cargoElaborado,
+            firmaElaborado: firmaElaborado,
+            nombreAuditoria: nombreAuditoria,
+            cargoAuditoria: cargoAuditoria,
+            firmaAuditoria: firmaAuditoria,
+            nombreGerencia: nombreGerencia,
+            cargoGerencia: cargoGerencia,
+            firmaGerencia: firmaGerencia,
+          ),
         ],
       ),
     );
@@ -4111,7 +4120,12 @@ class PpService {
   String _sanitizeFilePart(String s) =>
       s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim();
 
-  String _nombreArchivoFila(PpExcelFila fila) {
+  String _nombreEmpresaArchivo(String? empresaNombre) {
+    final limpio = _sanitizeFilePart(_cleanString(empresaNombre) ?? '');
+    return limpio.isEmpty ? _utNombre : limpio;
+  }
+
+  String _nombreArchivoFila(PpExcelFila fila, {String? empresaNombre}) {
     final consolidado = _sanitizeFilePart(
       fila.nombrePlanilla ?? 'planilla_${fila.rowIndex + 1}',
     );
@@ -4125,15 +4139,16 @@ class PpService {
       'PL',
       consolidado,
       if (detalle.isNotEmpty) detalle,
-      _utNombre,
+      _nombreEmpresaArchivo(empresaNombre),
     ];
     return '${parts.join('-')}.pdf';
   }
 
   String _nombreArchivoConsolidado(
     String consolidado,
-    List<PpExcelFila> filas,
-  ) {
+    List<PpExcelFila> filas, {
+    String? empresaNombre,
+  }) {
     final consolidadoClean = _sanitizeFilePart(
       consolidado.isEmpty ? 'consolidado' : consolidado,
     );
@@ -4149,7 +4164,7 @@ class PpService {
       'PL',
       consolidadoClean,
       if (detalle.isNotEmpty) detalle,
-      _utNombre,
+      _nombreEmpresaArchivo(empresaNombre),
     ];
     return '${parts.join('-')}.pdf';
   }

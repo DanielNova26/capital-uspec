@@ -30,11 +30,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../compras/compras_dashboard_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
+import '../rutas/rutas_dashboard_screen.dart';
+import '../rutas/rutas_models.dart';
 import '../home/notifications_screen.dart';
 import '../home/assigned_tasks_screen.dart';
 import '../home/created_tasks_screen.dart';
 import '../home/task_history_screen.dart';
 import '../core/task_route_guard.dart';
+import '../facturacion/facturacion_navigation.dart';
 
 typedef CedulaProvider = FutureOr<String?> Function();
 
@@ -64,6 +67,9 @@ class NotificationsService {
   static GlobalKey<NavigatorState>? _navigatorKey;
   static String? _activeCedula;
   static const String _kActiveCedulaPrefKey = 'active_notification_cedula';
+
+  static bool _isRutasEvidenceRejected(String type) =>
+      type.trim().toLowerCase() == 'rutas_evidencia_rechazada';
 
   static Future<void> setActiveCedula(String? cedula) async {
     final normalized = cedula?.trim();
@@ -277,6 +283,28 @@ class NotificationsService {
     final context = _navigatorKey?.currentContext;
     if (context == null) return;
 
+    if (_isRutasEvidenceRejected(notifType)) {
+      final eid = (notifEmpresaId ?? '').trim();
+      if (eid.isEmpty) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('No se encontró la empresa para abrir Rutas.'),
+          ),
+        );
+        return;
+      }
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => RutasDashboardScreen(
+            userId: cedula,
+            empresaId: eid,
+            rolRutas: kRutasRolConductor,
+          ),
+        ),
+      );
+      return;
+    }
+
     if (taskId == null) {
       navigator.push(
         MaterialPageRoute(
@@ -297,7 +325,10 @@ class NotificationsService {
     }
 
     // Tipos especiales de Compras: navegan al proveedor o ficha técnica.
-    if ((notifType == 'doc_rechazado' || notifType == 'correccion_requerida') &&
+    if ((notifType == 'doc_rechazado' ||
+            notifType == 'correccion_requerida' ||
+            notifType == 'nuevo_proveedor' ||
+            notifType == 'documento_por_vencer') &&
         taskId.startsWith('proveedor:')) {
       final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
       if (proveedorId.isNotEmpty) {
@@ -309,7 +340,9 @@ class NotificationsService {
       }
       return;
     }
-    if (notifType == 'ficha_rechazada' && taskId.startsWith('ficha:')) {
+    if ((notifType == 'ficha_rechazada' ||
+            notifType == 'documento_por_vencer') &&
+        taskId.startsWith('ficha:')) {
       final fichaId = taskId.replaceFirst('ficha:', '').trim();
       if (fichaId.isNotEmpty) {
         await abrirDetalleFichaRechazada(
@@ -320,7 +353,8 @@ class NotificationsService {
       }
       return;
     }
-    if (notifType == 'recepcion_doc_rechazado' &&
+    if ((notifType == 'recepcion_doc_rechazado' ||
+            notifType == 'documento_por_vencer') &&
         taskId.startsWith('recepcion:')) {
       await abrirDetalleRecepcionCompras(
         context,
@@ -329,7 +363,25 @@ class NotificationsService {
       );
       return;
     }
+    if (notifType == 'documento_por_vencer' && taskId.startsWith('marca:')) {
+      final marcaId = taskId.replaceFirst('marca:', '').trim();
+      if (marcaId.isNotEmpty) {
+        await abrirDocumentosMarcaCompras(
+          context,
+          userId: cedula,
+          marcaId: marcaId,
+        );
+      }
+      return;
+    }
 
+    if (await tryOpenFacturacionDocumentTask(
+      context,
+      userId: cedula,
+      taskId: taskId,
+    )) {
+      return;
+    }
     final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
       context,
       userIdentity: cedula,
@@ -367,6 +419,18 @@ class NotificationsService {
         MaterialPageRoute(
           builder: (_) =>
               CreatedTasksScreen(userId: cedula, highlightTaskId: taskId),
+        ),
+      );
+      return;
+    }
+    if (routeDecision.target == TaskRouteTarget.approvalTasks) {
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => CreatedTasksScreen(
+            userId: cedula,
+            highlightTaskId: taskId,
+            approvalMode: true,
+          ),
         ),
       );
       return;

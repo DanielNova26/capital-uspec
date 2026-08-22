@@ -38,21 +38,14 @@ class ModuleCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  color.withOpacity(0.8),
-                  color,
-                ],
+                colors: [color.withOpacity(0.8), color],
               ),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min, // Prevents taking infinite height
               children: [
-                Icon(
-                  icon,
-                  size: compact ? 24 : 32,
-                  color: Colors.white,
-                ),
+                Icon(icon, size: compact ? 24 : 32, color: Colors.white),
                 const SizedBox(height: 8),
                 Flexible(
                   child: Text(
@@ -122,21 +115,126 @@ class CompanyNameWidget extends StatelessWidget {
     }
 
     return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance.collection('TBL_EMPRESAS').doc(empresaId).get(),
+      future: FirebaseFirestore.instance
+          .collection('TBL_EMPRESAS')
+          .doc(empresaId)
+          .get(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return Text('...', style: style);
         }
         if (snapshot.hasData && snapshot.data!.exists) {
           final data = snapshot.data!.data() as Map<String, dynamic>?;
-          final nombre = data?['nombre'] ?? data?['nombreEmpresa'] ?? data?['alias'] ?? data?['razonSocial'];
+          final nombre =
+              data?['nombre'] ??
+              data?['nombreEmpresa'] ??
+              data?['alias'] ??
+              data?['razonSocial'];
           if (nombre != null && nombre.toString().isNotEmpty) {
-            return Text(nombre.toString(), style: style, overflow: TextOverflow.ellipsis);
+            return Text(
+              nombre.toString(),
+              style: style,
+              overflow: TextOverflow.ellipsis,
+            );
           }
         }
-        return Text(showIdIfNotFound ? empresaId : 'Empresa desconocida', style: style, overflow: TextOverflow.ellipsis);
+        return Text(
+          showIdIfNotFound ? empresaId : 'Empresa desconocida',
+          style: style,
+          overflow: TextOverflow.ellipsis,
+        );
       },
     );
+  }
+}
+
+class CompanyLogoAvatar extends StatelessWidget {
+  final String empresaId;
+  final double radius;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
+
+  const CompanyLogoAvatar({
+    super.key,
+    required this.empresaId,
+    this.radius = 18,
+    this.backgroundColor,
+    this.foregroundColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final id = empresaId.trim();
+    if (id.isEmpty || id == 'Sin empresa') {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: backgroundColor ?? theme.colorScheme.primaryContainer,
+        foregroundColor:
+            foregroundColor ?? theme.colorScheme.onPrimaryContainer,
+        child: const Icon(Icons.business, size: 18),
+      );
+    }
+
+    return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance
+          .collection('TBL_EMPRESAS')
+          .doc(id)
+          .get(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() as Map<String, dynamic>?;
+        final logoUrl = (data?['logoUrl'] ?? '').toString().trim();
+        final nombre =
+            (data?['nombre'] ??
+                    data?['nombreEmpresa'] ??
+                    data?['alias'] ??
+                    data?['razonSocial'] ??
+                    '')
+                .toString()
+                .trim();
+        final initials = _companyInitials(nombre.isNotEmpty ? nombre : id);
+
+        if (logoUrl.isNotEmpty) {
+          return SizedBox(
+            width: radius * 2,
+            height: radius * 2,
+            child: Image.network(
+              logoUrl,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => _fallbackAvatar(initials, theme),
+            ),
+          );
+        }
+
+        return _fallbackAvatar(initials, theme);
+      },
+    );
+  }
+
+  Widget _fallbackAvatar(String initials, ThemeData theme) {
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: backgroundColor ?? theme.colorScheme.primaryContainer,
+      foregroundColor: foregroundColor ?? theme.colorScheme.onPrimaryContainer,
+      child: Text(
+        initials,
+        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
+      ),
+    );
+  }
+
+  String _companyInitials(String value) {
+    final parts = value
+        .split(RegExp(r'\s+'))
+        .where((part) => part.trim().isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '—';
+    if (parts.length == 1) {
+      return parts.first
+          .substring(0, parts.first.length >= 2 ? 2 : 1)
+          .toUpperCase();
+    }
+    return '${parts.first[0]}${parts[1][0]}'.toUpperCase();
   }
 }
 

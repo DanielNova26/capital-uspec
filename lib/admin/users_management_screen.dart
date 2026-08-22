@@ -2,6 +2,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../widgets/user_avatar.dart';
+
 /// Pantalla principal que lista todos los usuarios y permite editarlos.
 class UsersManagementScreen extends StatelessWidget {
   @override
@@ -20,9 +22,13 @@ class UsersManagementScreen extends StatelessWidget {
             itemBuilder: (_, i) {
               final doc = docs[i];
               final u   = doc.data();
+              final nombre = [
+                (u['primerNombre'] ?? u['nombres'] ?? '').toString().trim(),
+                (u['primerApellido'] ?? u['apellidos'] ?? '').toString().trim(),
+              ].where((s) => s.isNotEmpty).join(' ');
               return ListTile(
-                leading: const Icon(Icons.person),
-                title: Text('${u['primerNombre']} ${u['primerApellido']}'),
+                leading: UserAvatar(userId: doc.id, nameHint: nombre),
+                title: UserNameText(doc.id, fallbackName: nombre),
                 subtitle: Text('Cédula: ${u['cedula']}'),
                 trailing: IconButton(
                   icon: const Icon(Icons.edit),

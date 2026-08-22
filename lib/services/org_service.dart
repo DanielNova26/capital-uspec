@@ -28,7 +28,11 @@ class OrgService {
       ref = ref.where('empresaId', isEqualTo: empresaId.trim());
     }
     final q = await ref.get();
-    return q.docs.map((d) => Area(id: d.id, nombre: (d.data()['nombre'] ?? '').toString())).toList();
+    return q.docs
+        .map(
+          (d) => Area(id: d.id, nombre: (d.data()['nombre'] ?? '').toString()),
+        )
+        .toList();
   }
 
   Future<List<Rol>> listRoles({String? areaId}) async {
@@ -37,17 +41,31 @@ class OrgService {
       ref = ref.where('areaId', isEqualTo: areaId);
     }
     final q = await ref.get();
-    return q.docs.map((d) {
-      final data = d.data();
-      return Rol(
-        id: d.id,
-        nombre: (data['nombre'] ?? '').toString(),
-        areaId: data['areaId']?.toString(),
-      );
-    }).toList();
+    return q.docs
+        .where((d) {
+          final data = d.data();
+          final type = (data['type'] ?? '').toString().trim().toLowerCase();
+          final accessShape =
+              (data['apps'] is List || data['appIds'] is List) &&
+              !data.containsKey('areaId');
+          return type != 'module_access' &&
+              type != 'access' &&
+              !accessShape;
+        })
+        .map((d) {
+          final data = d.data();
+          return Rol(
+            id: d.id,
+            nombre: (data['nombre'] ?? '').toString(),
+            areaId: data['areaId']?.toString(),
+          );
+        })
+        .toList();
   }
 
-  Future<List<Map<String, dynamic>>> listEstructuraPlano({String? empresaId}) async {
+  Future<List<Map<String, dynamic>>> listEstructuraPlano({
+    String? empresaId,
+  }) async {
     Query<Map<String, dynamic>> ref = _db.collection(_estructura);
     if (empresaId != null && empresaId.trim().isNotEmpty) {
       ref = ref.where('empresaId', isEqualTo: empresaId.trim());

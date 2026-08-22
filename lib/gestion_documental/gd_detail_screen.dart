@@ -10,6 +10,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
+import '../widgets/user_avatar.dart';
+import 'correspondencia/gd_colaboracion_models.dart';
+import 'correspondencia/gd_colaboracion_service.dart';
+import 'correspondencia/gd_correspondencia_screen.dart';
 import 'gd_models.dart';
 import 'gd_service.dart';
 import 'widgets/gd_pdf_preview.dart';
@@ -34,6 +38,7 @@ class GdDetailScreen extends StatefulWidget {
 class _GdDetailScreenState extends State<GdDetailScreen>
     with SingleTickerProviderStateMixin {
   final _service = GdService();
+  final _collaborationService = GdColaboracionService();
   late TabController _tabController;
   bool _loadingAction = false;
   String? _previewPdfUrl;
@@ -60,7 +65,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       stream: _dbStreamDoc(),
       builder: (context, docSnap) {
         if (!docSnap.hasData) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
         final doc = docSnap.data!;
 
@@ -77,14 +84,17 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 .doc(widget.userId)
                 .snapshots(),
             builder: (context, userSnap) {
-              final rolDocumental =
-                  _resolveRolDocumental(userSnap.data?.data(), widget.empresaId);
+              final rolDocumental = _resolveRolDocumental(
+                userSnap.data?.data(),
+                widget.empresaId,
+              );
               final nombreActor = _resolveNombreActor(userSnap.data?.data());
               return StreamBuilder<List<VersionDoc>>(
                 stream: _service.streamVersiones(doc.docId),
                 builder: (context, verSnap) {
-                  final versionsError =
-                      verSnap.hasError ? verSnap.error?.toString() : null;
+                  final versionsError = verSnap.hasError
+                      ? verSnap.error?.toString()
+                      : null;
                   final versions = verSnap.data ?? const <VersionDoc>[];
                   final currentVersion = _resolveCurrentVersion(doc, versions);
                   return isWeb
@@ -94,7 +104,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                           versions,
                           rolDocumental,
                           nombreActor,
-                          versionsLoading: verSnap.connectionState ==
+                          versionsLoading:
+                              verSnap.connectionState ==
                                   ConnectionState.waiting &&
                               !verSnap.hasData,
                           versionsError: versionsError,
@@ -105,7 +116,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                           versions,
                           rolDocumental,
                           nombreActor,
-                          versionsLoading: verSnap.connectionState ==
+                          versionsLoading:
+                              verSnap.connectionState ==
                                   ConnectionState.waiting &&
                               !verSnap.hasData,
                           versionsError: versionsError,
@@ -129,7 +141,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
 
   String? _resolveNombreActor(Map<String, dynamic>? userData) {
     if (userData == null) return null;
-    final nombres = (userData['nombres'] ?? userData['primerNombre'] ?? '').toString().trim();
+    final nombres = (userData['nombres'] ?? userData['primerNombre'] ?? '')
+        .toString()
+        .trim();
     return nombres.isNotEmpty ? nombres : null;
   }
 
@@ -140,9 +154,15 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     if (userData == null) return null;
     if (isDeveloperUser(userData)) return GdRoles.desarrollador;
     final detail = getUserCompanyDetail(userData, empresaId);
-    final scoped = (detail?['rolDocumental'] ?? '').toString().trim().toLowerCase();
+    final scoped = (detail?['rolDocumental'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     if (scoped.isNotEmpty) return scoped;
-    final global = (userData['rolDocumental'] ?? '').toString().trim().toLowerCase();
+    final global = (userData['rolDocumental'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     if (global.isNotEmpty) return global;
     return null;
   }
@@ -173,14 +193,16 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     final preferred = currentVersion ?? _resolveCurrentVersion(doc, versions);
     if (preferred != null &&
         ((preferred.urlPdf != null && preferred.urlPdf!.trim().isNotEmpty) ||
-            (preferred.pathPdf != null && preferred.pathPdf!.trim().isNotEmpty))) {
+            (preferred.pathPdf != null &&
+                preferred.pathPdf!.trim().isNotEmpty))) {
       return preferred;
     }
 
     for (final version in versions) {
       if (version.etiqueta == doc.versionActual &&
           ((version.urlPdf != null && version.urlPdf!.trim().isNotEmpty) ||
-              (version.pathPdf != null && version.pathPdf!.trim().isNotEmpty))) {
+              (version.pathPdf != null &&
+                  version.pathPdf!.trim().isNotEmpty))) {
         return version;
       }
     }
@@ -216,9 +238,10 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     VersionDoc? currentVersion,
     List<VersionDoc> versions,
     String? rolDocumental,
-    String? nombreActor,
-    {bool versionsLoading = false, String? versionsError}
-  ) {
+    String? nombreActor, {
+    bool versionsLoading = false,
+    String? versionsError,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -240,6 +263,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                   versionsLoading: versionsLoading,
                   versionsError: versionsError,
                 ),
+                const SizedBox(height: 24),
+                _buildRelatedCorrespondence(doc),
               ],
             ),
           ),
@@ -273,7 +298,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                   child: TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildActionsTab(doc, currentVersion, rolDocumental, nombreActor),
+                      _buildActionsTab(
+                        doc,
+                        currentVersion,
+                        rolDocumental,
+                        nombreActor,
+                      ),
                       _buildVersionsTab(versions),
                       _buildHistoryTab(doc),
                     ],
@@ -292,9 +322,10 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     VersionDoc? currentVersion,
     List<VersionDoc> versions,
     String? rolDocumental,
-    String? nombreActor,
-    {bool versionsLoading = false, String? versionsError}
-  ) {
+    String? nombreActor, {
+    bool versionsLoading = false,
+    String? versionsError,
+  }) {
     return Column(
       children: [
         Expanded(
@@ -313,6 +344,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                   versionsLoading: versionsLoading,
                   versionsError: versionsError,
                 ),
+                const SizedBox(height: 16),
+                _buildRelatedCorrespondence(doc),
                 const SizedBox(height: 24),
                 const GdSectionHeader(title: 'Trazabilidad y Control'),
                 TabBar(
@@ -332,7 +365,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                   child: TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildActionsTab(doc, currentVersion, rolDocumental, nombreActor),
+                      _buildActionsTab(
+                        doc,
+                        currentVersion,
+                        rolDocumental,
+                        nombreActor,
+                      ),
                       _buildVersionsTab(versions),
                       _buildHistoryTab(doc),
                     ],
@@ -399,13 +437,139 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               _buildInfoItem('Codigo', doc.codigo),
               _buildInfoItem('Categoria', doc.categoria ?? '-'),
               _buildInfoItem('Area', doc.area ?? '-'),
-              _buildInfoItem('Creado por', doc.creadoPor),
+              _buildUserInfoItem('Creado por', doc.creadoPor),
               if (doc.updatedAt != null)
                 _buildInfoItem(
                   'Actualizado',
-                  DateFormat('dd/MM/yyyy HH:mm').format(doc.updatedAt!.toDate()),
+                  DateFormat(
+                    'dd/MM/yyyy HH:mm',
+                  ).format(doc.updatedAt!.toDate()),
                 ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRelatedCorrespondence(DocumentoDoc doc) {
+    return ModuleCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: Color(0xFFE7F4F5),
+                foregroundColor: GdPalette.accent,
+                child: Icon(Icons.hub_outlined),
+              ),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Correspondencia relacionada',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    Text(
+                      'Expedientes donde esta versión fue consultada o usada como soporte.',
+                      style: TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 28),
+          StreamBuilder<List<GdDocumentoVinculado>>(
+            stream: _collaborationService.streamVinculosDocumento(doc.docId),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Text(
+                  'No fue posible cargar las relaciones: ${snapshot.error}',
+                  style: const TextStyle(fontFamily: kArial),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const LinearProgressIndicator();
+              }
+              final rows = snapshot.data!;
+              if (rows.isEmpty) {
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'Este documento todavía no está vinculado a correspondencia.',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                );
+              }
+              return Column(
+                children: rows.map((row) {
+                  final support = row.tipo == 'soporte_respuesta';
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: support
+                          ? const Color(0xFFE8F5EC)
+                          : const Color(0xFFE7F4F5),
+                      foregroundColor: support
+                          ? const Color(0xFF15803D)
+                          : GdPalette.accent,
+                      child: Icon(
+                        support
+                            ? Icons.attach_email_outlined
+                            : Icons.link_outlined,
+                      ),
+                    ),
+                    title: Text(
+                      '${row.radicado} · ${row.asunto}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${row.version} · ${support ? 'Soporte de respuesta' : 'Referencia de expediente'}',
+                      style: const TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GdCorrespondenciaScreen(
+                          userId: widget.userId,
+                          empresaId: widget.empresaId,
+                          initialExpedienteId: row.expedienteId,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
           ),
         ],
       ),
@@ -440,17 +604,54 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     );
   }
 
+  /// Igual que [_buildInfoItem] pero resuelve nombre real cuando el valor
+  /// es una cédula (p. ej. 'Creado por').
+  Widget _buildUserInfoItem(String label, String userId) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: kArial,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF94A3B8),
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(height: 4),
+        UserNameText(
+          userId,
+          style: const TextStyle(
+            fontFamily: kArial,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1E293B),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPreviewSection(
     DocumentoDoc doc,
     VersionDoc? currentVersion,
     List<VersionDoc> versions,
     String? rolDocumental,
-    String? nombreActor,
-    {bool versionsLoading = false, String? versionsError}
-  ) {
-    final previewVersion = _resolvePreviewVersion(doc, versions, currentVersion);
-    final puedeSubir = previewVersion != null &&
-        (previewVersion.estado == GdEstado.borrador || previewVersion.estado == GdEstado.observado) &&
+    String? nombreActor, {
+    bool versionsLoading = false,
+    String? versionsError,
+  }) {
+    final previewVersion = _resolvePreviewVersion(
+      doc,
+      versions,
+      currentVersion,
+    );
+    final puedeSubir =
+        previewVersion != null &&
+        (previewVersion.estado == GdEstado.borrador ||
+            previewVersion.estado == GdEstado.observado) &&
         GdRoles.puedeEjecutar('subir_pdf', rolDocumental);
 
     return Column(
@@ -458,7 +659,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       children: [
         GdSectionHeader(
           title: 'Vista Previa del Documento',
-          trailing: _buildPreviewTrailing(previewVersion, puedeSubir, rolDocumental, nombreActor),
+          trailing: _buildPreviewTrailing(
+            previewVersion,
+            puedeSubir,
+            rolDocumental,
+            nombreActor,
+          ),
         ),
         Stack(
           children: [
@@ -473,85 +679,93 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               child: versionsLoading
                   ? const Center(child: CircularProgressIndicator())
                   : versionsError != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.error_outline,
-                                  size: 48,
-                                  color: Colors.redAccent,
-                                ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'No se pudo cargar la versión del documento',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontFamily: kArial,
-                                    color: Color(0xFF0F172A),
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  versionsError,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontFamily: kArial,
-                                    color: Color(0xFF64748B),
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              size: 48,
+                              color: Colors.redAccent,
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'No se pudo cargar la versión del documento',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontFamily: kArial,
+                                color: Color(0xFF0F172A),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              versionsError,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                color: Color(0xFF64748B),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : previewVersion == null
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.layers_clear_outlined,
+                            size: 48,
+                            color: Color(0xFF94A3B8),
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'No se encontró una versión activa para este documento',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              color: Color(0xFF64748B),
                             ),
                           ),
-                        )
-                      : previewVersion == null
-                          ? const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.layers_clear_outlined,
-                                      size: 48, color: Color(0xFF94A3B8)),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    'No se encontró una versión activa para este documento',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontFamily: kArial,
-                                      color: Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : previewVersion.urlPdf == null
-                              ? const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.file_upload_outlined,
-                                  size: 48, color: Color(0xFF94A3B8)),
-                              SizedBox(height: 16),
-                              Text(
-                                'Aun no se ha subido el archivo PDF',
-                                style: TextStyle(
-                                  fontFamily: kArial,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
+                        ],
+                      ),
+                    )
+                  : previewVersion.urlPdf == null
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.file_upload_outlined,
+                            size: 48,
+                            color: Color(0xFF94A3B8),
                           ),
-                         )
-                      : buildGdPdfPreview(
-                          url: previewVersion.urlPdf!,
-                          pdfFuture:
-                              _resolvePreviewPdfFuture(previewVersion.urlPdf!),
-                          fileName: previewVersion.nombreArchivo ??
-                              '${previewVersion.etiqueta}.pdf',
-                        ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Aun no se ha subido el archivo PDF',
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : buildGdPdfPreview(
+                      url: previewVersion.urlPdf!,
+                      pdfFuture: _resolvePreviewPdfFuture(
+                        previewVersion.urlPdf!,
+                      ),
+                      fileName:
+                          previewVersion.nombreArchivo ??
+                          '${previewVersion.etiqueta}.pdf',
+                    ),
             ),
             if (previewVersion != null)
               Positioned.fill(
@@ -585,7 +799,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
           ),
         if (hasLink && puedeSubir) const SizedBox(width: 4),
         if (puedeSubir)
-          _buildUploadButton(currentVersion, rolDocumental, nombreActor, hasLink),
+          _buildUploadButton(
+            currentVersion,
+            rolDocumental,
+            nombreActor,
+            hasLink,
+          ),
       ],
     );
   }
@@ -600,7 +819,11 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       onPressed: currentVersion == null
           ? null
           : () async {
-              await _pickAndUploadPdf(currentVersion, rolDocumental, nombreActor);
+              await _pickAndUploadPdf(
+                currentVersion,
+                rolDocumental,
+                nombreActor,
+              );
             },
       icon: const Icon(Icons.upload_file, size: 16),
       label: Text(
@@ -610,7 +833,11 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     );
   }
 
-  Future<void> _pickAndUploadPdf(VersionDoc currentVersion, String? rolDocumental, String? nombreActor) async {
+  Future<void> _pickAndUploadPdf(
+    VersionDoc currentVersion,
+    String? rolDocumental,
+    String? nombreActor,
+  ) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
@@ -622,22 +849,26 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       final bytes = file.bytes!;
       final nombre = file.name;
 
-      await _handleAction(() => _service.subirPdf(
-            docId: widget.docId,
-            versionId: currentVersion.versionId,
-            empresaId: widget.empresaId,
-            numeroVersion: currentVersion.numero,
-            bytes: bytes,
-            nombre: nombre,
-            actorId: widget.userId,
-            rolDocumental: rolDocumental!,
-            nombreActor: nombreActor,
-          ));
+      await _handleAction(
+        () => _service.subirPdf(
+          docId: widget.docId,
+          versionId: currentVersion.versionId,
+          empresaId: widget.empresaId,
+          numeroVersion: currentVersion.numero,
+          bytes: bytes,
+          nombre: nombre,
+          actorId: widget.userId,
+          rolDocumental: rolDocumental!,
+          nombreActor: nombreActor,
+        ),
+      );
     } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se seleccionó ningún archivo o hubo un error al leer el PDF.'),
+          content: Text(
+            'No se seleccionó ningún archivo o hubo un error al leer el PDF.',
+          ),
         ),
       );
     }
@@ -671,14 +902,32 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     String? nombreActor,
   ) {
     final currentVersionId = currentVersion?.versionId;
-    final puedeEnviar = currentVersionId != null && GdRoles.puedeEjecutar('enviar_revision', rolDocumental);
-    final puedeObservar = currentVersionId != null && GdRoles.puedeEjecutar('observar', rolDocumental);
-    final puedeReenviar = currentVersionId != null && GdRoles.puedeEjecutar('reenviar', rolDocumental);
-    final puedeAprobar = currentVersionId != null && GdRoles.puedeEjecutar('aprobar', rolDocumental);
-    final puedeFirmar = currentVersionId != null && GdRoles.puedeEjecutar('firmar', rolDocumental);
-    final puedeMarcarVigente = currentVersionId != null && GdRoles.puedeEjecutar('marcar_vigente', rolDocumental);
-    final puedeNuevaVersion = GdRoles.puedeEjecutar('nueva_version', rolDocumental);
-    final puedeEliminar = GdRoles.puedeEjecutar('eliminar_documento', rolDocumental);
+    final puedeEnviar =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('enviar_revision', rolDocumental);
+    final puedeObservar =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('observar', rolDocumental);
+    final puedeReenviar =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('reenviar', rolDocumental);
+    final puedeAprobar =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('aprobar', rolDocumental);
+    final puedeFirmar =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('firmar', rolDocumental);
+    final puedeMarcarVigente =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('marcar_vigente', rolDocumental);
+    final puedeNuevaVersion = GdRoles.puedeEjecutar(
+      'nueva_version',
+      rolDocumental,
+    );
+    final puedeEliminar = GdRoles.puedeEjecutar(
+      'eliminar_documento',
+      rolDocumental,
+    );
 
     return ListView(
       padding: const EdgeInsets.all(24),
@@ -734,13 +983,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             label: 'OBSERVAR / RECHAZAR',
             icon: Icons.rule,
             color: const Color(0xFFF59E0B),
-            onPressed: () =>
-                _showObservationDialog(
-                  doc,
-                  currentVersionId!,
-                  rolDocumental!,
-                  nombreActor,
-                ),
+            onPressed: () => _showObservationDialog(
+              doc,
+              currentVersionId!,
+              rolDocumental!,
+              nombreActor,
+            ),
           ),
         if (doc.estado == GdEstado.observado &&
             currentVersion != null &&
@@ -749,7 +997,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             label: 'SUBIR PDF CORREGIDO',
             icon: Icons.upload_file,
             color: const Color(0xFFF59E0B),
-            onPressed: () => _pickAndUploadPdf(currentVersion!, rolDocumental!, nombreActor),
+            onPressed: () =>
+                _pickAndUploadPdf(currentVersion!, rolDocumental!, nombreActor),
           ),
         if (doc.estado == GdEstado.observado &&
             currentVersion != null &&
@@ -845,11 +1094,19 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             ),
             child: Column(
               children: [
-                Icon(Icons.lock_person_outlined, color: const Color(0xFF94A3B8).withOpacity(0.5), size: 32),
+                Icon(
+                  Icons.lock_person_outlined,
+                  color: const Color(0xFF94A3B8).withOpacity(0.5),
+                  size: 32,
+                ),
                 const SizedBox(height: 12),
                 const Text(
                   'Acciones Limitadas',
-                  style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -857,7 +1114,11 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                       ? 'No tienes un rol asignado para esta empresa. Contacta al administrador para habilitar tus permisos.'
                       : 'Tu rol actual (${rolDocumental.toUpperCase()}) no tiene acciones permitidas para el estado actual del documento.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontFamily: kArial, fontSize: 13, color: Color(0xFF64748B)),
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 13,
+                    color: Color(0xFF64748B),
+                  ),
                 ),
               ],
             ),
@@ -900,17 +1161,28 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             final esPasado = i < indiceActual;
             final esHoy = i == indiceActual;
             final esError = esHoy && estadoActual == GdEstado.observado;
-            
-            final color = esError 
-              ? Colors.redAccent 
-              : (esPasado || esHoy ? GdPalette.accent : const Color(0xFF94A3B8).withOpacity(0.3));
+
+            final color = esError
+                ? Colors.redAccent
+                : (esPasado || esHoy
+                      ? GdPalette.accent
+                      : const Color(0xFF94A3B8).withOpacity(0.3));
 
             return Expanded(
               child: Column(
                 children: [
                   Row(
                     children: [
-                      Expanded(child: Container(height: 2, color: i == 0 ? Colors.transparent : (esPasado ? GdPalette.accent : const Color(0xFFE2E8F0)))),
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          color: i == 0
+                              ? Colors.transparent
+                              : (esPasado
+                                    ? GdPalette.accent
+                                    : const Color(0xFFE2E8F0)),
+                        ),
+                      ),
                       Container(
                         width: 28,
                         height: 28,
@@ -920,14 +1192,39 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                           border: Border.all(color: color, width: 2),
                         ),
                         child: Center(
-                          child: esPasado 
-                            ? const Icon(Icons.check, size: 16, color: GdPalette.accent) 
-                            : (esHoy && esError 
-                                ? const Icon(Icons.priority_high, size: 16, color: Colors.white)
-                                : Text('${i + 1}', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold, fontSize: 12, color: esHoy ? Colors.white : color))),
+                          child: esPasado
+                              ? const Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: GdPalette.accent,
+                                )
+                              : (esHoy && esError
+                                    ? const Icon(
+                                        Icons.priority_high,
+                                        size: 16,
+                                        color: Colors.white,
+                                      )
+                                    : Text(
+                                        '${i + 1}',
+                                        style: TextStyle(
+                                          fontFamily: kArial,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          color: esHoy ? Colors.white : color,
+                                        ),
+                                      )),
                         ),
                       ),
-                      Expanded(child: Container(height: 2, color: i == pasos.length - 1 ? Colors.transparent : (esPasado && (i + 1 <= indiceActual) ? GdPalette.accent : const Color(0xFFE2E8F0)))),
+                      Expanded(
+                        child: Container(
+                          height: 2,
+                          color: i == pasos.length - 1
+                              ? Colors.transparent
+                              : (esPasado && (i + 1 <= indiceActual)
+                                    ? GdPalette.accent
+                                    : const Color(0xFFE2E8F0)),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -1081,7 +1378,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               title: GdAccionX.deString(e.accion).descripcion,
               actor: e.nombreActor ?? e.realizadoPor,
               date: e.realizadoEn != null
-                  ? DateFormat('dd/MM/yyyy HH:mm').format(e.realizadoEn!.toDate())
+                  ? DateFormat(
+                      'dd/MM/yyyy HH:mm',
+                    ).format(e.realizadoEn!.toDate())
                   : '-',
               comment: e.observacion,
               isFirst: i == 0,
@@ -1100,8 +1399,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       await action();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _loadingAction = false);
@@ -1152,7 +1452,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                     enableInteractiveSelection: true,
                     onChanged: (_) => setDialogState(() {}),
                     decoration: const InputDecoration(
-                      hintText: 'Escriba el motivo del rechazo u observaciones...',
+                      hintText:
+                          'Escriba el motivo del rechazo u observaciones...',
                       border: OutlineInputBorder(),
                       alignLabelWithHint: true,
                     ),
@@ -1187,7 +1488,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                           ),
                         );
                       },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                ),
                 child: const Text('Enviar Observaciones'),
               ),
             ],

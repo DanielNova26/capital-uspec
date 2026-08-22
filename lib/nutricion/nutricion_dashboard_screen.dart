@@ -27,6 +27,7 @@ import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
 import '../theme/app_typography.dart';
 import '../widgets/internal_module_layout.dart';
+import '../widgets/user_avatar.dart';
 import 'widgets/nutrition_shared_widgets.dart';
 
 import 'package:todo/widgets/selector_diagnosticos_widget.dart';
@@ -35,21 +36,88 @@ import 'atencion/diagnostico_models.dart';
 // ── Catálogo de dietas clínicas estándar ─────────────────────────────────────
 // Usado para seed de TBL_DIETAS y para construir las sugerencias en el plan.
 const List<Map<String, String>> kDietasCatalogo = [
-  {'codigo': 'normal',          'nombre': 'Dieta normal',              'descripcion': 'Alimentación equilibrada estándar.'},
-  {'codigo': 'liquida_clara',   'nombre': 'Líquida clara',             'descripcion': 'Solo líquidos transparentes. Post-cirugía o pre-procedimientos.'},
-  {'codigo': 'liquida_completa','nombre': 'Líquida completa',          'descripcion': 'Líquidos con mayor valor nutricional. Transición hacia dieta blanda.'},
-  {'codigo': 'blanda',          'nombre': 'Blanda',                    'descripcion': 'Alimentos de textura suave, fácil digestión. Post-quirúrgica o GI.'},
-  {'codigo': 'hipocalorica',    'nombre': 'Hipocalórica',              'descripcion': 'Reducida en calorías. Control de sobrepeso u obesidad.'},
-  {'codigo': 'hipograsa',       'nombre': 'Hipograsa',                 'descripcion': 'Baja en grasas. Afecciones hepáticas, biliares o cardiovasculares.'},
-  {'codigo': 'hipercalorica',   'nombre': 'Hipercalórica',             'descripcion': 'Alto valor energético. Desnutrición, caquexia, recuperación.'},
-  {'codigo': 'hiperproteica',   'nombre': 'Hiperproteica',             'descripcion': 'Alta en proteínas. Recuperación muscular, heridas, cirugías.'},
-  {'codigo': 'alta_fibra',      'nombre': 'Alta en fibra',             'descripcion': 'Rica en fibra dietética. Estreñimiento, síndrome metabólico.'},
-  {'codigo': 'renal',           'nombre': 'Renal',                     'descripcion': 'Restricción de Na, K, P y líquidos. Insuficiencia renal.'},
-  {'codigo': 'hipopurinica',    'nombre': 'Hipopurínica',              'descripcion': 'Baja en purinas. Gota e hiperuricemia.'},
-  {'codigo': 'sin_irritantes',  'nombre': 'Sin irritantes gástricos',  'descripcion': 'Excluye condimentos, cafeína y ácidos. Gastritis, úlcera.'},
-  {'codigo': 'libre_lactosa',   'nombre': 'Libre de lactosa',          'descripcion': 'Exclusión de lactosa. Intolerancia a la lactosa.'},
-  {'codigo': 'reflujo',         'nombre': 'Reflujo esofágico',         'descripcion': 'Fraccionada, baja en grasa y acidez. ERGE.'},
-  {'codigo': 'vegetariana',     'nombre': 'Vegetariana',               'descripcion': 'Sin carnes. Por elección, creencias o indicación médica.'},
+  {
+    'codigo': 'normal',
+    'nombre': 'Dieta normal',
+    'descripcion': 'Alimentación equilibrada estándar.',
+  },
+  {
+    'codigo': 'liquida_clara',
+    'nombre': 'Líquida clara',
+    'descripcion':
+        'Solo líquidos transparentes. Post-cirugía o pre-procedimientos.',
+  },
+  {
+    'codigo': 'liquida_completa',
+    'nombre': 'Líquida completa',
+    'descripcion':
+        'Líquidos con mayor valor nutricional. Transición hacia dieta blanda.',
+  },
+  {
+    'codigo': 'blanda',
+    'nombre': 'Blanda',
+    'descripcion':
+        'Alimentos de textura suave, fácil digestión. Post-quirúrgica o GI.',
+  },
+  {
+    'codigo': 'hipocalorica',
+    'nombre': 'Hipocalórica',
+    'descripcion': 'Reducida en calorías. Control de sobrepeso u obesidad.',
+  },
+  {
+    'codigo': 'hipograsa',
+    'nombre': 'Hipograsa',
+    'descripcion':
+        'Baja en grasas. Afecciones hepáticas, biliares o cardiovasculares.',
+  },
+  {
+    'codigo': 'hipercalorica',
+    'nombre': 'Hipercalórica',
+    'descripcion':
+        'Alto valor energético. Desnutrición, caquexia, recuperación.',
+  },
+  {
+    'codigo': 'hiperproteica',
+    'nombre': 'Hiperproteica',
+    'descripcion':
+        'Alta en proteínas. Recuperación muscular, heridas, cirugías.',
+  },
+  {
+    'codigo': 'alta_fibra',
+    'nombre': 'Alta en fibra',
+    'descripcion':
+        'Rica en fibra dietética. Estreñimiento, síndrome metabólico.',
+  },
+  {
+    'codigo': 'renal',
+    'nombre': 'Renal',
+    'descripcion': 'Restricción de Na, K, P y líquidos. Insuficiencia renal.',
+  },
+  {
+    'codigo': 'hipopurinica',
+    'nombre': 'Hipopurínica',
+    'descripcion': 'Baja en purinas. Gota e hiperuricemia.',
+  },
+  {
+    'codigo': 'sin_irritantes',
+    'nombre': 'Sin irritantes gástricos',
+    'descripcion': 'Excluye condimentos, cafeína y ácidos. Gastritis, úlcera.',
+  },
+  {
+    'codigo': 'libre_lactosa',
+    'nombre': 'Libre de lactosa',
+    'descripcion': 'Exclusión de lactosa. Intolerancia a la lactosa.',
+  },
+  {
+    'codigo': 'reflujo',
+    'nombre': 'Reflujo esofágico',
+    'descripcion': 'Fraccionada, baja en grasa y acidez. ERGE.',
+  },
+  {
+    'codigo': 'vegetariana',
+    'nombre': 'Vegetariana',
+    'descripcion': 'Sin carnes. Por elección, creencias o indicación médica.',
+  },
 ];
 
 /// Abre NutricionDashboardScreen desde una notificación de cita.
@@ -74,9 +142,7 @@ Future<void> abrirNutricionDesdeCita(
   final empresaId = (citaData?['empresaId'] as String?)?.trim() ?? '';
   if (empresaId.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('No se pudo abrir el módulo de Nutrición.'),
-      ),
+      const SnackBar(content: Text('No se pudo abrir el módulo de Nutrición.')),
     );
     return;
   }
@@ -84,10 +150,8 @@ Future<void> abrirNutricionDesdeCita(
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (_) => NutricionDashboardScreen(
-        userId: userId,
-        empresaId: empresaId,
-      ),
+      builder: (_) =>
+          NutricionDashboardScreen(userId: userId, empresaId: empresaId),
     ),
   );
 }
@@ -114,26 +178,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       label: 'Atención',
       icon: Icons.health_and_safety_outlined,
     ),
-    InternalModuleTabItem(
-      label: 'Menú',
-      icon: Icons.restaurant_menu_outlined,
-    ),
-    InternalModuleTabItem(
-      label: 'Items',
-      icon: Icons.inventory_2_outlined,
-    ),
-    InternalModuleTabItem(
-      label: 'Pacientes',
-      icon: Icons.badge_outlined,
-    ),
-    InternalModuleTabItem(
-      label: 'Firmas',
-      icon: Icons.draw_outlined,
-    ),
-    InternalModuleTabItem(
-      label: 'Reportes',
-      icon: Icons.bar_chart_outlined,
-    ),
+    InternalModuleTabItem(label: 'Menú', icon: Icons.restaurant_menu_outlined),
+    InternalModuleTabItem(label: 'Items', icon: Icons.inventory_2_outlined),
+    InternalModuleTabItem(label: 'Pacientes', icon: Icons.badge_outlined),
+    InternalModuleTabItem(label: 'Firmas', icon: Icons.draw_outlined),
+    InternalModuleTabItem(label: 'Reportes', icon: Icons.bar_chart_outlined),
   ];
 
   final List<String> _establecimientos = const ['Establecimiento principal'];
@@ -220,49 +269,45 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
   void _initPacientesStream() {
     final service = NutricionService();
-    _pacientesStream =
-        service.streamDirectorioNutricion(empresaId: widget.empresaId).map(
-      (list) {
-        final pacientes = list.map((data) {
-          return _PacienteInfo(
-            id: data['id']?.toString() ?? '',
-            nombre:
-                (data['nombreCompleto'] ?? data['nombre'] ?? '').toString(),
-            documento: (data['documento'] ?? '').toString(),
-            eps: (data['eps'] ?? '').toString(),
-            genero: (data['genero'] ?? '').toString(),
-            fechaNacimiento: data['fechaNacimiento'] is Timestamp
-                ? (data['fechaNacimiento'] as Timestamp).toDate()
-                : null,
-            establecimiento: (data['establecimiento'] ?? '').toString(),
-            pabellon: (data['pabellon'] ?? '').toString(),
-            diagnosticoMedico:
-                (data['diagnosticoMedico'] ?? '').toString(),
-            diagnosticoNutricional:
-                (data['diagnosticoNutricional'] ?? '').toString(),
-            regimenAfiliacion:
-                (data['regimenAfiliacion'] ?? '').toString(),
-            tipoDietaSugerida:
-                (data['tipoDietaSugerida'] ?? '').toString(),
-            pesoKg: (data['ultimaMedicion']?['pesoKg'] as num?)?.toDouble(),
-            tallaCm:
-                (data['ultimaMedicion']?['tallaCm'] as num?)?.toDouble(),
-            imc: (data['ultimaMedicion']?['imc'] as num?)?.toDouble(),
-            diagnosticosMedicos: (data['diagnosticosMedicosData'] as List?)
-                    ?.map((e) => DiagnosticoMedico.fromMap(e))
-                    .toList() ??
-                [],
-            diagnosticosNutricionales:
-                (data['diagnosticosNutricionalesData'] as List?)
-                        ?.map((e) => DiagnosticoNutricional.fromMap(e))
-                        .toList() ??
-                    [],
-          );
-        }).toList();
-        _cachedPacientes = pacientes;
-        return pacientes;
-      },
-    );
+    _pacientesStream = service
+        .streamDirectorioNutricion(empresaId: widget.empresaId)
+        .map((list) {
+          final pacientes = list.map((data) {
+            return _PacienteInfo(
+              id: data['id']?.toString() ?? '',
+              nombre: (data['nombreCompleto'] ?? data['nombre'] ?? '')
+                  .toString(),
+              documento: (data['documento'] ?? '').toString(),
+              eps: (data['eps'] ?? '').toString(),
+              genero: (data['genero'] ?? '').toString(),
+              fechaNacimiento: data['fechaNacimiento'] is Timestamp
+                  ? (data['fechaNacimiento'] as Timestamp).toDate()
+                  : null,
+              establecimiento: (data['establecimiento'] ?? '').toString(),
+              pabellon: (data['pabellon'] ?? '').toString(),
+              diagnosticoMedico: (data['diagnosticoMedico'] ?? '').toString(),
+              diagnosticoNutricional: (data['diagnosticoNutricional'] ?? '')
+                  .toString(),
+              regimenAfiliacion: (data['regimenAfiliacion'] ?? '').toString(),
+              tipoDietaSugerida: (data['tipoDietaSugerida'] ?? '').toString(),
+              pesoKg: (data['ultimaMedicion']?['pesoKg'] as num?)?.toDouble(),
+              tallaCm: (data['ultimaMedicion']?['tallaCm'] as num?)?.toDouble(),
+              imc: (data['ultimaMedicion']?['imc'] as num?)?.toDouble(),
+              diagnosticosMedicos:
+                  (data['diagnosticosMedicosData'] as List?)
+                      ?.map((e) => DiagnosticoMedico.fromMap(e))
+                      .toList() ??
+                  [],
+              diagnosticosNutricionales:
+                  (data['diagnosticosNutricionalesData'] as List?)
+                      ?.map((e) => DiagnosticoNutricional.fromMap(e))
+                      .toList() ??
+                  [],
+            );
+          }).toList();
+          _cachedPacientes = pacientes;
+          return pacientes;
+        });
   }
 
   @override
@@ -312,7 +357,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       'Catálogo de Ingredientes',
       'Directorio de Pacientes',
       'Firmas y Consentimientos',
-      'Reportes Operativos'
+      'Reportes Operativos',
     ];
     const subs = [
       'Registro clínico y seguimiento de pacientes.',
@@ -405,10 +450,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           userId: widget.userId,
           showAppBar: false,
         ),
-        NutricionReportesScreen(
-          empresaId: widget.empresaId,
-          showAppBar: false,
-        ),
+        NutricionReportesScreen(empresaId: widget.empresaId, showAppBar: false),
       ],
     );
   }
@@ -453,7 +495,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             Icons.person_add_outlined,
             Icons.medical_information_outlined,
             Icons.restaurant_menu_outlined,
-            Icons.verified_outlined
+            Icons.verified_outlined,
           ],
           onStepTap: (i) {
             if (i < _pasoActual) setState(() => _pasoActual = i);
@@ -465,7 +507,10 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           child: Column(
             children: [
               ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 480, maxHeight: 800),
+                constraints: const BoxConstraints(
+                  minHeight: 480,
+                  maxHeight: 800,
+                ),
                 child: IndexedStack(
                   index: _pasoActual,
                   children: [
@@ -488,17 +533,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
-          color: NutritionPalette.background,
-          borderRadius:
-              BorderRadius.vertical(bottom: Radius.circular(8))),
+        color: NutritionPalette.background,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           if (_pasoActual > 0)
             OutlinedButton.icon(
-                onPressed: _irAlPasoAnterior,
-                icon: const Icon(Icons.arrow_back),
-                label: const Text('Anterior'))
+              onPressed: _irAlPasoAnterior,
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Anterior'),
+            )
           else
             const SizedBox(),
           FilledButton.icon(
@@ -506,14 +552,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                 ? _irAlSiguientePaso
                 : (_agendandoCita ? null : _guardarYAgendarCita),
             icon: Icon(
-                _pasoActual < 3 ? Icons.arrow_forward : Icons.check_circle),
-            label: Text(_pasoActual < 3
-                ? 'Siguiente'
-                : (_agendandoCita ? 'Guardando...' : 'Finalizar Proceso')),
+              _pasoActual < 3 ? Icons.arrow_forward : Icons.check_circle,
+            ),
+            label: Text(
+              _pasoActual < 3
+                  ? 'Siguiente'
+                  : (_agendandoCita ? 'Guardando...' : 'Finalizar Proceso'),
+            ),
             style: FilledButton.styleFrom(
-                backgroundColor: _pasoActual < 3
-                    ? NutritionPalette.accent
-                    : Colors.green[800]),
+              backgroundColor: _pasoActual < 3
+                  ? NutritionPalette.accent
+                  : Colors.green[800],
+            ),
           ),
         ],
       ),
@@ -533,44 +583,68 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   Widget _buildPacienteFichaCard() {
     if (_selectedPaciente == null) {
       return const EmptyStateWidget(
-          icon: Icons.person_search,
-          title: 'Paciente no seleccionado',
-          message: 'Inicia el flujo seleccionando un paciente.',
-          compact: true);
+        icon: Icons.person_search,
+        title: 'Paciente no seleccionado',
+        message: 'Inicia el flujo seleccionando un paciente.',
+        compact: true,
+      );
     }
     return NutritionCard(
       title: 'Paciente Seleccionado',
       child: Column(
         children: [
-          const CircleAvatar(
-              radius: 36,
-              backgroundColor: NutritionPalette.background,
-              child: Icon(Icons.person,
-                  size: 36, color: NutritionPalette.accent)),
+          UserAvatar(
+            nameHint: _selectedPaciente!.nombre,
+            radius: 36,
+            backgroundColor: NutritionPalette.background,
+            foregroundColor: NutritionPalette.accent,
+          ),
           const SizedBox(height: 16),
-          Text(_selectedPaciente!.nombre,
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  fontFamily: kArial,
-                  color: NutritionPalette.textMain)),
-          Text(_selectedPaciente!.documento,
-              style: const TextStyle(
-                  color: NutritionPalette.textMuted, fontSize: 12)),
+          Text(
+            _selectedPaciente!.nombre,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              fontFamily: kArial,
+              color: NutritionPalette.textMain,
+            ),
+          ),
+          Text(
+            _selectedPaciente!.documento,
+            style: const TextStyle(
+              color: NutritionPalette.textMuted,
+              fontSize: 12,
+            ),
+          ),
           const Divider(height: 32),
-          _buildFichaRow(Icons.badge_outlined, 'Régimen',
-              _regimenCtrl.text.isEmpty ? 'Pendiente' : _regimenCtrl.text),
+          _buildFichaRow(
+            Icons.badge_outlined,
+            'Régimen',
+            _regimenCtrl.text.isEmpty ? 'Pendiente' : _regimenCtrl.text,
+          ),
           if (_selectedPaciente!.eps.isNotEmpty)
-            _buildFichaRow(Icons.local_hospital_outlined, 'EPS',
-                _selectedPaciente!.eps),
+            _buildFichaRow(
+              Icons.local_hospital_outlined,
+              'EPS',
+              _selectedPaciente!.eps,
+            ),
           if (_selectedPaciente!.imc != null)
-            _buildFichaRow(Icons.monitor_weight_outlined, 'IMC',
-                '${_selectedPaciente!.imc!.toStringAsFixed(1)} · ${_imcClasificacion(_selectedPaciente!.imc!)}'),
-          _buildFichaRow(Icons.restaurant_outlined, 'Dieta',
-              _tipoDietaCtrl.text.isEmpty ? 'No definida' : _tipoDietaCtrl.text),
+            _buildFichaRow(
+              Icons.monitor_weight_outlined,
+              'IMC',
+              '${_selectedPaciente!.imc!.toStringAsFixed(1)} · ${_imcClasificacion(_selectedPaciente!.imc!)}',
+            ),
+          _buildFichaRow(
+            Icons.restaurant_outlined,
+            'Dieta',
+            _tipoDietaCtrl.text.isEmpty ? 'No definida' : _tipoDietaCtrl.text,
+          ),
           if (_proximoControl != null)
-            _buildFichaRow(Icons.event_outlined, 'Próx. control',
-                DateFormat('dd/MM/yyyy').format(_proximoControl!)),
+            _buildFichaRow(
+              Icons.event_outlined,
+              'Próx. control',
+              DateFormat('dd/MM/yyyy').format(_proximoControl!),
+            ),
         ],
       ),
     );
@@ -586,20 +660,30 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   Widget _buildFichaRow(IconData icon, String label, String val) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(children: [
-        Icon(icon, size: 14, color: NutritionPalette.textMuted),
-        const SizedBox(width: 8),
-        Text('$label: ',
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: NutritionPalette.textMuted),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
             style: const TextStyle(
-                fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+              color: NutritionPalette.textMain,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              val,
+              style: const TextStyle(
                 fontSize: 12,
-                color: NutritionPalette.textMain)),
-        Expanded(
-            child: Text(val,
-                style: const TextStyle(
-                    fontSize: 12, color: NutritionPalette.textMain),
-                overflow: TextOverflow.ellipsis))
-      ]),
+                color: NutritionPalette.textMain,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -656,10 +740,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   void _irAlSiguientePaso() {
     final err = _validarPaso(_pasoActual);
     if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
           content: Text(err),
           backgroundColor: Colors.red[800],
-          behavior: SnackBarBehavior.floating));
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
     if (_pasoActual < 3) setState(() => _pasoActual++);
@@ -695,7 +782,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   color: NutritionPalette.accent.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.person_search, color: NutritionPalette.accent, size: 24),
+                child: const Icon(
+                  Icons.person_search,
+                  color: NutritionPalette.accent,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 16),
               const Expanded(
@@ -704,11 +795,20 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   children: [
                     Text(
                       'Admisión de Paciente',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: NutritionPalette.textMain, fontFamily: kArial),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: NutritionPalette.textMain,
+                        fontFamily: kArial,
+                      ),
                     ),
                     Text(
                       'Busca un paciente existente o registra un nuevo ingreso clínico.',
-                      style: TextStyle(color: NutritionPalette.textMuted, fontSize: 13, fontFamily: kArial),
+                      style: TextStyle(
+                        color: NutritionPalette.textMuted,
+                        fontSize: 13,
+                        fontFamily: kArial,
+                      ),
                     ),
                   ],
                 ),
@@ -729,14 +829,19 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     decoration: InputDecoration(
                       labelText: 'Buscar paciente por nombre o documento',
                       prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       filled: true,
                       fillColor: NutritionPalette.background,
                     ),
                     items: pacientes
-                        .map((p) => DropdownMenuItem(
+                        .map(
+                          (p) => DropdownMenuItem(
                             value: p,
-                            child: Text('${p.nombre} · ${p.documento}')))
+                            child: Text('${p.nombre} · ${p.documento}'),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) {
                       setState(() {
@@ -748,8 +853,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                           _diagnosticoMedicoCtrl.text = v.diagnosticoMedico;
                           _diagnosticoNutriCtrl.text = v.diagnosticoNutricional;
                           _tipoDietaCtrl.text = v.tipoDietaSugerida;
-                          _diagnosticosMedicosSeleccionados = List.from(v.diagnosticosMedicos);
-                          _diagnosticosNutricionalesSeleccionados = List.from(v.diagnosticosNutricionales);
+                          _diagnosticosMedicosSeleccionados = List.from(
+                            v.diagnosticosMedicos,
+                          );
+                          _diagnosticosNutricionalesSeleccionados = List.from(
+                            v.diagnosticosNutricionales,
+                          );
                         }
                       });
                     },
@@ -760,10 +869,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     child: OutlinedButton.icon(
                       onPressed: _registrarNuevoPaciente,
                       icon: const Icon(Icons.person_add_outlined),
-                      label: const Text('REGISTRAR NUEVO PACIENTE', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                      label: const Text(
+                        'REGISTRAR NUEVO PACIENTE',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
@@ -775,7 +892,13 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             const SizedBox(height: 32),
             const Text(
               'EXPEDIENTE SELECCIONADO',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: NutritionPalette.accent, fontFamily: kArial),
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+                color: NutritionPalette.accent,
+                fontFamily: kArial,
+              ),
             ),
             const SizedBox(height: 12),
             _buildPacienteSummaryCard(),
@@ -798,10 +921,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         children: [
           Row(
             children: [
-              CircleAvatar(
+              UserAvatar(
+                nameHint: _selectedPaciente!.nombre,
                 radius: 30,
                 backgroundColor: NutritionPalette.accent,
-                child: const Icon(Icons.person, color: Colors.white, size: 30),
+                foregroundColor: Colors.white,
               ),
               const SizedBox(width: 20),
               Expanded(
@@ -810,15 +934,28 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   children: [
                     Text(
                       _selectedPaciente!.nombre,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: NutritionPalette.textMain, fontFamily: kArial),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: NutritionPalette.textMain,
+                        fontFamily: kArial,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        ClinicalTag(label: _selectedPaciente!.documento, color: NutritionPalette.secondary, isCompact: true),
+                        ClinicalTag(
+                          label: _selectedPaciente!.documento,
+                          color: NutritionPalette.secondary,
+                          isCompact: true,
+                        ),
                         const SizedBox(width: 8),
                         if (_selectedPaciente!.eps.isNotEmpty)
-                          ClinicalTag(label: _selectedPaciente!.eps, color: NutritionPalette.info, isCompact: true),
+                          ClinicalTag(
+                            label: _selectedPaciente!.eps,
+                            color: NutritionPalette.info,
+                            isCompact: true,
+                          ),
                       ],
                     ),
                   ],
@@ -829,15 +966,35 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           const Divider(height: 40),
           Row(
             children: [
-              _buildSummaryItem(Icons.category_outlined, 'Régimen', _selectedPaciente!.regimenAfiliacion),
-              _buildSummaryItem(Icons.location_on_outlined, 'Ubicación', _selectedPaciente!.pabellon.isNotEmpty ? _selectedPaciente!.pabellon : 'No asignado'),
+              _buildSummaryItem(
+                Icons.category_outlined,
+                'Régimen',
+                _selectedPaciente!.regimenAfiliacion,
+              ),
+              _buildSummaryItem(
+                Icons.location_on_outlined,
+                'Ubicación',
+                _selectedPaciente!.pabellon.isNotEmpty
+                    ? _selectedPaciente!.pabellon
+                    : 'No asignado',
+              ),
             ],
           ),
           const SizedBox(height: 16),
           Row(
             children: [
-              _buildSummaryItem(Icons.monitor_weight_outlined, 'Último IMC', _selectedPaciente!.imc != null ? '${_selectedPaciente!.imc!.toStringAsFixed(1)}' : 'Sin registro'),
-              _buildSummaryItem(Icons.history_outlined, 'Estado', 'Activo en atención'),
+              _buildSummaryItem(
+                Icons.monitor_weight_outlined,
+                'Último IMC',
+                _selectedPaciente!.imc != null
+                    ? '${_selectedPaciente!.imc!.toStringAsFixed(1)}'
+                    : 'Sin registro',
+              ),
+              _buildSummaryItem(
+                Icons.history_outlined,
+                'Estado',
+                'Activo en atención',
+              ),
             ],
           ),
         ],
@@ -854,8 +1011,22 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 10, color: NutritionPalette.textMuted, fontWeight: FontWeight.bold)),
-              Text(value.isEmpty ? '—' : value, style: const TextStyle(fontSize: 13, color: NutritionPalette.textMain, fontWeight: FontWeight.w600)),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: NutritionPalette.textMuted,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                value.isEmpty ? '—' : value,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: NutritionPalette.textMain,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ],
@@ -879,7 +1050,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   color: NutritionPalette.accent.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.medical_information, color: NutritionPalette.accent, size: 24),
+                child: const Icon(
+                  Icons.medical_information,
+                  color: NutritionPalette.accent,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 16),
               const Expanded(
@@ -888,11 +1063,20 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   children: [
                     Text(
                       'Evaluación Clínica y Diagnóstico',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: NutritionPalette.textMain, fontFamily: kArial),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: NutritionPalette.textMain,
+                        fontFamily: kArial,
+                      ),
                     ),
                     Text(
                       'Registra las mediciones del paciente y asigna los diagnósticos correspondientes.',
-                      style: TextStyle(color: NutritionPalette.textMuted, fontSize: 13, fontFamily: kArial),
+                      style: TextStyle(
+                        color: NutritionPalette.textMuted,
+                        fontSize: 13,
+                        fontFamily: kArial,
+                      ),
                     ),
                   ],
                 ),
@@ -915,13 +1099,20 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                 );
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Medición clínica guardada exitosamente'), backgroundColor: NutritionPalette.success));
+                    const SnackBar(
+                      content: Text('Medición clínica guardada exitosamente'),
+                      backgroundColor: NutritionPalette.success,
+                    ),
+                  );
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
                       content: Text('Error al guardar medición: $e'),
-                      backgroundColor: NutritionPalette.danger));
+                      backgroundColor: NutritionPalette.danger,
+                    ),
+                  );
                 }
               }
             },
@@ -934,12 +1125,19 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           const SizedBox(height: 32),
           const Text(
             'DIAGNÓSTICOS CLÍNICOS',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: NutritionPalette.accent, fontFamily: kArial),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+              color: NutritionPalette.accent,
+              fontFamily: kArial,
+            ),
           ),
           const SizedBox(height: 12),
           SelectorDiagnosticosWidget(
             key: _diagnosticosSectionKey,
             empresaId: widget.empresaId,
+            userId: widget.userId,
             onDiagnosticosChanged: _onDiagnosticosChanged,
             initialMedicos: _diagnosticosMedicosSeleccionados,
             initialNutricionales: _diagnosticosNutricionalesSeleccionados,
@@ -965,7 +1163,11 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   color: NutritionPalette.accent.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.assignment_outlined, color: NutritionPalette.accent, size: 24),
+                child: const Icon(
+                  Icons.assignment_outlined,
+                  color: NutritionPalette.accent,
+                  size: 24,
+                ),
               ),
               const SizedBox(width: 16),
               const Expanded(
@@ -974,11 +1176,20 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   children: [
                     Text(
                       'Prescripción Nutricional',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: NutritionPalette.textMain, fontFamily: kArial),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: NutritionPalette.textMain,
+                        fontFamily: kArial,
+                      ),
                     ),
                     Text(
                       'Define la dieta, el período de tratamiento y el próximo seguimiento.',
-                      style: TextStyle(color: NutritionPalette.textMuted, fontSize: 13, fontFamily: kArial),
+                      style: TextStyle(
+                        color: NutritionPalette.textMuted,
+                        fontSize: 13,
+                        fontFamily: kArial,
+                      ),
                     ),
                   ],
                 ),
@@ -994,18 +1205,29 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               decoration: BoxDecoration(
                 color: NutritionPalette.info.withOpacity(0.05),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: NutritionPalette.info.withOpacity(0.2)),
+                border: Border.all(
+                  color: NutritionPalette.info.withOpacity(0.2),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.lightbulb_outline, size: 16, color: NutritionPalette.info),
+                      Icon(
+                        Icons.lightbulb_outline,
+                        size: 16,
+                        color: NutritionPalette.info,
+                      ),
                       SizedBox(width: 8),
                       Text(
                         'DIETAS SUGERIDAS SEGÚN DIAGNÓSTICO',
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5, color: NutritionPalette.info),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                          color: NutritionPalette.info,
+                        ),
                       ),
                     ],
                   ),
@@ -1014,7 +1236,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                     spacing: 8,
                     runSpacing: 8,
                     children: _dietasSugeridaLabels.map((label) {
-                      final selected = _tipoDietaCtrl.text.toLowerCase() == label.toLowerCase();
+                      final selected =
+                          _tipoDietaCtrl.text.toLowerCase() ==
+                          label.toLowerCase();
                       return ChoiceChip(
                         label: Text(label),
                         selected: selected,
@@ -1022,15 +1246,25 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                           if (selected) {
                             setState(() {
                               _tipoDietaCtrl.text = label;
-                              final match = kDietasCatalogo.where((d) => d['nombre']!.toLowerCase() == label.toLowerCase());
-                              _dietaSeleccionadaId = match.isNotEmpty ? match.first['codigo'] : null;
+                              final match = kDietasCatalogo.where(
+                                (d) =>
+                                    d['nombre']!.toLowerCase() ==
+                                    label.toLowerCase(),
+                              );
+                              _dietaSeleccionadaId = match.isNotEmpty
+                                  ? match.first['codigo']
+                                  : null;
                             });
                           }
                         },
                         selectedColor: NutritionPalette.info.withOpacity(0.2),
                         labelStyle: TextStyle(
-                          color: selected ? NutritionPalette.info : NutritionPalette.textMain,
-                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                          color: selected
+                              ? NutritionPalette.info
+                              : NutritionPalette.textMain,
+                          fontWeight: selected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
                           fontSize: 12,
                         ),
                       );
@@ -1043,88 +1277,146 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           ],
 
           // Selector de dieta y período en Fila (para Web) o Columna (para Móvil)
-          LayoutBuilder(builder: (context, constraints) {
-            final isWide = constraints.maxWidth > 500;
-            return Column(
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: isWide ? 2 : 1,
-                      child: StreamBuilder<List<Map<String, dynamic>>>(
-                        stream: NutricionService().streamDietas(widget.empresaId),
-                        builder: (context, snap) {
-                          final dietas = snap.data ?? kDietasCatalogo.map((d) => <String, dynamic>{'id': d['codigo'], 'nombre': d['nombre']}).toList();
-                          String? currentVal = _dietaSeleccionadaId;
-                          final ids = dietas.map((d) => d['id']?.toString()).toSet();
-                          if (currentVal != null && !ids.contains(currentVal)) currentVal = null;
-
-                          return DropdownButtonFormField<String>(
-                            value: currentVal,
-                            decoration: const InputDecoration(
-                              labelText: 'Dieta Principal',
-                              prefixIcon: Icon(Icons.restaurant_menu),
-                              border: OutlineInputBorder(),
-                            ),
-                            items: dietas.map((d) => DropdownMenuItem<String>(
-                              value: d['id']?.toString(),
-                              child: Text(d['nombre']?.toString() ?? ''),
-                            )).toList(),
-                            onChanged: (v) {
-                              setState(() {
-                                _dietaSeleccionadaId = v;
-                                final found = dietas.firstWhere((d) => d['id']?.toString() == v, orElse: () => {});
-                                _tipoDietaCtrl.text = found['nombre']?.toString() ?? v ?? '';
-                              });
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    if (isWide) const SizedBox(width: 16),
-                    if (isWide)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isWide = constraints.maxWidth > 500;
+              return Column(
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _periodoSeleccionado,
-                          decoration: const InputDecoration(
-                            labelText: 'Período',
-                            prefixIcon: Icon(Icons.calendar_month_outlined),
-                            border: OutlineInputBorder(),
+                        flex: isWide ? 2 : 1,
+                        child: StreamBuilder<List<Map<String, dynamic>>>(
+                          stream: NutricionService().streamDietas(
+                            widget.empresaId,
                           ),
-                          items: ['7 días', '15 días', '30 días', '60 días', '90 días', 'Permanente']
-                              .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                              .toList(),
-                          onChanged: (v) => setState(() => _periodoSeleccionado = v),
+                          builder: (context, snap) {
+                            final dietas =
+                                snap.data ??
+                                kDietasCatalogo
+                                    .map(
+                                      (d) => <String, dynamic>{
+                                        'id': d['codigo'],
+                                        'nombre': d['nombre'],
+                                      },
+                                    )
+                                    .toList();
+                            String? currentVal = _dietaSeleccionadaId;
+                            final ids = dietas
+                                .map((d) => d['id']?.toString())
+                                .toSet();
+                            if (currentVal != null && !ids.contains(currentVal))
+                              currentVal = null;
+
+                            return DropdownButtonFormField<String>(
+                              value: currentVal,
+                              decoration: const InputDecoration(
+                                labelText: 'Dieta Principal',
+                                prefixIcon: Icon(Icons.restaurant_menu),
+                                border: OutlineInputBorder(),
+                              ),
+                              items: dietas
+                                  .map(
+                                    (d) => DropdownMenuItem<String>(
+                                      value: d['id']?.toString(),
+                                      child: Text(
+                                        d['nombre']?.toString() ?? '',
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (v) {
+                                setState(() {
+                                  _dietaSeleccionadaId = v;
+                                  final found = dietas.firstWhere(
+                                    (d) => d['id']?.toString() == v,
+                                    orElse: () => {},
+                                  );
+                                  _tipoDietaCtrl.text =
+                                      found['nombre']?.toString() ?? v ?? '';
+                                });
+                              },
+                            );
+                          },
                         ),
                       ),
-                  ],
-                ),
-                if (!isWide) ...[
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: _periodoSeleccionado,
-                    decoration: const InputDecoration(
-                      labelText: 'Período',
-                      prefixIcon: Icon(Icons.calendar_month_outlined),
-                      border: OutlineInputBorder(),
-                    ),
-                    items: ['7 días', '15 días', '30 días', '60 días', '90 días', 'Permanente']
-                        .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                        .toList(),
-                    onChanged: (v) => setState(() => _periodoSeleccionado = v),
+                      if (isWide) const SizedBox(width: 16),
+                      if (isWide)
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: _periodoSeleccionado,
+                            decoration: const InputDecoration(
+                              labelText: 'Período',
+                              prefixIcon: Icon(Icons.calendar_month_outlined),
+                              border: OutlineInputBorder(),
+                            ),
+                            items:
+                                [
+                                      '7 días',
+                                      '15 días',
+                                      '30 días',
+                                      '60 días',
+                                      '90 días',
+                                      'Permanente',
+                                    ]
+                                    .map(
+                                      (p) => DropdownMenuItem(
+                                        value: p,
+                                        child: Text(p),
+                                      ),
+                                    )
+                                    .toList(),
+                            onChanged: (v) =>
+                                setState(() => _periodoSeleccionado = v),
+                          ),
+                        ),
+                    ],
                   ),
+                  if (!isWide) ...[
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _periodoSeleccionado,
+                      decoration: const InputDecoration(
+                        labelText: 'Período',
+                        prefixIcon: Icon(Icons.calendar_month_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                      items:
+                          [
+                                '7 días',
+                                '15 días',
+                                '30 días',
+                                '60 días',
+                                '90 días',
+                                'Permanente',
+                              ]
+                              .map(
+                                (p) =>
+                                    DropdownMenuItem(value: p, child: Text(p)),
+                              )
+                              .toList(),
+                      onChanged: (v) =>
+                          setState(() => _periodoSeleccionado = v),
+                    ),
+                  ],
                 ],
-              ],
-            );
-          }),
+              );
+            },
+          ),
 
           const SizedBox(height: 32),
 
           // Próximo Control (Destacado)
           const Text(
             'SEGUIMIENTO CLÍNICO',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: NutritionPalette.accent, fontFamily: kArial),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+              color: NutritionPalette.accent,
+              fontFamily: kArial,
+            ),
           ),
           const SizedBox(height: 12),
           InkWell(
@@ -1134,27 +1426,58 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               decoration: BoxDecoration(
                 color: NutritionPalette.surface,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _proximoControl != null ? NutritionPalette.accent : NutritionPalette.border, width: 2),
+                border: Border.all(
+                  color: _proximoControl != null
+                      ? NutritionPalette.accent
+                      : NutritionPalette.border,
+                  width: 2,
+                ),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.event_available, color: _proximoControl != null ? NutritionPalette.accent : NutritionPalette.textMuted, size: 28),
+                  Icon(
+                    Icons.event_available,
+                    color: _proximoControl != null
+                        ? NutritionPalette.accent
+                        : NutritionPalette.textMuted,
+                    size: 28,
+                  ),
                   const SizedBox(width: 20),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Fecha de Próximo Control', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, fontFamily: kArial)),
+                        const Text(
+                          'Fecha de Próximo Control',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            fontFamily: kArial,
+                          ),
+                        ),
                         Text(
-                          _proximoControl != null 
-                            ? DateFormat('EEEE, dd MMMM yyyy', 'es_CO').format(_proximoControl!)
-                            : 'Selecciona la fecha para la reevaluación',
-                          style: TextStyle(color: _proximoControl != null ? NutritionPalette.accent : NutritionPalette.textMuted, fontSize: 13, fontFamily: kArial),
+                          _proximoControl != null
+                              ? DateFormat(
+                                  'EEEE, dd MMMM yyyy',
+                                  'es_CO',
+                                ).format(_proximoControl!)
+                              : 'Selecciona la fecha para la reevaluación',
+                          style: TextStyle(
+                            color: _proximoControl != null
+                                ? NutritionPalette.accent
+                                : NutritionPalette.textMuted,
+                            fontSize: 13,
+                            fontFamily: kArial,
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.calendar_today_outlined, size: 18, color: NutritionPalette.textMuted),
+                  const Icon(
+                    Icons.calendar_today_outlined,
+                    size: 18,
+                    color: NutritionPalette.textMuted,
+                  ),
                 ],
               ),
             ),
@@ -1169,7 +1492,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               labelText: 'Indicaciones y Observaciones del Plan',
               border: OutlineInputBorder(),
               alignLabelWithHint: true,
-              hintText: 'Ej: Restricción de sodio, fraccionar comidas en 5 tiempos...',
+              hintText:
+                  'Ej: Restricción de sodio, fraccionar comidas en 5 tiempos...',
             ),
             maxLines: 4,
           ),
@@ -1191,30 +1515,52 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               color: NutritionPalette.success.withOpacity(0.05),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.verified_user, color: NutritionPalette.success, size: 64),
+            child: const Icon(
+              Icons.verified_user,
+              color: NutritionPalette.success,
+              size: 64,
+            ),
           ),
           const SizedBox(height: 24),
           const Text(
             'Sesión Clínica Finalizada',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: NutritionPalette.textMain, fontFamily: kArial),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              color: NutritionPalette.textMain,
+              fontFamily: kArial,
+            ),
           ),
           const SizedBox(height: 8),
           const Text(
             'El proceso ha sido registrado. Puedes generar el soporte documental técnico ahora.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: NutritionPalette.textMuted, fontSize: 14, fontFamily: kArial),
+            style: TextStyle(
+              color: NutritionPalette.textMuted,
+              fontSize: 14,
+              fontFamily: kArial,
+            ),
           ),
           const SizedBox(height: 48),
-          
+
           NutritionCard(
             title: 'Soporte Documental Técnico',
             subtitle: 'Generación de reporte en formato PDF clínico',
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                _buildCheckItem(Icons.check_circle, 'Historia y Antecedentes integrados'),
-                _buildCheckItem(Icons.check_circle, 'Evaluación antropométrica registrada'),
-                _buildCheckItem(Icons.check_circle, 'Diagnóstico y Plan Nutricional definido'),
+                _buildCheckItem(
+                  Icons.check_circle,
+                  'Historia y Antecedentes integrados',
+                ),
+                _buildCheckItem(
+                  Icons.check_circle,
+                  'Evaluación antropométrica registrada',
+                ),
+                _buildCheckItem(
+                  Icons.check_circle,
+                  'Diagnóstico y Plan Nutricional definido',
+                ),
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
@@ -1222,10 +1568,18 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   child: FilledButton.icon(
                     onPressed: _selectedPaciente == null ? null : _generarPDF,
                     icon: const Icon(Icons.picture_as_pdf, size: 24),
-                    label: const Text('GENERAR Y DESCARGAR REPORTE PDF', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                    label: const Text(
+                      'GENERAR Y DESCARGAR REPORTE PDF',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: NutritionPalette.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
@@ -1244,7 +1598,14 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         children: [
           Icon(icon, color: NutritionPalette.success, size: 20),
           const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 13, color: NutritionPalette.textMain, fontWeight: FontWeight.w500)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              color: NutritionPalette.textMain,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );
@@ -1253,7 +1614,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   // ── Callbacks y acciones ────────────────────────────────────────────────────
 
   void _onDiagnosticosChanged(
-      List<DiagnosticoMedico> m, List<DiagnosticoNutricional> n) {
+    List<DiagnosticoMedico> m,
+    List<DiagnosticoNutricional> n,
+  ) {
     setState(() {
       _diagnosticosMedicosSeleccionados = m;
       _diagnosticosNutricionalesSeleccionados = n;
@@ -1288,7 +1651,8 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   Future<void> _abrirRemision() async {
     if (_selectedPaciente == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Selecciona un paciente primero.')));
+        const SnackBar(content: Text('Selecciona un paciente primero.')),
+      );
       return;
     }
     await showDialog(
@@ -1316,22 +1680,25 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       // Paciente creado; se actualiza automáticamente vía stream.
       // Si el resultado tiene el ID guardado, podemos preseleccionar.
       setState(() {
-        _nombreCompletoCtrl.text =
-            result['nombreCompleto']?.toString() ?? '';
+        _nombreCompletoCtrl.text = result['nombreCompleto']?.toString() ?? '';
         _documentoCtrl.text = result['documento']?.toString() ?? '';
         _regimenCtrl.text = result['regimenAfiliacion']?.toString() ?? '';
       });
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Paciente registrado correctamente.')));
+        const SnackBar(content: Text('Paciente registrado correctamente.')),
+      );
     }
   }
 
   /// Finaliza el proceso: guarda expediente, asigna dieta y agenda cita.
   Future<void> _guardarYAgendarCita() async {
     if (_selectedPaciente == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
           content: Text('Selecciona un paciente antes de finalizar.'),
-          backgroundColor: Colors.orange));
+          backgroundColor: Colors.orange,
+        ),
+      );
       return;
     }
     if (_proximoControl == null) {
@@ -1396,8 +1763,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           'dietaAsignada': _tipoDietaCtrl.text.trim(),
           'periodo': _periodoSeleccionado,
           'observaciones': _observacionesPlanCtrl.text.trim(),
-          'proximoControl':
-              _proximoControl != null ? Timestamp.fromDate(_proximoControl!) : null,
+          'proximoControl': _proximoControl != null
+              ? Timestamp.fromDate(_proximoControl!)
+              : null,
         },
       );
 
@@ -1417,10 +1785,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
         diagnosticoMedico: _diagnosticoMedicoCtrl.text.trim().isNotEmpty
             ? _diagnosticoMedicoCtrl.text.trim()
             : null,
-        diagnosticoNutricional:
-            _diagnosticoNutriCtrl.text.trim().isNotEmpty
-                ? _diagnosticoNutriCtrl.text.trim()
-                : null,
+        diagnosticoNutricional: _diagnosticoNutriCtrl.text.trim().isNotEmpty
+            ? _diagnosticoNutriCtrl.text.trim()
+            : null,
         observaciones: _observacionesPlanCtrl.text.trim().isNotEmpty
             ? _observacionesPlanCtrl.text.trim()
             : null,
@@ -1428,11 +1795,14 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              'Atención finalizada. Próximo control: ${DateFormat('dd/MM/yyyy').format(_proximoControl!)}'),
-          backgroundColor: Colors.green[800],
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Atención finalizada. Próximo control: ${DateFormat('dd/MM/yyyy').format(_proximoControl!)}',
+            ),
+            backgroundColor: Colors.green[800],
+          ),
+        );
         // Avanzar a cierre y limpiar selección para próxima atención
         setState(() {
           _pasoActual = 3; // Mostrar paso Cierre
@@ -1440,9 +1810,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Error al finalizar: $e'),
-            backgroundColor: Colors.red[800]));
+            backgroundColor: Colors.red[800],
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _agendandoCita = false);
@@ -1453,18 +1826,17 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   Future<void> _generarPDF() async {
     if (_selectedPaciente == null) return;
     try {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Generando PDF...')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Generando PDF...')));
 
       // Fetch firma/sello del profesional
       final firmaSnap = await FirebaseFirestore.instance
           .collection('TBL_FIRMAS')
           .doc('${widget.empresaId}-${widget.userId}')
           .get();
-      final firmaUrl =
-          firmaSnap.data()?['urlFirma']?.toString() ?? '';
-      final selloUrl =
-          firmaSnap.data()?['urlSello']?.toString() ?? '';
+      final firmaUrl = firmaSnap.data()?['urlFirma']?.toString() ?? '';
+      final selloUrl = firmaSnap.data()?['urlSello']?.toString() ?? '';
 
       final pacienteData = <String, dynamic>{
         'nombre': _selectedPaciente!.nombre,
@@ -1515,15 +1887,20 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('PDF generado con éxito'),
-                backgroundColor: Colors.green));
+          const SnackBar(
+            content: Text('PDF generado con éxito'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Error generando PDF: $e'),
-            backgroundColor: Colors.red[800]));
+            backgroundColor: Colors.red[800],
+          ),
+        );
       }
     }
   }
@@ -1531,29 +1908,39 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
   // ── Widgets auxiliares ──────────────────────────────────────────────────────
 
   Widget _buildSummaryGrid({required bool isCompact}) {
-    return Wrap(spacing: 12, runSpacing: 12, children: [
-      const NutritionInfoCard(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        const NutritionInfoCard(
           title: 'Sesiones hoy',
           value: '—',
           icon: Icons.person_outline,
-          color: NutritionPalette.accent),
-      const NutritionInfoCard(
+          color: NutritionPalette.accent,
+        ),
+        const NutritionInfoCard(
           title: 'Pacientes Activos',
           value: '—',
           icon: Icons.group_outlined,
-          color: NutritionPalette.info),
-    ]);
+          color: NutritionPalette.info,
+        ),
+      ],
+    );
   }
 
-  Widget _buildChecklistTile(String t, String s,
-      {IconData? icon, VoidCallback? onTap}) {
+  Widget _buildChecklistTile(
+    String t,
+    String s, {
+    IconData? icon,
+    VoidCallback? onTap,
+  }) {
     return ListTile(
-        title:
-            Text(t, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(s),
-        leading: Icon(icon, color: NutritionPalette.accent),
-        onTap: onTap,
-        trailing: const Icon(Icons.chevron_right));
+      title: Text(t, style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: Text(s),
+      leading: Icon(icon, color: NutritionPalette.accent),
+      onTap: onTap,
+      trailing: const Icon(Icons.chevron_right),
+    );
   }
 }
 
@@ -1613,8 +2000,7 @@ class _DialogNuevoPaciente extends StatefulWidget {
   });
 
   @override
-  State<_DialogNuevoPaciente> createState() =>
-      _DialogNuevoPacienteState();
+  State<_DialogNuevoPaciente> createState() => _DialogNuevoPacienteState();
 }
 
 class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
@@ -1638,7 +2024,12 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
   bool _guardando = false;
   XFile? _foto;
 
-  static const _regimenes = ['Contributivo', 'Subsidiado', 'Especial', 'Vinculado'];
+  static const _regimenes = [
+    'Contributivo',
+    'Subsidiado',
+    'Especial',
+    'Vinculado',
+  ];
   static const _generos = ['Masculino', 'Femenino', 'Otro'];
 
   @override
@@ -1680,8 +2071,10 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
   Future<void> _pickFoto() async {
     if (kIsWeb) return; // Web: foto no requerida ni disponible aquí
     final picker = ImagePicker();
-    final picked =
-        await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    final picked = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 80,
+    );
     if (picked != null) setState(() => _foto = picked);
   }
 
@@ -1735,9 +2128,12 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
       if (mounted) Navigator.of(context).pop(data);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Error al guardar: $e'),
-            backgroundColor: Colors.red[800]));
+            backgroundColor: Colors.red[800],
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _guardando = false);
@@ -1758,15 +2154,28 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
             title: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Nuevo Registro Clínico', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, fontFamily: kArial)),
-                Text('Admisión de paciente al sistema de nutrición', style: TextStyle(fontSize: 11, fontWeight: FontWeight.normal)),
+                Text(
+                  'Nuevo Registro Clínico',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    fontFamily: kArial,
+                  ),
+                ),
+                Text(
+                  'Admisión de paciente al sistema de nutrición',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.normal),
+                ),
               ],
             ),
             backgroundColor: NutritionPalette.primary,
             foregroundColor: Colors.white,
             automaticallyImplyLeading: false,
             actions: [
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
               const SizedBox(width: 8),
             ],
           ),
@@ -1788,8 +2197,13 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                   children: [
                     TextFormField(
                       controller: _nombreCtrl,
-                      decoration: const InputDecoration(labelText: 'Nombre Completo *', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_outline)),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre Completo *',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Requerido' : null,
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -1798,17 +2212,33 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                           flex: 2,
                           child: TextFormField(
                             controller: _documentoCtrl,
-                            decoration: const InputDecoration(labelText: 'Documento / ID *', border: OutlineInputBorder(), prefixIcon: Icon(Icons.perm_identity)),
+                            decoration: const InputDecoration(
+                              labelText: 'Documento / ID *',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.perm_identity),
+                            ),
                             keyboardType: TextInputType.number,
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Requerido'
+                                : null,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _genero,
-                            decoration: const InputDecoration(labelText: 'Género', border: OutlineInputBorder()),
-                            items: _generos.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                            decoration: const InputDecoration(
+                              labelText: 'Género',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _generos
+                                .map(
+                                  (g) => DropdownMenuItem(
+                                    value: g,
+                                    child: Text(g),
+                                  ),
+                                )
+                                .toList(),
                             onChanged: (v) => setState(() => _genero = v),
                           ),
                         ),
@@ -1818,7 +2248,11 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                     OutlinedButton.icon(
                       onPressed: _pickFecha,
                       icon: const Icon(Icons.cake_outlined),
-                      label: Text(_fechaNacimiento != null ? 'Nacido el: ${DateFormat('dd/MM/yyyy').format(_fechaNacimiento!)}' : 'Seleccionar Fecha de Nacimiento'),
+                      label: Text(
+                        _fechaNacimiento != null
+                            ? 'Nacido el: ${DateFormat('dd/MM/yyyy').format(_fechaNacimiento!)}'
+                            : 'Seleccionar Fecha de Nacimiento',
+                      ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.all(16),
                         alignment: Alignment.centerLeft,
@@ -1839,15 +2273,29 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         Expanded(
                           child: TextFormField(
                             controller: _epsCtrl,
-                            decoration: const InputDecoration(labelText: 'EPS / Entidad', border: OutlineInputBorder(), prefixIcon: Icon(Icons.local_hospital_outlined)),
+                            decoration: const InputDecoration(
+                              labelText: 'EPS / Entidad',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.local_hospital_outlined),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _regimen,
-                            decoration: const InputDecoration(labelText: 'Régimen', border: OutlineInputBorder()),
-                            items: _regimenes.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                            decoration: const InputDecoration(
+                              labelText: 'Régimen',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _regimenes
+                                .map(
+                                  (r) => DropdownMenuItem(
+                                    value: r,
+                                    child: Text(r),
+                                  ),
+                                )
+                                .toList(),
                             onChanged: (v) => setState(() => _regimen = v),
                           ),
                         ),
@@ -1865,18 +2313,32 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                   children: [
                     DropdownButtonFormField<String>(
                       value: _establecimientoSeleccionado,
-                      decoration: const InputDecoration(labelText: 'Sede / Establecimiento', border: OutlineInputBorder(), prefixIcon: Icon(Icons.business_outlined)),
+                      decoration: const InputDecoration(
+                        labelText: 'Sede / Establecimiento',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.business_outlined),
+                      ),
                       items: [
-                        const DropdownMenuItem(value: null, child: Text('Sin establecimiento específico')),
-                        ...widget.establecimientos.map((e) => DropdownMenuItem(value: e, child: Text(e))),
+                        const DropdownMenuItem(
+                          value: null,
+                          child: Text('Sin establecimiento específico'),
+                        ),
+                        ...widget.establecimientos.map(
+                          (e) => DropdownMenuItem(value: e, child: Text(e)),
+                        ),
                       ],
-                      onChanged: (v) => setState(() => _establecimientoSeleccionado = v),
+                      onChanged: (v) =>
+                          setState(() => _establecimientoSeleccionado = v),
                     ),
                     if (_establecimientoSeleccionado != null) ...[
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: _pabellonCtrl,
-                        decoration: const InputDecoration(labelText: 'Pabellón / Pabellón / Celda / Ubicación', border: OutlineInputBorder(), prefixIcon: Icon(Icons.meeting_room_outlined)),
+                        decoration: const InputDecoration(
+                          labelText: 'Pabellón / Pabellón / Celda / Ubicación',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.meeting_room_outlined),
+                        ),
                       ),
                     ],
                   ],
@@ -1891,7 +2353,10 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                   children: [
                     TextFormField(
                       controller: _diagnosticoCtrl,
-                      decoration: const InputDecoration(labelText: 'Diagnóstico Médico de Remisión', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Diagnóstico Médico de Remisión',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -1899,8 +2364,13 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         Expanded(
                           child: TextFormField(
                             controller: _pesoCtrl,
-                            decoration: const InputDecoration(labelText: 'Peso (kg)', border: OutlineInputBorder()),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: 'Peso (kg)',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             onChanged: (_) => _calcularIMC(),
                           ),
                         ),
@@ -1908,8 +2378,13 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         Expanded(
                           child: TextFormField(
                             controller: _tallaCtrl,
-                            decoration: const InputDecoration(labelText: 'Talla (cm)', border: OutlineInputBorder()),
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            decoration: const InputDecoration(
+                              labelText: 'Talla (cm)',
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
                             onChanged: (_) => _calcularIMC(),
                           ),
                         ),
@@ -1922,7 +2397,10 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _dietaIndicadaCtrl,
-                      decoration: const InputDecoration(labelText: 'Dieta Inicial Sugerida', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Dieta Inicial Sugerida',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ],
                 ),
@@ -1934,10 +2412,21 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                   height: 54,
                   child: FilledButton(
                     onPressed: _guardando ? null : _guardar,
-                    style: FilledButton.styleFrom(backgroundColor: NutritionPalette.accent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: NutritionPalette.accent,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
                     child: _guardando
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('FINALIZAR REGISTRO E INGRESAR', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+                        : const Text(
+                            'FINALIZAR REGISTRO E INGRESAR',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -1961,16 +2450,27 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                 color: NutritionPalette.surface,
                 shape: BoxShape.circle,
                 border: Border.all(color: NutritionPalette.border, width: 4),
-                image: _foto != null 
-                  ? DecorationImage(image: FileImage(File(_foto!.path)), fit: BoxFit.cover)
-                  : null,
+                image: _foto != null
+                    ? DecorationImage(
+                        image: FileImage(File(_foto!.path)),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
                 ],
               ),
-              child: _foto == null 
-                ? const Icon(Icons.person_outline, size: 60, color: NutritionPalette.textMuted)
-                : null,
+              child: _foto == null
+                  ? const Icon(
+                      Icons.person_outline,
+                      size: 60,
+                      color: NutritionPalette.textMuted,
+                    )
+                  : null,
             ),
             Positioned(
               bottom: 0,
@@ -1985,12 +2485,23 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
           ],
         ),
         const SizedBox(height: 12),
-        const Text('Foto de identificación', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: NutritionPalette.textMuted)),
+        const Text(
+          'Foto de identificación',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: NutritionPalette.textMuted,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildFormSection({required String title, required IconData icon, required List<Widget> children}) {
+  Widget _buildFormSection({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2000,7 +2511,13 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
             const SizedBox(width: 8),
             Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 1.0, color: NutritionPalette.accent, fontFamily: kArial),
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                letterSpacing: 1.0,
+                color: NutritionPalette.accent,
+                fontFamily: kArial,
+              ),
             ),
           ],
         ),
@@ -2020,8 +2537,22 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
       ),
       child: Column(
         children: [
-          const Text('IMC', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: NutritionPalette.textMuted)),
-          Text(_imcCalculado!.toStringAsFixed(1), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: NutritionPalette.accent)),
+          const Text(
+            'IMC',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: NutritionPalette.textMuted,
+            ),
+          ),
+          Text(
+            _imcCalculado!.toStringAsFixed(1),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: NutritionPalette.accent,
+            ),
+          ),
         ],
       ),
     );
@@ -2079,7 +2610,9 @@ class _DialogRemisionState extends State<_DialogRemision> {
     if (kIsWeb) return;
     final picker = ImagePicker();
     final picked = await picker.pickImage(
-        source: ImageSource.gallery, imageQuality: 80);
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
     if (picked != null) setState(() => _archivoRemision = picked);
   }
 
@@ -2114,12 +2647,17 @@ class _DialogRemisionState extends State<_DialogRemision> {
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Remisión guardada en expediente.')));
+          const SnackBar(content: Text('Remisión guardada en expediente.')),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error: $e'), backgroundColor: Colors.red[800]));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red[800],
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _guardando = false);
@@ -2139,15 +2677,31 @@ class _DialogRemisionState extends State<_DialogRemision> {
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Remisión Médica', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, fontFamily: kArial)),
-                Text(widget.pacienteNombre, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.normal)),
+                Text(
+                  'Remisión Médica',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    fontFamily: kArial,
+                  ),
+                ),
+                Text(
+                  widget.pacienteNombre,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.normal,
+                  ),
+                ),
               ],
             ),
             backgroundColor: NutritionPalette.primary,
             foregroundColor: Colors.white,
             automaticallyImplyLeading: false,
             actions: [
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.of(context).pop()),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
               const SizedBox(width: 8),
             ],
           ),
@@ -2159,27 +2713,41 @@ class _DialogRemisionState extends State<_DialogRemision> {
                 decoration: BoxDecoration(
                   color: NutritionPalette.accent.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: NutritionPalette.accent.withOpacity(0.1)),
+                  border: Border.all(
+                    color: NutritionPalette.accent.withOpacity(0.1),
+                  ),
                 ),
                 child: const Row(
                   children: [
-                    Icon(Icons.info_outline, color: NutritionPalette.accent, size: 20),
+                    Icon(
+                      Icons.info_outline,
+                      color: NutritionPalette.accent,
+                      size: 20,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Registra los datos de la remisión externa para integrarlos al expediente clínico del paciente.',
-                        style: TextStyle(fontSize: 12, color: NutritionPalette.textMain, fontFamily: kArial),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: NutritionPalette.textMain,
+                          fontFamily: kArial,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 32),
-              
+
               const _SectionHeader('INFORMACIÓN CLÍNICA DE REFERENCIA'),
               TextFormField(
                 controller: _diagnosticoCtrl,
-                decoration: const InputDecoration(labelText: 'Diagnóstico Médico Principal', border: OutlineInputBorder(), prefixIcon: Icon(Icons.medication_outlined)),
+                decoration: const InputDecoration(
+                  labelText: 'Diagnóstico Médico Principal',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.medication_outlined),
+                ),
               ),
               const SizedBox(height: 16),
               Row(
@@ -2187,8 +2755,13 @@ class _DialogRemisionState extends State<_DialogRemision> {
                   Expanded(
                     child: TextFormField(
                       controller: _pesoCtrl,
-                      decoration: const InputDecoration(labelText: 'Peso Remisión (kg)', border: OutlineInputBorder()),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Peso Remisión (kg)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       onChanged: (_) => _calcImc(),
                     ),
                   ),
@@ -2196,8 +2769,13 @@ class _DialogRemisionState extends State<_DialogRemision> {
                   Expanded(
                     child: TextFormField(
                       controller: _tallaCtrl,
-                      decoration: const InputDecoration(labelText: 'Talla Remisión (cm)', border: OutlineInputBorder()),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Talla Remisión (cm)',
+                        border: OutlineInputBorder(),
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
                       onChanged: (_) => _calcImc(),
                     ),
                   ),
@@ -2205,8 +2783,22 @@ class _DialogRemisionState extends State<_DialogRemision> {
                     const SizedBox(width: 16),
                     Column(
                       children: [
-                        const Text('IMC', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: NutritionPalette.textMuted)),
-                        Text(_imcCalc!.toStringAsFixed(1), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: NutritionPalette.accent)),
+                        const Text(
+                          'IMC',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: NutritionPalette.textMuted,
+                          ),
+                        ),
+                        Text(
+                          _imcCalc!.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: NutritionPalette.accent,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -2215,39 +2807,65 @@ class _DialogRemisionState extends State<_DialogRemision> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _dietaCtrl,
-                decoration: const InputDecoration(labelText: 'Dieta Prescrita en Remisión', border: OutlineInputBorder(), prefixIcon: Icon(Icons.restaurant_outlined)),
+                decoration: const InputDecoration(
+                  labelText: 'Dieta Prescrita en Remisión',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.restaurant_outlined),
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _observacionesCtrl,
-                decoration: const InputDecoration(labelText: 'Observaciones Médicas / Motivo', border: OutlineInputBorder(), alignLabelWithHint: true),
+                decoration: const InputDecoration(
+                  labelText: 'Observaciones Médicas / Motivo',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
                 maxLines: 3,
               ),
-              
+
               if (!kIsWeb) ...[
                 const SizedBox(height: 24),
                 OutlinedButton.icon(
                   onPressed: _pickArchivo,
                   icon: const Icon(Icons.attach_file),
-                  label: Text(_archivoRemision != null ? 'DOCUMENTO ADJUNTO ✓' : 'ADJUNTAR SOPORTE DE REMISIÓN'),
+                  label: Text(
+                    _archivoRemision != null
+                        ? 'DOCUMENTO ADJUNTO ✓'
+                        : 'ADJUNTAR SOPORTE DE REMISIÓN',
+                  ),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.all(16),
-                    foregroundColor: _archivoRemision != null ? NutritionPalette.success : NutritionPalette.accent,
-                    side: BorderSide(color: _archivoRemision != null ? NutritionPalette.success : NutritionPalette.accent),
+                    foregroundColor: _archivoRemision != null
+                        ? NutritionPalette.success
+                        : NutritionPalette.accent,
+                    side: BorderSide(
+                      color: _archivoRemision != null
+                          ? NutritionPalette.success
+                          : NutritionPalette.accent,
+                    ),
                   ),
                 ),
               ],
-              
+
               const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: FilledButton(
                   onPressed: _guardando ? null : _guardar,
-                  style: FilledButton.styleFrom(backgroundColor: NutritionPalette.accent),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: NutritionPalette.accent,
+                  ),
                   child: _guardando
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('INTEGRAR REMISIÓN AL EXPEDIENTE', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                      : const Text(
+                          'INTEGRAR REMISIÓN AL EXPEDIENTE',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -2269,12 +2887,15 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Text(title,
-          style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-              color: NutritionPalette.accent,
-              letterSpacing: 0.5)),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+          color: NutritionPalette.accent,
+          letterSpacing: 0.5,
+        ),
+      ),
     );
   }
 }

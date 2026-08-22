@@ -10,7 +10,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'firebase_options.dart';
 import 'state/empresa_scope.dart';
-import 'login/login_screen.dart';
+import 'login/auth_gate.dart';
 import 'services/notification_service.dart';
 
 /// Clave global de navegación para deep-linking desde notificaciones.
@@ -170,14 +170,16 @@ class ToDoApp extends StatelessWidget {
         ),
       ),
 
+
       // (Opcional) darkTheme si quieres que se adapte al sistema
+
       // darkTheme: ThemeData(
       //   useMaterial3: true,
       //   brightness: Brightness.dark,
       //   colorSchemeSeed: const Color(0xFF0078D7),
       // ),
 
-      home: const LoginScreen(),
+      home: const AuthGate(),
     );
   }
 }

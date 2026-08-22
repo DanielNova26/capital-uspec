@@ -14,16 +14,14 @@ import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mime/mime.dart'; // opcional, para adivinar mime
-import '../services/task_service.dart';
+import 'package:todo/services/company_branding_service.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
@@ -70,11 +68,15 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
   Future<void> _loadTask() async {
     try {
-      final snap = await FirebaseFirestore.instance.collection('TBL_TAREAS').doc(widget.taskId).get();
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(widget.taskId)
+          .get();
       final m = snap.data() ?? {};
       setState(() {
         _task = m;
-        _taskTitle = (m['titulo'] ?? m['title'] ?? 'Completar tarea').toString();
+        _taskTitle = (m['titulo'] ?? m['title'] ?? 'Completar tarea')
+            .toString();
       });
     } catch (e) {
       // fallback
@@ -87,12 +89,15 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         await Geolocator.openLocationSettings();
       }
       var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied)
+        perm = await Geolocator.requestPermission();
       if (perm == LocationPermission.deniedForever) {
         await Geolocator.openAppSettings();
         return;
       }
-      _pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      _pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       _address = await _reverseGeocode(_pos!.latitude, _pos!.longitude);
       setState(() {});
     } catch (_) {}
@@ -106,13 +111,17 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   // ---------- UI Helpers ----------
 
   String _fmtDueDate(dynamic ts) {
-    if (ts is Timestamp) return DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
+    if (ts is Timestamp)
+      return DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
     return '—';
   }
 
   Widget _chip(String text, {Color? color}) {
     return Chip(
-      label: Text(text, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
+      label: Text(
+        text,
+        style: const TextStyle(color: Colors.white, fontFamily: kArial),
+      ),
       backgroundColor: color ?? Colors.grey.shade600,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -145,7 +154,19 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       allowMultiple: true,
       withData: true,
       type: FileType.custom,
-      allowedExtensions: const ['pdf','doc','docx','xls','xlsx','ppt','pptx','zip','jpg','jpeg','png'],
+      allowedExtensions: const [
+        'pdf',
+        'doc',
+        'docx',
+        'xls',
+        'xlsx',
+        'ppt',
+        'pptx',
+        'zip',
+        'jpg',
+        'jpeg',
+        'png',
+      ],
     );
     if (res != null && res.files.isNotEmpty) {
       setState(() => _picked.addAll(res.files));
@@ -155,7 +176,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   // ---------- Foto con marca de agua ----------
 
   Future<void> _takePhoto() async {
-    final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    final x = await _picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+    );
     if (x == null) return;
 
     final raw = await x.readAsBytes();
@@ -163,17 +187,19 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
     final wm = await _buildWatermarkedBytes(
       base: img,
-      logoAsset: 'assets/logo.png', // usa tu logo
       title: _taskTitle ?? 'Tarea',
       who: _task?['asignado_nombre'] ?? '—',
-      coords: _pos == null ? null : '${_pos!.latitude.toStringAsFixed(5)}, ${_pos!.longitude.toStringAsFixed(5)}',
+      coords: _pos == null
+          ? null
+          : '${_pos!.latitude.toStringAsFixed(5)}, ${_pos!.longitude.toStringAsFixed(5)}',
       address: _address,
       deadline: _task?['fecha_limite'],
     );
     if (wm == null) return;
 
     final taskSlug = _slugFileSegment(_taskTitle ?? '', fallback: 'tarea');
-    final name = '${taskSlug}_evidencia_${DateTime.now().millisecondsSinceEpoch}.png';
+    final name =
+        '${taskSlug}_evidencia_${DateTime.now().millisecondsSinceEpoch}.png';
     String? filePath;
     if (!kIsWeb) {
       final dir = Directory.systemTemp;
@@ -181,8 +207,17 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       filePath = file.path;
     }
     setState(() {
-      _picked.add(PlatformFile(name: name, path: filePath, size: wm.length, bytes: wm));
-      _photos.add(_PhotoMeta(name: name, when: DateTime.now(), lat: _pos?.latitude, lng: _pos?.longitude));
+      _picked.add(
+        PlatformFile(name: name, path: filePath, size: wm.length, bytes: wm),
+      );
+      _photos.add(
+        _PhotoMeta(
+          name: name,
+          when: DateTime.now(),
+          lat: _pos?.latitude,
+          lng: _pos?.longitude,
+        ),
+      );
     });
   }
 
@@ -194,7 +229,6 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
   Future<Uint8List?> _buildWatermarkedBytes({
     required ui.Image base,
-    required String logoAsset,
     required String title,
     required String who,
     String? coords,
@@ -206,8 +240,11 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     // carga logo
     ui.Image? logo;
     try {
-      final lb = await rootBundle.load(logoAsset);
-      final lcodec = await ui.instantiateImageCodec(lb.buffer.asUint8List());
+      final logoBytes = await CompanyBrandingService().loadLogoBytes(
+        (_task?['empresaId'] ?? _task?['empresa_id'] ?? '').toString(),
+      );
+      if (logoBytes == null || logoBytes.isEmpty) throw StateError('Sin logo');
+      final lcodec = await ui.instantiateImageCodec(logoBytes);
       logo = (await lcodec.getNextFrame()).image;
     } catch (_) {}
 
@@ -223,7 +260,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         if (mapsKey.isNotEmpty) {
           final url = Uri.parse(
             'https://maps.googleapis.com/maps/api/staticmap'
-                '?center=$lat,$lng&zoom=16&size=320x200&scale=2&maptype=roadmap&markers=color:red|$lat,$lng&key=$mapsKey',
+            '?center=$lat,$lng&zoom=16&size=320x200&scale=2&maptype=roadmap&markers=color:red|$lat,$lng&key=$mapsKey',
           );
           final r = await http.get(url).timeout(const Duration(seconds: 7));
           if (r.statusCode == 200) {
@@ -236,11 +273,23 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
     // compón
     final rec = ui.PictureRecorder();
-    final c = Canvas(rec, Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()));
-    c.drawImage(base, Offset.zero, Paint()..filterQuality = ui.FilterQuality.medium);
+    final c = Canvas(
+      rec,
+      Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()),
+    );
+    c.drawImage(
+      base,
+      Offset.zero,
+      Paint()..filterQuality = ui.FilterQuality.medium,
+    );
 
     final overlayH = (base.height * 0.22).clamp(140.0, 280.0);
-    final overlay = Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
+    final overlay = Rect.fromLTWH(
+      0,
+      base.height - overlayH,
+      base.width.toDouble(),
+      overlayH,
+    );
     c.drawRect(overlay, Paint()..color = const Color(0xCC000000));
 
     const pad = 16.0;
@@ -248,17 +297,45 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     final col2W = base.width * 0.52;
     final col3W = base.width * 0.30;
 
-    final rLogo = Rect.fromLTWH(overlay.left + pad, overlay.top + pad, col1W - pad * 2, overlay.height - pad * 2);
-    final rText = Rect.fromLTWH(overlay.left + col1W, overlay.top + pad, col2W - pad * 2, overlay.height - pad * 2);
-    final rMap  = Rect.fromLTWH(overlay.left + col1W + col2W, overlay.top + pad, col3W - pad * 2, overlay.height - pad * 2);
+    final rLogo = Rect.fromLTWH(
+      overlay.left + pad,
+      overlay.top + pad,
+      col1W - pad * 2,
+      overlay.height - pad * 2,
+    );
+    final rText = Rect.fromLTWH(
+      overlay.left + col1W,
+      overlay.top + pad,
+      col2W - pad * 2,
+      overlay.height - pad * 2,
+    );
+    final rMap = Rect.fromLTWH(
+      overlay.left + col1W + col2W,
+      overlay.top + pad,
+      col3W - pad * 2,
+      overlay.height - pad * 2,
+    );
 
     // logo centrado en blanco
     if (logo != null && rLogo.width > 0) {
       final s = math.min(rLogo.width / logo.width, rLogo.height / logo.height);
       final w = logo.width * s, h = logo.height * s;
-      final dst = Rect.fromLTWH(rLogo.left + (rLogo.width - w)/2, rLogo.top + (rLogo.height - h)/2, w, h);
-      c.drawImageRect(logo, Rect.fromLTWH(0,0,logo.width.toDouble(), logo.height.toDouble()), dst,
-          Paint()..colorFilter = const ui.ColorFilter.mode(Colors.white, ui.BlendMode.modulate));
+      final dst = Rect.fromLTWH(
+        rLogo.left + (rLogo.width - w) / 2,
+        rLogo.top + (rLogo.height - h) / 2,
+        w,
+        h,
+      );
+      c.drawImageRect(
+        logo,
+        Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
+        dst,
+        Paint()
+          ..colorFilter = const ui.ColorFilter.mode(
+            Colors.white,
+            ui.BlendMode.modulate,
+          ),
+      );
     }
 
     // texto
@@ -266,12 +343,16 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       'Tarea: $title',
       'Fecha: $nowStr',
       'Realizada por: $who',
-      if (deadline is Timestamp) 'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(deadline.toDate())}',
+      if (deadline is Timestamp)
+        'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(deadline.toDate())}',
       if (coords != null) 'Ubicación: $coords',
       if (address != null && address.isNotEmpty) address,
     ];
-    final pb = ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
-      ..pushStyle(ui.TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 24));
+    final pb =
+        ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
+          ..pushStyle(
+            ui.TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 24),
+          );
     pb.addText(lines.join('\n'));
     final p = pb.build()..layout(ui.ParagraphConstraints(width: rText.width));
     c.drawParagraph(p, Offset(rText.left, rText.top));
@@ -284,15 +365,23 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       c.clipPath(path);
       c.drawImageRect(
         staticMap,
-        Rect.fromLTWH(0, 0, staticMap.width.toDouble(), staticMap.height.toDouble()),
+        Rect.fromLTWH(
+          0,
+          0,
+          staticMap.width.toDouble(),
+          staticMap.height.toDouble(),
+        ),
         rMap,
         Paint()..filterQuality = ui.FilterQuality.high,
       );
       c.restore();
-      c.drawRRect(rr, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = Colors.white.withOpacity(0.9));
+      c.drawRRect(
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white.withOpacity(0.9),
+      );
     }
 
     final picture = rec.endRecording();
@@ -312,14 +401,21 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   Future<void> _submit() async {
     if (!_canSend) return;
 
-    setState(() { _busy = true; _error = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
 
     try {
-      final tareaRef = FirebaseFirestore.instance.collection('TBL_TAREAS').doc(widget.taskId);
+      final tareaRef = FirebaseFirestore.instance
+          .collection('TBL_TAREAS')
+          .doc(widget.taskId);
 
       // 1) Subir adjuntos
       final now = DateTime.now();
-      final y = DateFormat('yyyy').format(now), m = DateFormat('MM').format(now), d = DateFormat('dd').format(now);
+      final y = DateFormat('yyyy').format(now),
+          m = DateFormat('MM').format(now),
+          d = DateFormat('dd').format(now);
       final taskSlug = _slugFileSegment(_taskTitle ?? '', fallback: 'tarea');
 
       final List<Map<String, dynamic>> nuevosAdjuntos = [];
@@ -327,12 +423,19 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
 
       for (final f in _picked) {
         final originalName = f.name;
-        final bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
+        final bytes =
+            f.bytes ??
+            (f.path != null ? await File(f.path!).readAsBytes() : null);
         if (bytes == null) continue;
 
-        final ext = originalName.contains('.') ? originalName.split('.').last.toLowerCase() : '';
-        final mime = lookupMimeType(originalName) ?? (ext == 'png' ? 'image/png' : 'application/octet-stream');
-        final evidenceName = '${taskSlug}_${DateTime.now().millisecondsSinceEpoch}_${originalName.replaceAll('/', '_').replaceAll('\\', '_')}';
+        final ext = originalName.contains('.')
+            ? originalName.split('.').last.toLowerCase()
+            : '';
+        final mime =
+            lookupMimeType(originalName) ??
+            (ext == 'png' ? 'image/png' : 'application/octet-stream');
+        final evidenceName =
+            '${taskSlug}_${DateTime.now().millisecondsSinceEpoch}_${originalName.replaceAll('/', '_').replaceAll('\\', '_')}';
 
         final path = 'tareas/$y/$m/$d/$evidenceName';
         final ref = FirebaseStorage.instance.ref(path);
@@ -362,12 +465,17 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       await FirebaseFirestore.instance.runTransaction((trx) async {
         final snap = await trx.get(tareaRef);
         final data = snap.data() ?? {};
-        final currentAdj = (data['adjuntos'] as List<dynamic>? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        final currentEvid = (data['evidencias'] as List<dynamic>? ?? []).cast<String>();
+        final currentAdj = (data['adjuntos'] as List<dynamic>? ?? [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+        final currentEvid = (data['evidencias'] as List<dynamic>? ?? [])
+            .cast<String>();
         final now = Timestamp.now();
 
         if (widget.requestFinish) {
-          final byName = (widget.requestFinishByName ?? data['asignado_nombre'] ?? '').toString();
+          final byName =
+              (widget.requestFinishByName ?? data['asignado_nombre'] ?? '')
+                  .toString();
           trx.update(tareaRef, {
             'estado': 'por_aprobar',
             'status': 'por_aprobar',
@@ -396,17 +504,22 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
           'actualizada_en': FieldValue.serverTimestamp(),
           'lastEventType': 'finalizado',
           'lastEventAt': now,
-          'lastEventText': 'Tarea finalizada por ${data['asignado_nombre'] ?? ''}',
+          'lastEventText':
+              'Tarea finalizada por ${data['asignado_nombre'] ?? ''}',
         });
       });
 
       if (widget.requestFinish || nuevosAdjuntos.isNotEmpty) {
         final currentTask = _task ?? const <String, dynamic>{};
         final byName =
-            (widget.requestFinishByName ?? currentTask['asignado_nombre'] ?? widget.currentUserId)
+            (widget.requestFinishByName ??
+                    currentTask['asignado_nombre'] ??
+                    widget.currentUserId)
                 .toString();
         await tareaRef.collection('finalizacion').add({
-          'type': widget.requestFinish ? 'solicitud_finalizacion' : 'finalizacion',
+          'type': widget.requestFinish
+              ? 'solicitud_finalizacion'
+              : 'finalizacion',
           'message': widget.requestFinish
               ? 'Solicitud de finalización enviada por $byName'
               : 'Tarea finalizada por $byName',
@@ -417,52 +530,14 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         });
       }
 
-      // Notificación Flutter (backup para requestFinish, independiente del deploy de Functions)
-      if (widget.requestFinish) {
-        try {
-          final currentTask = _task ?? const <String, dynamic>{};
-          final creadorId =
-              (currentTask['creador_id'] ?? currentTask['creatorId'] ?? '').toString().trim();
-          final jefeId =
-              (currentTask['jefe_uid'] ?? currentTask['bossId'] ?? '').toString().trim();
-          final empresaId =
-              (currentTask['empresaId'] ?? currentTask['empresa_id'] ?? '').toString().trim();
-          final titulo =
-              (currentTask['titulo'] ?? currentTask['title'] ?? 'Tarea').toString();
-          final byName =
-              (widget.requestFinishByName ?? currentTask['asignado_nombre'] ?? widget.currentUserId)
-                  .toString();
-
-          final recipients = <String>[];
-          if (creadorId.isNotEmpty && creadorId != widget.currentUserId) {
-            recipients.add(creadorId);
-          }
-          if (jefeId.isNotEmpty &&
-              jefeId != widget.currentUserId &&
-              !recipients.contains(jefeId)) {
-            recipients.add(jefeId);
-          }
-          if (recipients.isNotEmpty) {
-            await TaskService().pushNotificationToMany(
-              toUserIds: recipients,
-              title: 'Solicitud de finalización',
-              description: '$titulo · Solicitud enviada por $byName',
-              taskId: widget.taskId,
-              type: 'solicitud_finalizacion',
-              fromId: widget.currentUserId,
-              fromName: byName,
-              empresaId: empresaId.isNotEmpty ? empresaId : null,
-            );
-          }
-        } catch (_) {}
-      }
-
-      // La notificación al creador/jefe también la genera el trigger onTaskUpdated en Cloud Functions.
+      // onTaskUpdated genera la notificación in-app y el push para creador/jefe.
       if (mounted) {
         final msg = widget.requestFinish
             ? 'Solicitud de finalización enviada.'
             : '¡Tarea finalizada!';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
         Navigator.pop(context, true);
       }
     } catch (e) {
@@ -479,14 +554,57 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     final due = _task?['fecha_limite'];
     final estado = (_task?['estado'] ?? '').toString();
 
+    final appTitle = widget.requestFinish
+        ? 'Finalizar tarea'
+        : 'Completar tarea';
+    final appSubtitle = widget.requestFinish
+        ? 'Envía evidencias para aprobación'
+        : 'Adjunta evidencia de cierre';
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7FBF7),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        backgroundColor: kMarronOscuro,
-        title: Text(
-          _taskTitle ?? (widget.requestFinish ? 'Finalizar tarea' : 'Completar tarea'),
-          style: const TextStyle(fontFamily: kArial),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+          tooltip: 'Volver',
         ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              appTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
+            Text(
+              _taskTitle != null ? _taskTitle! : appSubtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+                color: Color(0xCCFFFFFF),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: kMarronOscuro,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_rounded),
+            onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+            tooltip: 'Ir al Home',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -498,33 +616,54 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))],
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.assignment_turned_in_outlined, size: 28, color: Colors.black87),
+                      const Icon(
+                        Icons.assignment_turned_in_outlined,
+                        size: 28,
+                        color: Colors.black87,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(_taskTitle ?? '—',
-                                style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700, fontSize: 18)),
+                            Text(
+                              _taskTitle ?? '—',
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 18,
+                              ),
+                            ),
                             const SizedBox(height: 6),
                             Wrap(
                               spacing: 8,
                               runSpacing: 6,
                               children: [
-                                _chip(estado.isEmpty ? 'en_progreso' : estado,
-                                    color: estado == 'finalizado'
-                                        ? Colors.green.shade600
-                                        : (estado == 'por_aprobar'
-                                        ? Colors.orange.shade700
-                                        : Colors.blueGrey.shade700)),
-                                _chip('Vence: ${_fmtDueDate(due)}', color: Colors.blue.shade600),
+                                _chip(
+                                  estado.isEmpty ? 'en_progreso' : estado,
+                                  color: estado == 'finalizado'
+                                      ? Colors.green.shade600
+                                      : (estado == 'por_aprobar'
+                                            ? Colors.orange.shade700
+                                            : Colors.blueGrey.shade700),
+                                ),
+                                _chip(
+                                  'Vence: ${_fmtDueDate(due)}',
+                                  color: Colors.blue.shade600,
+                                ),
                               ],
                             ),
                           ],
@@ -568,7 +707,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                   widget.requestFinish && !_requiresAttachment
                       ? 'Esta tarea no requiere adjuntos. Puedes enviarla a aprobación sin evidencia.'
                       : 'Agrega una foto o adjuntos como evidencia.',
-                  style: const TextStyle(fontFamily: kArial, color: Colors.black54),
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    color: Colors.black54,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               )
@@ -581,7 +723,8 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (_, i) {
                       final f = _picked[i];
-                      final isImg = (f.name.toLowerCase().endsWith('.png') ||
+                      final isImg =
+                          (f.name.toLowerCase().endsWith('.png') ||
                           f.name.toLowerCase().endsWith('.jpg') ||
                           f.name.toLowerCase().endsWith('.jpeg'));
                       return Container(
@@ -591,17 +734,30 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                           border: Border.all(color: Colors.grey.shade300),
                         ),
                         child: ListTile(
-                          leading: Icon(isImg ? Icons.image : Icons.insert_drive_file_outlined, color: Colors.black87),
-                          title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text('${(f.size / 1024).toStringAsFixed(1)} KB'),
+                          leading: Icon(
+                            isImg
+                                ? Icons.image
+                                : Icons.insert_drive_file_outlined,
+                            color: Colors.black87,
+                          ),
+                          title: Text(
+                            f.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${(f.size / 1024).toStringAsFixed(1)} KB',
+                          ),
                           trailing: IconButton(
                             icon: const Icon(Icons.close),
                             onPressed: _busy
                                 ? null
                                 : () => setState(() {
-                              _picked.removeAt(i);
-                              if (i < _photos.length && _photos[i].name == f.name) _photos.removeAt(i);
-                            }),
+                                    _picked.removeAt(i);
+                                    if (i < _photos.length &&
+                                        _photos[i].name == f.name)
+                                      _photos.removeAt(i);
+                                  }),
                           ),
                         ),
                       );
@@ -628,16 +784,25 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                     backgroundColor: kMarronOscuro,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
                     elevation: 4,
                   ),
                   child: _busy
-                      ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
                       : Text(
                           widget.requestFinish
                               ? (_requiresAttachment
-                                  ? 'Enviar evidencias y solicitar finalización'
-                                  : 'Solicitar finalización')
+                                    ? 'Enviar evidencias y solicitar finalización'
+                                    : 'Solicitar finalización')
                               : 'Enviar evidencias',
                           style: const TextStyle(fontFamily: kArial),
                         ),
@@ -673,7 +838,11 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, color: Colors.white),
               const SizedBox(width: 8),
-              Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontFamily: kArial),
+              ),
             ],
           ),
         ),

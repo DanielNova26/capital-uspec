@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:todo/core/task_contract.dart';
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/widgets/user_avatar.dart';
 
 const String kArial = 'Arial';
 
@@ -53,8 +55,37 @@ class _TaskModernCardState extends State<TaskModernCard> {
     if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
     if (v is String) return DateTime.tryParse(v);
     // Firestore Timestamp
-    try { return (v as dynamic).toDate() as DateTime; } catch (_) {}
+    try {
+      return (v as dynamic).toDate() as DateTime;
+    } catch (_) {}
     return null;
+  }
+
+  String _moduleId(Map<String, dynamic> data) {
+    final source = data['source'];
+    final sourceModule = source is Map ? source['moduleId'] : null;
+    return TaskContract.normalizeModuleId(
+      sourceModule ??
+          data['sourceModule'] ??
+          data['destinoModulo'] ??
+          data['module'] ??
+          data['origen'],
+    );
+  }
+
+  String _moduleLabel(String moduleId) {
+    const labels = {
+      'tareas': 'Tareas',
+      'compras': 'Compras',
+      'interventoria': 'Interventoría',
+      'facturacion': 'Facturación',
+      'correo': 'Correo',
+      'gestion_documental': 'Gestión de Correspondencia',
+      'talento_humano': 'Talento humano',
+      'mantenimiento': 'Mantenimiento',
+      'vehiculos': 'Vehículos',
+    };
+    return labels[moduleId] ?? moduleId.replaceAll('_', ' ');
   }
 
   @override
@@ -62,8 +93,32 @@ class _TaskModernCardState extends State<TaskModernCard> {
     final title = _str(widget.data, ['titulo', 'title'], def: '(Sin título)');
     final desc = _str(widget.data, ['descripcion', 'description']);
     final status = resolveTaskStatus(widget.data);
+    final moduleId = _moduleId(widget.data);
+
+    // Responsable a mostrar: asignado si existe; si no, el creador.
+    final asignadoId = _str(widget.data, ['asignado_uid', 'assignedTo']);
+    final asignadoName = _str(widget.data, [
+      'asignado_nombre',
+      'assignedToName',
+    ]);
+    final hasAsignado = asignadoId.isNotEmpty || asignadoName.isNotEmpty;
+    final personId = hasAsignado
+        ? asignadoId
+        : _str(widget.data, ['creador_id', 'creatorId', 'createdBy']);
+    final personName = hasAsignado
+        ? asignadoName
+        : _str(widget.data, ['creador_nombre', 'creatorName']);
+    final personCargo = hasAsignado
+        ? _str(widget.data, [
+            'asignado_cargo_nombre',
+            'assignedToRole',
+            'cargoNombre',
+            'cargo',
+          ])
+        : _str(widget.data, ['creador_cargo_nombre', 'creatorRole']);
     final due = _toDate(widget.data['fecha_limite'] ?? widget.data['dueDate']);
-    final isOverdue = due != null &&
+    final isOverdue =
+        due != null &&
         due.isBefore(DateTime.now()) &&
         status != 'finalizado' &&
         !widget.isHistorical;
@@ -108,8 +163,10 @@ class _TaskModernCardState extends State<TaskModernCard> {
               color: isOverdue
                   ? Colors.red.withOpacity(0.4)
                   : (_isHovered
-                      ? accentColor.withOpacity(0.5)
-                      : scheme.outlineVariant.withOpacity(widget.isHistorical ? 0.2 : 0.5)),
+                        ? accentColor.withOpacity(0.5)
+                        : scheme.outlineVariant.withOpacity(
+                            widget.isHistorical ? 0.2 : 0.5,
+                          )),
               width: _isHovered || widget.hasNewActivity ? 1.5 : 1,
             ),
           ),
@@ -118,115 +175,183 @@ class _TaskModernCardState extends State<TaskModernCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: widget.onTap,
-            child: Opacity(
-              opacity: widget.isHistorical ? 0.85 : 1.0,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                borderRadius: BorderRadius.circular(20),
+                onTap: widget.onTap,
+                child: Opacity(
+                  opacity: widget.isHistorical ? 0.85 : 1.0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Indicator Bar
-                        Container(
-                          width: 4,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: accentColor,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                title,
-                                style: TextStyle(
-                                  fontFamily: kArial,
-                                  fontWeight:
-                                      widget.isHistorical ? FontWeight.w600 : FontWeight.w900,
-                                  fontSize: 17,
-                                  letterSpacing: -0.4,
-                                  color:
-                                      widget.isHistorical ? scheme.onSurfaceVariant : scheme.onSurface,
-                                ),
-                              ),
-                              if (desc.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  desc,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: scheme.onSurfaceVariant.withOpacity(0.7),
-                                    fontSize: 14,
-                                    height: 1.4,
-                                    fontFamily: kArial,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _StatusPill(status: status, isHistorical: widget.isHistorical),
-                            if ((widget.badge > 0 || widget.hasNewActivity) && !widget.isHistorical) ...[
-                              const SizedBox(height: 8),
-                              Row(
+                            // Indicator Bar
+                            Container(
+                              width: 4,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: accentColor,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (widget.hasNewActivity)
-                                    _ActivityTag(),
-                                  if (widget.badge > 0) ...[
-                                    const SizedBox(width: 6),
-                                    _BadgeCounter(count: widget.badge),
+                                  _ModulePill(label: _moduleLabel(moduleId)),
+                                  const SizedBox(height: 7),
+                                  Text(
+                                    title,
+                                    style: TextStyle(
+                                      fontFamily: kArial,
+                                      fontWeight: widget.isHistorical
+                                          ? FontWeight.w600
+                                          : FontWeight.w900,
+                                      fontSize: 17,
+                                      letterSpacing: -0.4,
+                                      color: widget.isHistorical
+                                          ? scheme.onSurfaceVariant
+                                          : scheme.onSurface,
+                                    ),
+                                  ),
+                                  if (desc.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      desc,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: scheme.onSurfaceVariant
+                                            .withOpacity(0.7),
+                                        fontSize: 14,
+                                        height: 1.4,
+                                        fontFamily: kArial,
+                                      ),
+                                    ),
                                   ],
                                 ],
                               ),
-                            ],
+                            ),
+                            const SizedBox(width: 8),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                _StatusPill(
+                                  status: status,
+                                  isHistorical: widget.isHistorical,
+                                ),
+                                if ((widget.badge > 0 ||
+                                        widget.hasNewActivity) &&
+                                    !widget.isHistorical) ...[
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      if (widget.hasNewActivity) _ActivityTag(),
+                                      if (widget.badge > 0) ...[
+                                        const SizedBox(width: 6),
+                                        _BadgeCounter(count: widget.badge),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
                           ],
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: scheme.surfaceVariant.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              _IconLabel(
+                                icon: widget.isHistorical
+                                    ? Icons.check_circle_rounded
+                                    : (isOverdue
+                                          ? Icons.error_outline_rounded
+                                          : Icons.calendar_today_rounded),
+                                label: widget.isHistorical
+                                    ? 'Finalizada'
+                                    : (due == null
+                                          ? 'Sin fecha'
+                                          : DateFormat(
+                                              'dd MMM, yyyy',
+                                            ).format(due)),
+                                color: isOverdue
+                                    ? Colors.red.shade700
+                                    : scheme.onSurfaceVariant,
+                              ),
+                              if (personId.isNotEmpty ||
+                                  personName.isNotEmpty) ...[
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      UserAvatar(
+                                        userId: personId,
+                                        nameHint: personName,
+                                        radius: 10,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            UserNameText(
+                                              personId,
+                                              fallbackName: personName,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                                fontFamily: kArial,
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                            if (personCargo.isNotEmpty)
+                                              Text(
+                                                personCargo,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontFamily: kArial,
+                                                  color: scheme.onSurfaceVariant
+                                                      .withValues(alpha: 0.75),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ] else
+                                const Spacer(),
+                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 14,
+                                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceVariant.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          _IconLabel(
-                            icon: widget.isHistorical
-                                ? Icons.check_circle_rounded
-                                : (isOverdue ? Icons.error_outline_rounded : Icons.calendar_today_rounded),
-                            label: widget.isHistorical
-                                ? 'Finalizada'
-                                : (due == null ? 'Sin fecha' : DateFormat('dd MMM, yyyy').format(due)),
-                            color: isOverdue ? Colors.red.shade700 : scheme.onSurfaceVariant,
-                          ),
-                          const Spacer(),
-                          Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            size: 14,
-                            color: scheme.onSurfaceVariant.withOpacity(0.4),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
               // Chips FUERA del InkWell para no disparar el onTap del card
               if (widget.chips.isNotEmpty && !widget.isHistorical)
                 Padding(
@@ -234,11 +359,41 @@ class _TaskModernCardState extends State<TaskModernCard> {
                   child: Wrap(
                     spacing: 6,
                     runSpacing: 6,
-                    children: widget.chips.map((c) => _CardChipWidget(chip: c)).toList(),
+                    children: widget.chips
+                        .map((c) => _CardChipWidget(chip: c))
+                        .toList(),
                   ),
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModulePill extends StatelessWidget {
+  final String label;
+
+  const _ModulePill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: scheme.primary,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.55,
+          fontFamily: kArial,
         ),
       ),
     );
@@ -360,8 +515,11 @@ class _CardChipWidget extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(chip.icon, size: 12,
-                color: tappable ? scheme.primary : scheme.onSurfaceVariant),
+            Icon(
+              chip.icon,
+              size: 12,
+              color: tappable ? scheme.primary : scheme.onSurfaceVariant,
+            ),
             const SizedBox(width: 5),
             Text(
               chip.label,
@@ -374,8 +532,11 @@ class _CardChipWidget extends StatelessWidget {
             ),
             if (tappable) ...[
               const SizedBox(width: 4),
-              Icon(Icons.filter_alt_rounded, size: 10,
-                  color: scheme.primary.withOpacity(0.6)),
+              Icon(
+                Icons.filter_alt_rounded,
+                size: 10,
+                color: scheme.primary.withOpacity(0.6),
+              ),
             ],
           ],
         ),
@@ -389,7 +550,11 @@ class _IconLabel extends StatelessWidget {
   final String label;
   final Color color;
 
-  const _IconLabel({required this.icon, required this.label, required this.color});
+  const _IconLabel({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -411,4 +576,3 @@ class _IconLabel extends StatelessWidget {
     );
   }
 }
-

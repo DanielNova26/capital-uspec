@@ -22,6 +22,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:todo/utils/task_status.dart';
+import 'package:todo/widgets/task_action_context_card.dart';
 
 import '../services/task_service.dart';
 
@@ -33,10 +34,10 @@ class NotifyNovedadesScreen extends StatefulWidget {
   final String currentUserId;
 
   const NotifyNovedadesScreen({
-    Key? key,
+    super.key,
     required this.taskId,
     required this.currentUserId,
-  }) : super(key: key);
+  });
 
   @override
   State<NotifyNovedadesScreen> createState() => _NotifyNovedadesScreenState();
@@ -59,13 +60,14 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
   Map<String, dynamic>? _task;
   String? _taskTitle;
+  String? _currentUserName;
 
   static const int _maxDescLen = 3000;
 
   @override
   void initState() {
     super.initState();
-    _loadTask();
+    _loadContext();
     _ensureLocation();
   }
 
@@ -75,15 +77,55 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
     super.dispose();
   }
 
-  Future<void> _loadTask() async {
+  String _displayUserName(Map<String, dynamic> user) {
+    final nombres = (user['nombres'] ?? '').toString().trim();
+    final apellidos = (user['apellidos'] ?? '').toString().trim();
+    final full = '$nombres $apellidos'.trim();
+    if (full.isNotEmpty) return full;
+    final alt =
+        [
+              user['primerNombre'],
+              user['segundoNombre'],
+              user['primerApellido'],
+              user['segundoApellido'],
+            ]
+            .map((e) => (e ?? '').toString().trim())
+            .where((e) => e.isNotEmpty)
+            .join(' ');
+    if (alt.isNotEmpty) return alt;
+    return (user['nombre'] ?? user['usuario'] ?? widget.currentUserId)
+        .toString()
+        .trim();
+  }
+
+  Future<void> _loadContext() async {
     try {
-      final snap = await _taskService.getTask(widget.taskId);
-      final m = snap.data() ?? {};
+      final results = await Future.wait([
+        _taskService.getTask(widget.taskId),
+        FirebaseFirestore.instance
+            .collection('TBL_USUARIOS')
+            .doc(widget.currentUserId)
+            .get(),
+      ]);
+      final taskSnap = results[0];
+      final userSnap = results[1];
+      final m = taskSnap.data() ?? {};
+      final user = userSnap.data() ?? {};
+      if (!mounted) return;
       setState(() {
         _task = m;
         _taskTitle = (m['titulo'] ?? m['title'] ?? 'Tarea').toString();
+        _currentUserName = _displayUserName(user);
       });
     } catch (_) {}
+  }
+
+  DateTime? _taskDueDate() {
+    final raw = _task?['fecha_limite'] ?? _task?['dueDate'];
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is String) return DateTime.tryParse(raw);
+    return null;
   }
 
   Future<void> _ensureLocation() async {
@@ -95,8 +137,13 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       if (!await Geolocator.isLocationServiceEnabled()) {
         await Geolocator.openLocationSettings();
       }
-      _pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      _coordsStr = '${_pos!.latitude.toStringAsFixed(5)}, ${_pos!.longitude.toStringAsFixed(5)}';
+      _pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      _coordsStr =
+          '${_pos!.latitude.toStringAsFixed(5)}, ${_pos!.longitude.toStringAsFixed(5)}';
       if (mounted) setState(() {});
     } catch (_) {}
   }
@@ -136,7 +183,17 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       withData: true,
       type: FileType.custom,
       allowedExtensions: const [
-        'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'zip', 'jpg', 'jpeg', 'png',
+        'pdf',
+        'doc',
+        'docx',
+        'xls',
+        'xlsx',
+        'ppt',
+        'pptx',
+        'zip',
+        'jpg',
+        'jpeg',
+        'png',
       ],
     );
     if (res != null && res.files.isNotEmpty) {
@@ -166,12 +223,24 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
     } catch (_) {}
 
     final rec = ui.PictureRecorder();
-    final c = Canvas(rec, Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()));
+    final c = Canvas(
+      rec,
+      Rect.fromLTWH(0, 0, base.width.toDouble(), base.height.toDouble()),
+    );
 
-    c.drawImage(base, Offset.zero, Paint()..filterQuality = ui.FilterQuality.medium);
+    c.drawImage(
+      base,
+      Offset.zero,
+      Paint()..filterQuality = ui.FilterQuality.medium,
+    );
 
     final overlayH = (base.height * 0.24).clamp(150.0, 280.0);
-    final overlay = Rect.fromLTWH(0, base.height - overlayH, base.width.toDouble(), overlayH);
+    final overlay = Rect.fromLTWH(
+      0,
+      base.height - overlayH,
+      base.width.toDouble(),
+      overlayH,
+    );
     c.drawRect(overlay, Paint()..color = const Color(0xCC000000));
 
     const pad = 16.0;
@@ -204,7 +273,11 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
         logo,
         Rect.fromLTWH(0, 0, logo.width.toDouble(), logo.height.toDouble()),
         dst,
-        Paint()..colorFilter = const ui.ColorFilter.mode(Colors.white, ui.BlendMode.modulate),
+        Paint()
+          ..colorFilter = const ui.ColorFilter.mode(
+            Colors.white,
+            ui.BlendMode.modulate,
+          ),
       );
     }
 
@@ -215,8 +288,14 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       if (coords != null) 'Ubicación: $coords',
     ];
 
-    final pb = ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
-      ..pushStyle(ui.TextStyle(color: Colors.white.withOpacity(0.96), fontSize: 24));
+    final pb =
+        ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
+          ..pushStyle(
+            ui.TextStyle(
+              color: Colors.white.withValues(alpha: 0.96),
+              fontSize: 24,
+            ),
+          );
     pb.addText(lines.join('\n'));
     final p = pb.build()..layout(ui.ParagraphConstraints(width: rText.width));
     c.drawParagraph(p, Offset(rText.left, rText.top));
@@ -231,7 +310,10 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
     if (_takingPhoto) return;
     setState(() => _takingPhoto = true);
     try {
-      final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 88);
+      final x = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 88,
+      );
       if (x == null) return;
 
       final raw = await x.readAsBytes();
@@ -267,9 +349,11 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
 
   Future<void> _submit() async {
     if (!_canSend) {
-      setState(() => _error = _descCtrl.text.trim().isEmpty
-          ? 'Describe la novedad'
-          : 'La descripción supera el límite de $_maxDescLen caracteres');
+      setState(
+        () => _error = _descCtrl.text.trim().isEmpty
+            ? 'Describe la novedad'
+            : 'La descripción supera el límite de $_maxDescLen caracteres',
+      );
       return;
     }
 
@@ -281,21 +365,27 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
     try {
       final atts = <TaskAttachment>[];
       for (final f in _picked) {
-        final bytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
+        final bytes =
+            f.bytes ??
+            (f.path != null ? await File(f.path!).readAsBytes() : null);
         if (bytes == null) continue;
-        atts.add(TaskAttachment(
-          filename: f.name,
-          bytes: bytes,
-          contentType: _guessMime(f.name),
-        ));
+        atts.add(
+          TaskAttachment(
+            filename: f.name,
+            bytes: bytes,
+            contentType: _guessMime(f.name),
+          ),
+        );
       }
 
-      final geoloc = (_pos == null) ? null : {'lat': _pos!.latitude, 'lng': _pos!.longitude};
+      final geoloc = (_pos == null)
+          ? null
+          : {'lat': _pos!.latitude, 'lng': _pos!.longitude};
 
       await _taskService.addNovedad(
         taskId: widget.taskId,
         byUserId: widget.currentUserId,
-        byUserName: '', // si tienes nombre en sesión, ponlo aquí
+        byUserName: _currentUserName ?? widget.currentUserId,
         message: _descCtrl.text.trim(),
         geoloc: geoloc,
         attachments: atts,
@@ -303,9 +393,9 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Novedad enviada')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Novedad enviada')));
       _descCtrl.clear();
       setState(() => _picked.clear());
     } catch (e) {
@@ -318,194 +408,206 @@ class _NotifyNovedadesScreenState extends State<NotifyNovedadesScreen> {
   @override
   Widget build(BuildContext context) {
     final estado = _task == null ? '' : resolveTaskStatus(_task!);
-    final due = _task?['fecha_limite'];
-
-    String fmtDue(dynamic ts) {
-      if (ts is Timestamp) return DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
-      return '—';
-    }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7FBF7),
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+          tooltip: 'Volver',
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Reportar novedad',
+              maxLines: 1,
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
+            Text(
+              'Comunica un inconveniente o bloqueo',
+              maxLines: 1,
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+                color: Color(0xCCFFFFFF),
+              ),
+            ),
+          ],
+        ),
         backgroundColor: kMarronOscuro,
-        title: const Text('Notificar novedades', style: TextStyle(fontFamily: kArial)),
+        foregroundColor: Colors.white,
+        elevation: 0,
       ),
       body: SafeArea(
-    child: GestureDetector(
-    behavior: HitTestBehavior.translucent,
-    onTap: () => FocusScope.of(context).unfocus(),
-    child: Column(
-    children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4)),
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: TaskActionContextCard(
+                  title: _taskTitle ?? 'Cargando tarea...',
+                  status: estado,
+                  dueDate: _taskDueDate(),
+                  icon: Icons.report_problem_outlined,
+                  accentColor: Colors.orange.shade700,
+                  subtitle: _currentUserName == null
+                      ? null
+                      : 'Reporta: $_currentUserName',
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: TextField(
+                  controller: _descCtrl,
+                  minLines: 3,
+                  maxLines: 6,
+                  maxLength: _maxDescLen,
+                  decoration: InputDecoration(
+                    labelText: 'Descripción de la novedad',
+                    hintText: '¿Qué ocurrió?',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _ActionButton(
+                        icon: Icons.attach_file,
+                        label: 'Adjuntar\narchivos',
+                        onTap: _busy ? null : _pickFiles,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _ActionButton(
+                        icon: _takingPhoto
+                            ? Icons.hourglass_top
+                            : Icons.camera_alt,
+                        label: _takingPhoto ? 'Procesando...' : 'Tomar foto',
+                        onTap: _busy || _takingPhoto ? null : _takePhoto,
+                      ),
+                    ),
                   ],
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.report_problem_outlined, size: 28, color: Colors.black87),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _taskTitle ?? 'Tarea',
-                              style: const TextStyle(
-                                fontFamily: kArial,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 18,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: [
-                                Chip(
-                                  label: Text(
-                                    estado.isEmpty ? 'en_progreso' : estado,
-                                    style: const TextStyle(color: Colors.white, fontFamily: kArial),
-                                  ),
-                                ),
-                                Chip(
-                                  label: Text(
-                                    'Vence: ${fmtDue(due)}',
-                                    style: const TextStyle(color: Colors.white, fontFamily: kArial),
-                                  ),
-                                  backgroundColor: Colors.blue.shade600,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
-            ),
 
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-              child: TextField(
-                controller: _descCtrl,
-                minLines: 3,
-                maxLines: 6,
-                maxLength: _maxDescLen,
-                decoration: InputDecoration(
-                  labelText: 'Descripción de la novedad',
-                  hintText: '¿Qué ocurrió?',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _ActionButton(
-                      icon: Icons.attach_file,
-                      label: 'Adjuntar\narchivos',
-                      onTap: _busy ? null : _pickFiles,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _ActionButton(
-                      icon: _takingPhoto ? Icons.hourglass_top : Icons.camera_alt,
-                      label: _takingPhoto ? 'Procesando...' : 'Tomar foto',
-                      onTap: _busy || _takingPhoto ? null : _takePhoto,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            if (_picked.isNotEmpty)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: ListView.separated(
-                    itemCount: _picked.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) {
-                      final f = _picked[i];
-                      final isImg = f.name.toLowerCase().endsWith('.png') ||
-                          f.name.toLowerCase().endsWith('.jpg') ||
-                          f.name.toLowerCase().endsWith('.jpeg');
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: ListTile(
-                          leading: Icon(isImg ? Icons.image : Icons.insert_drive_file_outlined),
-                          title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text('${(f.size / 1024).toStringAsFixed(1)} KB'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: _busy ? null : () => setState(() => _picked.removeAt(i)),
+              if (_picked.isNotEmpty)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: ListView.separated(
+                      itemCount: _picked.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) {
+                        final f = _picked[i];
+                        final isImg =
+                            f.name.toLowerCase().endsWith('.png') ||
+                            f.name.toLowerCase().endsWith('.jpg') ||
+                            f.name.toLowerCase().endsWith('.jpeg');
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade300),
                           ),
-                        ),
-                      );
-                    },
+                          child: ListTile(
+                            leading: Icon(
+                              isImg
+                                  ? Icons.image
+                                  : Icons.insert_drive_file_outlined,
+                            ),
+                            title: Text(
+                              f.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${(f.size / 1024).toStringAsFixed(1)} KB',
+                            ),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(() => _picked.removeAt(i)),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                )
+              else
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Puedes adjuntar fotos o documentos como evidencia.',
+                    style: TextStyle(fontFamily: kArial, color: Colors.black54),
                   ),
                 ),
-              )
-            else
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Puedes adjuntar fotos o documentos como evidencia.',
-                  style: TextStyle(fontFamily: kArial, color: Colors.black54),
+
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy || !_canSend ? null : _submit,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kMarronOscuro,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: _busy
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.send_rounded),
+                    label: Text(
+                      _busy ? 'Enviando...' : 'Enviar novedad',
+                      style: const TextStyle(fontFamily: kArial),
+                    ),
+                  ),
                 ),
               ),
-
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
-              ),
-
-    Padding(
-    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-    child: SizedBox(
-    width: double.infinity,
-    child: ElevatedButton(
-    onPressed: _busy || !_canSend ? null : _submit,
-    style: ElevatedButton.styleFrom(
-    backgroundColor: kMarronOscuro,
-    foregroundColor: Colors.white,
-    padding: const EdgeInsets.symmetric(vertical: 14),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-    elevation: 4,
-    ),
-    child: _busy
-    ? const SizedBox(
-    height: 22,
-    width: 22,
-    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-    )
-        : const Text('Enviar novedad', style: TextStyle(fontFamily: kArial)),
-    ),
-    ),
-    ),
-    ],
-    ),
-    ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -534,7 +636,11 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, color: Colors.white),
               const SizedBox(width: 8),
-              Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontFamily: kArial)),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontFamily: kArial),
+              ),
             ],
           ),
         ),

@@ -1,7 +1,9 @@
 // lib/login/change_password_screen.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../services/secure_auth_service.dart';
 import 'login_screen.dart'; // Ajusta si tu LoginScreen está en otra carpeta
 import 'package:todo/utils/user_company.dart';
 
@@ -10,8 +12,11 @@ const String kArial = 'Arial';
 class ChangePasswordScreen extends StatefulWidget {
   final String usuario; // ID del doc (antes mostrabas esto)
   final String empresaId;
-  const ChangePasswordScreen({Key? key, required this.usuario, required this.empresaId})
-      : super(key: key);
+  const ChangePasswordScreen({
+    Key? key,
+    required this.usuario,
+    required this.empresaId,
+  }) : super(key: key);
 
   @override
   State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
@@ -45,7 +50,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     '¿Cuál fue tu primer concierto?',
     '¿Cuál es la marca de tu primer automóvil?',
     '¿Cuál es el nombre de tu mejor amigo de la infancia?',
-    '¿Cuál es el nombre de tu abuelo paterno?'
+    '¿Cuál es el nombre de tu abuelo paterno?',
   ];
 
   String? _selectedQuestion1;
@@ -65,11 +70,13 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           .get();
 
       final data = doc.data();
-      if (doc.exists && data != null && userBelongsToEmpresa(data, widget.empresaId)) {
+      if (doc.exists &&
+          data != null &&
+          userBelongsToEmpresa(data, widget.empresaId)) {
         setState(() {
           _nombre = (data['nombres'] as String?)?.trim();
         });
-      }  else {
+      } else {
         setState(() {
           _errorMessage = 'El usuario no pertenece a esta empresa.';
         });
@@ -97,28 +104,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     });
 
     try {
-      final docRef = FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.usuario);
-
-      final doc = await docRef.get();
-      final data = doc.data();
-      if (!doc.exists || data == null || !userBelongsToEmpresa(data, widget.empresaId)) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'No se pudo validar la empresa del usuario.';
-        });
-        return;
-      }
-
-      await docRef.update({
-        'password': _newPassCtrl.text.trim(),
-        'pregunta_seguridad_1': _selectedQuestion1,
-        'respuesta_seguridad_1': _answer1Ctrl.text.trim(),
-        'pregunta_seguridad_2': _selectedQuestion2,
-        'respuesta_seguridad_2': _answer2Ctrl.text.trim(),
-        'needsPasswordChange': false,
-      });
+      await SecureAuthService().changePassword(
+        newPassword: _newPassCtrl.text.trim(),
+        question1: _selectedQuestion1!,
+        answer1: _answer1Ctrl.text.trim(),
+        question2: _selectedQuestion2!,
+        answer2: _answer2Ctrl.text.trim(),
+      );
+      await FirebaseAuth.instance.signOut();
 
       setState(() => _isLoading = false);
 
@@ -128,7 +121,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           title: Text('¡Contraseña y seguridad actualizadas!'),
           content: Text(
             'Tu contraseña y preguntas de seguridad han sido guardadas correctamente.\n'
-                'Ahora podrás iniciar sesión con tu nueva contraseña.',
+            'Ahora podrás iniciar sesión con tu nueva contraseña.',
           ),
         ),
       );
@@ -137,9 +130,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),
-            (route) => false,
+        (route) => false,
       );
-    } catch (e) {
+    } on SecureAuthException catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.message;
+      });
+    } catch (_) {
       setState(() {
         _isLoading = false;
         _errorMessage = 'Error al actualizar la contraseña. Intenta de nuevo.';
@@ -195,8 +193,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Pregunta de seguridad 1',
                         border: OutlineInputBorder(),
-                        contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 16,
+                        ),
                       ),
                       iconEnabledColor: scheme.primary,
                       dropdownColor: theme.brightness == Brightness.dark
@@ -204,37 +204,45 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           : Colors.white,
                       value: _selectedQuestion1,
                       items: _preguntas
-                          .map((p) => DropdownMenuItem(
-                        value: p,
-                        child: Text(
-                          p,
-                          maxLines: 3,
-                          overflow: TextOverflow.visible,
-                          style: const TextStyle(
-                              fontFamily: kArial, color: Colors.black),
-                        ),
-                      ))
+                          .map(
+                            (p) => DropdownMenuItem(
+                              value: p,
+                              child: Text(
+                                p,
+                                maxLines: 3,
+                                overflow: TextOverflow.visible,
+                                style: const TextStyle(
+                                  fontFamily: kArial,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          )
                           .toList(),
                       // Esto controla cómo se muestra el texto SELECCIONADO en el campo
                       selectedItemBuilder: (_) => _preguntas
-                          .map((p) => Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          p,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontFamily: kArial),
-                        ),
-                      ))
+                          .map(
+                            (p) => Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                p,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontFamily: kArial),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         setState(() {
                           _selectedQuestion1 = value;
-                          if (_selectedQuestion2 == value) _selectedQuestion2 = null;
+                          if (_selectedQuestion2 == value)
+                            _selectedQuestion2 = null;
                         });
                       },
-                      validator: (v) =>
-                      (v == null || v.isEmpty) ? 'Selecciona la pregunta 1' : null,
+                      validator: (v) => (v == null || v.isEmpty)
+                          ? 'Selecciona la pregunta 1'
+                          : null,
                     ),
                     const SizedBox(height: 12),
 
@@ -246,8 +254,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         border: OutlineInputBorder(),
                       ),
                       style: const TextStyle(fontFamily: kArial),
-                      validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Ingresa la respuesta 1' : null,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Ingresa la respuesta 1'
+                          : null,
                     ),
                     const SizedBox(height: 24),
 
@@ -258,8 +267,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Pregunta de seguridad 2',
                         border: OutlineInputBorder(),
-                        contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 16,
+                        ),
                       ),
                       iconEnabledColor: scheme.primary,
                       dropdownColor: theme.brightness == Brightness.dark
@@ -267,32 +278,39 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           : Colors.white,
                       value: _selectedQuestion2,
                       items: _preguntas
-                          .map((p) => DropdownMenuItem(
-                        value: p,
-                        child: Text(
-                          p,
-                          maxLines: 3,
-                          overflow: TextOverflow.visible,
-                          style: const TextStyle(
-                              fontFamily: kArial, color: Colors.black),
-                        ),
-                      ))
+                          .map(
+                            (p) => DropdownMenuItem(
+                              value: p,
+                              child: Text(
+                                p,
+                                maxLines: 3,
+                                overflow: TextOverflow.visible,
+                                style: const TextStyle(
+                                  fontFamily: kArial,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          )
                           .toList(),
                       selectedItemBuilder: (_) => _preguntas
-                          .map((p) => Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          p,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontFamily: kArial),
-                        ),
-                      ))
+                          .map(
+                            (p) => Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                p,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontFamily: kArial),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         setState(() {
                           _selectedQuestion2 = value;
-                          if (_selectedQuestion1 == value) _selectedQuestion1 = null;
+                          if (_selectedQuestion1 == value)
+                            _selectedQuestion1 = null;
                         });
                       },
                       validator: (v) {
@@ -315,8 +333,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         border: OutlineInputBorder(),
                       ),
                       style: const TextStyle(fontFamily: kArial),
-                      validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Ingresa la respuesta 2' : null,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Ingresa la respuesta 2'
+                          : null,
                     ),
                     const SizedBox(height: 24),
 
@@ -336,8 +355,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         if (v == null || v.trim().isEmpty) {
                           return 'Ingresa la nueva contraseña';
                         }
-                        if (v.trim().length < 6) {
-                          return 'Mínimo 6 caracteres';
+                        if (v.trim().length < 8) {
+                          return 'Mínimo 8 caracteres';
                         }
                         return null;
                       },
@@ -368,7 +387,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     if (_errorMessage != null) ...[
                       Text(
                         _errorMessage!,
-                        style: TextStyle(color: scheme.error, fontFamily: kArial),
+                        style: TextStyle(
+                          color: scheme.error,
+                          fontFamily: kArial,
+                        ),
                       ),
                       const SizedBox(height: 16),
                     ],
@@ -389,15 +411,15 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                         onPressed: _isLoading ? null : _submitChange,
                         child: _isLoading
                             ? SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              scheme.onPrimary,
-                            ),
-                          ),
-                        )
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    scheme.onPrimary,
+                                  ),
+                                ),
+                              )
                             : const Text('Actualizar contraseña'),
                       ),
                     ),

@@ -30,7 +30,7 @@ class InternalModuleLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
     final isWeb = width >= 900;
-    
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC), // Fondo limpio Slate 50
       appBar: isWeb ? null : _buildMobileAppBar(context),
@@ -56,6 +56,8 @@ class InternalModuleLayout extends StatelessWidget {
         children: [
           Text(
             title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               fontFamily: kArial,
               fontWeight: FontWeight.w900,
@@ -65,6 +67,8 @@ class InternalModuleLayout extends StatelessWidget {
           if (subtitle != null)
             Text(
               subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: kArial,
                 fontSize: 11,
@@ -93,13 +97,11 @@ class InternalModuleLayout extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))), // Slate 200
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFE2E8F0)),
+        ), // Slate 200
         boxShadow: [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
         ],
       ),
       child: Row(
@@ -173,10 +175,10 @@ class InternalModuleLayout extends StatelessWidget {
           // Acciones
           if (headerActions != null) ...[
             const SizedBox(width: 16),
-            ...headerActions!.map((a) => Padding(
-              padding: const EdgeInsets.only(left: 12),
-              child: a,
-            )),
+            ...headerActions!.map(
+              (a) =>
+                  Padding(padding: const EdgeInsets.only(left: 12), child: a),
+            ),
           ],
         ],
       ),
@@ -207,10 +209,7 @@ class InternalModuleLayout extends StatelessWidget {
   void _navToHome(BuildContext context) {
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => HomeScreen(
-          username: userId,
-          empresaId: empresaId,
-        ),
+        builder: (_) => HomeScreen(username: userId, empresaId: empresaId),
       ),
       (route) => false,
     );
@@ -235,10 +234,7 @@ class InternalModuleViewport extends StatelessWidget {
       alignment: Alignment.topCenter,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
-        child: Padding(
-          padding: padding,
-          child: child,
-        ),
+        child: Padding(padding: padding, child: child),
       ),
     );
   }
@@ -248,13 +244,10 @@ class InternalModuleTabItem {
   final String label;
   final IconData icon;
 
-  const InternalModuleTabItem({
-    required this.label,
-    required this.icon,
-  });
+  const InternalModuleTabItem({required this.label, required this.icon});
 }
 
-class InternalModuleTabs extends StatelessWidget {
+class InternalModuleTabs extends StatefulWidget {
   final List<InternalModuleTabItem> items;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
@@ -273,82 +266,226 @@ class InternalModuleTabs extends StatelessWidget {
   });
 
   @override
+  State<InternalModuleTabs> createState() => _InternalModuleTabsState();
+}
+
+class _InternalModuleTabsState extends State<InternalModuleTabs> {
+  final ScrollController _scrollController = ScrollController();
+  late List<GlobalKey> _itemKeys;
+  bool _canScrollBack = false;
+  bool _canScrollForward = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemKeys = List.generate(widget.items.length, (_) => GlobalKey());
+    _scrollController.addListener(_syncScrollControls);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncScrollControls();
+      _ensureSelectedVisible(jump: true);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant InternalModuleTabs oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items.length != widget.items.length) {
+      _itemKeys = List.generate(widget.items.length, (_) => GlobalKey());
+    }
+    if (oldWidget.selectedIndex != widget.selectedIndex ||
+        oldWidget.items.length != widget.items.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _syncScrollControls();
+        _ensureSelectedVisible();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_syncScrollControls)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _syncScrollControls() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final back = position.pixels > position.minScrollExtent + 2;
+    final forward = position.pixels < position.maxScrollExtent - 2;
+    if (back == _canScrollBack && forward == _canScrollForward) return;
+    setState(() {
+      _canScrollBack = back;
+      _canScrollForward = forward;
+    });
+  }
+
+  Future<void> _scrollBy(double delta) async {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final target = (_scrollController.offset + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    await _scrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _ensureSelectedVisible({bool jump = false}) {
+    if (!_scrollController.hasClients || widget.items.isEmpty) return;
+    final index = widget.selectedIndex.clamp(0, widget.items.length - 1);
+    final itemContext = _itemKeys[index].currentContext;
+    if (itemContext == null) return;
+    Scrollable.ensureVisible(
+      itemContext,
+      alignment: 0.5,
+      duration: jump ? Duration.zero : const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _scrollButton({
+    required IconData icon,
+    required bool enabled,
+    required double delta,
+    required String tooltip,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      width: 36,
+      height: 36,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: enabled
+            ? widget.accentColor.withOpacity(0.08)
+            : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: enabled
+              ? widget.accentColor.withOpacity(0.24)
+              : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+        onPressed: enabled ? () => _scrollBy(delta) : null,
+        tooltip: tooltip,
+        icon: Icon(icon, size: 20),
+        color: widget.accentColor,
+        disabledColor: const Color(0xFFCBD5E1),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 16 : 28,
-          vertical: compact ? 12 : 14,
-        ),
-        child: Row(
-          children: [
-            ...List.generate(items.length, (index) {
-              final item = items[index];
-              final selected = index == selectedIndex;
+      child: Row(
+        children: [
+          _scrollButton(
+            icon: Icons.chevron_left,
+            enabled: _canScrollBack,
+            delta: -360,
+            tooltip: 'Ver opciones anteriores',
+          ),
+          Expanded(
+            child: Scrollbar(
+              controller: _scrollController,
+              thumbVisibility: _canScrollBack || _canScrollForward,
+              interactive: true,
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.compact ? 8 : 12,
+                  vertical: widget.compact ? 12 : 14,
+                ),
+                child: Row(
+                  children: [
+                    ...List.generate(widget.items.length, (index) {
+                      final item = widget.items[index];
+                      final selected = index == widget.selectedIndex;
 
-              return Padding(
-                padding: EdgeInsets.only(right: compact ? 8 : 10),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => onSelected(index),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: compact ? 12 : 16,
-                      vertical: compact ? 10 : 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? accentColor.withOpacity(0.12)
-                          : const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: selected
-                            ? accentColor.withOpacity(0.35)
-                            : const Color(0xFFE2E8F0),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          item.icon,
-                          size: compact ? 17 : 18,
-                          color: selected
-                              ? accentColor
-                              : const Color(0xFF64748B),
+                      return Padding(
+                        key: _itemKeys[index],
+                        padding: EdgeInsets.only(
+                          right: widget.compact ? 8 : 10,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          item.label,
-                          style: TextStyle(
-                            fontFamily: kArial,
-                            fontSize: compact ? 12 : 13,
-                            fontWeight: selected
-                                ? FontWeight.w800
-                                : FontWeight.w600,
-                            color: selected
-                                ? accentColor
-                                : const Color(0xFF475569),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => widget.onSelected(index),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: widget.compact ? 12 : 16,
+                              vertical: widget.compact ? 10 : 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? widget.accentColor.withOpacity(0.12)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: selected
+                                    ? widget.accentColor.withOpacity(0.35)
+                                    : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  item.icon,
+                                  size: widget.compact ? 17 : 18,
+                                  color: selected
+                                      ? widget.accentColor
+                                      : const Color(0xFF64748B),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  item.label,
+                                  style: TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: widget.compact ? 12 : 13,
+                                    fontWeight: selected
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
+                                    color: selected
+                                        ? widget.accentColor
+                                        : const Color(0xFF475569),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
+                      );
+                    }),
+                    if (widget.trailing != null) ...[
+                      SizedBox(width: widget.compact ? 8 : 12),
+                      widget.trailing!,
+                    ],
+                  ],
                 ),
-              );
-            }),
-            if (trailing != null) ...[
-              SizedBox(width: compact ? 8 : 12),
-              trailing!,
-            ],
-          ],
-        ),
+              ),
+            ),
+          ),
+          _scrollButton(
+            icon: Icons.chevron_right,
+            enabled: _canScrollForward,
+            delta: 360,
+            tooltip: 'Ver más opciones',
+          ),
+        ],
       ),
     );
   }

@@ -1,8 +1,67 @@
 // functions/src/index.ts
 import * as functions from "firebase-functions/v1"; // compat v1
+import {createHash} from "crypto";
+
+// Autenticación privada de To-Do. La contraseña se valida exclusivamente en
+// servidor y la aplicación recibe una sesión Firebase individual.
+export {
+  authIniciarSesion,
+  authCambiarClave,
+  authPrepararRecuperacion,
+  authCompletarRecuperacion,
+} from "./auth";
+
+// Centro de Seguridad — operaciones administrativas sin exponer secretos.
+export {
+  securityAdminOverview,
+  securityAdminRequirePasswordChange,
+  securityAdminRevokeSessions,
+  securityAdminResetTemporaryPassword,
+  securityAdminClearLoginBlocks,
+} from "./security_admin";
 
 // ICD-11 token broker + proxy (Fase B)
 export { icd11Search } from "./icd11";
+
+// Correo — OAuth individual Gmail, reglas multiempresa y alertas WhatsApp.
+export {
+  correoGmailAuthorize,
+  correoGmailCallback,
+  correoMicrosoftAuthorize,
+  correoMicrosoftCallback,
+  correoProcesar,
+  correoProcesarHttp,
+  correoProcesarProgramado,
+  correoProbarRegla,
+  correoProbarWhatsApp,
+  correoEstadoIntegracion,
+  correoCrearExpediente,
+  gdAsignarExpediente,
+  gdCodificarExpedientesHistoricos,
+  gdTerminarExpediente,
+  correoPrepararExpediente,
+  correoGuardarBorradorGmail,
+  correoEnviarRespuesta,
+  gdRevisarRespuesta,
+} from "./correo";
+
+// Tokens DIAN — bóveda cifrada, acceso por empresa y auditoría.
+export {
+  dianTokensListar,
+  dianTokenAccesos,
+  dianTokenAbrir,
+  dianTokenCambiarEstado,
+} from "./dian_tokens";
+
+// Tokens DIAN — buzón propio (Yahoo/IMAP). Solo baja los correos del
+// remitente oficial de la DIAN o con el asunto oficial; ignora el resto.
+export {
+  dianBuzonEstado,
+  dianBuzonConectar,
+  dianBuzonSincronizar,
+  dianBuzonDesconectar,
+  dianBuzonProgramado,
+} from "./dian_mailbox";
 
 // Planillas de Pago — notificaciones programadas (08:00, 12:00, 16:00 hora Colombia)
 export {
@@ -11,7 +70,39 @@ export {
   ppNotificaciones1600,
 } from "./pp_notifications";
 export { ppStampDirectPdf } from "./pp_stamp_pdf";
+export {
+  ppWhatsAppCambioFirma,
+  interventoriaWhatsAppNuevaActa,
+  facturacionWhatsAppDocumentoRechazado,
+} from "./workflow_whatsapp_notifications";
 export { comprasLimpiarRechazadosVencidos } from "./compras_quality_cleanup";
+export { comprasConsolidarRequerimiento } from "./compras_requirements";
+export {
+  comprasNotificarNuevoProveedorWhatsApp,
+} from "./compras_notifications";
+export {
+  comprasNotificarVigenciasDocumentales,
+} from "./compras_expiration_notifications";
+export {
+  whatsappAdminEstado,
+  whatsappAdminGuardar,
+  whatsappAdminGuardarListado,
+  whatsappAdminAsignarListado,
+  whatsappAdminDirectorio,
+  whatsappAdminProbar,
+} from "./whatsapp";
+export {
+  rutasResumenEvidencia,
+  rutasGenerarInforme,
+  rutasGenerarZip,
+} from "./rutas";
+
+// Rutas — Estudio de Movilidad: mediciones automáticas de tiempos de
+// desplazamiento con tráfico (cron + callable manual).
+export {
+  rutasMovilidadTick,
+  rutasMovilidadMedirAhora,
+} from "./rutas_movilidad";
 import * as admin from "firebase-admin";
 
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
@@ -20,6 +111,8 @@ admin.initializeApp();
 
 const db = admin.firestore();
 const fcm = admin.messaging();
+const notificationDeliveryQueue = "TBL_NOTIFICATION_DELIVERY_QUEUE";
+const maxPushDeliveryAttempts = 5;
 
 // --------------------------- Helpers ---------------------------
 function getAssignedId(d: admin.firestore.DocumentData | undefined | null): string | null {
@@ -47,6 +140,17 @@ function getCreatorId(d: admin.firestore.DocumentData | undefined | null): strin
     (d as any).creatorId ||
     (d as any).creador_uid ||
     (d as any).creadorUid ||
+    null
+  );
+}
+
+function getApproverId(d: admin.firestore.DocumentData | undefined | null): string | null {
+  if (!d) return null;
+  return (
+    (d as any).aprobador_uid ||
+    (d as any).approverId ||
+    getBossId(d) ||
+    getCreatorId(d) ||
     null
   );
 }
@@ -148,14 +252,72 @@ function statusLabel(status: string): string {
   }
 }
 
+function normalizeTaskModule(value: unknown): string {
+  const raw = (value ?? "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "");
+  const aliases: Record<string, string> = {
+    comprasdashboard: "compras",
+    compras_bodega: "compras",
+    interventoriadashboard: "interventoria",
+    facturaciondashboard: "facturacion",
+    correodashboard: "correo",
+    gestiondocumentaldashboard: "gestion_documental",
+    talentohumanodashboard: "talento_humano",
+    mantenimientodashboard: "mantenimiento",
+    vehiculosdashboard: "vehiculos",
+  };
+  return aliases[raw] ?? (raw || "tareas");
+}
+
+function taskNotificationContext(
+  data: admin.firestore.DocumentData | undefined | null
+): Record<string, string> {
+  const source = data && typeof (data as any).source === "object"
+    ? ((data as any).source as Record<string, unknown>)
+    : {};
+  const empresaId = ((data as any)?.empresaId ?? "").toString().trim();
+  const module = normalizeTaskModule(
+    source.moduleId ??
+      (data as any)?.sourceModule ??
+      (data as any)?.destinoModulo ??
+      (data as any)?.module ??
+      (data as any)?.origen
+  );
+  const sourceType = (
+    source.type ?? (data as any)?.sourceType ?? (data as any)?.origen ?? "manual"
+  ).toString().trim();
+  const sourceEntityId = (
+    source.entityId ??
+      (data as any)?.sourceEntityId ??
+      (data as any)?.hallazgoId ??
+      (data as any)?.facObservacionId ??
+      ""
+  ).toString().trim();
+
+  return {
+    ...(empresaId ? {empresaId} : {}),
+    module,
+    sourceType: sourceType || "manual",
+    ...(sourceEntityId ? {sourceEntityId} : {}),
+  };
+}
+
 /**
  * Guarda una notificación dentro de Firestore en:
  * TBL_NOTIFICACIONES/{userId}/notifications (subcollection)
  *
  * @param {string} userId - Id del usuario destinatario (docId/cedula/uid según tu app).
  * @param {Record<string, unknown>} payload - Contenido de la notificación (title, description, taskId, type, etc).
+ * @param {string} idempotencyKey - Clave estable opcional para evitar duplicados del mismo evento.
  */
-async function saveInAppNotification(userId: string, payload: Record<string, unknown>) {
+async function saveInAppNotification(
+  userId: string,
+  payload: Record<string, unknown>,
+  idempotencyKey?: string
+) {
   const parentRef = db.collection("TBL_NOTIFICACIONES").doc(userId);
 
   // (opcional) asegurar doc padre
@@ -179,8 +341,17 @@ async function saveInAppNotification(userId: string, payload: Record<string, unk
     }
   }
 
-  await subRef.add({
+  const notificationRef = idempotencyKey
+    ? subRef.doc(
+      createHash("sha256")
+        .update(`${userId}:${idempotencyKey}`)
+        .digest("hex")
+    )
+    : subRef.doc();
+  await notificationRef.set({
     ...finalPayload,
+    id: notificationRef.id,
+    ...(idempotencyKey ? {idempotencyKey} : {}),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     read: false,
   });
@@ -213,7 +384,9 @@ async function sendPushTo(
   notif: { title: string; body: string },
   data: Record<string, string>
 ) {
-  if (!tokens.length) return { success: 0, failure: 0 };
+  if (!tokens.length) {
+    return {success: 0, failure: 0, retryTokens: [] as string[]};
+  }
 
   const msg: admin.messaging.MulticastMessage = {
     tokens,
@@ -227,11 +400,14 @@ async function sendPushTo(
 
   // limpiar tokens inválidos
   const invalid: string[] = [];
+  const retryTokens: string[] = [];
   resp.responses.forEach((r, i) => {
     if (!r.success) {
       const code = (r.error as { code?: string } | undefined)?.code || "";
       if (code === "messaging/invalid-registration-token" || code === "messaging/registration-token-not-registered") {
         invalid.push(tokens[i]);
+      } else {
+        retryTokens.push(tokens[i]);
       }
     }
   });
@@ -245,7 +421,182 @@ async function sendPushTo(
     );
   }
 
-  return { success: resp.successCount, failure: resp.failureCount };
+  return {
+    success: resp.successCount,
+    failure: resp.failureCount,
+    retryTokens,
+  };
+}
+
+type PushQueueData = {
+  userId: string;
+  notificationPath: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
+  state?: string;
+  attemptCount?: number;
+  nextAttemptAt?: admin.firestore.Timestamp;
+  retryTokens?: string[];
+};
+
+function retryDelayMinutes(attempt: number): number {
+  const schedule = [5, 15, 60, 240, 1440];
+  return schedule[Math.min(Math.max(attempt - 1, 0), schedule.length - 1)];
+}
+
+async function updatePushDeliveryState(
+  queueRef: admin.firestore.DocumentReference,
+  queueData: PushQueueData,
+  fields: Record<string, unknown>
+) {
+  const state = (fields.state ?? "pending").toString();
+  const attemptCount = Number(fields.attemptCount ?? queueData.attemptCount ?? 0);
+  const notificationRef = db.doc(queueData.notificationPath);
+  await Promise.all([
+    queueRef.set(
+      {
+        ...fields,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      {merge: true}
+    ),
+    notificationRef.set(
+      {
+        pushDelivery: {
+          state,
+          attemptCount,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          ...(fields.lastError ? {lastError: fields.lastError} : {}),
+          ...(fields.deliveredAt ? {deliveredAt: fields.deliveredAt} : {}),
+        },
+      },
+      {merge: true}
+    ),
+  ]);
+}
+
+async function enqueuePushDelivery(
+  notificationRef: admin.firestore.DocumentReference,
+  userId: string,
+  notifId: string,
+  title: string,
+  body: string,
+  data: Record<string, string>
+) {
+  const queueRef = db.collection(notificationDeliveryQueue).doc(`${userId}__${notifId}`);
+  await db.runTransaction(async (transaction) => {
+    const existing = await transaction.get(queueRef);
+    const currentState = existing.exists ? (existing.get("state") ?? "").toString() : "";
+    if (currentState === "delivered" || currentState === "in_app_only") return;
+    transaction.set(
+      queueRef,
+      {
+        userId,
+        notificationPath: notificationRef.path,
+        title,
+        body,
+        data,
+        state: "pending",
+        attemptCount: existing.exists ? Number(existing.get("attemptCount") ?? 0) : 0,
+        nextAttemptAt: admin.firestore.Timestamp.now(),
+        createdAt: existing.exists ? existing.get("createdAt") : admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      {merge: true}
+    );
+  });
+  return queueRef;
+}
+
+async function processPushQueueItem(queueRef: admin.firestore.DocumentReference) {
+  const claimed = await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(queueRef);
+    if (!snapshot.exists) return null;
+    const current = snapshot.data() as PushQueueData;
+    if ((current.state ?? "pending") !== "pending") return null;
+
+    const now = admin.firestore.Timestamp.now();
+    if (current.nextAttemptAt && current.nextAttemptAt.toMillis() > now.toMillis()) {
+      return null;
+    }
+    const attemptCount = Number(current.attemptCount ?? 0) + 1;
+    transaction.set(
+      queueRef,
+      {
+        attemptCount,
+        nextAttemptAt: admin.firestore.Timestamp.fromMillis(
+          now.toMillis() + 10 * 60 * 1000
+        ),
+        lastAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      {merge: true}
+    );
+    return {...current, attemptCount};
+  });
+
+  if (!claimed) return;
+  try {
+    const tokens = claimed.retryTokens?.length ? claimed.retryTokens : await getTokensFor(claimed.userId);
+    if (!tokens.length) {
+      await updatePushDeliveryState(queueRef, claimed, {
+        state: "in_app_only",
+        attemptCount: claimed.attemptCount ?? 0,
+        lastError: "El usuario no tiene un dispositivo registrado; la notificación permanece en la app.",
+        deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+        retryTokens: admin.firestore.FieldValue.delete(),
+      });
+      return;
+    }
+
+    const result = await sendPushTo(
+      tokens,
+      {title: claimed.title, body: claimed.body || claimed.title},
+      claimed.data
+    );
+    if (result.retryTokens.length === 0) {
+      await updatePushDeliveryState(queueRef, claimed, {
+        state: "delivered",
+        attemptCount: claimed.attemptCount ?? 0,
+        successCount: result.success,
+        failureCount: result.failure,
+        deliveredAt: admin.firestore.FieldValue.serverTimestamp(),
+        retryTokens: admin.firestore.FieldValue.delete(),
+        lastError: admin.firestore.FieldValue.delete(),
+      });
+      return;
+    }
+
+    const attempt = Number(claimed.attemptCount ?? 1);
+    const exhausted = attempt >= maxPushDeliveryAttempts;
+    await updatePushDeliveryState(queueRef, claimed, {
+      state: exhausted ? "failed" : "pending",
+      attemptCount: attempt,
+      retryTokens: result.retryTokens,
+      lastError: exhausted
+        ? `No fue posible entregar el push después de ${attempt} intentos.`
+        : `Entrega temporalmente fallida; quedan ${result.retryTokens.length} dispositivo(s) por reintentar.`,
+      nextAttemptAt: exhausted
+        ? admin.firestore.FieldValue.delete()
+        : admin.firestore.Timestamp.fromMillis(
+          Date.now() + retryDelayMinutes(attempt) * 60 * 1000
+        ),
+    });
+  } catch (error) {
+    const attempt = Number(claimed.attemptCount ?? 1);
+    const exhausted = attempt >= maxPushDeliveryAttempts;
+    await updatePushDeliveryState(queueRef, claimed, {
+      state: exhausted ? "failed" : "pending",
+      attemptCount: attempt,
+      lastError: error instanceof Error ? error.message : String(error),
+      nextAttemptAt: exhausted
+        ? admin.firestore.FieldValue.delete()
+        : admin.firestore.Timestamp.fromMillis(
+          Date.now() + retryDelayMinutes(attempt) * 60 * 1000
+        ),
+    });
+  }
 }
 
 // DATA-ONLY (silencioso)
@@ -259,6 +610,7 @@ async function sendDataOnlyTo(tokens: string[], data: Record<string, string>) {
 // --------------------------- Triggers ---------------------------
 export const onNotificationCreated = functions
   .region("us-central1")
+  .runWith({failurePolicy: true})
   .firestore.document("TBL_NOTIFICACIONES/{userId}/notifications/{notifId}")
   .onCreate(async (snap: functions.firestore.DocumentSnapshot, ctx: functions.EventContext) => {
     const data = (snap.data() as admin.firestore.DocumentData) ?? {};
@@ -274,9 +626,30 @@ export const onNotificationCreated = functions
     const module = data.module ? String(data.module) : "";
     const notifId = ctx.params.notifId as string;
 
-    const tokens = await getTokensFor(userId);
-    console.log("[onNotificationCreated] userId:", userId, "tokens:", tokens.length);
-    await sendPushTo(tokens, { title, body: body || title }, { taskId, type, empresaId, module, notifId });
+    const queueRef = await enqueuePushDelivery(
+      snap.ref,
+      userId,
+      notifId,
+      title,
+      body || title,
+      {taskId, type, empresaId, module, notifId}
+    );
+    await processPushQueueItem(queueRef);
+  });
+
+export const retryPendingNotificationDeliveries = functions
+  .region("us-central1")
+  .pubsub.schedule("every 5 minutes")
+  .timeZone("America/Bogota")
+  .onRun(async () => {
+    const due = await db
+      .collection(notificationDeliveryQueue)
+      .where("state", "==", "pending")
+      .where("nextAttemptAt", "<=", admin.firestore.Timestamp.now())
+      .limit(100)
+      .get();
+    await Promise.all(due.docs.map((doc) => processPushQueueItem(doc.ref)));
+    console.log("[retryPendingNotificationDeliveries] processed:", due.size);
   });
 
 export const onTaskCreated = functions
@@ -292,26 +665,43 @@ export const onTaskCreated = functions
 
     const title = getTaskTitle(data);
     const description = getTaskDescription(data);
+    const notificationContext = taskNotificationContext(data);
+    const isFacturacionRequirement =
+      ((data as any).origen ?? "").toString() === "facturacion_observacion";
 
     // Notif al asignado (in-app + push normal)
     try {
-      await saveInAppNotification(assignedId, { title, description, taskId, type: "task_assigned" });
+      await saveInAppNotification(assignedId, {
+        title,
+        description,
+        taskId,
+        type: isFacturacionRequirement
+          ? "fac_documento_requerido"
+          : "task_assigned",
+        ...notificationContext,
+      }, `${ctx.eventId}:${assignedId}:assigned`);
     } catch (e) {
       console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
 
-    // Aviso silencioso al jefe
+    // Aviso al jefe y al aprobador. El Set evita duplicar cuando son la misma
+    // persona o cuando el creador también cumple el rol de aprobador.
     const bossId = await resolveBossIdFor(assignedId, data);
-    if (bossId && bossId !== assignedId) {
+    const approverId = getApproverId(data);
+    const supervisors = new Set(
+      [bossId, approverId].filter((uid): uid is string => !!uid && uid !== assignedId)
+    );
+    for (const supervisorId of supervisors) {
       try {
-        await saveInAppNotification(bossId, {
+        await saveInAppNotification(supervisorId, {
           title: "Nueva tarea asignada",
           description: `${title} (para ${(data as any).asignado_nombre || assignedId})`,
           taskId,
           type: "task_assigned_report",
-        });
+          ...notificationContext,
+        }, `${ctx.eventId}:${supervisorId}:assigned_report`);
       } catch (e) {
-        console.error("[onTaskCreated] boss save notif error:", e);
+        console.error("[onTaskCreated] supervisor save notif error:", e);
       }
     }
   });
@@ -332,6 +722,7 @@ export const onTaskUpdated = functions
     const statusBefore = resolveTaskStatus(before || null);
     const statusAfter = resolveTaskStatus(after || null);
     const statusChanged = statusBefore !== statusAfter;
+    const notificationContext = taskNotificationContext(after || null);
 
     console.log("[onTaskUpdated] taskId:", taskId, "prev:", prevAssigned, "new:", newAssigned);
 
@@ -347,7 +738,8 @@ export const onTaskUpdated = functions
           description,
           taskId,
           type: prevAssigned ? "task_reassigned" : "task_assigned",
-        });
+          ...notificationContext,
+        }, `${ctx.eventId}:${newAssigned}:reassigned`);
         notifiedIds.add(newAssigned!);
       } catch (e) {
         console.error("[onTaskUpdated] saveInAppNotification error:", e);
@@ -362,7 +754,8 @@ export const onTaskUpdated = functions
             description: `${title} (ahora para ${(after as any)?.asignado_nombre || newAssigned})`,
             taskId,
             type: "task_reassigned_report",
-          });
+            ...notificationContext,
+          }, `${ctx.eventId}:${bossId2}:reassigned_report`);
           notifiedIds.add(bossId2);
         } catch (e) {
           console.error("[onTaskUpdated] boss save notif error:", e);
@@ -379,7 +772,8 @@ export const onTaskUpdated = functions
               description: `${title} · Nuevo responsable: ${(after as any)?.asignado_nombre || newAssigned}`,
               taskId,
               type: "task_reassigned_info",
-            });
+              ...notificationContext,
+            }, `${ctx.eventId}:${creatorId2}:reassigned_info`);
             notifiedIds.add(creatorId2);
           } catch (e) {
             console.error("[onTaskUpdated] creator reassign notif error:", e);
@@ -398,6 +792,7 @@ export const onTaskUpdated = functions
       const notifType = isPorAprobar ? "solicitud_finalizacion" : `task_status_${statusAfter}`;
       const creatorId = getCreatorId(after || null);
       const bossId = getBossId(after || null);
+      const approverId = getApproverId(after || null);
 
       // Solo notificar a quienes NO recibieron ya la notificación de cambio de asignado
       // Para solicitud_finalizacion: no notificar al propio solicitante (asignado)
@@ -408,6 +803,9 @@ export const onTaskUpdated = functions
       if (!isPorAprobar && newAssigned && !notifiedIds.has(newAssigned)) recipients.add(newAssigned);
       if (creatorId && !notifiedIds.has(creatorId) && creatorId !== solicitanteUid) recipients.add(creatorId);
       if (bossId && !notifiedIds.has(bossId) && bossId !== solicitanteUid) recipients.add(bossId);
+      if (approverId && !notifiedIds.has(approverId) && approverId !== solicitanteUid) {
+        recipients.add(approverId);
+      }
 
       if (recipients.size === 0) return;
 
@@ -419,7 +817,8 @@ export const onTaskUpdated = functions
               description: notifBody,
               taskId,
               type: notifType,
-            });
+              ...notificationContext,
+            }, `${ctx.eventId}:${uid}:${notifType}`);
           } catch (e) {
             console.error("[onTaskUpdated] status notif error:", e);
           }

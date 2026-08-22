@@ -27,9 +27,11 @@ class DiagnosticosBusquedaResult {
 
 class DiagnosticosService {
   static const String _collDiagnosticosMedicos = 'TBL_DIAGNOSTICOS_MEDICOS';
-  static const String _collDiagnosticosNutricionales = 'TBL_DIAGNOSTICOS_NUTRICIONALES';
+  static const String _collDiagnosticosNutricionales =
+      'TBL_DIAGNOSTICOS_NUTRICIONALES';
   static const String _collEvaluaciones = 'TBL_EVALUACIONES_DIAGNOSTICAS';
-  static const String _collIncompatibilidades = 'TBL_INCOMPATIBILIDADES_DIETETICAS';
+  static const String _collIncompatibilidades =
+      'TBL_INCOMPATIBILIDADES_DIETETICAS';
 
   static const String _assetsPath = 'assets/diagnosticos_template.xlsx';
 
@@ -40,9 +42,11 @@ class DiagnosticosService {
   static bool _cacheLoadedFromFirestore = false;
 
   final FirebaseFirestore _db;
+  final String? empresaId;
+  final String? userId;
 
-  DiagnosticosService({FirebaseFirestore? db})
-      : _db = db ?? FirebaseFirestore.instance;
+  DiagnosticosService({FirebaseFirestore? db, this.empresaId, this.userId})
+    : _db = db ?? FirebaseFirestore.instance;
 
   /// Carga diagnósticos desde Firestore y hace fallback al Excel en assets.
   Future<void> _ensureCacheLoaded() async {
@@ -50,7 +54,9 @@ class DiagnosticosService {
 
     try {
       final medicosSnap = await _db.collection(_collDiagnosticosMedicos).get();
-      final nutriSnap = await _db.collection(_collDiagnosticosNutricionales).get();
+      final nutriSnap = await _db
+          .collection(_collDiagnosticosNutricionales)
+          .get();
 
       final medicosDb = medicosSnap.docs
           .map((doc) => DiagnosticoMedico.fromMap(doc.data()))
@@ -72,7 +78,8 @@ class DiagnosticosService {
 
       await _loadFromAssets();
     } catch (e) {
-      if (kDebugMode) debugPrint('DiagnosticosService: Error cargando desde Firestore: $e');
+      if (kDebugMode)
+        debugPrint('DiagnosticosService: Error cargando desde Firestore: $e');
       await _loadFromAssets();
     }
   }
@@ -97,7 +104,8 @@ class DiagnosticosService {
       _cacheLoadedFromFirestore = false;
       _cacheLoaded = true;
     } catch (e) {
-      if (kDebugMode) debugPrint('DiagnosticosService: Error cargando desde assets: $e');
+      if (kDebugMode)
+        debugPrint('DiagnosticosService: Error cargando desde assets: $e');
       _cacheMedicos = [];
       _cacheNutricionales = [];
       _cacheLoadedFromFirestore = false;
@@ -156,31 +164,30 @@ class DiagnosticosService {
             rangos = _parseRangosSimples(rangosStr);
           }
         } catch (e) {
-          if (kDebugMode) debugPrint('DiagnosticosService: Error parseando rangos bioquímicos: $e');
+          if (kDebugMode)
+            debugPrint(
+              'DiagnosticosService: Error parseando rangos bioquímicos: $e',
+            );
         }
       }
 
-      batch1.set(
-        docRef,
-        {
-          'empresaId': empresaId,
-          'codigoCie11': codigo,
-          'nombre': row['nombre']?.toString() ?? '',
-          'categoria': row['categoria']?.toString(),
-          'subcategoria': row['subcategoria']?.toString(),
-          'comorbilidades': comorbilidades,
-          'medicamentosRelacionados': medicamentos,
-          'interaccionesFarmacoNutriente': interacciones,
-          'rangosBioquimicos': rangos,
-          'estadio': row['estadio']?.toString(),
-          'gravedad': row['gravedad']?.toString(),
-          'dietasContraindicadas': dietasContra,
-          'dietasSugeridas': dietasSugeridas,
-          'activo': _parseBool(row['activo']),
-          'importadoEn': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: !sobrescribir),
-      );
+      batch1.set(docRef, {
+        'empresaId': empresaId,
+        'codigoCie11': codigo,
+        'nombre': row['nombre']?.toString() ?? '',
+        'categoria': row['categoria']?.toString(),
+        'subcategoria': row['subcategoria']?.toString(),
+        'comorbilidades': comorbilidades,
+        'medicamentosRelacionados': medicamentos,
+        'interaccionesFarmacoNutriente': interacciones,
+        'rangosBioquimicos': rangos,
+        'estadio': row['estadio']?.toString(),
+        'gravedad': row['gravedad']?.toString(),
+        'dietasContraindicadas': dietasContra,
+        'dietasSugeridas': dietasSugeridas,
+        'activo': _parseBool(row['activo']),
+        'importadoEn': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: !sobrescribir));
 
       countMedicos++;
     }
@@ -204,23 +211,19 @@ class DiagnosticosService {
         restricciones = _parseRestricciones(restricStr);
       }
 
-      batch2.set(
-        docRef,
-        {
-          'empresaId': empresaId,
-          'codigo': codigo,
-          'nombre': row['nombre']?.toString() ?? '',
-          'descripcion': row['descripcion']?.toString(),
-          'objetivos': objetivos,
-          'tipoDietaSugerida': row['tipoDietaSugerida']?.toString(),
-          'duracionSugerida': row['duracionSugerida']?.toString(),
-          'restriccionesNutricionales': restricciones,
-          'alertasClinicas': alertas,
-          'activo': _parseBool(row['activo']),
-          'importadoEn': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: !sobrescribir),
-      );
+      batch2.set(docRef, {
+        'empresaId': empresaId,
+        'codigo': codigo,
+        'nombre': row['nombre']?.toString() ?? '',
+        'descripcion': row['descripcion']?.toString(),
+        'objetivos': objetivos,
+        'tipoDietaSugerida': row['tipoDietaSugerida']?.toString(),
+        'duracionSugerida': row['duracionSugerida']?.toString(),
+        'restriccionesNutricionales': restricciones,
+        'alertasClinicas': alertas,
+        'activo': _parseBool(row['activo']),
+        'importadoEn': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: !sobrescribir));
 
       countNutri++;
     }
@@ -247,11 +250,17 @@ class DiagnosticosService {
   /// 2. Fallback: caché local (Firestore → Excel en assets).
   ///
   /// En modo debug loguea el resultado de cada capa para facilitar diagnóstico.
-  Future<List<DiagnosticoMedico>> buscarDiagnosticosMedicos(String termino) async {
+  Future<List<DiagnosticoMedico>> buscarDiagnosticosMedicos(
+    String termino,
+  ) async {
     if (termino.trim().isEmpty) return [];
 
     // 1. Intentar ICD-11 online (token broker server-side)
-    final icdRes = await Icd11Service.buscarConDetalle(termino);
+    final icdRes = await Icd11Service.buscarConDetalle(
+      termino,
+      userId: userId,
+      empresaId: empresaId,
+    );
 
     if (kDebugMode) debugPrint('[DiagnosticosService] $icdRes');
 
@@ -259,7 +268,9 @@ class DiagnosticosService {
 
     // 2. Fallback: caché local (Firestore o Excel)
     if (kDebugMode) {
-      debugPrint('[DiagnosticosService] activando fallback local para "$termino"');
+      debugPrint(
+        '[DiagnosticosService] activando fallback local para "$termino"',
+      );
     }
 
     final terminoNormalizado = _normalizeForSearch(termino);
@@ -268,12 +279,15 @@ class DiagnosticosService {
     final localResults = (_cacheMedicos ?? []).where((dx) {
       final codigo = _normalizeForSearch(dx.codigoCie11);
       final nombre = _normalizeForSearch(dx.nombre);
-      return codigo.contains(terminoNormalizado) || nombre.contains(terminoNormalizado);
+      return codigo.contains(terminoNormalizado) ||
+          nombre.contains(terminoNormalizado);
     }).toList();
 
     if (kDebugMode) {
-      debugPrint('[DiagnosticosService] local: ${localResults.length} resultados '
-          '(fuente: ${_cacheLoadedFromFirestore ? "Firestore" : "Excel/assets"})');
+      debugPrint(
+        '[DiagnosticosService] local: ${localResults.length} resultados '
+        '(fuente: ${_cacheLoadedFromFirestore ? "Firestore" : "Excel/assets"})',
+      );
     }
 
     return localResults;
@@ -288,7 +302,8 @@ class DiagnosticosService {
   /// previas de [enriquecerEnCatalogo]) son renormalizados a "firestore_enriched"
   /// para evitar confusión con resultados en vivo.
   Future<DiagnosticosBusquedaResult> buscarDiagnosticosMedicosConOrigen(
-      String termino) async {
+    String termino,
+  ) async {
     if (termino.trim().isEmpty) {
       return DiagnosticosBusquedaResult(
         resultados: [],
@@ -297,59 +312,72 @@ class DiagnosticosService {
       );
     }
 
-    final icdRes = await Icd11Service.buscarConDetalle(termino);
+    final icdRes = await Icd11Service.buscarConDetalle(
+      termino,
+      userId: userId,
+      empresaId: empresaId,
+    );
     if (kDebugMode) debugPrint('[DiagnosticosService] $icdRes');
 
     if (icdRes.tieneResultados) {
       return DiagnosticosBusquedaResult(
-        resultados: icdRes.resultados, // source: 'who_icd11' — resultados en vivo
+        resultados:
+            icdRes.resultados, // source: 'who_icd11' — resultados en vivo
         icd11Disponible: true,
         icd11Activo: true,
       );
     }
 
     if (kDebugMode) {
-      debugPrint('[DiagnosticosService] activando fallback local para "$termino"');
+      debugPrint(
+        '[DiagnosticosService] activando fallback local para "$termino"',
+      );
     }
 
     final terminoNormalizado = _normalizeForSearch(termino);
     await _ensureCacheLoaded();
 
-    final localResults = (_cacheMedicos ?? []).where((dx) {
-      final codigo = _normalizeForSearch(dx.codigoCie11);
-      final nombre = _normalizeForSearch(dx.nombre);
-      return codigo.contains(terminoNormalizado) || nombre.contains(terminoNormalizado);
-    }).map((dx) {
-      // Ítems en Firestore escritos por versiones anteriores de enriquecerEnCatalogo()
-      // tienen source: 'who_icd11'. En el path local NO son resultados en vivo:
-      // renormalizar a 'firestore_enriched' para que origenLabel sea correcto en la UI.
-      if (dx.source == 'who_icd11') {
-        return DiagnosticoMedico(
-          codigoCie11: dx.codigoCie11,
-          nombre: dx.nombre,
-          categoria: dx.categoria,
-          subcategoria: dx.subcategoria,
-          comorbilidades: dx.comorbilidades,
-          medicamentosRelacionados: dx.medicamentosRelacionados,
-          interaccionesFarmacoNutriente: dx.interaccionesFarmacoNutriente,
-          rangosBioquimicos: dx.rangosBioquimicos,
-          estadio: dx.estadio,
-          gravedad: dx.gravedad,
-          dietasContraindicadas: dx.dietasContraindicadas,
-          dietasSugeridas: dx.dietasSugeridas,
-          activo: dx.activo,
-          icdUri: dx.icdUri,
-          source: 'firestore_enriched',
-          language: dx.language,
-          icdRelease: dx.icdRelease,
-        );
-      }
-      return dx;
-    }).toList();
+    final localResults = (_cacheMedicos ?? [])
+        .where((dx) {
+          final codigo = _normalizeForSearch(dx.codigoCie11);
+          final nombre = _normalizeForSearch(dx.nombre);
+          return codigo.contains(terminoNormalizado) ||
+              nombre.contains(terminoNormalizado);
+        })
+        .map((dx) {
+          // Ítems en Firestore escritos por versiones anteriores de enriquecerEnCatalogo()
+          // tienen source: 'who_icd11'. En el path local NO son resultados en vivo:
+          // renormalizar a 'firestore_enriched' para que origenLabel sea correcto en la UI.
+          if (dx.source == 'who_icd11') {
+            return DiagnosticoMedico(
+              codigoCie11: dx.codigoCie11,
+              nombre: dx.nombre,
+              categoria: dx.categoria,
+              subcategoria: dx.subcategoria,
+              comorbilidades: dx.comorbilidades,
+              medicamentosRelacionados: dx.medicamentosRelacionados,
+              interaccionesFarmacoNutriente: dx.interaccionesFarmacoNutriente,
+              rangosBioquimicos: dx.rangosBioquimicos,
+              estadio: dx.estadio,
+              gravedad: dx.gravedad,
+              dietasContraindicadas: dx.dietasContraindicadas,
+              dietasSugeridas: dx.dietasSugeridas,
+              activo: dx.activo,
+              icdUri: dx.icdUri,
+              source: 'firestore_enriched',
+              language: dx.language,
+              icdRelease: dx.icdRelease,
+            );
+          }
+          return dx;
+        })
+        .toList();
 
     if (kDebugMode) {
-      debugPrint('[DiagnosticosService] local: ${localResults.length} resultados '
-          '(fuente: ${_cacheLoadedFromFirestore ? "Firestore" : "Excel/assets"})');
+      debugPrint(
+        '[DiagnosticosService] local: ${localResults.length} resultados '
+        '(fuente: ${_cacheLoadedFromFirestore ? "Firestore" : "Excel/assets"})',
+      );
     }
 
     return DiagnosticosBusquedaResult(
@@ -362,8 +390,8 @@ class DiagnosticosService {
   /// Busca diagnósticos nutricionales por término
   /// Lee desde el Excel en assets (cache en memoria)
   Future<List<DiagnosticoNutricional>> buscarDiagnosticosNutricionales(
-      String termino,
-      ) async {
+    String termino,
+  ) async {
     final terminoNormalizado = _normalizeForSearch(termino);
     if (terminoNormalizado.isEmpty) return [];
 
@@ -379,25 +407,32 @@ class DiagnosticosService {
     return resultados;
   }
 
-
-
   /// Lista completa de diagnósticos médicos disponibles.
   Future<List<DiagnosticoMedico>> listarDiagnosticosMedicos() async {
     await _ensureCacheLoaded();
     final lista = List<DiagnosticoMedico>.from(_cacheMedicos ?? const []);
-    lista.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+    lista.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
     return lista;
   }
 
   /// Lista completa de diagnósticos nutricionales disponibles.
   Future<List<DiagnosticoNutricional>> listarDiagnosticosNutricionales() async {
     await _ensureCacheLoaded();
-    final lista = List<DiagnosticoNutricional>.from(_cacheNutricionales ?? const []);
-    lista.sort((a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()));
+    final lista = List<DiagnosticoNutricional>.from(
+      _cacheNutricionales ?? const [],
+    );
+    lista.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
     return lista;
   }
+
   /// Obtiene un diagnóstico médico por código CIE-11
-  Future<DiagnosticoMedico?> obtenerDiagnosticoMedico(String codigoCie11) async {
+  Future<DiagnosticoMedico?> obtenerDiagnosticoMedico(
+    String codigoCie11,
+  ) async {
     await _ensureCacheLoaded();
     try {
       return (_cacheMedicos ?? []).firstWhere(
@@ -410,8 +445,8 @@ class DiagnosticosService {
 
   /// Obtiene un diagnóstico nutricional por código
   Future<DiagnosticoNutricional?> obtenerDiagnosticoNutricional(
-      String codigo,
-      ) async {
+    String codigo,
+  ) async {
     await _ensureCacheLoaded();
     try {
       return (_cacheNutricionales ?? []).firstWhere(
@@ -466,8 +501,9 @@ class DiagnosticosService {
     }
 
     if (diagnosticoNutricionalCodigo != null) {
-      final dxNutri =
-      await obtenerDiagnosticoNutricional(diagnosticoNutricionalCodigo);
+      final dxNutri = await obtenerDiagnosticoNutricional(
+        diagnosticoNutricionalCodigo,
+      );
       tipoDietaSugerida = dxNutri?.tipoDietaSugerida;
       duracionDieta = dxNutri?.duracionSugerida;
     }
@@ -513,9 +549,11 @@ class DiagnosticosService {
         .where('pacienteId', isEqualTo: pacienteId)
         .orderBy('fecha', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-        .map((d) => EvaluacionDiagnostica.fromMap(d.data()))
-        .toList());
+        .map(
+          (snap) => snap.docs
+              .map((d) => EvaluacionDiagnostica.fromMap(d.data()))
+              .toList(),
+        );
   }
 
   // ---------------------------------------------------------------------------
@@ -540,21 +578,18 @@ class DiagnosticosService {
     if (dx.source != 'who_icd11' || dx.icdUri == null) return;
 
     try {
-      await _db.collection(_collDiagnosticosMedicos).doc(dx.codigoCie11).set(
-        {
-          'codigoCie11': dx.codigoCie11,
-          'nombre': dx.nombre,
-          'activo': true,
-          'empresaId': empresaId,
-          'source': 'firestore_enriched',
-          'icdUri': dx.icdUri,
-          'language': dx.language ?? 'es',
-          'icdRelease': dx.icdRelease,
-          'enriquecidoEn': FieldValue.serverTimestamp(),
-          'enriquecidoPor': userId,
-        },
-        SetOptions(merge: true),
-      );
+      await _db.collection(_collDiagnosticosMedicos).doc(dx.codigoCie11).set({
+        'codigoCie11': dx.codigoCie11,
+        'nombre': dx.nombre,
+        'activo': true,
+        'empresaId': empresaId,
+        'source': 'firestore_enriched',
+        'icdUri': dx.icdUri,
+        'language': dx.language ?? 'es',
+        'icdRelease': dx.icdRelease,
+        'enriquecidoEn': FieldValue.serverTimestamp(),
+        'enriquecidoPor': userId,
+      }, SetOptions(merge: true));
     } catch (e) {
       if (kDebugMode) {
         debugPrint('DiagnosticosService.enriquecerEnCatalogo: $e');
@@ -657,6 +692,7 @@ class DiagnosticosService {
 
     return restricciones;
   }
+
   String _normalizeForSearch(String text) {
     final lower = text.trim().toLowerCase();
     if (lower.isEmpty) return '';

@@ -3,7 +3,6 @@ import 'dart:async';
 // lib/home/create_task_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,18 +11,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:geocoding/geocoding.dart' as gcode;
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart' show LatLng; // solo por tipo
 import 'package:image/image.dart' as img;
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:todo/services/company_branding_service.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/utils/user_company.dart';
 
 import '../core/org_context_resolver.dart';
+import '../core/hierarchy_order.dart';
+import '../core/task_assignment_options.dart';
+import '../core/task_contract.dart';
 
 /// ===================== CONFIG =====================
 /// Tu API KEY (debes tener habilitado Static Maps y billing activo)
@@ -80,17 +80,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String _empresaDe(Map<String, dynamic> data) =>
       _firstNonEmpty(data, const ['empresaId', 'empresa_id', 'empresa']);
 
-  String _areaDe(Map<String, dynamic> data) => _firstNonEmpty(
-    data,
-    const [
-      'areaId',
-      'area_id',
-      'area',
-      'departamentoId',
-      'departamento_id',
-      'departamento',
-    ],
-  );
+  String _areaDe(Map<String, dynamic> data) => _firstNonEmpty(data, const [
+    'areaId',
+    'area_id',
+    'area',
+    'departamentoId',
+    'departamento_id',
+    'departamento',
+  ]);
 
   /// Returns the cargoId for the user. First consults the empresaDetalle block
   /// for the current empresaId (multi-empresa support), falling back to the
@@ -125,16 +122,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         return context.cargoNombre!;
       }
     }
-    return _firstNonEmpty(
-      data,
-      const [
-        'cargo',
-        'cargoNombre',
-        'cargo_nombre',
-        'puesto',
-        'descripcion',
-      ],
-    );
+    return _firstNonEmpty(data, const [
+      'cargo',
+      'cargoNombre',
+      'cargo_nombre',
+      'puesto',
+      'descripcion',
+    ]);
   }
 
   List<String> _empresasDeUsuario(Map<String, dynamic> data) {
@@ -155,19 +149,39 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return out.toList();
   }
 
-  String _cedulaDe(Map<String, dynamic> data) => _firstNonEmpty(
-    data,
-    const [
-      'cedula',
-      'cédula',
-      'documento',
-      'documentoId',
-      'docId',
-      'idNumber',
-    ],
-  );
+  String _cedulaDe(Map<String, dynamic> data) => _firstNonEmpty(data, const [
+    'cedula',
+    'cédula',
+    'documento',
+    'documentoId',
+    'docId',
+    'idNumber',
+  ]);
 
   String _norm(String s) => s.trim().toLowerCase();
+
+  String _scopeKey(String s) {
+    return _norm(s)
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u')
+        .replaceAll('ü', 'u')
+        .replaceAll('ñ', 'n')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String? _areaIdByName(String? name) {
+    final key = _scopeKey(name ?? '');
+    if (key.isEmpty) return null;
+    final hit = _areas.firstWhere(
+      (a) => _scopeKey(a['nombre'] ?? '') == key,
+      orElse: () => {},
+    );
+    final id = (hit['id'] ?? '').toString().trim();
+    return id.isEmpty ? null : id;
+  }
 
   /// Attempts to resolve the areaId of the given user for the current empresa.
   /// This method first looks into `empresasDetalle[_empresaId]` for an
@@ -204,7 +218,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       'departamentoId',
       'departamento_id',
     ]);
-    if (direct.isNotEmpty && _areas.any((a) => a['id'] == direct)) return direct;
+    if (direct.isNotEmpty && _areas.any((a) => a['id'] == direct))
+      return direct;
 
     // 2) si viene por nombre: area / areaNombre / departamento
     final nombre = _firstNonEmpty(u, const [
@@ -217,10 +232,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     if (nombre.isNotEmpty) {
       final hit = _areas.firstWhere(
-            (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
+        (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
         orElse: () => {},
       );
-      if ((hit['id'] ?? '').toString().trim().isNotEmpty) return hit['id']!.trim();
+      if ((hit['id'] ?? '').toString().trim().isNotEmpty)
+        return hit['id']!.trim();
     }
 
     return null;
@@ -228,14 +244,24 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   String? _nombreAreaPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
-    final hit = _areas.firstWhere((a) => a['id'] == id.trim(), orElse: () => {});
+    if (id.trim() == (_currentAreaId ?? '').trim() &&
+        (_currentAreaNombre ?? '').trim().isNotEmpty) {
+      return _currentAreaNombre!.trim();
+    }
+    final hit = _areas.firstWhere(
+      (a) => a['id'] == id.trim(),
+      orElse: () => {},
+    );
     final n = (hit['nombre'] ?? '').toString().trim();
     return n.isEmpty ? null : n;
   }
 
   String? _nombreCargoPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
-    final hit = _cargosFiltrados.firstWhere((c) => c['id'] == id.trim(), orElse: () => {});
+    final hit = _cargosFiltrados.firstWhere(
+      (c) => c['id'] == id.trim(),
+      orElse: () => {},
+    );
     final n = (hit['nombre'] ?? '').toString().trim();
     return n.isEmpty ? null : n;
   }
@@ -260,7 +286,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       'deviceTokens',
       'pushToken',
       'notificationToken',
-      'token'
+      'token',
     ];
     for (final k in keys) {
       if (anyToken(userData[k])) return true;
@@ -294,13 +320,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _jefeNombre;
   String? _empresaId;
   String? _currentUid;
+  Map<String, dynamic> _currentUserData = {};
+  String? _currentAreaId;
+  String? _currentAreaNombre;
 
   // Estructura organizacional (por uid)
   final Map<String, Map<String, dynamic>> _estructura = {};
 
   // ==================== Datos cargados ====================
   List<Map<String, String>> _areas = []; // [{id,nombre,centroId?}]
-  List<Map<String, dynamic>> _cargos = []; // [{id,nombre,areaId?,enabled?,cedulas?,empresaId?}]
+  List<Map<String, dynamic>> _cargos =
+      []; // [{id,nombre,areaId?,enabled?,cedulas?,empresaId?}]
   // Usuarios activos, mapa para lookup rápido por uid
   final Map<String, Map<String, dynamic>> _usuarios = {};
 
@@ -314,11 +344,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _myAddress;
 
   bool _saving = false;
+  bool _loadingData = true;
   bool _bootstrapped = false;
   EmpresaState? _empresaState;
 
   // ==================== GETTERS DE FILTROS ====================
   List<Map<String, String>> get _areasFiltradas {
+    // Todos los usuarios que pueden crear tareas ven TODAS las áreas de la
+    // empresa activa (decisión de negocio: asignación libre entre áreas).
+    // El filtrado por área propia quedó deshabilitado a propósito.
     final all = [..._areas]
       ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
     return all;
@@ -326,7 +360,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   List<Map<String, String>> get _cargosFiltrados {
     if (_areaId == null || _areaId!.trim().isEmpty) {
-      return const [{'id': 'todos', 'nombre': 'Selecciona un cargo'}];
+      return const [
+        {'id': 'todos', 'nombre': 'Selecciona un cargo'},
+      ];
     }
     final cargos = <String, String>{};
     for (final estr in _estructura.values) {
@@ -338,21 +374,24 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (key.isEmpty) continue;
       cargos[key] = cargoNombre.isNotEmpty ? cargoNombre : key;
     }
-    if (cargos.isEmpty) {
-      for (final cargo in _cargos) {
-        if (!_cargoCoincideEmpresa(cargo)) continue;
-        final enabled = (cargo['enabled'] ?? 'true').toString().toLowerCase() != 'false';
-        if (!enabled) continue;
-        final areaId = (cargo['areaId'] ?? '').toString().trim();
-        final nombre = (cargo['nombre'] ?? '').toString().trim();
-        if (areaId.isNotEmpty && areaId != _areaId!.trim()) continue;
-        final rawId = (cargo['id'] ?? '').toString().trim();
-        final key = rawId.isEmpty ? nombre : rawId;
-        if (key.isNotEmpty) cargos[key] = nombre.isNotEmpty ? nombre : key;
-      }
-    }
-    final lista = cargos.entries.toList()
-      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    // Combinar estructura y catálogo. Antes el catálogo solo se consultaba si
+    // el área no tenía ningún cargo en estructura, ocultando cargos válidos de
+    // usuarios todavía no sincronizados (por ejemplo Karen y Zuly).
+    final mergedCargos = mergeTaskCargoCatalog(
+      structureCargos: cargos,
+      catalogCargos: _cargos,
+      areaId: _areaId!.trim(),
+      empresaId: (_empresaId ?? '').trim(),
+      areaNombre: _nombreAreaPorId(_areaId) ?? '',
+    );
+    final hierarchy = CargoHierarchyIndex.fromCargos(_cargos);
+    final lista = mergedCargos.entries.toList()
+      ..sort(
+        (a, b) => hierarchy.compareCargos(
+          {'id': a.key, 'nombre': a.value},
+          {'id': b.key, 'nombre': b.value},
+        ),
+      );
     return [
       const {'id': 'todos', 'nombre': 'Selecciona un cargo'},
       ...lista.map((e) => {'id': e.key, 'nombre': e.value}),
@@ -362,16 +401,23 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   List<Map<String, String>> get _empleadosFiltrados {
     final list = <Map<String, String>>[];
     final areaActiva = _areaId?.trim() ?? '';
+    if (areaActiva.isEmpty) return const [];
+
     final cedulasPermitidas = <String>{};
     final cargoActivoId = _cargoFiltro.trim();
-    final cargoActivoNombre =
-    (_nombreCargoPorId(_cargoFiltro) ?? '').trim().toLowerCase();
+    if (cargoActivoId.isEmpty || cargoActivoId == 'todos') return const [];
+
+    final cargoActivoNombre = (_nombreCargoPorId(_cargoFiltro) ?? '')
+        .trim()
+        .toLowerCase();
     if (areaActiva.isNotEmpty) {
-      cedulasPermitidas.addAll(_cedulasDesdeCargos(
-        areaId: areaActiva,
-        cargoId: cargoActivoId,
-        cargoNombreLower: cargoActivoNombre,
-      ));
+      cedulasPermitidas.addAll(
+        _cedulasDesdeCargos(
+          areaId: areaActiva,
+          cargoId: cargoActivoId,
+          cargoNombreLower: cargoActivoNombre,
+        ),
+      );
       for (final estr in _estructura.values) {
         final areaId = (estr['areaId'] ?? '').toString().trim();
         if (areaId.isEmpty || areaId != areaActiva) continue;
@@ -426,13 +472,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'uid': uid,
         'nombre': _nombreDeUsuario(u),
         'areaId': areaId,
+        'cargoId': cargoId,
         'cargo': cargo,
         'jefeId': (u['jefeId'] ?? u['jefe_uid'] ?? '').toString(),
         'jefeNombre': (u['jefeNombre'] ?? u['jefe_nombre'] ?? '').toString(),
       });
     }
 
-    list.sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    final hierarchy = CargoHierarchyIndex.fromCargos(_cargos);
+    list.sort(hierarchy.comparePersonnel);
     return list;
   }
 
@@ -495,7 +543,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         _empresaId = selected;
       }
       _bootstrap();
-    } else if (selected != null && selected.isNotEmpty && selected != _empresaId) {
+    } else if (selected != null &&
+        selected.isNotEmpty &&
+        selected != _empresaId) {
       _empresaId = selected;
       _bootstrap();
     }
@@ -518,7 +568,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _bootstrap() async {
+    if (mounted) setState(() => _loadingData = true);
     await _ensurePermissions();
+    unawaited(_getMyPosition());
 
     try {
       await _loadCurrentUser();
@@ -529,17 +581,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     } catch (_) {}
 
     // IMPORTANT: primero catálogos, luego usuarios (para poder resolver ids por nombre/código)
-    await Future.wait([
-      _getMyPosition(),
-      _loadAreas(),
-      _loadCargos(),
-    ]);
+    await Future.wait([_loadAreas(), _loadCargos()]);
+    _syncCurrentTaskScope();
 
     try {
       await _loadUsuarios();
     } catch (_) {}
+    final enrichedCurrent = _currentUid == null
+        ? null
+        : _usuarios[_currentUid!];
+    if (enrichedCurrent != null) {
+      _currentUserData = Map<String, dynamic>.from(enrichedCurrent);
+      _syncCurrentTaskScope();
+    }
 
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _loadingData = false);
   }
 
   Future<void> _loadCurrentUser() async {
@@ -548,10 +604,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     if (uid == null) return;
 
     try {
-      final doc = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection(kCollUsuarios)
+          .doc(uid)
+          .get();
       if (!doc.exists) return;
 
       final data = doc.data() ?? {};
+      _currentUserData = Map<String, dynamic>.from(data);
       final resolvedEmpresaId = resolveValidEmpresaId(
         data: data,
         selectedEmpresaId: _empresaId,
@@ -560,14 +620,90 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       if (resolvedEmpresaId != null) {
         _empresaId = resolvedEmpresaId;
       }
-
     } catch (_) {}
+  }
+
+  void _syncCurrentTaskScope() {
+    if (_currentUserData.isEmpty) {
+      _currentAreaId = null;
+      _currentAreaNombre = null;
+      return;
+    }
+
+    final data = Map<String, dynamic>.from(_currentUserData);
+    final estr = _currentUid == null ? null : _estructura[_currentUid!];
+    if (estr != null) {
+      bool isEmpty(String key) =>
+          data[key] == null || data[key].toString().trim().isEmpty;
+      void fill(String key, dynamic value) {
+        if (isEmpty(key) &&
+            value != null &&
+            value.toString().trim().isNotEmpty) {
+          data[key] = value;
+        }
+      }
+
+      fill('areaId', estr['areaId']);
+      fill('area', estr['area'] ?? estr['areaNombre']);
+      fill('cargoId', estr['cargoId']);
+      fill('cargo', estr['cargo'] ?? estr['cargoNombre']);
+      fill('centroId', estr['centroId'] ?? estr['centro']);
+      fill('jefeId', estr['jefeId'] ?? estr['jefe_uid']);
+      fill('jefeNombre', estr['jefeNombre'] ?? estr['jefe_nombre']);
+    }
+
+    final scopedEmpresaId = normalizeEmpresaId(_empresaId);
+    final orgContext = scopedEmpresaId == null
+        ? null
+        : _orgContextResolver.resolve(
+            userData: data,
+            empresaId: scopedEmpresaId,
+          );
+
+    final resolvedByUser = _resolveAreaIdFromUser(data);
+    var areaId = (resolvedByUser ?? orgContext?.areaId ?? '').trim();
+    var areaNombre =
+        (orgContext?.areaNombre ??
+                _firstNonEmpty(data, const [
+                  'areaNombre',
+                  'area_nombre',
+                  'area',
+                  'departamento',
+                  'departamentoNombre',
+                ]))
+            .trim();
+
+    if (areaId.isEmpty) {
+      areaId = _areaDe(data).trim();
+    }
+    if (areaId.isNotEmpty && !_areas.any((a) => a['id'] == areaId)) {
+      final idFromName = _areaIdByName(
+        areaNombre.isNotEmpty ? areaNombre : areaId,
+      );
+      if (idFromName != null) {
+        if (areaNombre.isEmpty) areaNombre = areaId;
+        areaId = idFromName;
+      }
+    }
+    if (areaId.isEmpty && areaNombre.isNotEmpty) {
+      areaId = _areaIdByName(areaNombre) ?? '';
+    }
+
+    String? catalogAreaName;
+    if (areaId.isNotEmpty) {
+      final hit = _areas.firstWhere((a) => a['id'] == areaId, orElse: () => {});
+      final nombre = (hit['nombre'] ?? '').toString().trim();
+      if (nombre.isNotEmpty) catalogAreaName = nombre;
+    }
+    _currentAreaId = areaId.isEmpty ? null : areaId;
+    _currentAreaNombre = areaNombre.isNotEmpty ? areaNombre : catalogAreaName;
   }
 
   Future<void> _loadEstructura() async {
     try {
-      final baseRef =
-      FirebaseFirestore.instance.collection('TBL_ESTRUCTURA_ORGANIZACIONAL');
+      final baseRef = FirebaseFirestore.instance.collection(
+        'TBL_ESTRUCTURA_ORGANIZACIONAL',
+      );
       final scopedEmpresaId = normalizeEmpresaId(_empresaId);
       final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
       if (scopedEmpresaId == null) {
@@ -575,11 +711,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         docs.addAll(qs.docs);
       } else {
         try {
-          final qs = await baseRef.where('empresas', arrayContains: scopedEmpresaId).get();
+          final qs = await baseRef
+              .where('empresas', arrayContains: scopedEmpresaId)
+              .get();
           docs.addAll(qs.docs);
         } catch (_) {}
         try {
-          final qs = await baseRef.where('empresaId', isEqualTo: scopedEmpresaId).get();
+          final qs = await baseRef
+              .where('empresaId', isEqualTo: scopedEmpresaId)
+              .get();
           docs.addAll(qs.docs);
         } catch (_) {}
       }
@@ -598,7 +738,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         if (scopedEmpresaId != null) {
           final detalle = data['empresasDetalle'];
           if (detalle is Map && detalle[scopedEmpresaId] is Map) {
-            final det = Map<String, dynamic>.from(detalle[scopedEmpresaId] as Map);
+            final det = Map<String, dynamic>.from(
+              detalle[scopedEmpresaId] as Map,
+            );
             data.addAll(det);
             data['empresaId'] = scopedEmpresaId;
           } else if (!matchesEmpresaScope(data, scopedEmpresaId)) {
@@ -607,7 +749,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
         _estructura[d.id] = data;
       }
-
     } catch (_) {
       _estructura.clear();
     }
@@ -636,7 +777,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<void> _getMyPosition() async {
     try {
-      _myPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      _myPos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
       _myAddress = await _reverseGeocode(_myPos!.latitude, _myPos!.longitude);
     } catch (_) {
       _myPos = null;
@@ -649,9 +792,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final places = await gcode.placemarkFromCoordinates(lat, lng);
       if (places.isNotEmpty) {
         final p = places.first;
-        final street = [p.street, p.subLocality].where((e) => (e ?? '').isNotEmpty).join(', ');
-        final city =
-        [p.locality, p.administrativeArea].where((e) => (e ?? '').isNotEmpty).join(' - ');
+        final street = [
+          p.street,
+          p.subLocality,
+        ].where((e) => (e ?? '').isNotEmpty).join(', ');
+        final city = [
+          p.locality,
+          p.administrativeArea,
+        ].where((e) => (e ?? '').isNotEmpty).join(' - ');
         return [street, city].where((e) => e.isNotEmpty).join(' | ');
       }
     } catch (_) {}
@@ -659,9 +807,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _queryByEmpresa(
-      String collection, {
-        int limit = 2000,
-      }) async {
+    String collection, {
+    int limit = 2000,
+  }) async {
     final col = FirebaseFirestore.instance.collection(collection);
     final scopedEmpresaId = normalizeEmpresaId(_empresaId);
     if (scopedEmpresaId == null) {
@@ -671,15 +819,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
-      final snap =
-          await col.where('empresas', arrayContains: scopedEmpresaId).limit(limit).get();
+      final snap = await col
+          .where('empresas', arrayContains: scopedEmpresaId)
+          .limit(limit)
+          .get();
       docs.addAll(snap.docs);
     } catch (_) {}
 
     const keys = ['empresaId', 'empresa_id', 'empresa'];
     for (final k in keys) {
       try {
-        final snap = await col.where(k, isEqualTo: scopedEmpresaId).limit(limit).get();
+        final snap = await col
+            .where(k, isEqualTo: scopedEmpresaId)
+            .limit(limit)
+            .get();
         docs.addAll(snap.docs);
       } catch (_) {}
     }
@@ -704,32 +857,55 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _loadAreas() async {
     final docs = await _queryByEmpresa(kCollAreas, limit: 1000);
 
-    _areas = docs
-        .map((d) {
-      final m = d.data();
-      if (!_empresaCoincide(m)) return null;
-      final id = (_firstNonEmpty(m, const ['areaId', 'area_id']).trim().isEmpty)
-          ? d.id
-          : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
-      final nombre = (m['nombre'] ?? '—').toString().trim();
-      final centroId = (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '').toString().trim();
-      return {'id': id, 'nombre': nombre.isEmpty ? '—' : nombre, 'centroId': centroId};
-    })
-        .whereType<Map<String, String>>()
-        .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
-        .toList()
-      ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    _areas =
+        docs
+            .map((d) {
+              final m = d.data();
+              if (!_empresaCoincide(m)) return null;
+              final id =
+                  (_firstNonEmpty(m, const [
+                    'areaId',
+                    'area_id',
+                  ]).trim().isEmpty)
+                  ? d.id
+                  : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
+              final nombre = (m['nombre'] ?? '—').toString().trim();
+              final centroId =
+                  (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '')
+                      .toString()
+                      .trim();
+              return {
+                'id': id,
+                'nombre': nombre.isEmpty ? '—' : nombre,
+                'centroId': centroId,
+              };
+            })
+            .whereType<Map<String, String>>()
+            .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
+            .toList()
+          ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
 
     // Fallback: solo si TBL_AREAS está vacío
     if (_areas.isEmpty) {
-      final existingIds = _areas.map((a) => a['id']).whereType<String>().toSet();
+      final existingIds = _areas
+          .map((a) => a['id'])
+          .whereType<String>()
+          .toSet();
       for (final entry in _estructura.entries) {
         final estr = entry.value;
         final id = (estr['areaId'] ?? '').toString().trim();
         if (id.isEmpty || existingIds.contains(id)) continue;
-        final nombre = (estr['area'] ?? estr['areaNombre'] ?? id).toString().trim();
-        final centroId = (estr['centroId'] ?? estr['centro'] ?? '').toString().trim();
-        _areas.add({'id': id, 'nombre': nombre.isEmpty ? id : nombre, 'centroId': centroId});
+        final nombre = (estr['area'] ?? estr['areaNombre'] ?? id)
+            .toString()
+            .trim();
+        final centroId = (estr['centroId'] ?? estr['centro'] ?? '')
+            .toString()
+            .trim();
+        _areas.add({
+          'id': id,
+          'nombre': nombre.isEmpty ? id : nombre,
+          'centroId': centroId,
+        });
         existingIds.add(id);
       }
     }
@@ -748,13 +924,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         docs.addAll(qs.docs);
       } else {
         try {
-          final snap =
-              await col.where('empresaId', isEqualTo: scopedEmpresaId).limit(1000).get();
+          final snap = await col
+              .where('empresaId', isEqualTo: scopedEmpresaId)
+              .limit(1000)
+              .get();
           docs.addAll(snap.docs);
         } catch (_) {}
         try {
-          final snap =
-              await col.where('empresas', arrayContains: scopedEmpresaId).limit(1000).get();
+          final snap = await col
+              .where('empresas', arrayContains: scopedEmpresaId)
+              .limit(1000)
+              .get();
           docs.addAll(snap.docs);
         } catch (_) {}
       }
@@ -764,34 +944,61 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         merged[d.id] = d;
       }
 
-      _cargos = merged.values
-          .map((d) {
-        final m = d.data();
-        final id = (_firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim().isEmpty)
-            ? d.id
-            : _firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim();
-        final nombre = (m['nombre'] ?? '—').toString().trim();
-        final areaId = (m['areaId'] ?? m['area_id'] ?? '').toString().trim();
-        final empresaId = _empresaDe(m).trim();
-        final enabled = (m['enabled'] as bool?) ?? true;
-        final cedulasRaw = m['cedulas'] as List<dynamic>? ?? const [];
-        final cedulas = cedulasRaw
-            .map((e) => (e ?? '').toString().trim())
-            .where((e) => e.isNotEmpty)
-            .toList();
-        return {
-          'id': id,
-          'nombre': nombre.isEmpty ? '—' : nombre,
-          'areaId': areaId,
-          'empresaId': empresaId,
-          'enabled': enabled.toString(),
-          'cedulas': cedulas,
-        };
-      })
-          .whereType<Map<String, dynamic>>()
-          .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
-          .toList()
-        ..sort((a, b) => (a['nombre'] ?? '').toString().compareTo((b['nombre'] ?? '').toString()));
+      _cargos =
+          merged.values
+              .map((d) {
+                final m = d.data();
+                final id =
+                    (_firstNonEmpty(m, const [
+                      'cargoId',
+                      'cargo_id',
+                    ]).trim().isEmpty)
+                    ? d.id
+                    : _firstNonEmpty(m, const ['cargoId', 'cargo_id']).trim();
+                final nombre = (m['nombre'] ?? '—').toString().trim();
+                final areaId = (m['areaId'] ?? m['area_id'] ?? '')
+                    .toString()
+                    .trim();
+                // Los cargos creados desde "Gestión de Cargos" solo guardan el
+                // nombre del área (campo `area`), sin `areaId`. Lo conservamos
+                // para que el merge pueda asignarlos al área por nombre.
+                final areaNombre =
+                    (m['areaNombre'] ?? m['area_nombre'] ?? m['area'] ?? '')
+                        .toString()
+                        .trim();
+                final empresaId = _empresaDe(m).trim();
+                final enabled = (m['enabled'] as bool?) ?? true;
+                final cedulasRaw = m['cedulas'] as List<dynamic>? ?? const [];
+                final cedulas = cedulasRaw
+                    .map((e) => (e ?? '').toString().trim())
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+                return {
+                  'id': id,
+                  'nombre': nombre.isEmpty ? '—' : nombre,
+                  'areaId': areaId,
+                  'areaNombre': areaNombre,
+                  'empresaId': empresaId,
+                  'enabled': enabled.toString(),
+                  'cedulas': cedulas,
+                  'parent_cargo': (m['parent_cargo'] ?? m['parentCargo'] ?? '')
+                      .toString()
+                      .trim(),
+                  'ordenJerarquico':
+                      m['ordenJerarquico'] ?? m['orden_jerarquico'],
+                };
+              })
+              .whereType<Map<String, dynamic>>()
+              .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
+              .toList()
+            ..sort(
+              CargoHierarchyIndex.fromCargos(
+                merged.values.map((d) {
+                  final data = d.data();
+                  return <String, dynamic>{'id': d.id, ...data};
+                }),
+              ).compareCargos,
+            );
     } catch (_) {
       _cargos = [];
     }
@@ -861,7 +1068,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           bool _isEmpty(String key) =>
               (data[key] == null || data[key].toString().trim().isEmpty);
           void _fill(String key, dynamic value) {
-            if (_isEmpty(key) && value != null && value.toString().trim().isNotEmpty) {
+            if (_isEmpty(key) &&
+                value != null &&
+                value.toString().trim().isNotEmpty) {
               data[key] = value;
             }
           }
@@ -881,7 +1090,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
         // Si existe detalle específico por empresa, sobrescribe campos top-level
         if (_empresaId != null && _empresaId!.trim().isNotEmpty) {
-          final detalleEmpresas = data['empresasDetalle'] as Map<String, dynamic>?;
+          final detalleEmpresas =
+              data['empresasDetalle'] as Map<String, dynamic>?;
           final det = detalleEmpresas?[_empresaId] as Map<String, dynamic>?;
           if (det != null) {
             void applyDetail(String key, dynamic value) {
@@ -889,12 +1099,26 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 data[key] = value;
               }
             }
+
             applyDetail('areaId', det['areaId'] ?? det['area_id']);
-            applyDetail('area', det['areaNombre'] ?? det['area_nombre'] ?? det['area']);
+            applyDetail(
+              'area',
+              det['areaNombre'] ?? det['area_nombre'] ?? det['area'],
+            );
             applyDetail('cargoId', det['cargoId'] ?? det['cargo_id']);
-            applyDetail('cargo', det['cargo'] ?? det['cargoNombre'] ?? det['cargo_nombre'] ?? det['puesto'] ?? det['descripcion']);
+            applyDetail(
+              'cargo',
+              det['cargo'] ??
+                  det['cargoNombre'] ??
+                  det['cargo_nombre'] ??
+                  det['puesto'] ??
+                  det['descripcion'],
+            );
             applyDetail('centroId', det['centroId'] ?? det['centro_id']);
-            applyDetail('centroCostos', det['centroCostos'] ?? det['centro_costos'] ?? det['centro']);
+            applyDetail(
+              'centroCostos',
+              det['centroCostos'] ?? det['centro_costos'] ?? det['centro'],
+            );
             applyDetail('jefeId', det['jefeId'] ?? det['jefe_id']);
             applyDetail('jefeNombre', det['jefeNombre'] ?? det['jefe_nombre']);
             applyDetail('cargoJefe', det['cargoJefe']);
@@ -902,7 +1126,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         }
 
         final cargoId = (data['cargoId'] ?? '').toString().trim();
-        if ((data['cargo'] ?? '').toString().trim().isEmpty && cargoId.isNotEmpty) {
+        if ((data['cargo'] ?? '').toString().trim().isEmpty &&
+            cargoId.isNotEmpty) {
           final nombreCargo = _nombreCargoPorId(cargoId);
           if (nombreCargo != null && nombreCargo.trim().isNotEmpty) {
             data['cargo'] = nombreCargo.trim();
@@ -921,8 +1146,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   // ==================== NORMALIZACIÓN DE CASCADA ====================
   void _ensureAreaDisponible() {
+    final list = _areasFiltradas;
+    if ((_areaId == null || _areaId!.trim().isEmpty) && list.length == 1) {
+      _areaId = list.first['id'];
+    }
+
     if (_areaId != null && _areaId!.trim().isNotEmpty) {
-      final list = _areasFiltradas;
       if (!list.any((a) => a['id'] == _areaId)) {
         _areaId = null;
         _alElegirAsignado(null);
@@ -961,7 +1190,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   Future<Map<String, dynamic>?> _fetchUser(String uid) async {
     try {
-      final d = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
+      final d = await FirebaseFirestore.instance
+          .collection(kCollUsuarios)
+          .doc(uid)
+          .get();
       return d.data();
     } catch (_) {
       return null;
@@ -971,7 +1203,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // ==================== IMAGEN + MAPA ====================
   Future<void> _takePhoto() async {
     try {
-      final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+      final x = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+      );
       if (x != null) setState(() => _photo = x);
     } catch (_) {}
   }
@@ -995,6 +1230,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       ),
     );
   }
+
   Future<Uint8List?> _buildWatermarkedBytes(Uint8List baseBytes) async {
     final nowStr = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
 
@@ -1013,7 +1249,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       'Creador: $creadorNombre',
       if (_asignadoNombre != null) 'Asignado: $_asignadoNombre',
       if (_jefeNombre != null) 'Jefe: $_jefeNombre',
-      if (_deadline != null) 'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(_deadline!)}',
+      if (_deadline != null)
+        'Límite: ${DateFormat('dd/MM/yyyy HH:mm').format(_deadline!)}',
       'Prioridad: ${_priority.toUpperCase()}',
       'Ubicación: $origenCoords',
     ];
@@ -1033,12 +1270,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<Uint8List?> _loadLogoBytes() async {
-    try {
-      final lb = await rootBundle.load('assets/logo.png');
-      return lb.buffer.asUint8List();
-    } catch (_) {
-      return null;
-    }
+    return CompanyBrandingService().loadLogoBytes(_empresaId);
   }
 
   // ==================== PICKER / UPLOAD ====================
@@ -1121,10 +1353,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<({String path, String? url})> _uploadBytes(
-      Uint8List bytes,
-      String storagePath, {
-        String? mime,
-      }) async {
+    Uint8List bytes,
+    String storagePath, {
+    String? mime,
+  }) async {
     final ref = FirebaseStorage.instance.ref(storagePath);
     await ref.putData(bytes, SettableMetadata(contentType: mime));
     String? url;
@@ -1143,7 +1375,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return cleaned.isEmpty ? fallback : cleaned;
   }
 
-  Future<({String storagePath, String? downloadURL})> _uploadEvidence(Uint8List bytes) async {
+  Future<({String storagePath, String? downloadURL})> _uploadEvidence(
+    Uint8List bytes,
+  ) async {
     final now = DateTime.now();
     final y = DateFormat('yyyy').format(now);
     final m = DateFormat('MM').format(now);
@@ -1158,7 +1392,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   // ==================== VALIDACIÓN TOKEN (FRESCA) ====================
   Future<bool> _docHasTokenFresh(String uid) async {
     try {
-      final snap = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
+      final snap = await FirebaseFirestore.instance
+          .collection(kCollUsuarios)
+          .doc(uid)
+          .get();
       final data = snap.data();
       return _hasAnyToken(data);
     } catch (_) {
@@ -1181,13 +1418,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       initialTime: const TimeOfDay(hour: 17, minute: 0),
     );
     if (t == null) return;
-    setState(() => _deadline = DateTime(d.year, d.month, d.day, t.hour, t.minute));
+    setState(
+      () => _deadline = DateTime(d.year, d.month, d.day, t.hour, t.minute),
+    );
   }
 
   // ==================== REFRESH USER ====================
   Future<Map<String, dynamic>?> _fetchUserFresh(String uid) async {
     try {
-      final snap = await FirebaseFirestore.instance.collection(kCollUsuarios).doc(uid).get();
+      final snap = await FirebaseFirestore.instance
+          .collection(kCollUsuarios)
+          .doc(uid)
+          .get();
       return snap.data();
     } catch (_) {
       return null;
@@ -1197,7 +1439,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   void _alElegirAsignado(String? uid) async {
     if (uid != null && _currentUid != null && uid == _currentUid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No puedes asignarte una tarea a ti mismo.')),
+        const SnackBar(
+          content: Text('No puedes asignarte una tarea a ti mismo.'),
+        ),
       );
       setState(() {});
       return;
@@ -1217,28 +1461,26 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final fresh = await _fetchUserFresh(uid);
     if (fresh != null) _usuarios[uid] = fresh;
 
-      final u = _usuarios[uid];
-      if (u != null) {
-        final scopedEmpresaId = normalizeEmpresaId(_empresaId);
-        final orgContext = scopedEmpresaId == null
-            ? null
-            : _orgContextResolver.resolve(
-                userData: u,
-                empresaId: scopedEmpresaId,
-              );
-        _asignadoNombre = _nombreDeUsuario(u);
-        final jefeId = (orgContext?.jefeId ?? u['jefeId'] ?? u['jefe_uid'] ?? '')
-            .toString()
-            .trim();
-        _jefeUid = jefeId.isEmpty ? null : jefeId;
-        final jefeNom = (orgContext?.jefeNombre ??
-                u['jefeNombre'] ??
-                u['jefe_nombre'] ??
-                '')
-            .toString()
-            .trim();
-        _jefeNombre = jefeNom.isEmpty ? null : jefeNom;
-      }
+    final u = _usuarios[uid];
+    if (u != null) {
+      final scopedEmpresaId = normalizeEmpresaId(_empresaId);
+      final orgContext = scopedEmpresaId == null
+          ? null
+          : _orgContextResolver.resolve(
+              userData: u,
+              empresaId: scopedEmpresaId,
+            );
+      _asignadoNombre = _nombreDeUsuario(u);
+      final jefeId = (orgContext?.jefeId ?? u['jefeId'] ?? u['jefe_uid'] ?? '')
+          .toString()
+          .trim();
+      _jefeUid = jefeId.isEmpty ? null : jefeId;
+      final jefeNom =
+          (orgContext?.jefeNombre ?? u['jefeNombre'] ?? u['jefe_nombre'] ?? '')
+              .toString()
+              .trim();
+      _jefeNombre = jefeNom.isEmpty ? null : jefeNom;
+    }
 
     // 2) jefe fresco (si aplica)
     if (_jefeUid != null && _jefeUid!.isNotEmpty) {
@@ -1258,9 +1500,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     if (!_formKey.currentState!.validate()) return;
     if (_areaId == null || _areaId!.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona el área.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Selecciona el área.')));
       return;
     }
     if (_deadline == null) {
@@ -1270,9 +1512,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return;
     }
     if (_cargoFiltro == 'todos') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona el cargo.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Selecciona el cargo.')));
       return;
     }
     if (_asignadoUid == null) {
@@ -1283,7 +1525,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
     if (_currentUid != null && _asignadoUid == _currentUid) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No puedes asignarte una tarea a ti mismo.')),
+        const SnackBar(
+          content: Text('No puedes asignarte una tarea a ti mismo.'),
+        ),
       );
       return;
     }
@@ -1292,13 +1536,16 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     final asignadoDoc = await _fetchUser(_asignadoUid!);
     if (asignadoDoc == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo leer la información del asignado.')),
+        const SnackBar(
+          content: Text('No se pudo leer la información del asignado.'),
+        ),
       );
       return;
     }
 
     // Jefe
-    String? jefeUid = _jefeUid ??
+    String? jefeUid =
+        _jefeUid ??
         (() {
           final scopedEmpresaId = normalizeEmpresaId(_empresaId);
           if (scopedEmpresaId == null) {
@@ -1309,7 +1556,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             userData: asignadoDoc,
             empresaId: scopedEmpresaId,
           );
-          return (orgContext.jefeId ?? asignadoDoc['jefeId'] ?? asignadoDoc['jefe_uid'])
+          return (orgContext.jefeId ??
+                  asignadoDoc['jefeId'] ??
+                  asignadoDoc['jefe_uid'])
               ?.toString()
               .trim();
         })();
@@ -1320,20 +1569,22 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
     setState(() => _saving = true);
 
-    // Validación estricta tokens (asignado + jefe si existe)
+    // FCM/push es solo un canal de aviso. La asignación funcional depende del
+    // usuario, rol y empresa; nunca del token del navegador/dispositivo.
+    final List<String> sinToken = [];
     if (!await _docHasTokenFresh(_asignadoUid!)) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('La persona asignada no ha iniciado sesión (no tiene token).')),
-      );
-      return;
+      sinToken.add('la persona asignada');
     }
-    if (jefeUid != null && jefeUid.isNotEmpty && !await _docHasTokenFresh(jefeUid)) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El jefe directo no ha iniciado sesión (no tiene token).')),
+    if (jefeUid != null &&
+        jefeUid.isNotEmpty &&
+        !await _docHasTokenFresh(jefeUid)) {
+      sinToken.add('el jefe directo');
+    }
+    if (sinToken.isNotEmpty && kDebugMode) {
+      debugPrint(
+        '[CreateTask] Sin push activo para ${sinToken.join(' y ')}; '
+        'la tarea se asigna igual y queda visible en la bandeja in-app.',
       );
-      return;
     }
 
     try {
@@ -1358,12 +1609,17 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       final List<Map<String, dynamic>> adjuntos = [];
       for (final f in _pickedFiles) {
         final name = f.name;
-        final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
+        final ext = name.contains('.')
+            ? name.split('.').last.toLowerCase()
+            : '';
         final mime = _guessMimeFromExtension(ext);
-        final fileBytes = f.bytes ?? (f.path != null ? await File(f.path!).readAsBytes() : null);
+        final fileBytes =
+            f.bytes ??
+            (f.path != null ? await File(f.path!).readAsBytes() : null);
         if (fileBytes == null) continue;
 
-        final storagePath = 'tareas/$y/$m/$d/adj_${DateTime.now().millisecondsSinceEpoch}_$name';
+        final storagePath =
+            'tareas/$y/$m/$d/adj_${DateTime.now().millisecondsSinceEpoch}_$name';
         final up = await _uploadBytes(fileBytes, storagePath, mime: mime);
         adjuntos.add({
           'name': name,
@@ -1375,7 +1631,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
 
       // Datos creador
-      String? creadorId = widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid;
+      String? creadorId =
+          widget.currentUserId ?? FirebaseAuth.instance.currentUser?.uid;
       String? creadorNombre;
       if (creadorId != null && _usuarios.containsKey(creadorId)) {
         creadorNombre = _nombreDeUsuario(_usuarios[creadorId]!);
@@ -1398,7 +1655,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         'descripcion': _descCtl.text.trim(),
         'prioridad': _priority,
         'fecha_creacion': FieldValue.serverTimestamp(),
-        'fecha_limite': _deadline == null ? null : Timestamp.fromDate(_deadline!),
+        'createdAt': FieldValue.serverTimestamp(),
+        'fecha_limite': _deadline == null
+            ? null
+            : Timestamp.fromDate(_deadline!),
         'estado': 'en_progreso',
         'visto': false,
         'reasignado': false,
@@ -1412,19 +1672,30 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         // asignación
         'asignado_uid': (_asignadoUid ?? '').toString().trim(),
         'asignado_nombre': _asignadoNombre ?? _nombreDeUsuario(asignadoDoc),
-        'jefe_uid': (jefeUid == null || jefeUid.trim().isEmpty) ? null : jefeUid.trim(),
-        'jefe_nombre': _jefeNombre ?? (jefeDoc == null ? null : _nombreDeUsuario(jefeDoc)),
+        'asignado_cargo_id': _cargoIdDe(asignadoDoc),
+        'asignado_cargo_nombre': _cargoNombreDe(asignadoDoc),
+        'jefe_uid': (jefeUid == null || jefeUid.trim().isEmpty)
+            ? null
+            : jefeUid.trim(),
+        'jefe_nombre':
+            _jefeNombre ?? (jefeDoc == null ? null : _nombreDeUsuario(jefeDoc)),
         'creador_id': creadorId,
         'creador_nombre': creadorNombre,
+        'aprobador_uid': (jefeUid == null || jefeUid.trim().isEmpty)
+            ? creadorId
+            : jefeUid.trim(),
+        'aprobador_nombre':
+            _jefeNombre ??
+            (jefeDoc == null ? creadorNombre : _nombreDeUsuario(jefeDoc)),
 
         // ubicación
         'ubicacion': _myPos == null
             ? null
             : {
-          'lat': _myPos!.latitude,
-          'lng': _myPos!.longitude,
-          'texto': _myAddress,
-        },
+                'lat': _myPos!.latitude,
+                'lng': _myPos!.longitude,
+                'texto': _myAddress,
+              },
 
         // evidencias
         'evidencias': evidenceUrl == null ? [] : [evidenceUrl],
@@ -1433,6 +1704,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         // adjuntos
         'adjuntos': adjuntos,
         'notify': true,
+        'origen': 'manual',
+        'sourceModule': 'tareas',
+        'sourceType': 'manual',
+        'lastEventType': 'creada',
+        'lastEventAt': FieldValue.serverTimestamp(),
       };
 
       if (resolvedEmpresaId.isNotEmpty) {
@@ -1441,13 +1717,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       final empresasAsignado = _empresasDeUsuario(asignadoDoc);
       if (empresasAsignado.isNotEmpty) {
-        if (resolvedEmpresaId.isNotEmpty && !empresasAsignado.contains(resolvedEmpresaId)) {
+        if (resolvedEmpresaId.isNotEmpty &&
+            !empresasAsignado.contains(resolvedEmpresaId)) {
           empresasAsignado.add(resolvedEmpresaId);
         }
         payload['empresas'] = empresasAsignado;
       }
 
-      final ref = await FirebaseFirestore.instance.collection(kCollTareas).add(payload);
+      final normalizedPayload = TaskContract.normalizeForCreate(payload);
+      final ref = await FirebaseFirestore.instance
+          .collection(kCollTareas)
+          .add(normalizedPayload);
+      // onTaskCreated genera la notificación in-app y el push para asignado/jefe.
 
       _photo = null;
       _pickedFiles.clear();
@@ -1460,9 +1741,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al crear tarea: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al crear tarea: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1481,13 +1762,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: (color ?? Colors.black).withOpacity(0.75)),
+          Icon(
+            icon,
+            size: 16,
+            color: (color ?? Colors.black).withOpacity(0.75),
+          ),
           const SizedBox(width: 6),
           Flexible(
             child: Text(
               text,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: (color ?? Colors.black).withOpacity(0.85), fontSize: 12),
+              style: TextStyle(
+                color: (color ?? Colors.black).withOpacity(0.85),
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -1499,22 +1787,78 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   @override
   Widget build(BuildContext context) {
     // Avisos rápidos tokens (cache)
-    final bool hasAssigneeToken =
-    _asignadoUid == null ? true : _hasAnyToken(_usuarios[_asignadoUid!]);
-    final bool hasBossToken = _jefeUid == null ? true : _hasAnyToken(_usuarios[_jefeUid!]);
-    final bool areaSeleccionada = _areaId != null && _areaId!.trim().isNotEmpty;
+    final bool hasAssigneeToken = _asignadoUid == null
+        ? true
+        : _hasAnyToken(_usuarios[_asignadoUid!]);
+    final bool hasBossToken = _jefeUid == null
+        ? true
+        : _hasAnyToken(_usuarios[_jefeUid!]);
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
     // Mantén cascada limpia en cada build (por si cambió data)
     _ensureAreaDisponible();
+    final areasDisponibles = _areasFiltradas;
+    final cargosDisponibles = _cargosFiltrados;
+    final empleadosDisponibles = _empleadosFiltrados;
+    final bool areaSeleccionada = _areaId != null && _areaId!.trim().isNotEmpty;
+    final bool cargoSeleccionado =
+        areaSeleccionada &&
+        _cargoFiltro.trim().isNotEmpty &&
+        _cargoFiltro != 'todos';
+    final bool hayPersonasAsignables = empleadosDisponibles.isNotEmpty;
+    final String? personaHelper = !areaSeleccionada
+        ? 'Selecciona un área para cargar personas.'
+        : !cargoSeleccionado
+        ? 'Selecciona un cargo para cargar personas.'
+        : !hayPersonasAsignables
+        ? 'No hay personas activas asignables para esta combinación.'
+        : null;
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text('Crear tarea'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+          tooltip: 'Volver',
+        ),
+        title: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Crear tarea',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Arial',
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
+            Text(
+              'Nueva tarea para el equipo',
+              maxLines: 1,
+              style: TextStyle(
+                fontFamily: 'Arial',
+                fontSize: 11,
+                fontWeight: FontWeight.w400,
+                color: Color(0xCCFFFFFF),
+              ),
+            ),
+          ],
+        ),
         backgroundColor: kMarronOscuro,
         foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home_rounded),
+            onPressed: () => Navigator.of(context).popUntil((r) => r.isFirst),
+            tooltip: 'Ir al Home',
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -1527,8 +1871,11 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  _chipInfo(Icons.account_tree_outlined, _nombreAreaPorId(_areaId) ?? 'Área: —',
-                      color: scheme.secondary),
+                  _chipInfo(
+                    Icons.account_tree_outlined,
+                    _nombreAreaPorId(_areaId) ?? 'Área: —',
+                    color: scheme.secondary,
+                  ),
                   _chipInfo(
                     Icons.flag_outlined,
                     'Prioridad: ${_priority.toUpperCase()}',
@@ -1553,7 +1900,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               Card(
                 elevation: 1,
                 clipBehavior: Clip.antiAlias,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Form(
@@ -1568,8 +1917,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.title),
                           ),
-                          validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Ingresa un título' : null,
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Ingresa un título'
+                              : null,
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -1589,12 +1939,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         SwitchListTile.adaptive(
                           value: _requiresAttachment,
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('Requiere adjunto para completar/finalizar'),
+                          title: const Text(
+                            'Requiere adjunto para completar/finalizar',
+                          ),
                           subtitle: const Text(
                             'Si está activado, se solicitarán evidencias al completar o finalizar.',
                             style: TextStyle(fontSize: 12),
                           ),
-                          onChanged: (v) => setState(() => _requiresAttachment = v),
+                          onChanged: (v) =>
+                              setState(() => _requiresAttachment = v),
                         ),
                         const SizedBox(height: 12),
 
@@ -1610,11 +1963,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                   prefixIcon: Icon(Icons.flag_outlined),
                                 ),
                                 items: const [
-                                  DropdownMenuItem(value: 'alta', child: Text('Alta')),
-                                  DropdownMenuItem(value: 'media', child: Text('Media')),
-                                  DropdownMenuItem(value: 'baja', child: Text('Baja')),
+                                  DropdownMenuItem(
+                                    value: 'alta',
+                                    child: Text('Alta'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'media',
+                                    child: Text('Media'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'baja',
+                                    child: Text('Baja'),
+                                  ),
                                 ],
-                                onChanged: (v) => setState(() => _priority = v ?? 'media'),
+                                onChanged: (v) =>
+                                    setState(() => _priority = v ?? 'media'),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -1630,7 +1993,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                   child: Text(
                                     _deadline == null
                                         ? 'Sin definir'
-                                        : DateFormat('dd/MM/yyyy HH:mm').format(_deadline!),
+                                        : DateFormat(
+                                            'dd/MM/yyyy HH:mm',
+                                          ).format(_deadline!),
                                   ),
                                 ),
                               ),
@@ -1643,31 +2008,46 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _areaId,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Área',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.account_tree_outlined),
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.account_tree_outlined),
+                            helperText: _loadingData
+                                ? 'Cargando áreas…'
+                                : areasDisponibles.isEmpty
+                                ? 'No hay áreas disponibles para tu usuario.'
+                                : null,
                           ),
-                          items: _areasFiltradas
+                          items: areasDisponibles
                               .map(
                                 (a) => DropdownMenuItem(
-                              value: a['id'],
-                              child: Text(
-                                a['nombre'] ?? '—',
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
-                              ),
-                            ),
-                          )
+                                  value: a['id'],
+                                  child: Text(
+                                    a['nombre'] ?? '—',
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              )
                               .toList(),
-                          onChanged: (v) {
-                            setState(() {
-                              _areaId = v?.trim();
-                              _cargoFiltro = 'todos';
-                              _alElegirAsignado(null);
-                            });
+                          onChanged: _loadingData || areasDisponibles.isEmpty
+                              ? null
+                              : (v) {
+                                  setState(() {
+                                    _areaId = v?.trim();
+                                    _cargoFiltro = 'todos';
+                                    _alElegirAsignado(null);
+                                  });
+                                },
+                          validator: (v) {
+                            if (_loadingData) return null;
+                            if (areasDisponibles.isEmpty) {
+                              return 'No hay áreas disponibles para tu usuario';
+                            }
+                            return (v == null || v.trim().isEmpty)
+                                ? 'Selecciona el área'
+                                : null;
                           },
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Selecciona el área' : null,
                         ),
 
                         const SizedBox(height: 12),
@@ -1681,29 +2061,33 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.badge_outlined),
                           ),
-                          items: _cargosFiltrados
+                          items: cargosDisponibles
                               .map(
                                 (c) => DropdownMenuItem(
-                              value: c['id'],
-                              child: Text(
-                                c['nombre'] ?? 'Selecciona un cargo',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          )
+                                  value: c['id'],
+                                  child: Text(
+                                    c['nombre'] ?? 'Selecciona un cargo',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
                               .toList(),
                           onChanged: areaSeleccionada
                               ? (v) {
-                            setState(() {
-                              _cargoFiltro = (v ?? 'todos').trim().isEmpty ? 'todos' : (v ?? 'todos');
-                              _alElegirAsignado(null);
-                              _ensureAreaDisponible();
-                            });
-                          }
+                                  setState(() {
+                                    _cargoFiltro = (v ?? 'todos').trim().isEmpty
+                                        ? 'todos'
+                                        : (v ?? 'todos');
+                                    _alElegirAsignado(null);
+                                    _ensureAreaDisponible();
+                                  });
+                                }
                               : null,
                           validator: (v) {
                             if (!areaSeleccionada) return null;
-                            return (v == null || v == 'todos') ? 'Selecciona el cargo' : null;
+                            return (v == null || v == 'todos')
+                                ? 'Selecciona el cargo'
+                                : null;
                           },
                         ),
 
@@ -1713,12 +2097,13 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         DropdownButtonFormField<String>(
                           isExpanded: true,
                           value: _asignadoUid,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Persona asignada',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.person_outline),
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.person_outline),
+                            helperText: personaHelper,
                           ),
-                          items: _empleadosFiltrados.map((e) {
+                          items: empleadosDisponibles.map((e) {
                             final nombre = e['nombre'] ?? '—';
                             final cargo = (e['cargo'] ?? '').trim();
                             return DropdownMenuItem(
@@ -1730,8 +2115,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                               ),
                             );
                           }).toList(),
-                          onChanged: _alElegirAsignado,
-                          validator: (v) => v == null ? 'Selecciona la persona' : null,
+                          onChanged: hayPersonasAsignables
+                              ? _alElegirAsignado
+                              : null,
+                          validator: (v) {
+                            if (!areaSeleccionada || !cargoSeleccionado) {
+                              return null;
+                            }
+                            if (!hayPersonasAsignables) {
+                              return 'No hay personas asignables para área y cargo';
+                            }
+                            return v == null ? 'Selecciona la persona' : null;
+                          },
                         ),
 
                         // Avisos tokens
@@ -1739,11 +2134,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           const SizedBox(height: 8),
                           Row(
                             children: const [
-                              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 18),
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.orange,
+                                size: 18,
+                              ),
                               SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  'La persona asignada aún no ha iniciado sesión (sin token).',
+                                  'La persona asignada no tiene push activo. La tarea se asigna igual y aparecerá en su bandeja.',
                                   style: TextStyle(fontSize: 12),
                                 ),
                               ),
@@ -1754,11 +2153,15 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           const SizedBox(height: 6),
                           Row(
                             children: const [
-                              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 18),
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.orange,
+                                size: 18,
+                              ),
                               SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  'El jefe directo aún no ha iniciado sesión (sin token).',
+                                  'El jefe directo no tiene push activo. El aviso in-app queda disponible en su bandeja.',
                                   style: TextStyle(fontSize: 12),
                                 ),
                               ),
@@ -1772,7 +2175,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             alignment: Alignment.centerLeft,
                             child: Text(
                               'Jefe directo: $_jefeNombre',
-                              style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],
@@ -1787,19 +2192,27 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               // -------- Evidencia y adjuntos --------
               Card(
                 elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Evidencia y adjuntos (opcionales)',
-                          style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
+                      Text(
+                        'Evidencia y adjuntos (opcionales)',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Text(
                         'Puedes tomar una foto; se generará una marca de agua con datos y un mapa. '
-                            'También puedes adjuntar archivos (PDF, Word, Excel, PowerPoint, ZIP, imágenes).',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.black54),
+                        'También puedes adjuntar archivos (PDF, Word, Excel, PowerPoint, ZIP, imágenes).',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.black54,
+                        ),
                       ),
                       const SizedBox(height: 12),
 
@@ -1841,8 +2254,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
                             child: kIsWeb
-                                ? Image.network(_photo!.path, height: 120, width: 90, fit: BoxFit.cover)
-                                : Image.file(File(_photo!.path), height: 120, width: 90, fit: BoxFit.cover),
+                                ? Image.network(
+                                    _photo!.path,
+                                    height: 120,
+                                    width: 90,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Image.file(
+                                    File(_photo!.path),
+                                    height: 120,
+                                    width: 90,
+                                    fit: BoxFit.cover,
+                                  ),
                           ),
                         ),
 
@@ -1857,7 +2280,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             final f = _pickedFiles[i];
                             return Row(
                               children: [
-                                const Icon(Icons.insert_drive_file_outlined, size: 20),
+                                const Icon(
+                                  Icons.insert_drive_file_outlined,
+                                  size: 20,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
@@ -1868,7 +2294,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                 ),
                                 IconButton(
                                   visualDensity: VisualDensity.compact,
-                                  onPressed: () => setState(() => _pickedFiles.removeAt(i)),
+                                  onPressed: () =>
+                                      setState(() => _pickedFiles.removeAt(i)),
                                   icon: const Icon(Icons.close),
                                 ),
                               ],
@@ -1889,17 +2316,19 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   onPressed: _saving ? null : _saveTask,
                   icon: _saving
                       ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.check),
                   label: Text(_saving ? 'Creando…' : 'Crear tarea'),
                   style: FilledButton.styleFrom(
                     backgroundColor: kMarronOscuro,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),
@@ -1910,6 +2339,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 }
+
 class _WatermarkJob {
   const _WatermarkJob({
     required this.bytes,

@@ -41,7 +41,9 @@
       "Bash(find C:/Desarrollo/capital-uspec/lib/utils -name task*)",
       "Bash(npm run:*)",
       "Bash(firebase deploy *)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Bash(findstr /i \"error\")",
+      "Bash(firebase firestore:get \"TBL_USUARIOS/1019152994\")"
     ]
   }
 }

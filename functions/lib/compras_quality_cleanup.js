@@ -28,8 +28,9 @@ const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const db = () => admin.firestore();
 const storage = () => admin.storage().bucket();
-const RETENTION_DAYS = 8;
+const DEFAULT_RETENTION_DAYS = 30;
 const REJECTED_STATUS = "rechazado";
+const retentionCache = new Map();
 function emptyDoc() {
     return {
         url: null,
@@ -66,13 +67,34 @@ function asDate(value) {
     }
     return null;
 }
-function isExpiredRejectedDoc(value, cutoff) {
+async function retentionDays(companyId) {
+    const id = (companyId ?? "").toString().trim();
+    if (!id)
+        return DEFAULT_RETENTION_DAYS;
+    const cached = retentionCache.get(id);
+    if (cached)
+        return cached;
+    try {
+        const snap = await db().collection("TBL_COMPRAS_CONFIG").doc(id).get();
+        const raw = snap.get("diasPlazoRechazados");
+        const value = typeof raw === "number" && raw >= 1 && raw <= 365 ?
+            Math.trunc(raw) : DEFAULT_RETENTION_DAYS;
+        retentionCache.set(id, value);
+        return value;
+    }
+    catch (error) {
+        console.error("[compras_quality_cleanup] No se pudo leer la política", id, error);
+        return DEFAULT_RETENTION_DAYS;
+    }
+}
+function isExpiredRejectedDoc(value, days) {
     const doc = asMap(value);
     if (!doc)
         return false;
     const url = (doc.url ?? "").toString().trim();
     const status = (doc.estadoCalidad ?? "").toString().trim().toLowerCase();
     const reviewedAt = asDate(doc.fechaRevision);
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     return !!url && status === REJECTED_STATUS && !!reviewedAt && reviewedAt < cutoff;
 }
 async function deleteStoragePath(pathValue) {
@@ -89,10 +111,11 @@ async function deleteStoragePath(pathValue) {
         }
     }
 }
-async function cleanupRecepciones(cutoff) {
+async function cleanupRecepciones() {
     const snap = await db().collection("TBL_COMPRAS_RECEPCIONES").get();
     let removed = 0;
     for (const recepcion of snap.docs) {
+        const days = await retentionDays(recepcion.get("empresaId"));
         const productosRaw = recepcion.get("productos");
         if (!Array.isArray(productosRaw) || productosRaw.length === 0)
             continue;
@@ -112,7 +135,7 @@ async function cleanupRecepciones(cutoff) {
             let docsChanged = false;
             const documentosActualizados = { ...documentosMap };
             for (const [docKey, docValue] of Object.entries(documentosMap)) {
-                if (!isExpiredRejectedDoc(docValue, cutoff))
+                if (!isExpiredRejectedDoc(docValue, days))
                     continue;
                 docsChanged = true;
                 removed += 1;
@@ -137,17 +160,18 @@ async function cleanupRecepciones(cutoff) {
     }
     return removed;
 }
-async function cleanupProveedores(cutoff) {
+async function cleanupProveedores() {
     const snap = await db().collection("TBL_COMPRAS_PROVEEDORES").get();
     let removed = 0;
     for (const proveedor of snap.docs) {
+        const days = await retentionDays(proveedor.get("empresaId"));
         const documentosMap = asMap(proveedor.get("documentos"));
         if (!documentosMap)
             continue;
         let changed = false;
         const documentosActualizados = { ...documentosMap };
         for (const [docKey, docValue] of Object.entries(documentosMap)) {
-            if (!isExpiredRejectedDoc(docValue, cutoff))
+            if (!isExpiredRejectedDoc(docValue, days))
                 continue;
             changed = true;
             removed += 1;
@@ -163,15 +187,16 @@ async function cleanupProveedores(cutoff) {
     }
     return removed;
 }
-async function cleanupFichas(cutoff) {
+async function cleanupFichas() {
     const snap = await db()
         .collection("TBL_COMPRAS_FICHAS_TECNICAS")
         .where("documentoActual.estadoCalidad", "==", REJECTED_STATUS)
         .get();
     let removed = 0;
     for (const ficha of snap.docs) {
+        const days = await retentionDays(ficha.get("empresaId"));
         const documentoActual = ficha.get("documentoActual");
-        if (!isExpiredRejectedDoc(documentoActual, cutoff))
+        if (!isExpiredRejectedDoc(documentoActual, days))
             continue;
         removed += 1;
         await deleteStoragePath(asMap(documentoActual)?.path);
@@ -187,15 +212,15 @@ exports.comprasLimpiarRechazadosVencidos = functions
     .pubsub.schedule("0 3 * * *")
     .timeZone("America/Bogota")
     .onRun(async () => {
-    const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    retentionCache.clear();
     const [recepciones, proveedores, fichas] = await Promise.all([
-        cleanupRecepciones(cutoff),
-        cleanupProveedores(cutoff),
-        cleanupFichas(cutoff),
+        cleanupRecepciones(),
+        cleanupProveedores(),
+        cleanupFichas(),
     ]);
     const total = recepciones + proveedores + fichas;
     console.log("[compras_quality_cleanup] Limpieza completada", {
-        cutoff: cutoff.toISOString(),
+        defaultRetentionDays: DEFAULT_RETENTION_DAYS,
         recepciones,
         proveedores,
         fichas,

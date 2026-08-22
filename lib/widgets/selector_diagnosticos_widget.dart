@@ -12,10 +12,12 @@ import '../services/diagnosticos_service.dart';
 /// Muestra chips acumulables y sugerencias automáticas de dieta.
 class SelectorDiagnosticosWidget extends StatefulWidget {
   final String empresaId;
+  final String? userId;
   final Function(
-      List<DiagnosticoMedico> medicos,
-      List<DiagnosticoNutricional> nutricionales,
-      ) onDiagnosticosChanged;
+    List<DiagnosticoMedico> medicos,
+    List<DiagnosticoNutricional> nutricionales,
+  )
+  onDiagnosticosChanged;
 
   /// Diagnósticos médicos ya seleccionados (para cargar paciente existente)
   final List<DiagnosticoMedico> initialMedicos;
@@ -26,6 +28,7 @@ class SelectorDiagnosticosWidget extends StatefulWidget {
   const SelectorDiagnosticosWidget({
     super.key,
     required this.empresaId,
+    this.userId,
     required this.onDiagnosticosChanged,
     this.initialMedicos = const [],
     this.initialNutricionales = const [],
@@ -36,8 +39,9 @@ class SelectorDiagnosticosWidget extends StatefulWidget {
       _SelectorDiagnosticosWidgetState();
 }
 
-class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget> {
-  final _service = DiagnosticosService();
+class _SelectorDiagnosticosWidgetState
+    extends State<SelectorDiagnosticosWidget> {
+  late DiagnosticosService _service;
   List<DiagnosticoMedico>? _catalogoCie11;
 
   final _busquedaMedicoCtrl = TextEditingController();
@@ -45,13 +49,15 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   List<DiagnosticoMedico> _resultadosMedicos = [];
   bool _buscandoMedico = false;
   bool _mostrarResultadosMedicos = false;
+
   /// null = todavía no se ha hecho ninguna búsqueda.
   /// true = la última búsqueda médica usó la API OMS.
   /// false = la última búsqueda médica usó solo catálogo local.
   bool? _icd11Disponible;
 
   final _busquedaNutriCtrl = TextEditingController();
-  late final List<DiagnosticoNutricional> _diagnosticosNutricionalesSeleccionados;
+  late final List<DiagnosticoNutricional>
+  _diagnosticosNutricionalesSeleccionados;
   List<DiagnosticoNutricional> _resultadosNutri = [];
   bool _buscandoNutri = false;
   bool _mostrarResultadosNutri = false;
@@ -62,25 +68,43 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   @override
   void initState() {
     super.initState();
+    _service = DiagnosticosService(
+      empresaId: widget.empresaId,
+      userId: widget.userId,
+    );
     // Inicializar con los valores previos (paciente existente)
-    _diagnosticosMedicosSeleccionados =
-        List<DiagnosticoMedico>.from(widget.initialMedicos);
-    _diagnosticosNutricionalesSeleccionados =
-        List<DiagnosticoNutricional>.from(widget.initialNutricionales);
+    _diagnosticosMedicosSeleccionados = List<DiagnosticoMedico>.from(
+      widget.initialMedicos,
+    );
+    _diagnosticosNutricionalesSeleccionados = List<DiagnosticoNutricional>.from(
+      widget.initialNutricionales,
+    );
   }
 
   @override
   void didUpdateWidget(SelectorDiagnosticosWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.empresaId != widget.empresaId ||
+        oldWidget.userId != widget.userId) {
+      _service = DiagnosticosService(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+      );
+      _catalogoCie11 = null;
+    }
     // Si cambian los iniciales (cambio de paciente), recargar
-    final mismosMedicos = oldWidget.initialMedicos.length ==
-            widget.initialMedicos.length &&
-        oldWidget.initialMedicos.every((m) => widget.initialMedicos
-            .any((n) => n.codigoCie11 == m.codigoCie11));
-    final mismosNutri = oldWidget.initialNutricionales.length ==
+    final mismosMedicos =
+        oldWidget.initialMedicos.length == widget.initialMedicos.length &&
+        oldWidget.initialMedicos.every(
+          (m) =>
+              widget.initialMedicos.any((n) => n.codigoCie11 == m.codigoCie11),
+        );
+    final mismosNutri =
+        oldWidget.initialNutricionales.length ==
             widget.initialNutricionales.length &&
-        oldWidget.initialNutricionales.every((m) =>
-            widget.initialNutricionales.any((n) => n.codigo == m.codigo));
+        oldWidget.initialNutricionales.every(
+          (m) => widget.initialNutricionales.any((n) => n.codigo == m.codigo),
+        );
     if (!mismosMedicos || !mismosNutri) {
       setState(() {
         _diagnosticosMedicosSeleccionados
@@ -140,7 +164,9 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     });
 
     try {
-      final busqueda = await _service.buscarDiagnosticosMedicosConOrigen(termino);
+      final busqueda = await _service.buscarDiagnosticosMedicosConOrigen(
+        termino,
+      );
       setState(() {
         _resultadosMedicos = busqueda.resultados;
         _icd11Disponible = busqueda.icd11Disponible;
@@ -184,7 +210,9 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   }
 
   void _agregarDiagnosticoMedico(DiagnosticoMedico dx) {
-    if (_diagnosticosMedicosSeleccionados.any((d) => d.codigoCie11 == dx.codigoCie11)) {
+    if (_diagnosticosMedicosSeleccionados.any(
+      (d) => d.codigoCie11 == dx.codigoCie11,
+    )) {
       return;
     }
 
@@ -206,7 +234,9 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   }
 
   void _agregarDiagnosticoNutricional(DiagnosticoNutricional dx) {
-    if (_diagnosticosNutricionalesSeleccionados.any((d) => d.codigo == dx.codigo)) {
+    if (_diagnosticosNutricionalesSeleccionados.any(
+      (d) => d.codigo == dx.codigo,
+    )) {
       return;
     }
 
@@ -222,17 +252,21 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
 
   DiagnosticoNutricional _mapearMedicoANutricional(DiagnosticoMedico dx) {
     final descripcion = [
-      if (dx.categoria != null && dx.categoria!.isNotEmpty) 'Categoría: ${dx.categoria}',
+      if (dx.categoria != null && dx.categoria!.isNotEmpty)
+        'Categoría: ${dx.categoria}',
       if (dx.subcategoria != null && dx.subcategoria!.isNotEmpty)
         'Subcategoría: ${dx.subcategoria}',
-      if (dx.gravedad != null && dx.gravedad!.isNotEmpty) 'Gravedad: ${dx.gravedad}',
+      if (dx.gravedad != null && dx.gravedad!.isNotEmpty)
+        'Gravedad: ${dx.gravedad}',
     ].join(' · ');
 
     return DiagnosticoNutricional(
       codigo: dx.codigoCie11,
       nombre: dx.nombre,
       descripcion: descripcion.isEmpty ? null : descripcion,
-      tipoDietaSugerida: dx.dietasSugeridas.isNotEmpty ? dx.dietasSugeridas.first : null,
+      tipoDietaSugerida: dx.dietasSugeridas.isNotEmpty
+          ? dx.dietasSugeridas.first
+          : null,
       alertasClinicas: dx.interaccionesFarmacoNutriente,
       objetivos: dx.comorbilidades,
       activo: dx.activo,
@@ -240,17 +274,23 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   }
 
   bool _estaSeleccionadoMedico(DiagnosticoMedico dx) {
-    return _diagnosticosMedicosSeleccionados.any((d) => d.codigoCie11 == dx.codigoCie11);
+    return _diagnosticosMedicosSeleccionados.any(
+      (d) => d.codigoCie11 == dx.codigoCie11,
+    );
   }
 
   bool _estaSeleccionadoNutricionalDesdeCie(DiagnosticoMedico dx) {
-    return _diagnosticosNutricionalesSeleccionados.any((d) => d.codigo == dx.codigoCie11);
+    return _diagnosticosNutricionalesSeleccionados.any(
+      (d) => d.codigo == dx.codigoCie11,
+    );
   }
 
   void _toggleDiagnosticoMedico(DiagnosticoMedico dx) {
     if (_estaSeleccionadoMedico(dx)) {
       _removerDiagnosticoMedico(
-        _diagnosticosMedicosSeleccionados.firstWhere((d) => d.codigoCie11 == dx.codigoCie11),
+        _diagnosticosMedicosSeleccionados.firstWhere(
+          (d) => d.codigoCie11 == dx.codigoCie11,
+        ),
       );
       return;
     }
@@ -258,7 +298,9 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   }
 
   void _toggleDiagnosticoNutricionalDesdeMedico(DiagnosticoMedico dx) {
-    final existente = _diagnosticosNutricionalesSeleccionados.where((d) => d.codigo == dx.codigoCie11);
+    final existente = _diagnosticosNutricionalesSeleccionados.where(
+      (d) => d.codigo == dx.codigoCie11,
+    );
     if (existente.isNotEmpty) {
       _removerDiagnosticoNutricional(existente.first);
       return;
@@ -296,7 +338,9 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
       showDialog(
         context: context,
         builder: (context) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           backgroundColor: NutritionPalette.background,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 800, maxHeight: 800),
@@ -355,7 +399,8 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
   }
 
   Widget _buildEntradaMedica() {
-    final mostrarAdvertencia = _mostrarResultadosMedicos &&
+    final mostrarAdvertencia =
+        _mostrarResultadosMedicos &&
         _icd11Disponible == false &&
         _resultadosMedicos.isNotEmpty;
 
@@ -433,13 +478,22 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
               ),
               child: Text(
                 etiqueta,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  color: Colors.white,
+                ),
               ),
             ),
             const SizedBox(width: 8),
             Text(
               titulo,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: NutritionPalette.textMain, fontFamily: kArial),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: NutritionPalette.textMain,
+                fontFamily: kArial,
+              ),
             ),
             const Spacer(),
             if (etiqueta == 'A')
@@ -447,7 +501,11 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Catálogo completo',
                 onPressed: _abrirCatalogoDiagnosticos,
-                icon: const Icon(Icons.menu_book_outlined, size: 20, color: NutritionPalette.accent),
+                icon: const Icon(
+                  Icons.menu_book_outlined,
+                  size: 20,
+                  color: NutritionPalette.accent,
+                ),
               ),
           ],
         ),
@@ -456,30 +514,63 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
           controller: controller,
           decoration: InputDecoration(
             hintText: hintText,
-            hintStyle: const TextStyle(fontSize: 13, color: NutritionPalette.textMuted),
-            prefixIcon: const Icon(Icons.search, size: 20, color: NutritionPalette.textMuted),
+            hintStyle: const TextStyle(
+              fontSize: 13,
+              color: NutritionPalette.textMuted,
+            ),
+            prefixIcon: const Icon(
+              Icons.search,
+              size: 20,
+              color: NutritionPalette.textMuted,
+            ),
             suffixIcon: buscando
                 ? const Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: NutritionPalette.accent),
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: NutritionPalette.accent,
+                      ),
+                    ),
+                  )
+                : (controller.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            controller.clear();
+                            onChanged('');
+                          },
+                        )
+                      : null),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: NutritionPalette.border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: NutritionPalette.border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: NutritionPalette.accent,
+                width: 2,
               ),
-            )
-                : (controller.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () {
-                    controller.clear();
-                    onChanged('');
-                  }) : null),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.border)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.border)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: NutritionPalette.accent, width: 2)),
+            ),
             filled: true,
             fillColor: NutritionPalette.surface,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
             isDense: true,
           ),
-          style: const TextStyle(fontSize: 14, color: NutritionPalette.textMain),
+          style: const TextStyle(
+            fontSize: 14,
+            color: NutritionPalette.textMain,
+          ),
           onChanged: onChanged,
         ),
         if (mostrarResultados && resultados.isNotEmpty) ...[
@@ -495,12 +586,20 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_rounded, size: 16, color: Colors.amber.shade800),
+                  Icon(
+                    Icons.info_rounded,
+                    size: 16,
+                    color: Colors.amber.shade800,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       warningText,
-                      style: TextStyle(fontSize: 11, color: Colors.amber.shade900, fontWeight: FontWeight.w500),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.amber.shade900,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],
@@ -513,14 +612,19 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
               borderRadius: BorderRadius.circular(8),
               color: Colors.white,
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
             clipBehavior: Clip.antiAlias,
             child: ListView.separated(
               shrinkWrap: true,
               itemCount: resultados.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: NutritionPalette.border),
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 1, color: NutritionPalette.border),
               itemBuilder: (_, index) {
                 final item = resultados[index];
                 if (item is DiagnosticoMedico) {
@@ -540,7 +644,10 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
             runSpacing: 8,
             children: chips.map((dx) {
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: chipColor,
                   borderRadius: BorderRadius.circular(8),
@@ -554,14 +661,22 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                     Flexible(
                       child: Text(
                         chipLabelBuilder(dx),
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: accentColor.withOpacity(0.9)),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: accentColor.withOpacity(0.9),
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     const SizedBox(width: 4),
                     InkWell(
                       onTap: () => onDeleteChip(dx),
-                      child: Icon(Icons.cancel, size: 16, color: accentColor.withOpacity(0.5)),
+                      child: Icon(
+                        Icons.cancel,
+                        size: 16,
+                        color: accentColor.withOpacity(0.5),
+                      ),
                     ),
                   ],
                 ),
@@ -586,18 +701,30 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                 Expanded(
                   child: Text(
                     dx.nombre,
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: NutritionPalette.textMain, fontFamily: kArial),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: NutritionPalette.textMain,
+                      fontFamily: kArial,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                _SourceBadge(label: dx.origenLabel, source: dx.source, icdUri: dx.icdUri),
+                _SourceBadge(
+                  label: dx.origenLabel,
+                  source: dx.source,
+                  icdUri: dx.icdUri,
+                ),
               ],
             ),
             const SizedBox(height: 4),
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: NutritionPalette.background,
                     borderRadius: BorderRadius.circular(4),
@@ -605,7 +732,12 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                   ),
                   child: Text(
                     dx.codigoCie11,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NutritionPalette.textMuted, letterSpacing: 0.5),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: NutritionPalette.textMuted,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
                 if (dx.categoria != null) ...[
@@ -613,7 +745,10 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                   Expanded(
                     child: Text(
                       dx.categoria!,
-                      style: const TextStyle(fontSize: 11, color: NutritionPalette.textMuted),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: NutritionPalette.textMuted,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -627,7 +762,10 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     );
   }
 
-  Widget _buildResultadoItemNutricional(DiagnosticoNutricional dx, Function onTap) {
+  Widget _buildResultadoItemNutricional(
+    DiagnosticoNutricional dx,
+    Function onTap,
+  ) {
     return InkWell(
       onTap: () => onTap(dx),
       child: Padding(
@@ -637,13 +775,21 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
           children: [
             Text(
               dx.nombre,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: NutritionPalette.textMain, fontFamily: kArial),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: NutritionPalette.textMain,
+                fontFamily: kArial,
+              ),
             ),
             const SizedBox(height: 4),
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: NutritionPalette.background,
                     borderRadius: BorderRadius.circular(4),
@@ -651,17 +797,29 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
                   ),
                   child: Text(
                     dx.codigo,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: NutritionPalette.textMuted, letterSpacing: 0.5),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: NutritionPalette.textMuted,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
                 if (dx.tipoDietaSugerida != null) ...[
                   const SizedBox(width: 8),
-                  const Icon(Icons.restaurant_menu, size: 12, color: NutritionPalette.textMuted),
+                  const Icon(
+                    Icons.restaurant_menu,
+                    size: 12,
+                    color: NutritionPalette.textMuted,
+                  ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       _formatearNombreDieta(dx.tipoDietaSugerida!),
-                      style: const TextStyle(fontSize: 11, color: NutritionPalette.textMuted),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: NutritionPalette.textMuted,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -679,7 +837,10 @@ class _SelectorDiagnosticosWidgetState extends State<SelectorDiagnosticosWidget>
     return dieta
         .replaceAll('_', ' ')
         .split(' ')
-        .map((word) => word.isEmpty ? word : word[0].toUpperCase() + word.substring(1))
+        .map(
+          (word) =>
+              word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),
+        )
         .join(' ');
   }
 }
@@ -694,6 +855,7 @@ class _CatalogoContent extends StatefulWidget {
   final bool Function(DiagnosticoMedico) estaSeleccionadoMedico;
   final bool Function(DiagnosticoMedico) estaSeleccionadoNutri;
   final bool isWide;
+
   /// Servicio para búsqueda live ICD-11 desde el modal.
   final DiagnosticosService service;
 
@@ -764,21 +926,21 @@ class _CatalogoContentState extends State<_CatalogoContent> {
       _resultadosIcd11 = [];
     });
 
-    final busqueda =
-        await widget.service.buscarDiagnosticosMedicosConOrigen(termino);
+    final busqueda = await widget.service.buscarDiagnosticosMedicosConOrigen(
+      termino,
+    );
 
     if (!mounted) return;
 
     if (kDebugMode) {
-      final nOms =
-          busqueda.icd11Disponible ? busqueda.resultados.length : 0;
+      final nOms = busqueda.icd11Disponible ? busqueda.resultados.length : 0;
       debugPrint(
-          '[CatálogoModal] query="$termino" OMS=$nOms icd11Disponible=${busqueda.icd11Disponible}');
+        '[CatálogoModal] query="$termino" OMS=$nOms icd11Disponible=${busqueda.icd11Disponible}',
+      );
     }
 
     setState(() {
-      _resultadosIcd11 =
-          busqueda.icd11Disponible ? busqueda.resultados : [];
+      _resultadosIcd11 = busqueda.icd11Disponible ? busqueda.resultados : [];
       _buscandoIcd11 = false;
       _icd11Disponible = busqueda.icd11Disponible;
       _icd11BusquedaRealizada = true;
@@ -792,8 +954,7 @@ class _CatalogoContentState extends State<_CatalogoContent> {
     bool coincide(String valor) => valor.toLowerCase().contains(filtroNorm);
 
     // Códigos ya presentes en resultados ICD-11 (para deduplicar catálogo local)
-    final icd11Codes =
-        _resultadosIcd11.map((dx) => dx.codigoCie11).toSet();
+    final icd11Codes = _resultadosIcd11.map((dx) => dx.codigoCie11).toSet();
 
     // Catálogo local filtrado: excluye códigos ya en ICD-11 y aplica texto
     final localFiltrados = widget.catalogoCie11.where((dx) {
@@ -824,12 +985,17 @@ class _CatalogoContentState extends State<_CatalogoContent> {
       return true;
     }).toList();
 
-    final cuentaOms =
-        todosResultados.where((dx) => dx.source == 'who_icd11').length;
-    final cuentaLocal =
-        todosResultados.where((dx) => dx.source != 'who_icd11').length;
+    final cuentaOms = todosResultados
+        .where((dx) => dx.source == 'who_icd11')
+        .length;
+    final cuentaLocal = todosResultados
+        .where((dx) => dx.source != 'who_icd11')
+        .length;
 
-    if (kDebugMode && filtroActivo && _icd11BusquedaRealizada && !_buscandoIcd11) {
+    if (kDebugMode &&
+        filtroActivo &&
+        _icd11BusquedaRealizada &&
+        !_buscandoIcd11) {
       debugPrint(
         '[CatálogoModal] OMS=$cuentaOms Biblioteca=$cuentaLocal '
         'Mostrados=${medicosFiltrados.length} filtroOrigen=$origenFiltro',
@@ -872,7 +1038,10 @@ class _CatalogoContentState extends State<_CatalogoContent> {
                     ),
                     Text(
                       cuentaLabel,
-                      style: const TextStyle(fontSize: 12, color: NutritionPalette.textMuted),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: NutritionPalette.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -880,7 +1049,10 @@ class _CatalogoContentState extends State<_CatalogoContent> {
               if (widget.isWide)
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close, color: NutritionPalette.textMuted),
+                  icon: const Icon(
+                    Icons.close,
+                    color: NutritionPalette.textMuted,
+                  ),
                 ),
             ],
           ),
@@ -891,7 +1063,10 @@ class _CatalogoContentState extends State<_CatalogoContent> {
             onChanged: _onFiltroChanged,
             decoration: InputDecoration(
               hintText: 'Buscar CIE-11 OMS + biblioteca...',
-              prefixIcon: const Icon(Icons.search, color: NutritionPalette.accent),
+              prefixIcon: const Icon(
+                Icons.search,
+                color: NutritionPalette.accent,
+              ),
               suffixIcon: _buscandoIcd11
                   ? const Padding(
                       padding: EdgeInsets.all(12),
@@ -899,13 +1074,15 @@ class _CatalogoContentState extends State<_CatalogoContent> {
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: NutritionPalette.accent),
+                          strokeWidth: 2,
+                          color: NutritionPalette.accent,
+                        ),
                       ),
                     )
                   : null,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               filled: true,
               fillColor: NutritionPalette.surface,
               isDense: true,
@@ -924,15 +1101,20 @@ class _CatalogoContentState extends State<_CatalogoContent> {
             ),
             child: Row(
               children: [
-                Icon(Icons.info_rounded, size: 16, color: Colors.amber.shade700),
+                Icon(
+                  Icons.info_rounded,
+                  size: 16,
+                  color: Colors.amber.shade700,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'API CIE-11 no disponible — mostrando solo biblioteca interna',
                     style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.amber.shade900,
-                        fontWeight: FontWeight.w500),
+                      fontSize: 11,
+                      color: Colors.amber.shade900,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
@@ -1009,14 +1191,14 @@ class _CatalogoContentState extends State<_CatalogoContent> {
   }
 
   Widget _buildCardCatalogoUnificado(
-      DiagnosticoMedico dx, {
-        required int tipo,
-        required VoidCallback onRefresh,
-        required Function(DiagnosticoMedico) toggleMedico,
-        required Function(DiagnosticoMedico) toggleNutri,
-        required bool Function(DiagnosticoMedico) estaSeleccionadoMedico,
-        required bool Function(DiagnosticoMedico) estaSeleccionadoNutri,
-      }) {
+    DiagnosticoMedico dx, {
+    required int tipo,
+    required VoidCallback onRefresh,
+    required Function(DiagnosticoMedico) toggleMedico,
+    required Function(DiagnosticoMedico) toggleNutri,
+    required bool Function(DiagnosticoMedico) estaSeleccionadoMedico,
+    required bool Function(DiagnosticoMedico) estaSeleccionadoNutri,
+  }) {
     final seleccionadoMedico = estaSeleccionadoMedico(dx);
     final seleccionadoNutri = estaSeleccionadoNutri(dx);
 
@@ -1034,9 +1216,17 @@ class _CatalogoContentState extends State<_CatalogoContent> {
       decoration: BoxDecoration(
         color: NutritionPalette.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: (seleccionadoMedico || seleccionadoNutri) ? NutritionPalette.accent.withOpacity(0.3) : NutritionPalette.border),
+        border: Border.all(
+          color: (seleccionadoMedico || seleccionadoNutri)
+              ? NutritionPalette.accent.withOpacity(0.3)
+              : NutritionPalette.border,
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -1052,7 +1242,10 @@ class _CatalogoContentState extends State<_CatalogoContent> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: NutritionPalette.background,
                         borderRadius: BorderRadius.circular(4),
@@ -1060,18 +1253,33 @@ class _CatalogoContentState extends State<_CatalogoContent> {
                       ),
                       child: Text(
                         dx.codigoCie11,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: NutritionPalette.textMain, letterSpacing: 0.5),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          color: NutritionPalette.textMain,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         dx.nombre,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: NutritionPalette.textMain, fontFamily: kArial),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          color: NutritionPalette.textMain,
+                          fontFamily: kArial,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    _SourceBadge(label: dx.origenLabel, source: dx.source, icdUri: dx.icdUri, isCompact: true),
+                    _SourceBadge(
+                      label: dx.origenLabel,
+                      source: dx.source,
+                      icdUri: dx.icdUri,
+                      isCompact: true,
+                    ),
                   ],
                 ),
                 if (dx.categoria != null || dx.dietasSugeridas.isNotEmpty) ...[
@@ -1081,9 +1289,18 @@ class _CatalogoContentState extends State<_CatalogoContent> {
                     runSpacing: 8,
                     children: [
                       if (dx.categoria != null)
-                        _MetadataTag(label: dx.categoria!, icon: Icons.category_outlined),
+                        _MetadataTag(
+                          label: dx.categoria!,
+                          icon: Icons.category_outlined,
+                        ),
                       if (dx.dietasSugeridas.isNotEmpty)
-                        _MetadataTag(label: _formatearNombreDieta(dx.dietasSugeridas.first), icon: Icons.restaurant_menu, color: NutritionPalette.success),
+                        _MetadataTag(
+                          label: _formatearNombreDieta(
+                            dx.dietasSugeridas.first,
+                          ),
+                          icon: Icons.restaurant_menu,
+                          color: NutritionPalette.success,
+                        ),
                     ],
                   ),
                 ],
@@ -1092,8 +1309,12 @@ class _CatalogoContentState extends State<_CatalogoContent> {
                   estado,
                   style: TextStyle(
                     fontSize: 12,
-                    color: (seleccionadoMedico || seleccionadoNutri) ? NutritionPalette.accent : NutritionPalette.textMuted,
-                    fontWeight: (seleccionadoMedico || seleccionadoNutri) ? FontWeight.bold : FontWeight.normal,
+                    color: (seleccionadoMedico || seleccionadoNutri)
+                        ? NutritionPalette.accent
+                        : NutritionPalette.textMuted,
+                    fontWeight: (seleccionadoMedico || seleccionadoNutri)
+                        ? FontWeight.bold
+                        : FontWeight.normal,
                   ),
                 ),
               ],
@@ -1144,7 +1365,10 @@ class _CatalogoContentState extends State<_CatalogoContent> {
     return dieta
         .replaceAll('_', ' ')
         .split(' ')
-        .map((word) => word.isEmpty ? word : word[0].toUpperCase() + word.substring(1))
+        .map(
+          (word) =>
+              word.isEmpty ? word : word[0].toUpperCase() + word.substring(1),
+        )
         .join(' ');
   }
 }
@@ -1205,11 +1429,7 @@ class _MetadataTag extends StatelessWidget {
   final IconData icon;
   final Color? color;
 
-  const _MetadataTag({
-    required this.label,
-    required this.icon,
-    this.color,
-  });
+  const _MetadataTag({required this.label, required this.icon, this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -1228,7 +1448,11 @@ class _MetadataTag extends StatelessWidget {
           Flexible(
             child: Text(
               label,
-              style: TextStyle(fontSize: 10, color: baseColor, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: 10,
+                color: baseColor,
+                fontWeight: FontWeight.w500,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -1310,7 +1534,9 @@ class _FilterChip extends StatelessWidget {
       ),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: selected ? color.withOpacity(0.5) : NutritionPalette.border),
+        side: BorderSide(
+          color: selected ? color.withOpacity(0.5) : NutritionPalette.border,
+        ),
       ),
       showCheckmark: false,
       visualDensity: VisualDensity.compact,
