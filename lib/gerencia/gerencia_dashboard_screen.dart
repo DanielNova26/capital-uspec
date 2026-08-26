@@ -12,17 +12,13 @@ import 'package:todo/widgets/skeleton_loader.dart';
 import '../core/guarded_module_page.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
+import '../core/area_directory.dart';
+import '../widgets/paged_list.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
 const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
-  InternalModuleTabItem(
-    label: 'Dashboard',
-    icon: Icons.dashboard_outlined,
-  ),
-  InternalModuleTabItem(
-    label: 'Puntos',
-    icon: Icons.leaderboard_outlined,
-  ),
+  InternalModuleTabItem(label: 'Dashboard', icon: Icons.dashboard_outlined),
+  InternalModuleTabItem(label: 'Puntos', icon: Icons.leaderboard_outlined),
 ];
 
 DateTime? _toDate(dynamic v) {
@@ -124,13 +120,18 @@ class _PersonScore {
 }
 
 class GerenciaDashboardScreen extends StatefulWidget {
-  const GerenciaDashboardScreen({super.key, required this.userId, required this.empresaId});
+  const GerenciaDashboardScreen({
+    super.key,
+    required this.userId,
+    required this.empresaId,
+  });
 
   final String userId;
   final String empresaId;
 
   @override
-  State<GerenciaDashboardScreen> createState() => _GerenciaDashboardScreenState();
+  State<GerenciaDashboardScreen> createState() =>
+      _GerenciaDashboardScreenState();
 }
 
 class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
@@ -181,7 +182,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Future<_Bootstrap> _loadBootstrap({String? preferredEmpresaId}) async {
-    final userDoc = await _db.collection('TBL_USUARIOS').doc(widget.userId).get();
+    final userDoc = await _db
+        .collection('TBL_USUARIOS')
+        .doc(widget.userId)
+        .get();
     final userData = userDoc.data() ?? {};
     final empresas = _empresasDe(userData);
     final empresaPrincipal = empresas.isNotEmpty ? empresas.first : '';
@@ -190,10 +194,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     _empresaActiva = (preferred != null && empresas.contains(preferred))
         ? preferred
         : (_empresaActiva != null && empresas.contains(_empresaActiva))
-            ? _empresaActiva
-            : (empresaPrincipal.isNotEmpty
-                ? empresaPrincipal
-                : (empresas.isNotEmpty ? empresas.first : null));
+        ? _empresaActiva
+        : (empresaPrincipal.isNotEmpty
+              ? empresaPrincipal
+              : (empresas.isNotEmpty ? empresas.first : null));
     _empresaNombres = await _loadEmpresaNombres(empresas);
 
     final areas = <String, String>{};
@@ -202,13 +206,18 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       for (final d in areasSnap.docs) {
         final data = d.data();
         final id = (data['areaId'] ?? d.id).toString();
-        final nombre = (data['nombre'] ?? id).toString();
-        areas[id] = nombre;
+        areas[id] = areaNombreLegible(
+          id: id,
+          nombre: data['nombre']?.toString(),
+        );
       }
     } else {
       final list = empresas.toList();
       for (var i = 0; i < list.length; i += 10) {
-        final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+        final chunk = list.sublist(
+          i,
+          i + 10 > list.length ? list.length : i + 10,
+        );
         final areasSnap = await _db
             .collection('TBL_AREAS')
             .where('empresaId', whereIn: chunk)
@@ -216,8 +225,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         for (final d in areasSnap.docs) {
           final data = d.data();
           final id = (data['areaId'] ?? d.id).toString();
-          final nombre = (data['nombre'] ?? id).toString();
-          areas[id] = nombre;
+          areas[id] = areaNombreLegible(
+            id: id,
+            nombre: data['nombre']?.toString(),
+            empresaId: (data['empresaId'] ?? '').toString(),
+          );
         }
       }
     }
@@ -231,7 +243,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     } else {
       final list = empresas.toList();
       for (var i = 0; i < list.length; i += 10) {
-        final chunk = list.sublist(i, i + 10 > list.length ? list.length : i + 10);
+        final chunk = list.sublist(
+          i,
+          i + 10 > list.length ? list.length : i + 10,
+        );
 
         final snapArray = await _db
             .collection('TBL_USUARIOS')
@@ -269,14 +284,17 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             return const SkeletonList(items: 5);
           }
           if (!bootSnap.hasData) {
-            return const Center(child: Text('No se pudo cargar la información de gerencia.'));
+            return const Center(
+              child: Text('No se pudo cargar la información de gerencia.'),
+            );
           }
 
           final bootstrap = bootSnap.data!;
           final empresas = bootstrap.empresas.toList();
           final empresasFiltro = <String>{};
           if (empresas.isNotEmpty) {
-            if (_empresaActiva == null || _empresaActiva == kTodasEmpresasValue) {
+            if (_empresaActiva == null ||
+                _empresaActiva == kTodasEmpresasValue) {
               empresasFiltro.addAll(empresas);
             } else {
               empresasFiltro.add(_empresaActiva!);
@@ -285,7 +303,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
 
           Query<Map<String, dynamic>> baseQuery = _db.collection('TBL_TAREAS');
           if (empresasFiltro.isNotEmpty) {
-            baseQuery = baseQuery.where('empresaId', whereIn: empresasFiltro.take(10).toList());
+            baseQuery = baseQuery.where(
+              'empresaId',
+              whereIn: empresasFiltro.take(10).toList(),
+            );
           }
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -296,11 +317,21 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               }
 
               final tasks = tasksSnap.data?.docs ?? [];
-              final filteredTasks = _applyFilters(tasks, bootstrap, empresasFiltro);
+              final filteredTasks = _applyFilters(
+                tasks,
+                bootstrap,
+                empresasFiltro,
+              );
               final personScores = _buildScores(filteredTasks, bootstrap);
               final statusCount = _statusDistribution(filteredTasks);
-              final areaScores = _aggregateTasksByArea(filteredTasks, bootstrap);
-              final assigningAreaCounts = _aggregateAssignmentsByCreatorArea(filteredTasks, bootstrap);
+              final areaScores = _aggregateTasksByArea(
+                filteredTasks,
+                bootstrap,
+              );
+              final assigningAreaCounts = _aggregateAssignmentsByCreatorArea(
+                filteredTasks,
+                bootstrap,
+              );
 
               return InternalModuleLayout(
                 userId: widget.userId,
@@ -374,7 +405,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         ? EmptyStateWidget(
             icon: Icons.analytics_outlined,
             title: 'Aún no hay tareas para analizar',
-            message: 'Cuando se creen tareas aparecerán indicadores y rankings.',
+            message:
+                'Cuando se creen tareas aparecerán indicadores y rankings.',
             actionLabel: 'Reintentar',
             onAction: () => setState(() => _bootstrapFuture = _loadBootstrap()),
           )
@@ -397,11 +429,17 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                           personScores,
                           activeStatus: _statusFilter,
                           onSelectStatus: (value) => setState(() {
-                            _statusFilter = value == _statusFilter ? 'todas' : value;
+                            _statusFilter = value == _statusFilter
+                                ? 'todas'
+                                : value;
                           }),
                         ),
                         const SizedBox(height: 24),
-                        _buildCharts(statusCount, areaScores, assigningAreaCounts),
+                        _buildCharts(
+                          statusCount,
+                          areaScores,
+                          assigningAreaCounts,
+                        ),
                       ] else ...[
                         _buildRankingTable(personScores.values.toList()),
                       ],
@@ -427,7 +465,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         ? EmptyStateWidget(
             icon: Icons.analytics_outlined,
             title: 'Aún no hay tareas para analizar',
-            message: 'Cuando se creen tareas aparecerán indicadores y rankings.',
+            message:
+                'Cuando se creen tareas aparecerán indicadores y rankings.',
             actionLabel: 'Reintentar',
             onAction: () => setState(() => _bootstrapFuture = _loadBootstrap()),
           )
@@ -526,8 +565,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Widget _buildHeader(Map<String, dynamic> user) {
-    final nombre = ((user['nombres'] ?? user['primerNombre'] ?? '') as String)
-        .trim() +
+    final nombre =
+        ((user['nombres'] ?? user['primerNombre'] ?? '') as String).trim() +
         ' ' +
         ((user['apellidos'] ?? user['primerApellido'] ?? '') as String).trim();
     final cargo = (user['cargo'] ?? 'Gerencia').toString();
@@ -559,12 +598,18 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   Text(
                     nombre.trim().isEmpty ? 'Gerencia' : nombre.trim(),
                     style: const TextStyle(
-                        fontFamily: kArial,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18),
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                   ),
-                  Text(cargo,
-                      style: const TextStyle(fontFamily: kArial, color: Colors.grey)),
+                  Text(
+                    cargo,
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      color: Colors.grey,
+                    ),
+                  ),
                   const SizedBox(height: 4),
                   const Text(
                     'Control en tiempo real de tareas por área y responsable.',
@@ -598,11 +643,13 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       ),
     );
   }
+
   Widget _buildEmpresaSelector(Set<String> empresas) {
     if (empresas.isEmpty) return const SizedBox.shrink();
     final opciones = empresas.toList()..sort();
     final showTodas = opciones.length > 1;
-    final defaultValue = _empresaActiva ?? (showTodas ? kTodasEmpresasValue : opciones.first);
+    final defaultValue =
+        _empresaActiva ?? (showTodas ? kTodasEmpresasValue : opciones.first);
 
     final items = <DropdownMenuItem<String>>[
       if (showTodas)
@@ -611,12 +658,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
           child: Text('Todas mis empresas'),
         ),
       ...opciones.map(
-            (e) => DropdownMenuItem(
+        (e) => DropdownMenuItem(
           value: e,
-          child: Text(
-            _empresaNombres[e] ?? e,
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: Text(_empresaNombres[e] ?? e, overflow: TextOverflow.ellipsis),
         ),
       ),
     ];
@@ -652,7 +696,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             const SizedBox(height: 6),
             const Text(
               'Solo se muestran datos de la empresa seleccionada.',
-              style: TextStyle(fontFamily: kArial, fontSize: 12, color: Colors.black54),
+              style: TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: Colors.black54,
+              ),
             ),
           ],
         ),
@@ -661,14 +709,16 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyFilters(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      _Bootstrap bootstrap,
-      Set<String> empresasFiltro) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    _Bootstrap bootstrap,
+    Set<String> empresasFiltro,
+  ) {
     return tasks.where((d) {
       final data = d.data();
       final estado = _resolvedEstado(data);
       final areaId = (data['areaId'] ?? '').toString();
-      final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '').toString();
+      final empresa = (data['empresaId'] ?? data['empresa_id'] ?? '')
+          .toString();
 
       if (empresasFiltro.isNotEmpty &&
           empresa.isNotEmpty &&
@@ -691,9 +741,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Widget _buildAreaFilter(
-      _Bootstrap bootstrap,
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      ) {
+    _Bootstrap bootstrap,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+  ) {
     final areaIds = <String>{
       for (final t in tasks)
         if ((t.data()['areaId'] ?? '').toString().isNotEmpty)
@@ -703,15 +753,21 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final areaItems = [
       const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
       ...areaIds
-          .map((id) => DropdownMenuItem(
-        value: id,
-        child: Text(bootstrap.areas[id] ?? id,
-            overflow: TextOverflow.ellipsis),
-      ))
+          .map(
+            (id) => DropdownMenuItem(
+              value: id,
+              child: Text(
+                bootstrap.areas[id] ?? id,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
           .toList()
-        ..sort((a, b) => (a.child as Text).data!
-            .toLowerCase()
-            .compareTo((b.child as Text).data!.toLowerCase())),
+        ..sort(
+          (a, b) => (a.child as Text).data!.toLowerCase().compareTo(
+            (b.child as Text).data!.toLowerCase(),
+          ),
+        ),
     ];
 
     return Card(
@@ -721,11 +777,14 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Área',
-                style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14)),
+            const Text(
+              'Área',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: _areaFilter,
@@ -744,23 +803,27 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Widget _buildSummaryCards(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      Map<String, _PersonScore> scores, {
-        required String activeStatus,
-        required void Function(String value) onSelectStatus,
-      }) {
-    final enProgreso =
-        tasks.where((t) => _resolvedEstado(t.data()) == 'en_progreso').length;
-    final porAprobar =
-        tasks.where((t) => _resolvedEstado(t.data()) == 'por_aprobar').length;
-    final finalizadas =
-        tasks.where((t) => _resolvedEstado(t.data()) == 'finalizado').length;
-    final retrasadas =
-        tasks.where((t) => _resolvedEstado(t.data()) == 'retrasada').length;
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    Map<String, _PersonScore> scores, {
+    required String activeStatus,
+    required void Function(String value) onSelectStatus,
+  }) {
+    final enProgreso = tasks
+        .where((t) => _resolvedEstado(t.data()) == 'en_progreso')
+        .length;
+    final porAprobar = tasks
+        .where((t) => _resolvedEstado(t.data()) == 'por_aprobar')
+        .length;
+    final finalizadas = tasks
+        .where((t) => _resolvedEstado(t.data()) == 'finalizado')
+        .length;
+    final retrasadas = tasks
+        .where((t) => _resolvedEstado(t.data()) == 'retrasada')
+        .length;
     final promedioPuntos = scores.values.isEmpty
         ? 0
         : scores.values.map((e) => e.puntos).reduce((a, b) => a + b) /
-        scores.values.length;
+              scores.values.length;
 
     void toggle(String value) {
       onSelectStatus(value == activeStatus ? 'todas' : value);
@@ -829,10 +892,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Widget _buildCharts(
-      Map<String, int> statusCount,
-      Map<String, double> areaScores,
-      Map<String, int> assigningAreaCounts,
-      ) {
+    Map<String, int> statusCount,
+    Map<String, double> areaScores,
+    Map<String, int> assigningAreaCounts,
+  ) {
     final sortedArea = areaScores.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final topAssigningArea = assigningAreaCounts.entries.toList()
@@ -843,8 +906,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       children: [
         Row(
           children: [
-            Icon(Icons.health_and_safety_outlined,
-                color: _brand, size: 20),
+            Icon(Icons.health_and_safety_outlined, color: _brand, size: 20),
             const SizedBox(width: 8),
             const Text(
               'Salud de tareas',
@@ -878,16 +940,16 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                  child: Column(
-                  children: [
-                  SizedBox(
-            height: barHeight,
-            child: _AreaBarChart(data: sortedArea),
-            ),
-            const SizedBox(height: 12),
-            _TopAssigningAreaCard(topAreas: topAssigningArea),
-                  ],
-                  ),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: barHeight,
+                          child: _AreaBarChart(data: sortedArea),
+                        ),
+                        const SizedBox(height: 12),
+                        _TopAssigningAreaCard(topAreas: topAssigningArea),
+                      ],
+                    ),
                   ),
                 ],
               );
@@ -907,9 +969,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                   height: barHeight,
                   child: _AreaBarChart(data: sortedArea),
                 ),
-              const SizedBox(height: 12),
-            _TopAssigningAreaCard(topAreas: topAssigningArea),
-            ],
+                const SizedBox(height: 12),
+                _TopAssigningAreaCard(topAreas: topAssigningArea),
+              ],
             );
           },
         ),
@@ -941,10 +1003,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         child: Text(
           '#$pos',
           style: TextStyle(
-              fontFamily: kArial,
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: c),
+            fontFamily: kArial,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: c,
+          ),
         ),
       );
     }
@@ -953,11 +1016,10 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final c = pts >= 40
           ? const Color(0xFF10B981)
           : pts >= 20
-              ? const Color(0xFFF59E0B)
-              : const Color(0xFFEF4444);
+          ? const Color(0xFFF59E0B)
+          : const Color(0xFFEF4444);
       return Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: c.withOpacity(0.1),
           borderRadius: BorderRadius.circular(20),
@@ -966,10 +1028,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         child: Text(
           pts.toStringAsFixed(1),
           style: TextStyle(
-              fontFamily: kArial,
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: c),
+            fontFamily: kArial,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: c,
+          ),
         ),
       );
     }
@@ -984,15 +1047,15 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             const Text(
               'Tabla de control por responsable',
               style: TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Color(0xFF111827)),
+                fontFamily: kArial,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: Color(0xFF111827),
+              ),
             ),
             const SizedBox(width: 12),
             Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 10, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
                 color: _brand.withOpacity(0.08),
                 borderRadius: BorderRadius.circular(20),
@@ -1000,10 +1063,11 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               child: Text(
                 '${rows.length} persona${rows.length == 1 ? '' : 's'}',
                 style: TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 12,
-                    color: _brand,
-                    fontWeight: FontWeight.w600),
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: _brand,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -1020,69 +1084,94 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             borderRadius: BorderRadius.circular(12),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(
-                    const Color(0xFFF9FAFB)),
-                dataRowMinHeight: 52,
-                dataRowMaxHeight: 56,
-                columnSpacing: 20,
-                headingTextStyle: const TextStyle(
+              child: PagedDataTable(
+                etiqueta: 'registros',
+                tabla: DataTable(
+                  headingRowColor: WidgetStateProperty.all(
+                    const Color(0xFFF9FAFB),
+                  ),
+                  dataRowMinHeight: 52,
+                  dataRowMaxHeight: 56,
+                  columnSpacing: 20,
+                  headingTextStyle: const TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF374151),
-                    fontSize: 13),
-                columns: const [
-                  DataColumn(label: Text('#')),
-                  DataColumn(label: Text('Persona')),
-                  DataColumn(label: Text('Área')),
-                  DataColumn(label: Text('Tareas')),
-                  DataColumn(label: Text('A tiempo')),
-                  DataColumn(label: Text('Retrasadas')),
-                  DataColumn(label: Text('Por aprobar')),
-                  DataColumn(label: Text('Puntos')),
-                ],
-                rows: List.generate(rows.length, (i) {
-                  final r = rows[i];
-                  return DataRow(
-                    color: WidgetStateProperty.all(
-                      i.isEven
-                          ? Colors.white
-                          : const Color(0xFFFAFAFA),
-                    ),
-                    cells: [
-                      DataCell(positionBadge(i + 1)),
-                      DataCell(Text(r.displayName,
-                          style: const TextStyle(
+                    fontSize: 13,
+                  ),
+                  columns: const [
+                    DataColumn(label: Text('#')),
+                    DataColumn(label: Text('Persona')),
+                    DataColumn(label: Text('Área')),
+                    DataColumn(label: Text('Tareas')),
+                    DataColumn(label: Text('A tiempo')),
+                    DataColumn(label: Text('Retrasadas')),
+                    DataColumn(label: Text('Por aprobar')),
+                    DataColumn(label: Text('Puntos')),
+                  ],
+                  rows: List.generate(rows.length, (i) {
+                    final r = rows[i];
+                    return DataRow(
+                      color: WidgetStateProperty.all(
+                        i.isEven ? Colors.white : const Color(0xFFFAFAFA),
+                      ),
+                      cells: [
+                        DataCell(positionBadge(i + 1)),
+                        DataCell(
+                          Text(
+                            r.displayName,
+                            style: const TextStyle(
                               fontFamily: kArial,
-                              fontWeight: FontWeight.w500))),
-                      DataCell(Text(r.area,
-                          style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            r.area,
+                            style: const TextStyle(
                               fontFamily: kArial,
-                              color: Color(0xFF6B7280)))),
-                      DataCell(Text('${r.total}',
-                          style: const TextStyle(
-                              fontFamily: kArial))),
-                      DataCell(Text('${r.aTiempo}',
-                          style: const TextStyle(
-                              fontFamily: kArial))),
-                      DataCell(Text(
-                        '${r.retrasadas}',
-                        style: TextStyle(
-                            fontFamily: kArial,
-                            color: r.retrasadas > 0
-                                ? const Color(0xFFEF4444)
-                                : const Color(0xFF6B7280),
-                            fontWeight: r.retrasadas > 0
-                                ? FontWeight.bold
-                                : FontWeight.normal),
-                      )),
-                      DataCell(Text('${r.porAprobar}',
-                          style: const TextStyle(
-                              fontFamily: kArial))),
-                      DataCell(scoreChip(r.puntos)),
-                    ],
-                  );
-                }),
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '${r.total}',
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '${r.aTiempo}',
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '${r.retrasadas}',
+                            style: TextStyle(
+                              fontFamily: kArial,
+                              color: r.retrasadas > 0
+                                  ? const Color(0xFFEF4444)
+                                  : const Color(0xFF6B7280),
+                              fontWeight: r.retrasadas > 0
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                        DataCell(
+                          Text(
+                            '${r.porAprobar}',
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                        ),
+                        DataCell(scoreChip(r.puntos)),
+                      ],
+                    );
+                  }),
+                ),
               ),
             ),
           ),
@@ -1092,9 +1181,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Map<String, _PersonScore> _buildScores(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      _Bootstrap bootstrap,
-      ) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    _Bootstrap bootstrap,
+  ) {
     final out = <String, _PersonScore>{};
     for (final d in tasks) {
       final m = d.data();
@@ -1106,14 +1195,18 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       final areaId = (m['areaId'] ?? '').toString();
       final areaName = bootstrap.areas[areaId] ?? 'Área no definida';
 
-      out.putIfAbsent(uid, () => _PersonScore(displayName: nombre, area: areaName));
+      out.putIfAbsent(
+        uid,
+        () => _PersonScore(displayName: nombre, area: areaName),
+      );
       out[uid]!.register(m);
     }
     return out;
   }
 
   Map<String, int> _statusDistribution(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+  ) {
     final out = <String, int>{};
     for (final d in tasks) {
       final estado = _resolvedEstado(d.data());
@@ -1123,9 +1216,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Map<String, double> _aggregateTasksByArea(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      _Bootstrap bootstrap,
-      ) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    _Bootstrap bootstrap,
+  ) {
     final out = <String, double>{};
     for (final d in tasks) {
       final data = d.data();
@@ -1137,15 +1230,18 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
   }
 
   Map<String, int> _aggregateAssignmentsByCreatorArea(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
-      _Bootstrap bootstrap,
-      ) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tasks,
+    _Bootstrap bootstrap,
+  ) {
     final out = <String, int>{};
     for (final d in tasks) {
       final data = d.data();
-      final creatorId = (data['creador_id'] ?? data['creatorId'] ?? data['creador_uid'] ?? '').toString();
+      final creatorId =
+          (data['creador_id'] ?? data['creatorId'] ?? data['creador_uid'] ?? '')
+              .toString();
       final creator = bootstrap.users[creatorId];
-      final creatorAreaId = (creator?['areaId'] ?? creator?['area'] ?? '').toString();
+      final creatorAreaId = (creator?['areaId'] ?? creator?['area'] ?? '')
+          .toString();
       final areaName = bootstrap.areas[creatorAreaId] ?? 'Área no definida';
       out[areaName] = (out[areaName] ?? 0) + 1;
     }
@@ -1179,24 +1275,29 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     };
 
     final areaItems = [
-      const DropdownMenuItem(
-          value: 'todas', child: Text('Todas las áreas')),
+      const DropdownMenuItem(value: 'todas', child: Text('Todas las áreas')),
       ...areaIds
-          .map((id) => DropdownMenuItem(
-                value: id,
-                child: Text(bootstrap.areas[id] ?? id,
-                    overflow: TextOverflow.ellipsis),
-              ))
+          .map(
+            (id) => DropdownMenuItem(
+              value: id,
+              child: Text(
+                bootstrap.areas[id] ?? id,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
           .toList()
-        ..sort((a, b) => (a.child as Text)
-            .data!
-            .toLowerCase()
-            .compareTo((b.child as Text).data!.toLowerCase())),
+        ..sort(
+          (a, b) => (a.child as Text).data!.toLowerCase().compareTo(
+            (b.child as Text).data!.toLowerCase(),
+          ),
+        ),
     ];
 
     final empresas = bootstrap.empresas.toList()..sort();
     final showTodas = empresas.length > 1;
-    final defaultEmpresa = _empresaActiva ??
+    final defaultEmpresa =
+        _empresaActiva ??
         (showTodas
             ? kTodasEmpresasValue
             : (empresas.isNotEmpty ? empresas.first : ''));
@@ -1204,40 +1305,45 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
     final empresaItems = <DropdownMenuItem<String>>[
       if (showTodas)
         const DropdownMenuItem(
-            value: kTodasEmpresasValue,
-            child: Text('Todas mis empresas')),
-      ...empresas.map((e) => DropdownMenuItem(
-            value: e,
-            child: Text(_empresaNombres[e] ?? e,
-                overflow: TextOverflow.ellipsis),
-          )),
+          value: kTodasEmpresasValue,
+          child: Text('Todas mis empresas'),
+        ),
+      ...empresas.map(
+        (e) => DropdownMenuItem(
+          value: e,
+          child: Text(_empresaNombres[e] ?? e, overflow: TextOverflow.ellipsis),
+        ),
+      ),
     ];
 
     const inputDecoration = InputDecoration(
       border: OutlineInputBorder(),
       isDense: true,
-      contentPadding:
-          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     );
 
     return Card(
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         child: Row(
           children: [
-            const Icon(Icons.filter_list_outlined,
-                size: 18, color: Color(0xFF6B7280)),
+            const Icon(
+              Icons.filter_list_outlined,
+              size: 18,
+              color: Color(0xFF6B7280),
+            ),
             const SizedBox(width: 12),
-            const Text('Filtros:',
-                style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF374151))),
+            const Text(
+              'Filtros:',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF374151),
+              ),
+            ),
             const SizedBox(width: 20),
             if (empresas.isNotEmpty && empresaItems.isNotEmpty) ...[
               SizedBox(
@@ -1245,8 +1351,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                 child: DropdownButtonFormField<String>(
                   value: defaultEmpresa.isEmpty ? null : defaultEmpresa,
                   items: empresaItems,
-                  decoration: inputDecoration.copyWith(
-                      labelText: 'Empresa'),
+                  decoration: inputDecoration.copyWith(labelText: 'Empresa'),
                   onChanged: (v) {
                     if (v == null || v.isEmpty) return;
                     setState(() {
@@ -1264,10 +1369,8 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               child: DropdownButtonFormField<String>(
                 value: _areaFilter,
                 items: areaItems,
-                decoration:
-                    inputDecoration.copyWith(labelText: 'Área'),
-                onChanged: (v) =>
-                    setState(() => _areaFilter = v ?? 'todas'),
+                decoration: inputDecoration.copyWith(labelText: 'Área'),
+                onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
               ),
             ),
           ],
@@ -1338,7 +1441,9 @@ class _SummaryCard extends StatelessWidget {
                 if (isActive)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 2),
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: scheme.primary.withOpacity(0.08),
                       borderRadius: BorderRadius.circular(4),
@@ -1346,15 +1451,21 @@ class _SummaryCard extends StatelessWidget {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.filter_alt_rounded,
-                            color: scheme.primary, size: 11),
+                        Icon(
+                          Icons.filter_alt_rounded,
+                          color: scheme.primary,
+                          size: 11,
+                        ),
                         const SizedBox(width: 2),
-                        Text('activo',
-                            style: TextStyle(
-                                fontFamily: kArial,
-                                fontSize: 10,
-                                color: scheme.primary,
-                                fontWeight: FontWeight.w600)),
+                        Text(
+                          'activo',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 10,
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1417,11 +1528,14 @@ class _StatusPieChartState extends State<_StatusPieChart> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Distribución por estado',
-                style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14)),
+            const Text(
+              'Distribución por estado',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
             const SizedBox(height: 12),
             Expanded(
               child: LayoutBuilder(
@@ -1433,30 +1547,36 @@ class _StatusPieChartState extends State<_StatusPieChart> {
                       SizedBox(
                         width: size,
                         height: size,
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: 1),
-                      duration: const Duration(milliseconds: 900),
-                      curve: Curves.easeOutCubic,
-                      builder: (_, progress, __) {
-                        return CustomPaint(
-                          painter: _PiePainter(
-                            entries: entries,
-                            total: total,
-                            progress: progress,
-                          ),
-                        );
-                      },
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: 1),
+                          duration: const Duration(milliseconds: 900),
+                          curve: Curves.easeOutCubic,
+                          builder: (_, progress, __) {
+                            return CustomPaint(
+                              painter: _PiePainter(
+                                entries: entries,
+                                total: total,
+                                progress: progress,
+                              ),
+                            );
+                          },
                         ),
                       ),
                       Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text('Total', style: TextStyle(fontFamily: kArial)),
-                          Text('$total',
-                              style: const TextStyle(
-                                  fontFamily: kArial,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18)),
+                          const Text(
+                            'Total',
+                            style: TextStyle(fontFamily: kArial),
+                          ),
+                          Text(
+                            '$total',
+                            style: const TextStyle(
+                              fontFamily: kArial,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -1471,14 +1591,19 @@ class _StatusPieChartState extends State<_StatusPieChart> {
               children: entries
                   .map(
                     (e) => Chip(
-                  label: Text(
-                    '${e.key} (${e.value})',
-                    style: const TextStyle(fontFamily: kArial, fontSize: 12),
-                  ),
-                  backgroundColor: _statusColor(e.key).withOpacity(0.15),
-                  side: BorderSide(color: _statusColor(e.key).withOpacity(0.6)),
-                ),
-              )
+                      label: Text(
+                        '${e.key} (${e.value})',
+                        style: const TextStyle(
+                          fontFamily: kArial,
+                          fontSize: 12,
+                        ),
+                      ),
+                      backgroundColor: _statusColor(e.key).withOpacity(0.15),
+                      side: BorderSide(
+                        color: _statusColor(e.key).withOpacity(0.6),
+                      ),
+                    ),
+                  )
                   .toList(),
             ),
           ],
@@ -1489,7 +1614,11 @@ class _StatusPieChartState extends State<_StatusPieChart> {
 }
 
 class _PiePainter extends CustomPainter {
-  _PiePainter({required this.entries, required this.total, required this.progress});
+  _PiePainter({
+    required this.entries,
+    required this.total,
+    required this.progress,
+  });
 
   final List<MapEntry<String, int>> entries;
   final int total;
@@ -1507,14 +1636,22 @@ class _PiePainter extends CustomPainter {
     for (final e in entries) {
       final sweep = (e.value / total) * 2 * pi * progress;
       paint.color = _statusColor(e.key).withOpacity(0.85);
-      canvas.drawArc(rect.deflate(size.width * 0.2), start, sweep, false, paint);
+      canvas.drawArc(
+        rect.deflate(size.width * 0.2),
+        start,
+        sweep,
+        false,
+        paint,
+      );
       start += sweep;
     }
   }
 
   @override
   bool shouldRepaint(covariant _PiePainter oldDelegate) =>
-      oldDelegate.entries != entries || oldDelegate.total != total || oldDelegate.progress != progress;
+      oldDelegate.entries != entries ||
+      oldDelegate.total != total ||
+      oldDelegate.progress != progress;
 }
 
 class _AreaBarChart extends StatelessWidget {
@@ -1527,7 +1664,8 @@ class _AreaBarChart extends StatelessWidget {
     if (data.isEmpty) {
       return const Card(
         child: Center(
-            child: Text('Sin datos', style: TextStyle(fontFamily: kArial))),
+          child: Text('Sin datos', style: TextStyle(fontFamily: kArial)),
+        ),
       );
     }
 
@@ -1540,11 +1678,14 @@ class _AreaBarChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Tareas asignadas por área',
-                style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14)),
+            const Text(
+              'Tareas asignadas por área',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
             const SizedBox(height: 12),
             Expanded(
               child: ListView.separated(
@@ -1560,12 +1701,16 @@ class _AreaBarChart extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Expanded(
-                            child: Text(entry.key,
-                                style: const TextStyle(fontFamily: kArial)),
+                            child: Text(
+                              entry.key,
+                              style: const TextStyle(fontFamily: kArial),
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          Text(entry.value.toStringAsFixed(0),
-                              style: const TextStyle(fontFamily: kArial)),
+                          Text(
+                            entry.value.toStringAsFixed(0),
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -1601,8 +1746,10 @@ class _TopAssigningAreaCard extends StatelessWidget {
       return const Card(
         child: Padding(
           padding: EdgeInsets.all(12),
-          child: Text('Área que más asigna: sin datos',
-              style: TextStyle(fontFamily: kArial)),
+          child: Text(
+            'Área que más asigna: sin datos',
+            style: TextStyle(fontFamily: kArial),
+          ),
         ),
       );
     }
@@ -1614,7 +1761,10 @@ class _TopAssigningAreaCard extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         child: Row(
           children: [
-            Icon(Icons.how_to_reg, color: Theme.of(context).colorScheme.primary),
+            Icon(
+              Icons.how_to_reg,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -1622,7 +1772,10 @@ class _TopAssigningAreaCard extends StatelessWidget {
                 children: [
                   const Text(
                     'Área que más asigna',
-                    style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1702,33 +1855,36 @@ class _WebTabToggle extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: List.generate(tabs.length, (i) {
           final isActive = selected == i;
-          final inactiveColor =
-              onDark ? Colors.white70 : const Color(0xFF6B7280);
+          final inactiveColor = onDark
+              ? Colors.white70
+              : const Color(0xFF6B7280);
           return GestureDetector(
             onTap: () => onTap(i),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeInOut,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
                 color: isActive ? Colors.white : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
                 boxShadow: isActive
                     ? const [
                         BoxShadow(
-                            color: Color(0x20000000),
-                            blurRadius: 4,
-                            offset: Offset(0, 1))
+                          color: Color(0x20000000),
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
                       ]
                     : null,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icons[i],
-                      size: 16,
-                      color: isActive ? brand : inactiveColor),
+                  Icon(
+                    icons[i],
+                    size: 16,
+                    color: isActive ? brand : inactiveColor,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     tabs[i],

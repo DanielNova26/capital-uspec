@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../widgets/paged_list.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 
@@ -55,6 +56,10 @@ class _InterventoriaTableroAsignacionState
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargandoUsuarios = true;
   final Set<String> _asignando = {};
+
+  /// Página abierta de cada grupo. Los grupos largos (vencidos, en gestión)
+  /// se muestran de a 20 en vez de pintar cientos de tarjetas de una vez.
+  final Map<String, int> _paginaPorGrupo = {};
 
   @override
   void initState() {
@@ -216,6 +221,9 @@ class _InterventoriaTableroAsignacionState
     required int columnas,
   }) {
     if (rows.isEmpty) return const SizedBox.shrink();
+    final maxPagina = pageCountOf(rows.length) - 1;
+    final pagina = (_paginaPorGrupo[titulo] ?? 0).clamp(0, maxPagina);
+    final visibles = pageOf(rows, pagina);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -262,12 +270,12 @@ class _InterventoriaTableroAsignacionState
           ),
         ),
         if (columnas == 1)
-          ...rows.map(_tarjeta)
+          ...visibles.map(_tarjeta)
         else
           Wrap(
             spacing: 12,
             runSpacing: 12,
-            children: rows
+            children: visibles
                 .map(
                   (h) => SizedBox(
                     width: columnas == 3 ? 360 : 420,
@@ -275,6 +283,13 @@ class _InterventoriaTableroAsignacionState
                   ),
                 )
                 .toList(),
+          ),
+        if (rows.length > kPageSize)
+          PagerBar(
+            total: rows.length,
+            page: pagina,
+            etiqueta: 'hallazgos',
+            onPageChanged: (p) => setState(() => _paginaPorGrupo[titulo] = p),
           ),
       ],
     );
@@ -507,9 +522,7 @@ class _InterventoriaTableroAsignacionState
           ),
         OutlinedButton.icon(
           onPressed: () => _elegirPersona(h),
-          style: OutlinedButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-          ),
+          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
           icon: Icon(
             asignado ? Icons.swap_horiz_rounded : Icons.person_search_outlined,
             size: 16,
@@ -631,10 +644,12 @@ class InterventoriaSelectorPersona extends StatefulWidget {
   });
 
   @override
-  State<InterventoriaSelectorPersona> createState() => InterventoriaSelectorPersonaState();
+  State<InterventoriaSelectorPersona> createState() =>
+      InterventoriaSelectorPersonaState();
 }
 
-class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPersona> {
+class InterventoriaSelectorPersonaState
+    extends State<InterventoriaSelectorPersona> {
   final _ctrl = TextEditingController();
   String _query = '';
 
@@ -668,9 +683,7 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
     });
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: DraggableScrollableSheet(
         expand: false,
         initialChildSize: .8,
@@ -692,10 +705,7 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
                 children: [
                   const Text(
                     'Elegir responsable',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                   ),
                   const SizedBox(height: 10),
                   TextField(

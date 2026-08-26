@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../facturacion/facturacion_models.dart';
 import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import '../services/task_service.dart';
+import '../core/area_directory.dart';
 
 const String _kFont = 'Arial';
 
@@ -44,6 +45,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
   EmpresaState? _empresaState;
   String? _selectedEmpresaId;
   Map<String, String> _areaNames = const {};
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   Map<String, String> _cargoNames = const {};
   Map<String, Map<String, String>> _userMeta = const {};
 
@@ -92,9 +94,19 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
 
       if (!mounted) return;
       setState(() {
+        // Una entrada por área real y sin ids crudos en pantalla.
+        _catalogoAreas = AreaCatalogo.desde(
+          areasSnap.docs.map(
+            (d) => (
+              id: d.id,
+              nombre: (d.data()['nombre'] ?? d.data()['area'])?.toString(),
+            ),
+          ),
+          empresaId: empresaId,
+        );
         _areaNames = {
-          for (final d in areasSnap.docs)
-            d.id: (d.data()['nombre'] ?? d.data()['area'] ?? d.id).toString(),
+          for (final opcion in _catalogoAreas.opciones)
+            opcion.id: opcion.nombre,
         };
         _cargoNames = {
           for (final d in cargosSnap.docs)
@@ -191,7 +203,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
       final responsable = (m['asignado_nombre'] ?? '').toString().toLowerCase();
       final responsableId = (m['asignado_uid'] ?? '').toString().toLowerCase();
       final areaId = (m['areaId'] ?? '').toString().trim();
-      final areaName = (_areaNames[areaId] ?? '').toLowerCase();
+      final areaName = _catalogoAreas.nombreDe(areaId).toLowerCase();
       final uid = (m['asignado_uid'] ?? '').toString().trim();
       final userAreaName = (_userMeta[uid]?['area'] ?? '').toLowerCase();
       final cargoId = (_userMeta[uid]?['cargoId'] ?? '').toString().trim();
@@ -218,8 +230,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
         final taskAreaId = (m['areaId'] ?? '').toString().trim();
         // También revisar el área del responsable si el doc no trae areaId
         final userAreaId = _userMeta[uid]?['areaId'] ?? '';
-        if (taskAreaId != _areaFilter && userAreaId != _areaFilter)
-          return false;
+        final enArea =
+            _catalogoAreas.coincide(filtro: _areaFilter, valor: taskAreaId) ||
+            _catalogoAreas.coincide(filtro: _areaFilter, valor: userAreaId);
+        if (!enArea) return false;
       }
       // Filtro por cargo del responsable
       if (_cargoFilter != 'todas') {
@@ -1835,7 +1849,15 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         (m['areaId'] ?? _userMeta[uid]?['areaId'] ?? '')
                             .toString()
                             .trim();
-                    final areaName = _areaNames[areaId] ?? '';
+                    final areaName = areaId.isEmpty
+                        ? ''
+                        : _catalogoAreas.nombreDe(areaId);
+                    // El filtro necesita el id canónico: la tarea puede traer
+                    // otra de las variantes con que quedó guardada el área.
+                    final areaFiltrable = _catalogoAreas.opciones
+                        .where((o) => o.contiene(areaId))
+                        .map((o) => o.id)
+                        .firstOrNull;
                     final responsable = (m['asignado_nombre'] ?? '')
                         .toString()
                         .trim();
@@ -1866,11 +1888,11 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                               TaskCardChip(
                                 label: areaName,
                                 icon: Icons.apartment_rounded,
-                                onTap:
-                                    (areaId.isNotEmpty &&
-                                        _areaNames.containsKey(areaId))
-                                    ? () => setState(() => _areaFilter = areaId)
-                                    : null,
+                                onTap: areaFiltrable == null
+                                    ? null
+                                    : () => setState(
+                                        () => _areaFilter = areaFiltrable,
+                                      ),
                               ),
                             if (cargoName.isNotEmpty)
                               TaskCardChip(

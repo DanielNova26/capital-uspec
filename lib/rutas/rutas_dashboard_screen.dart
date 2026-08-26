@@ -29,6 +29,7 @@ import 'rutas_excel_parser.dart';
 import 'rutas_logic.dart';
 import 'rutas_models.dart';
 import 'rutas_service.dart';
+import '../widgets/paged_list.dart';
 
 const Color kRutasColor = Color(0xFF15803D); // verde logística
 const double _kCentroOperacionesLat = kRutaOrigenLatDefault;
@@ -3576,19 +3577,22 @@ class _UsoAppRutasTabState extends State<_UsoAppRutasTab> {
       child: SingleChildScrollView(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFEAF7EF)),
-            columns: const [
-              DataColumn(label: Text('Persona')),
-              DataColumn(label: Text('Cargo')),
-              DataColumn(label: Text('Último ingreso')),
-              DataColumn(label: Text('Plataforma')),
-              DataColumn(label: Text('Tipo')),
-            ],
-            rows: [
-              for (final user in users)
-                _row(user, _latestForUser(user, latestByUser)),
-            ],
+          child: PagedDataTable(
+            etiqueta: 'registros',
+            tabla: DataTable(
+              headingRowColor: WidgetStateProperty.all(const Color(0xFFEAF7EF)),
+              columns: const [
+                DataColumn(label: Text('Persona')),
+                DataColumn(label: Text('Cargo')),
+                DataColumn(label: Text('Último ingreso')),
+                DataColumn(label: Text('Plataforma')),
+                DataColumn(label: Text('Tipo')),
+              ],
+              rows: [
+                for (final user in users)
+                  _row(user, _latestForUser(user, latestByUser)),
+              ],
+            ),
           ),
         ),
       ),
@@ -4521,27 +4525,30 @@ class _AsignacionesTabState extends State<_AsignacionesTab> {
                 constraints: BoxConstraints(
                   minWidth: math.max(maxWidth - 24, 1120),
                 ),
-                child: DataTable(
-                  headingRowColor: WidgetStatePropertyAll(
-                    kRutasColor.withOpacity(0.08),
+                child: PagedDataTable(
+                  etiqueta: 'registros',
+                  tabla: DataTable(
+                    headingRowColor: WidgetStatePropertyAll(
+                      kRutasColor.withOpacity(0.08),
+                    ),
+                    columnSpacing: 18,
+                    horizontalMargin: 12,
+                    dataRowMinHeight: 58,
+                    dataRowMaxHeight: 76,
+                    columns: const [
+                      DataColumn(label: Text('Ruta')),
+                      DataColumn(label: Text('Establecimientos')),
+                      DataColumn(label: Text('Conductor')),
+                      DataColumn(label: Text('Ayudante')),
+                      DataColumn(label: Text('Placa')),
+                      DataColumn(label: Text('Estado')),
+                      DataColumn(label: Text('Acciones')),
+                    ],
+                    rows: [
+                      for (final ruta in rutas)
+                        _asignacionRow(ruta, porRuta[ruta.id]),
+                    ],
                   ),
-                  columnSpacing: 18,
-                  horizontalMargin: 12,
-                  dataRowMinHeight: 58,
-                  dataRowMaxHeight: 76,
-                  columns: const [
-                    DataColumn(label: Text('Ruta')),
-                    DataColumn(label: Text('Establecimientos')),
-                    DataColumn(label: Text('Conductor')),
-                    DataColumn(label: Text('Ayudante')),
-                    DataColumn(label: Text('Placa')),
-                    DataColumn(label: Text('Estado')),
-                    DataColumn(label: Text('Acciones')),
-                  ],
-                  rows: [
-                    for (final ruta in rutas)
-                      _asignacionRow(ruta, porRuta[ruta.id]),
-                  ],
                 ),
               ),
             ),
@@ -6010,28 +6017,31 @@ class _CalidadAsignacionesViewState extends State<_CalidadAsignacionesView> {
                 constraints: BoxConstraints(
                   minWidth: math.max(constraints.maxWidth - 24, 1120),
                 ),
-                child: DataTable(
-                  headingRowColor: WidgetStatePropertyAll(
-                    kRutasColor.withOpacity(0.08),
+                child: PagedDataTable(
+                  etiqueta: 'registros',
+                  tabla: DataTable(
+                    headingRowColor: WidgetStatePropertyAll(
+                      kRutasColor.withOpacity(0.08),
+                    ),
+                    columnSpacing: 18,
+                    horizontalMargin: 12,
+                    dataRowMinHeight: 58,
+                    dataRowMaxHeight: 82,
+                    columns: const [
+                      DataColumn(label: Text('Ruta')),
+                      DataColumn(label: Text('Establecimientos')),
+                      DataColumn(label: Text('Conductor')),
+                      DataColumn(label: Text('Ayudante')),
+                      DataColumn(label: Text('Placa')),
+                      DataColumn(label: Text('Vigencia')),
+                      DataColumn(label: Text('Estado')),
+                      DataColumn(label: Text('Historial')),
+                    ],
+                    rows: [
+                      for (final ruta in rutas)
+                        _rowAsignacion(ruta, porRuta[ruta.id]),
+                    ],
                   ),
-                  columnSpacing: 18,
-                  horizontalMargin: 12,
-                  dataRowMinHeight: 58,
-                  dataRowMaxHeight: 82,
-                  columns: const [
-                    DataColumn(label: Text('Ruta')),
-                    DataColumn(label: Text('Establecimientos')),
-                    DataColumn(label: Text('Conductor')),
-                    DataColumn(label: Text('Ayudante')),
-                    DataColumn(label: Text('Placa')),
-                    DataColumn(label: Text('Vigencia')),
-                    DataColumn(label: Text('Estado')),
-                    DataColumn(label: Text('Historial')),
-                  ],
-                  rows: [
-                    for (final ruta in rutas)
-                      _rowAsignacion(ruta, porRuta[ruta.id]),
-                  ],
                 ),
               ),
             ),

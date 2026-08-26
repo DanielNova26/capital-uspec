@@ -11,6 +11,7 @@ import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/task_responsive_layout.dart' hide kArial;
 import 'package:todo/widgets/task_summary_header.dart' hide kArial;
 import 'package:todo/widgets/user_avatar.dart';
+import '../core/area_directory.dart';
 
 /// ====== Paleta unificada (tema teal) ======
 const Color kTeal = Color(0xFF0F766E); // AppBar, acentos
@@ -153,6 +154,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   // Catálogos
   final Map<String, String> _areas = {'todas': 'Todas las áreas'};
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   final Map<String, String> _estados = const {
     'todos': 'Todos',
     'en_progreso': 'En progreso',
@@ -348,11 +350,20 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         q = q.where('empresaId', isEqualTo: _empresaId);
       }
       final qs = await q.get();
-      for (final d in qs.docs) {
-        final m = d.data();
-        final id = (m['areaId'] ?? d.id).toString();
-        final nombre = (m['nombre'] ?? id).toString();
-        _areas[id] = nombre;
+      // Una entrada por área real y sin ids crudos en pantalla.
+      final catalogo = AreaCatalogo.desde(
+        qs.docs.map((d) {
+          final m = d.data();
+          return (
+            id: (m['areaId'] ?? d.id).toString(),
+            nombre: m['nombre']?.toString(),
+          );
+        }),
+        empresaId: _empresaId,
+      );
+      _catalogoAreas = catalogo;
+      for (final opcion in catalogo.opciones) {
+        _areas[opcion.id] = opcion.nombre;
       }
     } catch (_) {}
   }
@@ -546,7 +557,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
       if (_areaSel != 'todas' &&
           (areaId ?? '').isNotEmpty &&
-          areaId != _areaSel) {
+          !_catalogoAreas.coincide(filtro: _areaSel, valor: areaId)) {
         return false;
       }
       if (_cargoSel != 'todos' &&

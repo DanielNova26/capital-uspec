@@ -103,6 +103,10 @@ class PersonnelHire {
   final DateTime? hiredAt;
   final String createdBy;
 
+  /// Módulos que Talento Humano decide darle a la persona al contratarla.
+  /// Notificaciones y calendario no van aquí: los tiene todo el personal.
+  final List<String> apps;
+
   const PersonnelHire({
     required this.document,
     required this.names,
@@ -112,6 +116,7 @@ class PersonnelHire {
     this.phone = '',
     this.hiredAt,
     this.createdBy = '',
+    this.apps = const <String>[],
   });
 
   String get fullName => '$names $surnames'.trim();
@@ -127,6 +132,10 @@ class PersonnelHire {
     phone: _text(data['telefono']),
     hiredAt: _date(data['fechaContratacion']),
     createdBy: _text(data['creadoPor']),
+    apps: (data['apps'] as List<dynamic>? ?? const [])
+        .map((app) => _text(app))
+        .where((app) => app.isNotEmpty)
+        .toList(),
   );
 
   Map<String, dynamic> toMap({Object? hiredAtValue}) => {
@@ -139,6 +148,7 @@ class PersonnelHire {
     'telefono': phone,
     'fechaContratacion': hiredAtValue ?? hiredAt,
     'creadoPor': createdBy,
+    'apps': apps,
   };
 }
 

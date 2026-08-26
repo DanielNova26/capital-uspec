@@ -28,6 +28,8 @@ import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../services/session_audit_service.dart';
 
 import 'admin_repository.dart';
+import '../core/area_directory.dart';
+import '../widgets/paged_list.dart';
 import 'admin_access_filter.dart';
 import 'compras_document_control_panel.dart';
 import 'correo_admin_panel.dart';
@@ -255,6 +257,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // áreas del módulo de tareas) y referencias de área inexistentes.
   bool _cargoSaludLoading = false;
   _CargoHealthReport? _cargoSaludReport;
+
+  /// Áreas de la empresa activa, cargadas en el escaneo para poder asignar el
+  /// área a mano a un cargo que el diagnóstico no puede reparar solo.
+  List<AreaOpcion> _cargoSaludAreas = const <AreaOpcion>[];
 
   // Membresía multi-empresa (Etapa 3). Carga global de TBL_USUARIOS bajo
   // demanda para poder agregar/quitar a cualquier usuario de cualquier empresa.
@@ -5897,31 +5903,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(kAdminBg),
-          columns: const [
-            DataColumn(label: Text('Capa / módulo')),
-            DataColumn(label: Text('Se muestra por')),
-            DataColumn(label: Text('Permisos internos')),
-            DataColumn(label: Text('Dónde se edita')),
-          ],
-          rows: rows
-              .map(
-                (row) => DataRow(
-                  cells: [
-                    DataCell(
-                      Text(
-                        row.modulo,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+        child: PagedDataTable(
+          etiqueta: 'registros',
+          tabla: DataTable(
+            headingRowColor: WidgetStateProperty.all(kAdminBg),
+            columns: const [
+              DataColumn(label: Text('Capa / módulo')),
+              DataColumn(label: Text('Se muestra por')),
+              DataColumn(label: Text('Permisos internos')),
+              DataColumn(label: Text('Dónde se edita')),
+            ],
+            rows: rows
+                .map(
+                  (row) => DataRow(
+                    cells: [
+                      DataCell(
+                        Text(
+                          row.modulo,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                       ),
-                    ),
-                    DataCell(Text(row.visible)),
-                    DataCell(Text(row.permisos)),
-                    DataCell(Text(row.donde)),
-                  ],
-                ),
-              )
-              .toList(),
+                      DataCell(Text(row.visible)),
+                      DataCell(Text(row.permisos)),
+                      DataCell(Text(row.donde)),
+                    ],
+                  ),
+                )
+                .toList(),
+          ),
         ),
       ),
     );
@@ -5985,68 +5994,75 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(kAdminBg),
-          columns: const [
-            DataColumn(label: Text('Perfil')),
-            DataColumn(label: Text('Código interno')),
-            DataColumn(label: Text('Estado')),
-            DataColumn(label: Text('Módulos que agrega')),
-            DataColumn(label: Text('Acción')),
-          ],
-          rows: roles.map((role) {
-            return DataRow(
-              cells: [
-                DataCell(
-                  Row(
-                    children: [
-                      Icon(_accessRoleIcon(role), size: 18, color: kAdminMuted),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 180,
-                        child: Text(
-                          role.nombre,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+        child: PagedDataTable(
+          etiqueta: 'registros',
+          tabla: DataTable(
+            headingRowColor: WidgetStateProperty.all(kAdminBg),
+            columns: const [
+              DataColumn(label: Text('Perfil')),
+              DataColumn(label: Text('Código interno')),
+              DataColumn(label: Text('Estado')),
+              DataColumn(label: Text('Módulos que agrega')),
+              DataColumn(label: Text('Acción')),
+            ],
+            rows: roles.map((role) {
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Row(
+                      children: [
+                        Icon(
+                          _accessRoleIcon(role),
+                          size: 18,
+                          color: kAdminMuted,
                         ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 180,
+                          child: Text(
+                            role.nombre,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(Text(role.roleKey)),
+                  DataCell(
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(role.enabled ? 'Activo' : 'Inactivo'),
+                      backgroundColor: role.enabled
+                          ? const Color(0xFFEFFDF5)
+                          : const Color(0xFFFEF2F2),
+                      labelStyle: TextStyle(
+                        color: role.enabled ? kAdminSuccess : kAdminError,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                       ),
-                    ],
-                  ),
-                ),
-                DataCell(Text(role.roleKey)),
-                DataCell(
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    label: Text(role.enabled ? 'Activo' : 'Inactivo'),
-                    backgroundColor: role.enabled
-                        ? const Color(0xFFEFFDF5)
-                        : const Color(0xFFFEF2F2),
-                    labelStyle: TextStyle(
-                      color: role.enabled ? kAdminSuccess : kAdminError,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 260,
-                    child: Text(
-                      _roleAppsSummary(role),
-                      overflow: TextOverflow.ellipsis,
+                  DataCell(
+                    SizedBox(
+                      width: 260,
+                      child: Text(
+                        _roleAppsSummary(role),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                ),
-                DataCell(
-                  OutlinedButton.icon(
-                    onPressed: () => _dialogAccessRole(role: role),
-                    icon: const Icon(Icons.edit_outlined, size: 16),
-                    label: const Text('Editar'),
+                  DataCell(
+                    OutlinedButton.icon(
+                      onPressed: () => _dialogAccessRole(role: role),
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Editar'),
+                    ),
                   ),
-                ),
-              ],
-            );
-          }).toList(),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
@@ -6108,90 +6124,93 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(kAdminBg),
-          dataRowMinHeight: 64,
-          dataRowMaxHeight: 82,
-          columns: const [
-            DataColumn(label: Text('Usuario')),
-            DataColumn(label: Text('Cargo / área')),
-            DataColumn(label: Text('Módulos visibles')),
-            DataColumn(label: Text('Perfil general')),
-          ],
-          rows: users.map((userDoc) {
-            final data = userDoc.data();
-            final currentRole = _accessRoleForUser(data);
-            return DataRow(
-              cells: [
-                DataCell(
-                  Row(
-                    children: [
-                      UserAvatar(
-                        userId: userDoc.id,
-                        nameHint: _userName(data, userDoc.id),
-                        radius: 16,
-                      ),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        width: 190,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _userName(data, userDoc.id),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Text(
-                              _safe(data['cedula']).isNotEmpty
-                                  ? _safe(data['cedula'])
-                                  : userDoc.id,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: kAdminMuted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+        child: PagedDataTable(
+          etiqueta: 'registros',
+          tabla: DataTable(
+            headingRowColor: WidgetStateProperty.all(kAdminBg),
+            dataRowMinHeight: 64,
+            dataRowMaxHeight: 82,
+            columns: const [
+              DataColumn(label: Text('Usuario')),
+              DataColumn(label: Text('Cargo / área')),
+              DataColumn(label: Text('Módulos visibles')),
+              DataColumn(label: Text('Perfil general')),
+            ],
+            rows: users.map((userDoc) {
+              final data = userDoc.data();
+              final currentRole = _accessRoleForUser(data);
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Row(
+                      children: [
+                        UserAvatar(
+                          userId: userDoc.id,
+                          nameHint: _userName(data, userDoc.id),
+                          radius: 16,
                         ),
+                        const SizedBox(width: 10),
+                        SizedBox(
+                          width: 190,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _userName(data, userDoc.id),
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                _safe(data['cedula']).isNotEmpty
+                                    ? _safe(data['cedula'])
+                                    : userDoc.id,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: kAdminMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(
+                    SizedBox(
+                      width: 220,
+                      child: Text(
+                        _userOrgSummary(data, empresaId),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 220,
-                    child: Text(
-                      _userOrgSummary(data, empresaId),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 230,
-                    child: Text(
-                      _visibleAppsSummary(data, empresaId),
-                      overflow: TextOverflow.ellipsis,
+                  DataCell(
+                    SizedBox(
+                      width: 230,
+                      child: Text(
+                        _visibleAppsSummary(data, empresaId),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 280,
-                    child: _accessRoleDropdown(
-                      userDoc: userDoc,
-                      empresaId: empresaId,
-                      currentRole: currentRole,
+                  DataCell(
+                    SizedBox(
+                      width: 280,
+                      child: _accessRoleDropdown(
+                        userDoc: userDoc,
+                        empresaId: empresaId,
+                        currentRole: currentRole,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            );
-          }).toList(),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
@@ -8143,53 +8162,56 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Bodega')),
-                      DataColumn(label: Text('Dirección')),
-                      DataColumn(label: Text('Estado')),
-                      DataColumn(label: Text('Acciones')),
-                    ],
-                    rows: _bodegas
-                        .map(
-                          (bodega) => DataRow(
-                            cells: [
-                              DataCell(
-                                Text(
-                                  bodega.nombre,
-                                  style: const TextStyle(
-                                    fontFamily: kArial,
-                                    fontWeight: FontWeight.w800,
+                  child: PagedDataTable(
+                    etiqueta: 'registros',
+                    tabla: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Bodega')),
+                        DataColumn(label: Text('Dirección')),
+                        DataColumn(label: Text('Estado')),
+                        DataColumn(label: Text('Acciones')),
+                      ],
+                      rows: _bodegas
+                          .map(
+                            (bodega) => DataRow(
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    bodega.nombre,
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              DataCell(
-                                Text(
-                                  bodega.direccion.isEmpty
-                                      ? 'Sin dirección'
-                                      : bodega.direccion,
-                                  style: const TextStyle(fontFamily: kArial),
+                                DataCell(
+                                  Text(
+                                    bodega.direccion.isEmpty
+                                        ? 'Sin dirección'
+                                        : bodega.direccion,
+                                    style: const TextStyle(fontFamily: kArial),
+                                  ),
                                 ),
-                              ),
-                              DataCell(
-                                Switch(
-                                  value: bodega.enabled,
-                                  onChanged: (enabled) =>
-                                      _toggleBodega(bodega, enabled),
+                                DataCell(
+                                  Switch(
+                                    value: bodega.enabled,
+                                    onChanged: (enabled) =>
+                                        _toggleBodega(bodega, enabled),
+                                  ),
                                 ),
-                              ),
-                              DataCell(
-                                IconButton(
-                                  tooltip: 'Editar bodega',
-                                  onPressed: () =>
-                                      _dialogBodega(existing: bodega),
-                                  icon: const Icon(Icons.edit_outlined),
+                                DataCell(
+                                  IconButton(
+                                    tooltip: 'Editar bodega',
+                                    onPressed: () =>
+                                        _dialogBodega(existing: bodega),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        )
-                        .toList(),
+                              ],
+                            ),
+                          )
+                          .toList(),
+                    ),
                   ),
                 ),
               );
@@ -9729,19 +9751,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: SingleChildScrollView(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(kAdminBg),
-            columns: const [
-              DataColumn(label: Text('Usuario')),
-              DataColumn(label: Text('Cargo')),
-              DataColumn(label: Text('Último ingreso')),
-              DataColumn(label: Text('Plataforma')),
-              DataColumn(label: Text('Tipo')),
-            ],
-            rows: [
-              for (final userDoc in users)
-                _sessionUserRow(userDoc, latestByUser, empresaId),
-            ],
+          child: PagedDataTable(
+            etiqueta: 'registros',
+            tabla: DataTable(
+              headingRowColor: WidgetStateProperty.all(kAdminBg),
+              columns: const [
+                DataColumn(label: Text('Usuario')),
+                DataColumn(label: Text('Cargo')),
+                DataColumn(label: Text('Último ingreso')),
+                DataColumn(label: Text('Plataforma')),
+                DataColumn(label: Text('Tipo')),
+              ],
+              rows: [
+                for (final userDoc in users)
+                  _sessionUserRow(userDoc, latestByUser, empresaId),
+              ],
+            ),
           ),
         ),
       ),
@@ -12187,7 +12212,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
           childrenPadding: EdgeInsets.zero,
-          children: entries.map(_saludEntryTile).toList(),
+          // Listado largo: de a 20 con paginador, no todo de golpe.
+          children: [
+            PagedListSection<_UserHealthEntry>(
+              items: entries,
+              etiqueta: 'usuarios',
+              itemBuilder: (_, e, __) => _saludEntryTile(e),
+            ),
+          ],
         ),
       ),
     );
@@ -13443,6 +13475,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
       if (!mounted) return;
       setState(() {
+        _cargoSaludAreas = areasUnicas(
+          areasSnap.docs.map(
+            (a) => (
+              id: _safe(a.data()['areaId']).isNotEmpty
+                  ? _safe(a.data()['areaId'])
+                  : a.id,
+              nombre: a.data()['nombre']?.toString(),
+            ),
+          ),
+          empresaId: empresaId,
+        );
         _cargoSaludReport = _CargoHealthReport(
           total: cargosSnap.docs.length,
           entries: flagged,
@@ -13488,6 +13531,110 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       await _runCargoHealthScan();
     } catch (err) {
       _snack('Error al reparar: $err');
+    }
+  }
+
+  /// Asigna el área a mano cuando el diagnóstico no puede deducirla.
+  ///
+  /// Es el caso de los cargos "Sin área": no tienen `areaId` ni nombre de
+  /// área, así que no hay nada que resolver automáticamente. Antes el panel
+  /// solo decía que fueras a Catálogos; ahora se elige aquí mismo.
+  Future<void> _asignarAreaCargoManual(_CargoHealthEntry e) async {
+    if (_cargoSaludAreas.isEmpty) {
+      _snack(
+        'La empresa no tiene áreas en TBL_AREAS. Créalas en Catálogos › Áreas.',
+      );
+      return;
+    }
+    var seleccion = _cargoSaludAreas
+        .where((a) => a.contiene(e.areaId) || a.contiene(e.areaNombre))
+        .firstOrNull
+        ?.id;
+
+    final elegido = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(
+            'Área de "${e.nombre}"',
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'El cargo se ubicará en esta área y dejará de aparecer en '
+                  'todas las áreas del desplegable de "Crear tarea".',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: kAdminMuted,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  value: seleccion,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Área',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: _cargoSaludAreas
+                      .map(
+                        (a) => DropdownMenuItem(
+                          value: a.id,
+                          child: Text(
+                            a.nombre,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setDialogState(() => seleccion = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: seleccion == null
+                  ? null
+                  : () => Navigator.pop(ctx, seleccion),
+              child: const Text('Guardar área'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (elegido == null) return;
+
+    final area = _cargoSaludAreas.firstWhere((a) => a.id == elegido);
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_CARGOS')
+          .doc(e.docId)
+          .update({
+            'areaId': area.id,
+            'areaNombre': area.nombre,
+            'area': area.nombre,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      _snack('Cargo "${e.nombre}" quedó en el área ${area.nombre}.');
+      await _runCargoHealthScan();
+    } catch (err) {
+      _snack('Error al guardar el área: $err');
     }
   }
 
@@ -14046,7 +14193,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
           childrenPadding: EdgeInsets.zero,
-          children: entries.map(_cargoSaludEntryTile).toList(),
+          // Listado largo: de a 20 con paginador, no todo de golpe.
+          children: [
+            PagedListSection<_CargoHealthEntry>(
+              items: entries,
+              etiqueta: 'cargos',
+              itemBuilder: (_, e, __) => _cargoSaludEntryTile(e),
+            ),
+          ],
         ),
       ),
     );
@@ -14145,6 +14299,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     style: const TextStyle(fontFamily: kArial, fontSize: 12),
                   ),
                 ),
+              // Elegir el área a mano: el único camino cuando el cargo no
+              // trae ni id ni nombre de área y no hay nada que deducir.
+              if (e.issues.contains('sin_area') ||
+                  e.issues.contains('area_inexistente') ||
+                  e.issues.contains('sin_area_id'))
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF7C3AED),
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => _asignarAreaCargoManual(e),
+                  icon: const Icon(Icons.edit_location_alt_outlined, size: 16),
+                  label: const Text(
+                    'Elegir área…',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
               if (e.issues.contains('duplicado'))
                 TextButton.icon(
                   style: TextButton.styleFrom(
@@ -14168,12 +14341,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             const Padding(
               padding: EdgeInsets.only(top: 2),
               child: Text(
-                'Área no reparable automáticamente: revisa el nombre del área '
-                'o créala en Catálogos.',
+                'No hay un área que deducir: elígela arriba, o créala primero '
+                'en Catálogos › Áreas si todavía no existe.',
                 style: TextStyle(
                   fontFamily: kArial,
                   fontSize: 11,
-                  color: kAdminError,
+                  color: kAdminMuted,
                 ),
               ),
             ),

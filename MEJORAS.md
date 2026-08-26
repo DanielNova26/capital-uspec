@@ -6,6 +6,253 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Sesión 2026-08-25 (ronda 3) — Área editable en Salud de cargos, paginación de 20 y barras de scroll
+
+### 1. "Salud de cargos" ya deja arreglar el cargo ahí mismo
+
+Los cargos "Sin área" (sin `areaId` **ni** nombre de área) no tienen nada que
+deducir, así que el panel solo decía "revisa el nombre del área o créala en
+Catálogos" y el camino se cortaba ahí.
+
+- Nuevo botón **"Elegir área…"** en cada cargo con problema de área: abre el
+  desplegable con las áreas de la empresa y escribe `areaId`, `areaNombre` y
+  `area` en TBL_CARGOS. Después vuelve a escanear solo.
+- El escaneo ahora guarda el catálogo de áreas (pasado por `areasUnicas`, así
+  que sin repetidas ni ids crudos) para alimentar ese selector.
+- El texto rojo de "no reparable automáticamente" se reemplazó por una
+  indicación útil: elígela arriba, o créala en Catálogos si no existe.
+
+### 2. Listados largos: de a 20
+
+Nuevo `lib/widgets/paged_list.dart` con la regla en un solo lugar:
+`kPageSize = 20`, `pageOf()`, `pageCountOf()`, `PagerBar` ("1-20 de 137" con
+anterior/siguiente) y `PagedListSection` para listas que ya viven dentro de una
+columna con scroll.
+
+Aplicado en: Salud de cargos, Salud usuarios, tablero de asignación de
+Interventoría (por grupo), tabla de hallazgos de Interventoría, tabla de
+vigencias de Compras y Accesos del personal (Talento Humano). El panel de
+Seguridad ya paginaba de a 20 por su cuenta y quedó igual.
+
+**Convertidas todas las tablas de la app (19 en total)** con
+`PagedDataTable`, un envoltorio que recibe la `DataTable` ya construida,
+guarda la página por dentro y la vuelve a emitir con las 20 filas que tocan:
+Admin (5), seed de Admin (3), Rutas (3), Interventoría (2), Gerencia,
+Correspondencia, Planillas desde Excel, Movilidad, Requerimientos de personal
+y Tokens DIAN. En el sitio de uso solo se envuelve la tabla, así que sirve
+igual dentro de un `StatelessWidget`.
+
+La regla quedó escrita en `CLAUDE.md` (Reglas transversales de interfaz) para
+que aplique a cualquier pantalla nueva.
+
+### 3. Barra de scroll en las tablas deslizables (global)
+
+`MaterialScrollBehavior` **nunca** dibuja scrollbar horizontal, así que las
+tablas anchas se deslizaban sin ninguna pista de que había más columnas.
+
+- Nuevo `lib/theme/app_scroll_behavior.dart` + `scrollBehavior` en el
+  `MaterialApp`: barra visible en todo scroll horizontal de la app.
+- Además el mouse queda habilitado como dispositivo de arrastre, así que en web
+  se puede "agarrar" la tabla y moverla, no solo usar la rueda o la barra.
+- El eje vertical conserva el comportamiento de la plataforma (barra en
+  escritorio/web, indicación efímera en móvil) para no llenar de barras fijas
+  cada lista del teléfono.
+- `thumbVisibility` se fuerza solo cuando el scrollable trae su propio
+  controlador: con uno compartido Flutter exige una única posición adjunta y
+  lanza una aserción.
+
+---
+
+## Sesión 2026-08-25 (ronda 2) — Sesión guardada, áreas repetidas y quién aprobó en Compras
+
+Seis puntos que reportó Daniel probando en vivo.
+
+### 1. "Mantener sesión iniciada" no aguantaba (y se apagaba sola)
+
+`AuthGate._resume()` preguntaba por `FirebaseAuth.instance.currentUser` apenas
+arrancaba la app. Firebase Auth **restaura la sesión persistida de forma
+asíncrona** (en web, leyendo IndexedDB), así que en ese instante todavía es
+null. El código lo interpretaba como sesión inválida, llamaba a
+`clearSession()` —que además pone `keepSession = false`— y mandaba al login.
+Resultado: la casilla aparecía apagada al volver a entrar.
+
+- Nuevo `_esperarUsuarioAuth()`: usa el `currentUser` si ya está y, si no,
+  espera el primer `authStateChanges()` no nulo con tope de 8 segundos.
+- Si aun así no hay usuario, **ya no se borra la sesión guardada**: puede ser
+  falta de red. Se va al login y el próximo arranque reintenta.
+- `_goLogin(cerrarSesionFirebase: false)` para los caminos transitorios: cerrar
+  sesión en Firebase ahí destruía una sesión válida.
+
+Solo se limpia la sesión cuando la invalidez es concluyente: claims que no
+corresponden, usuario inexistente, usuario inactivo o sin empresa válida.
+
+### 2 y 3. Áreas repetidas y áreas mostrando su id crudo
+
+Dos síntomas, dos causas, un archivo nuevo: `lib/core/area_directory.dart`.
+
+**"EMPRESA_002_mantenimiento" como nombre.** Los documentos de `TBL_AREAS` se
+crean con id `{empresaId}_{slug(nombre)}`. Media app resolvía el nombre con
+`?? d.id`, así que un documento **sin campo `nombre`** terminaba mostrando su
+id en el desplegable. `areaNombreLegible()` reconstruye "Mantenimiento" a
+partir del id (quita el prefijo de empresa y capitaliza), y ninguna pantalla
+vuelve a mostrar un id crudo.
+
+**"Mantenimiento" dos veces y "Operaciones" tres.** El desplegable de
+Correspondencia arma las áreas a partir de los USUARIOS y deduplicaba por
+`areaId`. Pero el área de un usuario a veces es el id del catálogo y otras el
+nombre suelto —`listarResponsables` hace `areaId.isEmpty ? areaNombre :
+areaId`—, así que la misma área entraba dos y tres veces. Peor: al elegir una
+de ellas, el filtro de responsables (`user.areaId == area.id`) dejaba fuera a
+la gente registrada con la otra variante.
+
+- `areasUnicas()` agrupa por nombre normalizado (sin tildes ni signos) y cada
+  opción conserva **todos** los ids equivalentes.
+- `GdArea` ahora lleva ese conjunto y expone `contiene(areaId)`; el diálogo
+  "Clasificar y asignar" y el panel de colaboración filtran con eso, así que
+  una sola entrada por área muestra a todo su personal.
+- `AreaCatalogo` (mismo archivo) da el mapa para los desplegables y decide si
+  un registro cae en el filtro, sin romper el filtrado existente.
+
+Aplicado en: Correspondencia (diálogo y panel), Tareas asignadas, Historial de
+tareas, Tareas creadas, Vista de equipo, Crear tarea, Gerencia y
+`OrgService.listAreas` (de donde salen los desplegables de Interventoría).
+
+> Nota de datos: esto arregla lo que se **ve**. El origen sigue ahí: hay
+> documentos en `TBL_AREAS` sin `nombre` y usuarios con `areaId` guardado como
+> nombre. Conviene una revisión tipo "Salud de cargos" para repararlos.
+
+### 4. "Crear tarea" tardaba en habilitar el desplegable de Área
+
+No era el catálogo: era la cadena de viajes de red.
+
+- `_queryByEmpresa` lanzaba **cuatro consultas en serie** por catálogo (una por
+  cada forma de declarar la empresa: `empresas`, `empresaId`, `empresa_id`,
+  `empresa`). Ahora salen en paralelo y cuesta lo que la más lenta. Igual en
+  `_loadEstructura` y `_loadCargos`.
+- El desplegable esperaba a `_loadingData`, que solo se apaga **después** de
+  cargar el padrón completo de usuarios de la empresa. Se separó
+  `_loadingCatalogos`: Área y Cargo se habilitan apenas están áreas y cargos,
+  sin esperar a los usuarios.
+
+### 5. Compras: quién aprobó, con historial
+
+El documento solo guardaba al **último** revisor (`revisadoPor` +
+`fechaRevision`): aprobar → revertir → aprobar borraba la pista anterior.
+
+- Nueva colección `TBL_COMPRAS_APROBACIONES`: un registro por decisión de
+  calidad (aprobó, aprobó con requerimientos, rechazó, revirtió, dio por
+  resuelto) con usuario, fecha, documento, producto y nota.
+- Se escribe desde `ComprasService` en recepciones, fichas técnicas,
+  proveedores y marcas. Es auditoría: si la escritura falla, la aprobación
+  igual queda hecha (solo se pierde la línea del historial).
+- `lib/compras/compras_aprobaciones.dart`: `AprobadoPorLinea` ("Aprobado por
+  {nombre} · fecha", con nombre y foto reales) y `HistorialAprobacionesBoton`,
+  que abre el historial completo — diálogo en web, hoja en móvil.
+- Ya visible en la tarjeta de calidad de ficha técnica y en el documento
+  aprobado de una recepción. La línea "Aprobado por" funciona también con lo
+  aprobado antes de existir el historial, porque lee lo que ya trae el
+  documento.
+- La consulta filtra por un solo campo (`entidadId`) y ordena en memoria: no
+  hace falta índice compuesto nuevo.
+
+### 6. Módulos en móvil
+
+La tira horizontal de módulos tenía altura fija de 120 px, mientras la tarjeta
+crece con la escala de letra del sistema (título a dos líneas). Con la letra
+en grande se recortaba. Ahora la altura acompaña `textScaler` y la separación
+entre tarjetas pasó de 4 a 8 px.
+
+---
+
+## Sesión 2026-08-25 — Apagar "Tareas" de verdad + accesos de módulos desde Talento Humano
+
+Daniel: "en admin permisos y roles desactivo tareas y no las esconde"; y en
+Talento Humano, poder decidir al crear/contratar a alguien qué módulos va a
+usar, "menos técnico"; además "todos deben tener habilitado notificaciones y
+calendario".
+
+### 1. Desactivar Tareas ocultaba el menú, pero no el Home
+
+`home_screen.dart` sí calculaba `showTareas` con `_moduleVisible(...,
+'tareasdashboard', ...)`, pero solo se lo pasaba a `HomeShell` → `AppDrawer`.
+El **cuerpo** del Home nunca miró esa bandera: el botón "Nueva Tarea" (Web),
+la sección "Pendientes" con su "Ver todos" (Móvil) y las dos consultas a
+`TBL_TAREAS` seguían ahí para todo el mundo. Quitar el módulo dejaba el menú
+limpio y la pantalla principal igual que antes.
+
+- `showTareas` se calcula ahora **antes** de las consultas, apenas se resuelve
+  `disabledAppIds`. Con el módulo apagado los dos `.snapshots()` de
+  `TBL_TAREAS` se reemplazan por streams vacíos (campos de estado, no
+  `Stream.empty()` en línea, para no re-suscribir en cada build): no se leen
+  tareas, no se pintan marcadores de tareas en el calendario y no hay lecturas
+  de Firestore por un módulo que la persona no tiene.
+- Web: "Nueva Tarea" solo aparece con el módulo activo. Móvil: "Ver todos"
+  (bandeja de tareas) idem.
+- **Notificaciones y calendario no dependen del módulo.** La campana y la
+  tarjeta del calendario siguen igual para todo el personal; la tarjeta del
+  día conserva citas de Nutrición y notificaciones y solo pierde las tareas.
+  Con Tareas apagado el título deja de decir "Pendientes" y pasa a "Agenda
+  del día" / "Agenda del dd/MM", que es lo que realmente queda ahí.
+
+Nota: un usuario **desarrollador** ve todos los módulos por diseño
+(`_moduleVisible` hace bypass con `isDev`), así que apagar Tareas no le cambia
+nada a esa cuenta — hay que probarlo con una cuenta normal.
+
+### 2. Talento Humano ya decide qué módulos usa cada persona
+
+Antes esto solo existía en Admin → "Roles y permisos", una matriz por appId
+pensada para quien conoce la plataforma. Ahora vive también donde Talento
+Humano trabaja, en su propio lenguaje:
+
+- **`lib/core/app_catalog.dart` (nuevo)** — catálogo único de módulos con
+  nombre y "para qué le sirve" en lenguaje de negocio, agrupados (Día a día /
+  Áreas operativas / Gestión y control / Administración). Marca `soloAdmin`
+  (Administración y Tokens DIAN: Talento Humano no los otorga) y la nota de
+  rol interno cuando Admin debe completar la configuración. Aquí también se
+  declaran Notificaciones y Calendario como **servicios transversales**: no
+  son módulos, no se asignan y no se pueden quitar.
+- **`personnel_access_service.dart` (nuevo)** — misma fuente de verdad que
+  Admin (`TBL_USUARIOS`: `empresasDetalle.{empresa}.apps` + `apps` global),
+  filtrando por lo que la empresa tenga apagado en `TBL_APPS`.
+- **`personnel_access_picker.dart` (nuevo)** — selector reutilizable con
+  descripciones, sin appIds a la vista, encabezado fijo "Todo el personal
+  recibe esto: Notificaciones y Calendario".
+- **`personnel_access_screen.dart` (nuevo)** — "Accesos del personal":
+  buscador, filtro por módulo, solo activos, y por persona los módulos que
+  usa. Nueva tarjeta en el tablero de Talento Humano (sección Personas).
+- **Alta/edición de personal** (`organizational_structure_screen.dart`): el
+  formulario "Agregar/Editar colaborador" trae la sección "Qué va a usar en la
+  app", abierta por defecto en los nuevos. Se guarda después del batch porque
+  `saveApps` necesita leer el documento ya creado.
+- **Contrataciones** (`personnel_requisition_*`): el diálogo "Registrar
+  contratación y crear usuario" incluye el mismo selector; `PersonnelHire`
+  lleva ahora `apps` y `registerHireAndCreateUser` los escribe dentro de la
+  transacción. Contratar **solo suma**: a alguien que ya existía no se le
+  quita nada; quitar se hace en Accesos del personal.
+- La carga masiva por Excel ya traía columna `apps` y no se tocó.
+
+Talento Humano concede el **acceso** al módulo; el **rol interno**
+(comprador, firmante, clasificador, conductor…) lo sigue definiendo Admin, y
+así se dice en pantalla.
+
+### 3. Dos arreglos de datos que hacían falta para lo anterior
+
+- **`apps` global pisaba a las otras empresas.** Como `extractUserApps` une la
+  lista global con la de la empresa, escribir `apps` (lo que hace la matriz de
+  Admin desde siempre) le podía quitar módulos a la misma persona en otra
+  empresa que los heredaba de esa lista global. Antes de escribir, ahora se
+  **congela** en cada otra empresa su lista efectiva actual
+  (`empresasDetalle.{otra}.apps`), y solo entonces se pisa la global. Es
+  idempotente: si la empresa ya tenía su propia lista, no se toca.
+- **`kAppIdNormalizationMap`** no tenía `tareas` → `tareasdashboard`. La
+  equivalencia ya funcionaba (`_canonicalAppId` recorta el sufijo), pero las
+  normalizaciones escribían `tareas` como si fuera canónico.
+- `loadUsersByEmpresa` pasó de `AdminRepository` a
+  `FirestoreUserRepository` (Admin delega): Talento Humano y Admin tienen que
+  ver exactamente el mismo padrón por empresa.
+
+---
+
 ## Sesión 2026-08-10 — Renombre de módulo + tarea de cierre saltaba la aprobación
 
 Dos pedidos de Daniel en pruebas en vivo sobre el trabajo de esta misma sesión.

@@ -16,6 +16,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 
+import '../widgets/paged_list.dart';
+import 'compras_aprobaciones.dart';
 import 'compras_models.dart';
 import 'compras_catalog_logic.dart';
 import 'compras_excel_download.dart';
@@ -1178,6 +1180,9 @@ class _VencimientosScreen extends StatefulWidget {
 }
 
 class _VencimientosScreenState extends State<_VencimientosScreen> {
+  /// Página visible de la tabla (20 filas por página).
+  int _paginaTabla = 0;
+
   late Future<List<_VencimientoItem>> _future;
   String _filtro = '60';
 
@@ -1462,6 +1467,11 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
   }
 
   Widget _webTable(List<_VencimientoItem> items, DateTime hoy) {
+    // Tabla larga: de a 20 filas con paginador debajo.
+    final maxPagina = pageCountOf(items.length) - 1;
+    final pagina = _paginaTabla.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(items, pagina);
+
     return Card(
       margin: const EdgeInsets.only(top: 12, bottom: 24),
       elevation: 0,
@@ -1469,70 +1479,84 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
       // horizontal (columnas anchas). Sin el vertical, en pantallas anchas
       // las filas de abajo quedaban inalcanzables.
       child: SingleChildScrollView(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Documento')),
-              DataColumn(label: Text('Proveedor / producto')),
-              DataColumn(label: Text('Origen')),
-              DataColumn(label: Text('Vigente hasta')),
-              DataColumn(label: Text('Estado')),
-              DataColumn(label: Text('Abrir')),
-            ],
-            rows: items.map((item) {
-              final dias = item.sinFecha ? null : item.diasDesde(hoy);
-              final color = dias == null
-                  ? const Color(0xFF64748B)
-                  : _color(dias);
-              final estadoTxt = dias == null
-                  ? 'Sin fecha registrada'
-                  : _estado(dias);
-              return DataRow(
-                cells: [
-                  DataCell(Text(item.documento)),
-                  DataCell(SizedBox(width: 320, child: Text(item.titular))),
-                  DataCell(Text(item.origen)),
-                  DataCell(
-                    Text(
-                      item.fecha == null
-                          ? '—'
-                          : DateFormat('dd/MM/yyyy').format(item.fecha!),
-                    ),
-                  ),
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: color.withOpacity(0.35)),
-                      ),
-                      child: Text(
-                        estadoTxt,
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11.5,
-                          color: color,
-                          fontWeight: FontWeight.w700,
+        child: Column(
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('Documento')),
+                  DataColumn(label: Text('Proveedor / producto')),
+                  DataColumn(label: Text('Origen')),
+                  DataColumn(label: Text('Vigente hasta')),
+                  DataColumn(label: Text('Estado')),
+                  DataColumn(label: Text('Abrir')),
+                ],
+                rows: visibles.map((item) {
+                  final dias = item.sinFecha ? null : item.diasDesde(hoy);
+                  final color = dias == null
+                      ? const Color(0xFF64748B)
+                      : _color(dias);
+                  final estadoTxt = dias == null
+                      ? 'Sin fecha registrada'
+                      : _estado(dias);
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(item.documento)),
+                      DataCell(SizedBox(width: 320, child: Text(item.titular))),
+                      DataCell(Text(item.origen)),
+                      DataCell(
+                        Text(
+                          item.fecha == null
+                              ? '—'
+                              : DateFormat('dd/MM/yyyy').format(item.fecha!),
                         ),
                       ),
-                    ),
-                  ),
-                  DataCell(
-                    IconButton(
-                      onPressed: () => _abrirUrl(context, item.doc.url),
-                      icon: const Icon(Icons.open_in_new, size: 18),
-                      tooltip: 'Ver documento',
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: color.withOpacity(0.35)),
+                          ),
+                          child: Text(
+                            estadoTxt,
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 11.5,
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        IconButton(
+                          onPressed: () => _abrirUrl(context, item.doc.url),
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                          tooltip: 'Ver documento',
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+            if (items.length > kPageSize)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                child: PagerBar(
+                  total: items.length,
+                  page: pagina,
+                  etiqueta: 'documentos',
+                  onPageChanged: (p) => setState(() => _paginaTabla = p),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -20718,6 +20742,32 @@ class _FichaCalidadCard extends StatelessWidget {
                   ),
               ],
             ),
+            // Quién tomó la última decisión de calidad y el historial completo.
+            if ((doc?.revisadoPor ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              AprobadoPorLinea(
+                revisadoPor: doc!.revisadoPor,
+                fecha: doc.fechaRevision?.toDate(),
+                etiqueta: doc.rechazado
+                    ? 'Rechazado'
+                    : (doc.aprobadoConRequerimientos
+                          ? 'Aprobado con requerimientos'
+                          : 'Aprobado'),
+                color: doc.rechazado
+                    ? kComprasRed
+                    : (doc.aprobadoConRequerimientos
+                          ? const Color(0xFFB45309)
+                          : kComprasGreen),
+              ),
+            ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: HistorialAprobacionesBoton(
+                entidadId: ficha.id,
+                docKey: 'fichaTecnica',
+                titulo: 'Historial de aprobaciones · Ficha técnica',
+              ),
+            ),
             if (doc?.observacionActualizacion?.isNotEmpty == true) ...[
               const SizedBox(height: 6),
               Container(
@@ -21651,59 +21701,84 @@ class _RecepcionCalidadCard extends StatelessWidget {
     }
 
     if (doc.aprobado) {
-      // Aprobado — solo visual
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.green.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.shade200),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  color: Colors.black87,
-                ),
-              ),
+      // Aprobado: además del estado se dice QUIÉN aprobó y se ofrece el
+      // historial completo (aprobaciones, rechazos y reversiones).
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
             ),
-            if (doc.tieneDoc)
-              IconButton(
-                onPressed: () => _abrirUrl(context, doc.url),
-                icon: const Icon(
-                  Icons.open_in_new,
-                  size: 14,
-                  color: Colors.blue,
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black87,
+                    ),
+                  ),
                 ),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                tooltip: 'Ver documento',
-              ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.green.shade100,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.green.shade300),
-              ),
-              child: const Text(
-                'Aprobado',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: kComprasGreen,
+                if (doc.tieneDoc)
+                  IconButton(
+                    onPressed: () => _abrirUrl(context, doc.url),
+                    icon: const Icon(
+                      Icons.open_in_new,
+                      size: 14,
+                      color: Colors.blue,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
+                    tooltip: 'Ver documento',
+                  ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.green.shade300),
+                  ),
+                  child: const Text(
+                    'Aprobado',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: kComprasGreen,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+          AprobadoPorLinea(
+            revisadoPor: doc.revisadoPor,
+            fecha: doc.fechaRevision?.toDate(),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: HistorialAprobacionesBoton(
+              entidadId: recepcion.id,
+              docKey: docKey,
+              titulo: 'Historial de aprobaciones · $label',
+            ),
+          ),
+        ],
       );
     }
 

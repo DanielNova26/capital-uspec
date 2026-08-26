@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 /// Úsalo para migración de datos en Firestore.
 /// Si un módulo nuevo adopta el sufijo 'dashboard', se agrega aquí.
 const Map<String, String> kAppIdNormalizationMap = {
+  'tareas': 'tareasdashboard',
   'compras': 'comprasdashboard',
   'correo': 'correodashboard',
   'admin': 'admindashboard',

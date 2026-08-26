@@ -23,6 +23,7 @@ import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
 import 'notify_novedades_screen.dart' hide kArial;
+import '../core/area_directory.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kTaskArial = 'Arial';
@@ -46,6 +47,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   final _searchCtrl = TextEditingController();
   String _statusFilter = 'todas';
   String _areaFilter = 'todas';
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   bool _groupByArea = false;
   bool _didAutoOpen = false;
   bool _showAllTasks = false;
@@ -208,7 +210,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   String _areaLabelFor(String areaKey) {
     if (areaKey == '__sin_area__') return 'Sin área';
-    return _areas[areaKey] ?? areaKey;
+    return _catalogoAreas.nombreDe(areaKey);
   }
 
   Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -789,19 +791,25 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final filteredEmpresas = resolvedEmpresaId == null
           ? <String>{}
           : <String>{resolvedEmpresaId};
-      final areas = <String, String>{'todas': 'Todas las áreas'};
+      var catalogo = const AreaCatalogo.vacio();
       if (resolvedEmpresaId != null) {
         final snap = await FirebaseFirestore.instance
             .collection('TBL_AREAS')
             .where('empresaId', isEqualTo: resolvedEmpresaId)
             .get();
-        for (var d in snap.docs) {
-          areas[d.id] = d.data()['nombre'] ?? d.id;
-        }
+        // Una entrada por área real y sin ids crudos en pantalla.
+        catalogo = AreaCatalogo.desde(
+          snap.docs.map(
+            (d) => (id: d.id, nombre: d.data()['nombre']?.toString()),
+          ),
+          empresaId: resolvedEmpresaId,
+        );
       }
+      final areas = catalogo.comoMapa();
       if (!mounted) return;
       setState(() {
         _empresaIds = filteredEmpresas;
+        _catalogoAreas = catalogo;
         _areas = areas;
         _userData = data;
       });
@@ -851,7 +859,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return false;
       }
       if (_statusFilter != 'todas' && status != _statusFilter) return false;
-      if (_areaFilter != 'todas' && areaId != _areaFilter) return false;
+      if (!_catalogoAreas.coincide(filtro: _areaFilter, valor: areaId)) {
+        return false;
+      }
       return true;
     }).toList();
     filtered.sort(_compareByDueDate);

@@ -12,6 +12,8 @@ import 'package:excel/excel.dart';
 import 'package:file_saver/file_saver.dart';
 import '../core/hierarchy_order.dart';
 import '../widgets/internal_module_layout.dart';
+import 'personnel_access_picker.dart';
+import 'personnel_access_service.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/user_company.dart';
 import 'disciplinary_management_screen.dart';
@@ -108,6 +110,9 @@ class _OrganizationalStructureScreenState
   String? _filterArea;
   String? _filterCargo;
   String _statusFilter = PersonnelStatusService.active;
+
+  /// Accesos a módulos: misma fuente de verdad que la matriz de Admin.
+  final PersonnelAccessService _accessService = PersonnelAccessService();
 
   /// Caché de datos de TBL_USUARIOS, keyed por cédula.
   Map<String, _UserInfo> _userCache = {};
@@ -1545,6 +1550,45 @@ class _OrganizationalStructureScreenState
         ? null
         : initialCentroCode;
 
+    // ── Accesos a módulos ──────────────────────────────────────────────────
+    // Se resuelve antes de abrir el formulario para que Talento Humano decida
+    // en el mismo acto qué va a usar la persona. Los módulos apagados para la
+    // empresa y los de Admin no se ofrecen aquí (ver PersonnelAccessService).
+    final modulosDisponibles = _accessService.modulosDisponibles(
+      await _accessService.disabledAppIds(widget.empresaId),
+    );
+    var appsActuales = isNew
+        ? <String>{}
+        : await _accessService.loadApps(
+            userId: initialId,
+            empresaId: widget.empresaId,
+          );
+    var appsNoAdministradas = PersonnelAccessService.noAdministrados(
+      actuales: appsActuales,
+      administrables: modulosDisponibles,
+    );
+    // Cédula cuyos accesos reales están cargados en el selector. Si al guardar
+    // no coincide con la que quedó escrita (alguien la digitó a mano y ya
+    // existía), no se pisa lo que la persona tenía: solo se suma.
+    var appsCargadasPara = isNew ? '' : initialId;
+    var appsSeleccionadas = isNew
+        ? modulosDisponibles
+              .where(
+                (m) => kDefaultPersonnelApps.any(
+                  (id) => appIdsEquivalent(id, m.appId),
+                ),
+              )
+              .map((m) => m.appId)
+              .toSet()
+        : appsActuales
+              .where(
+                (app) => modulosDisponibles.any(
+                  (m) => appIdsEquivalent(m.appId, app),
+                ),
+              )
+              .toSet();
+    if (!mounted) return;
+
     await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -1580,6 +1624,44 @@ class _OrganizationalStructureScreenState
                         ctrName.text = m['nombre']!;
                         ctrMail.text = m['correo']!;
                       });
+                      // La persona puede existir ya en TBL_USUARIOS: se
+                      // muestran sus accesos reales para no reemplazarlos a
+                      // ciegas con los de una persona nueva.
+                      final cedulaElegida = m['cedula']!;
+                      _accessService
+                          .loadApps(
+                            userId: cedulaElegida,
+                            empresaId: widget.empresaId,
+                          )
+                          .then((reales) {
+                            // Pudo cerrarse el diálogo o elegirse a otra
+                            // persona mientras se resolvía la consulta.
+                            if (!ctx.mounted || ctrId.text != cedulaElegida) {
+                              return;
+                            }
+                            setStateDialog(() {
+                              appsActuales = reales;
+                              appsCargadasPara = cedulaElegida;
+                              appsNoAdministradas =
+                                  PersonnelAccessService.noAdministrados(
+                                    actuales: reales,
+                                    administrables: modulosDisponibles,
+                                  );
+                              // Si la persona aún no existe se conserva la
+                              // preselección por defecto.
+                              if (reales.isNotEmpty) {
+                                appsSeleccionadas = reales
+                                    .where(
+                                      (app) => modulosDisponibles.any(
+                                        (mod) =>
+                                            appIdsEquivalent(mod.appId, app),
+                                      ),
+                                    )
+                                    .toSet();
+                              }
+                            });
+                          })
+                          .catchError((_) {});
                     },
                     minCharsForSuggestions: 0,
                     noItemsFoundBuilder: (_) =>
@@ -1775,6 +1857,46 @@ class _OrganizationalStructureScreenState
                   },
                   minCharsForSuggestions: 0,
                 ),
+                const SizedBox(height: 16),
+                const Divider(),
+                Theme(
+                  data: Theme.of(
+                    ctx,
+                  ).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    initiallyExpanded: isNew,
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    leading: const Icon(
+                      Icons.apps_rounded,
+                      color: _kPrimaryColor,
+                    ),
+                    title: const Text(
+                      'Qué va a usar en la app',
+                      style: TextStyle(
+                        fontFamily: _kFontFamily,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      appsSeleccionadas.isEmpty
+                          ? 'Notificaciones y calendario'
+                          : '${appsSeleccionadas.length} módulo(s) + '
+                                'notificaciones y calendario',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    children: [
+                      PersonnelAccessPicker(
+                        densa: true,
+                        seleccion: appsSeleccionadas,
+                        modulos: modulosDisponibles,
+                        gestionadosPorAdmin: appsNoAdministradas,
+                        onChanged: (next) =>
+                            setStateDialog(() => appsSeleccionadas = next),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -1934,6 +2056,42 @@ class _OrganizationalStructureScreenState
                   SetOptions(merge: true),
                 );
                 await batch.commit();
+
+                // Los accesos se escriben después del batch porque
+                // `saveApps` necesita leer el documento ya creado para no
+                // pisar los módulos de la persona en otras empresas.
+                try {
+                  final enBd = await _accessService.loadApps(
+                    userId: id,
+                    empresaId: widget.empresaId,
+                  );
+                  final apps = appsCargadasPara == id
+                      ? PersonnelAccessService.combinarConNoAdministrados(
+                          actuales: enBd.isEmpty ? appsActuales : enBd,
+                          seleccion: appsSeleccionadas,
+                          administrables: modulosDisponibles,
+                        )
+                      // Nunca se mostraron los accesos de esta cédula, así
+                      // que marcar aquí no puede quitarle nada.
+                      : {...enBd, ...appsSeleccionadas};
+                  await _accessService.saveApps(
+                    userId: id,
+                    empresaId: widget.empresaId,
+                    apps: apps,
+                    actorId: widget.userId,
+                  );
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'La persona se guardó, pero no se pudieron '
+                          'actualizar sus accesos: $e',
+                        ),
+                      ),
+                    );
+                  }
+                }
                 if (mounted) Navigator.pop(context);
               },
               child: Text(

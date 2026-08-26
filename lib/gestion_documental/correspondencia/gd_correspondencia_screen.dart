@@ -1066,21 +1066,9 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
     GdExpediente expediente,
     List<GdResponsable> users,
   ) async {
-    final areasById = <String, GdArea>{};
-    for (final user in users) {
-      if (user.areaId.isEmpty) continue;
-      areasById.putIfAbsent(
-        user.areaId,
-        () => GdArea(
-          id: user.areaId,
-          nombre: user.areaNombre.isEmpty ? user.areaId : user.areaNombre,
-        ),
-      );
-    }
-    final areas = areasById.values.toList()
-      ..sort(
-        (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
-      );
+    // Una entrada por área real: agrupa las variantes con que quedó guardada
+    // (id del catálogo vs. nombre suelto) y nunca muestra un id crudo.
+    final areas = GdArea.desdeResponsables(users, empresaId: widget.empresaId);
     var documentType = expediente.tipoDocumental.trim().isEmpty
         ? 'Otro'
         : expediente.tipoDocumental.trim();
@@ -1095,8 +1083,7 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
               .firstOrNull ??
           tipos
               .where(
-                (t) =>
-                    t.nombre.toLowerCase() == documentType.toLowerCase(),
+                (t) => t.nombre.toLowerCase() == documentType.toLowerCase(),
               )
               .firstOrNull;
     }
@@ -1119,7 +1106,9 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
           final types = {..._gdDocumentTypes, documentType}.toList();
           final filteredUsers = selectedArea == null
               ? const <GdResponsable>[]
-              : users.where((user) => user.areaId == selectedArea!.id).toList();
+              : users
+                    .where((user) => selectedArea!.contiene(user.areaId))
+                    .toList();
           final menuWidth = (MediaQuery.sizeOf(dialogContext).width - 96)
               .clamp(260.0, 472.0)
               .toDouble();
@@ -1151,8 +1140,9 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                               ),
                             )
                             .toList(),
-                        onChanged: (value) =>
-                            setDialogState(() => documentType = value ?? 'Otro'),
+                        onChanged: (value) => setDialogState(
+                          () => documentType = value ?? 'Otro',
+                        ),
                       )
                     else ...[
                       DropdownButtonFormField<GdTipoDocumental>(
@@ -1589,9 +1579,7 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
       ),
     );
     if (success) {
-      _message(
-        value.trim().isEmpty ? 'Alias eliminado.' : 'Alias guardado.',
-      );
+      _message(value.trim().isEmpty ? 'Alias eliminado.' : 'Alias guardado.');
     }
   }
 
@@ -1744,9 +1732,7 @@ class _DetailHeader extends StatelessWidget {
                     size: 15,
                   ),
                   label: Text(
-                    expediente.tieneAlias
-                        ? 'Editar alias'
-                        : 'Ponerle un alias',
+                    expediente.tieneAlias ? 'Editar alias' : 'Ponerle un alias',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,

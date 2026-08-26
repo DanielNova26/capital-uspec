@@ -92,6 +92,14 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _lastNotificationCalendarKey;
   String? _lastSyncedActiveCedula;
 
+  // Con el módulo de Tareas apagado no se consulta TBL_TAREAS. Son campos y no
+  // `Stream.empty()` en línea para conservar la misma instancia entre builds y
+  // no re-suscribir el StreamBuilder en cada reconstrucción.
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasAsignadas =
+      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasCreadas =
+      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+
   bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
 
   // --- Lógica FCM y Notificaciones ---
@@ -779,20 +787,36 @@ class _HomeScreenState extends State<HomeScreen> {
                       .toSet()
                 : <String>{};
 
+            // Acceso al módulo de Tareas. Se resuelve ANTES de consultar
+            // TBL_TAREAS: si está apagado no se leen tareas, no se pintan en
+            // el calendario y no se ofrece crearlas en ninguna vista.
+            // Notificaciones y calendario NO dependen de esto: los conserva
+            // todo el personal.
+            final showTareas = _moduleVisible(
+              apps,
+              isDev,
+              'tareasdashboard',
+              disabledAppIds,
+            );
+
             // Dos queries separadas porque Firestore no admite OR entre campos distintos.
             // assignedSnap: tareas donde soy el destinatario.
             // createdSnap:  tareas donde soy el creador/emisor.
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('TBL_TAREAS')
-                  .where('asignado_uid', isEqualTo: cedula)
-                  .snapshots(),
+              stream: showTareas
+                  ? FirebaseFirestore.instance
+                        .collection('TBL_TAREAS')
+                        .where('asignado_uid', isEqualTo: cedula)
+                        .snapshots()
+                  : _sinTareasAsignadas,
               builder: (context, assignedSnap) {
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('TBL_TAREAS')
-                      .where('creador_id', isEqualTo: cedula)
-                      .snapshots(),
+                  stream: showTareas
+                      ? FirebaseFirestore.instance
+                            .collection('TBL_TAREAS')
+                            .where('creador_id', isEqualTo: cedula)
+                            .snapshots()
+                      : _sinTareasCreadas,
                   builder: (context, createdSnap) {
                     // Fusionar y deduplicar por doc.id
                     final seen = <String>{};
@@ -828,13 +852,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     }
 
-                    final showTareas = _moduleVisible(
-                      apps,
-                      isDev,
-                      'tareasdashboard',
-                      disabledAppIds,
-                    );
-
                     return HomeShell(
                       userId: cedula,
                       showTareas: showTareas,
@@ -867,6 +884,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               theme,
                               scheme,
                               nombreUsuario,
+                              showTareas,
                             )
                           : _buildMobileHome(
                               cedula,
@@ -878,6 +896,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               theme,
                               scheme,
                               nombreUsuario,
+                              showTareas,
                             ),
                     );
                   },
@@ -901,6 +920,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ThemeData theme,
     ColorScheme scheme,
     String nombre,
+    bool showTareas,
   ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
@@ -931,18 +951,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               Row(
                 children: [
+                  // La campana no depende de ningún módulo: las
+                  // notificaciones las recibe todo el personal.
                   _buildNotificationBell(cedula, userData),
-                  const SizedBox(width: 16),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CreateTaskScreen(currentUserId: cedula),
+                  if (showTareas) ...[
+                    const SizedBox(width: 16),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CreateTaskScreen(currentUserId: cedula),
+                        ),
                       ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Nueva Tarea'),
                     ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Nueva Tarea'),
-                  ),
+                  ],
                 ],
               ),
             ],
@@ -974,9 +999,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     _buildCalendarCard(scheme),
                     const SizedBox(height: 24),
+                    // Sin el módulo de Tareas la agenda del día sigue viva:
+                    // muestra citas y notificaciones, no tareas.
                     SectionHeader(
-                      title:
-                          'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}',
+                      title: showTareas
+                          ? 'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}'
+                          : 'Agenda del ${DateFormat('dd/MM').format(_selectedDay)}',
                     ),
                     const SizedBox(height: 12),
                     _buildSelectedDayTasksCard(cedula, empresaId, userData),
@@ -1001,6 +1029,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ThemeData theme,
     ColorScheme scheme,
     String nombre,
+    bool showTareas,
   ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -1034,17 +1063,20 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildCalendarCard(scheme),
 
           const SizedBox(height: 20),
+          // "Ver todos" abre la bandeja de tareas: solo con el módulo activo.
           SectionHeader(
-            title: 'Pendientes de hoy',
-            trailing: TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AssignedTasksScreen(userId: cedula),
-                ),
-              ),
-              child: const Text('Ver todos'),
-            ),
+            title: showTareas ? 'Pendientes de hoy' : 'Agenda del día',
+            trailing: showTareas
+                ? TextButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AssignedTasksScreen(userId: cedula),
+                      ),
+                    ),
+                    child: const Text('Ver todos'),
+                  )
+                : null,
           ),
           const SizedBox(height: 8),
           _buildSelectedDayTasksCard(cedula, empresaId, userData),
@@ -1074,12 +1106,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (modules.isEmpty) return const SizedBox.shrink();
 
+    // La tarjeta mide icono + dos líneas de título. Con la letra del sistema
+    // en grande esas dos líneas crecen y se salían de una altura fija de 120,
+    // así que la altura acompaña la escala de texto del dispositivo.
+    final escala = MediaQuery.textScalerOf(context).scale(11) / 11;
+    final alto = (108 + 26 * (escala - 1) * 2).clamp(108.0, 168.0);
+
     return SizedBox(
-      height: 120,
+      height: alto,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 2),
         itemCount: modules.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) => modules[index],
       ),
     );

@@ -11,6 +11,7 @@ import 'package:todo/widgets/user_avatar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/task_route_guard.dart';
+import '../core/area_directory.dart';
 
 const Color kBrand = Color(0xFF1E3A8A);
 const String kArial = 'Arial';
@@ -144,6 +145,7 @@ class _HistoryTab extends StatefulWidget {
 class _HistoryTabState extends State<_HistoryTab> {
   final _searchCtrl = TextEditingController();
   String _areaFilter = 'todas';
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   DateTime? _startDate;
   DateTime? _endDate;
   bool _didAutoOpen = false;
@@ -183,10 +185,14 @@ class _HistoryTabState extends State<_HistoryTab> {
         .get();
     if (mounted) {
       setState(() {
-        _areas = {'todas': 'Todas las áreas'};
-        for (var d in snap.docs) {
-          _areas[d.id] = d.data()['nombre'] ?? d.id;
-        }
+        // Una entrada por área real y sin ids crudos en pantalla.
+        _catalogoAreas = AreaCatalogo.desde(
+          snap.docs.map(
+            (d) => (id: d.id, nombre: d.data()['nombre']?.toString()),
+          ),
+          empresaId: _selectedEmpresaId,
+        );
+        _areas = _catalogoAreas.comoMapa();
       });
     }
   }
@@ -224,7 +230,9 @@ class _HistoryTabState extends State<_HistoryTab> {
       if (_searchCtrl.text.isNotEmpty &&
           !title.contains(_searchCtrl.text.toLowerCase()))
         return false;
-      if (_areaFilter != 'todas' && area != _areaFilter) return false;
+      if (!_catalogoAreas.coincide(filtro: _areaFilter, valor: area)) {
+        return false;
+      }
       if (_startDate != null && date != null) {
         if (date.isBefore(_startDate!)) return false;
         if (_endDate != null &&

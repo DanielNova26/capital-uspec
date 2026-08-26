@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 
+import '../utils/user_company.dart';
 import 'personnel_requisition_models.dart';
 
 const personnelTemporaryPassword = '123456';
@@ -328,6 +329,31 @@ class PersonnelRequisitionService {
         'estadoLaboral': 'activo',
         'fechaIngreso': Timestamp.now(),
       });
+
+      // Accesos a módulos elegidos por Talento Humano al contratar.
+      // Contratar solo SUMA: si la persona ya existía con módulos en esta
+      // empresa, los conserva. Quitar accesos se hace en Accesos del personal.
+      final nextApps = normalizeAppIdList([
+        ...extractUserApps(existing, empresaId: current.empresaId),
+        ...hire.apps,
+      ]).ids..sort();
+      company['apps'] = nextApps;
+
+      // Antes de pisar la lista global se congela lo que cada otra empresa
+      // heredaba de ella, para no quitarle módulos a la persona allá.
+      for (final otra in details.keys.toList()) {
+        if (otra == current.empresaId) continue;
+        final raw = details[otra];
+        final bloque = raw is Map
+            ? raw.map((key, value) => MapEntry(key.toString(), value))
+            : <String, dynamic>{};
+        if (bloque['apps'] is List) continue;
+        bloque['apps'] = normalizeAppIdList(
+          extractUserApps(existing, empresaId: otra),
+        ).ids..sort();
+        details[otra] = bloque;
+      }
+
       details[current.empresaId] = company;
 
       transaction.set(userRef, {
@@ -343,6 +369,7 @@ class PersonnelRequisitionService {
         'empresaId': current.empresaId,
         'empresas': companies,
         'empresasDetalle': details,
+        'apps': nextApps,
         'estado': 'activo',
         'estadoLaboral': 'activo',
         'role': existing['role'] ?? 'usuario',

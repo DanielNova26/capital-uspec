@@ -25,6 +25,7 @@ import '../widgets/internal_module_layout.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'interventoria_hallazgo_panel.dart';
+import '../widgets/paged_list.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_tablero_asignacion.dart';
@@ -734,6 +735,9 @@ class _HallazgosTableState extends State<_HallazgosTable> {
   // Track which row is saving (by hallazgo id)
   final Set<String> _saving = {};
 
+  /// Página visible de la tabla (20 filas por página).
+  int _pagina = 0;
+
   @override
   void initState() {
     super.initState();
@@ -856,67 +860,89 @@ class _HallazgosTableState extends State<_HallazgosTable> {
 
   @override
   Widget build(BuildContext context) {
+    // Tabla larga: de a 20 filas con paginador debajo.
+    final maxPagina = pageCountOf(widget.hallazgos.length) - 1;
+    final pagina = _pagina.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(widget.hallazgos, pagina);
+
     return Card(
       child: SingleChildScrollView(
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
-          columns: const [
-            DataColumn(label: Text('N°')),
-            DataColumn(label: Text('Establecimiento')),
-            DataColumn(label: Text('Hallazgo')),
-            DataColumn(label: Text('Fecha del acta')),
-            DataColumn(label: Text('Responsable')),
-            DataColumn(label: Text('Fecha límite')),
-            DataColumn(label: Text('Dpto')),
-            DataColumn(label: Text('Estado')),
-            DataColumn(label: Text('')),
-          ],
-          rows: widget.hallazgos.map((h) {
-            return DataRow(
-              cells: [
-                DataCell(
-                  Text(
-                    h.numeroHallazgo,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                ),
-                DataCell(Text(h.centroCostoNombre)),
-                DataCell(
-                  SizedBox(
-                    width: 320,
-                    child: Text(
-                      h.descripcion,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                DataCell(
-                  Text(DateFormat('dd/MM/yy').format(h.fechaHallazgo.toDate())),
-                ),
-                DataCell(_ResponsableHallazgoCell(hallazgo: h)),
-                DataCell(_VenceHallazgoCell(hallazgo: h)),
-                DataCell(_dptoCell(h)),
-                DataCell(
-                  _EstadoChip(
-                    isSubsanado: h.isSubsanado,
-                    isPendiente: h.isPendienteAprobacion,
-                  ),
-                ),
-                DataCell(
-                  widget.canWrite && h.id.isNotEmpty
-                      ? _AccionesHallazgo(
-                          hallazgo: h,
-                          service: widget.service,
-                          userId: widget.userId,
-                          empresaId: widget.empresaId,
-                          rol: widget.rol,
-                        )
-                      : const SizedBox.shrink(),
-                ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DataTable(
+              headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
+              columns: const [
+                DataColumn(label: Text('N°')),
+                DataColumn(label: Text('Establecimiento')),
+                DataColumn(label: Text('Hallazgo')),
+                DataColumn(label: Text('Fecha del acta')),
+                DataColumn(label: Text('Responsable')),
+                DataColumn(label: Text('Fecha límite')),
+                DataColumn(label: Text('Dpto')),
+                DataColumn(label: Text('Estado')),
+                DataColumn(label: Text('')),
               ],
-            );
-          }).toList(),
+              rows: visibles.map((h) {
+                return DataRow(
+                  cells: [
+                    DataCell(
+                      Text(
+                        h.numeroHallazgo,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                    DataCell(Text(h.centroCostoNombre)),
+                    DataCell(
+                      SizedBox(
+                        width: 320,
+                        child: Text(
+                          h.descripcion,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      Text(
+                        DateFormat('dd/MM/yy').format(h.fechaHallazgo.toDate()),
+                      ),
+                    ),
+                    DataCell(_ResponsableHallazgoCell(hallazgo: h)),
+                    DataCell(_VenceHallazgoCell(hallazgo: h)),
+                    DataCell(_dptoCell(h)),
+                    DataCell(
+                      _EstadoChip(
+                        isSubsanado: h.isSubsanado,
+                        isPendiente: h.isPendienteAprobacion,
+                      ),
+                    ),
+                    DataCell(
+                      widget.canWrite && h.id.isNotEmpty
+                          ? _AccionesHallazgo(
+                              hallazgo: h,
+                              service: widget.service,
+                              userId: widget.userId,
+                              empresaId: widget.empresaId,
+                              rol: widget.rol,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+            if (widget.hallazgos.length > kPageSize)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                child: PagerBar(
+                  total: widget.hallazgos.length,
+                  page: pagina,
+                  etiqueta: 'hallazgos',
+                  onPageChanged: (p) => setState(() => _pagina = p),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -2283,143 +2309,150 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SingleChildScrollView(
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
-              columns: const [
-                DataColumn(label: Text('Departamento')),
-                DataColumn(label: Text('Responsable')),
-                DataColumn(label: Text('Fecha límite')),
-                DataColumn(label: Text('Establecimiento')),
-                DataColumn(label: Text('Estado')),
-                DataColumn(label: Text('Tipo acta')),
-                DataColumn(label: Text('N° Hallazgo')),
-                DataColumn(label: Text('Hallazgo')),
-                DataColumn(label: Text('Fecha del acta')),
-                DataColumn(label: Text('Observaciones')),
-                DataColumn(label: Text('Seguimiento')),
-                DataColumn(label: Text('F. Subsanación')),
-                DataColumn(label: Text('Tarea vinculada')),
-              ],
-              rows: sorted.map((h) {
-                return DataRow(
-                  color: WidgetStateProperty.resolveWith(
-                    (_) => h.isSubsanado
-                        ? _kOk.withValues(alpha: 0.08)
-                        : _kDanger.withValues(alpha: 0.04),
-                  ),
-                  // Tap en la fila → abrir panel de edición de seguimiento
-                  onSelectChanged: h.id.isEmpty
-                      ? null
-                      : (_) => _abrirEdicionSeguimiento(context, h, service),
-                  cells: [
-                    DataCell(
-                      Text(
-                        h.dptoEncargado.trim().isEmpty ? '—' : h.dptoEncargado,
-                        style: TextStyle(
-                          fontWeight: h.dptoEncargado.trim().isEmpty
-                              ? FontWeight.normal
-                              : FontWeight.w600,
-                          color: h.dptoEncargado.trim().isEmpty
-                              ? const Color(0xFF94A3B8)
-                              : _kAccent,
-                        ),
-                      ),
+            child: PagedDataTable(
+              etiqueta: 'hallazgos',
+              tabla: DataTable(
+                headingRowColor: WidgetStateProperty.all(
+                  const Color(0xFFF1F5F9),
+                ),
+                columns: const [
+                  DataColumn(label: Text('Departamento')),
+                  DataColumn(label: Text('Responsable')),
+                  DataColumn(label: Text('Fecha límite')),
+                  DataColumn(label: Text('Establecimiento')),
+                  DataColumn(label: Text('Estado')),
+                  DataColumn(label: Text('Tipo acta')),
+                  DataColumn(label: Text('N° Hallazgo')),
+                  DataColumn(label: Text('Hallazgo')),
+                  DataColumn(label: Text('Fecha del acta')),
+                  DataColumn(label: Text('Observaciones')),
+                  DataColumn(label: Text('Seguimiento')),
+                  DataColumn(label: Text('F. Subsanación')),
+                  DataColumn(label: Text('Tarea vinculada')),
+                ],
+                rows: sorted.map((h) {
+                  return DataRow(
+                    color: WidgetStateProperty.resolveWith(
+                      (_) => h.isSubsanado
+                          ? _kOk.withValues(alpha: 0.08)
+                          : _kDanger.withValues(alpha: 0.04),
                     ),
-                    DataCell(_ResponsableHallazgoCell(hallazgo: h)),
-                    DataCell(_VenceHallazgoCell(hallazgo: h)),
-                    DataCell(Text(h.centroCostoNombre)),
-                    DataCell(
-                      _EstadoChip(
-                        isSubsanado: h.isSubsanado,
-                        isPendiente: h.isPendienteAprobacion,
-                      ),
-                    ),
-                    DataCell(Text(h.tipoActa ?? '')),
-                    DataCell(
-                      Text(
-                        h.numeroHallazgo,
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    DataCell(
-                      SizedBox(
-                        width: 260,
-                        child: Text(
-                          h.descripcion,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    DataCell(Text(fmt.format(h.fechaHallazgo.toDate()))),
-                    // Observaciones: lo que el revisor escribió en el acta
-                    DataCell(
-                      SizedBox(
-                        width: 200,
-                        child: Text(
-                          h.observaciones.trim().isEmpty
+                    // Tap en la fila → abrir panel de edición de seguimiento
+                    onSelectChanged: h.id.isEmpty
+                        ? null
+                        : (_) => _abrirEdicionSeguimiento(context, h, service),
+                    cells: [
+                      DataCell(
+                        Text(
+                          h.dptoEncargado.trim().isEmpty
                               ? '—'
-                              : h.observaciones,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                              : h.dptoEncargado,
                           style: TextStyle(
-                            color: h.observaciones.trim().isEmpty
-                                ? Colors.grey.shade400
-                                : null,
+                            fontWeight: h.dptoEncargado.trim().isEmpty
+                                ? FontWeight.normal
+                                : FontWeight.w600,
+                            color: h.dptoEncargado.trim().isEmpty
+                                ? const Color(0xFF94A3B8)
+                                : _kAccent,
                           ),
                         ),
                       ),
-                    ),
-                    // Seguimiento: notas de seguimiento posteriores
-                    DataCell(
-                      SizedBox(
-                        width: 200,
-                        child: Text(
-                          h.seguimiento.trim().isEmpty
-                              ? 'Toca para agregar…'
-                              : h.seguimiento,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: h.seguimiento.trim().isEmpty
-                                ? Colors.grey.shade400
-                                : null,
-                            fontStyle: h.seguimiento.trim().isEmpty
-                                ? FontStyle.italic
-                                : null,
+                      DataCell(_ResponsableHallazgoCell(hallazgo: h)),
+                      DataCell(_VenceHallazgoCell(hallazgo: h)),
+                      DataCell(Text(h.centroCostoNombre)),
+                      DataCell(
+                        _EstadoChip(
+                          isSubsanado: h.isSubsanado,
+                          isPendiente: h.isPendienteAprobacion,
+                        ),
+                      ),
+                      DataCell(Text(h.tipoActa ?? '')),
+                      DataCell(
+                        Text(
+                          h.numeroHallazgo,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: 260,
+                          child: Text(
+                            h.descripcion,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ),
-                    ),
-                    DataCell(
-                      Text(
-                        h.fechaSubsanacion != null
-                            ? fmt.format(h.fechaSubsanacion!.toDate())
-                            : '',
-                        style: TextStyle(
-                          color: h.fechaSubsanacion == null
-                              ? Colors.grey.shade400
-                              : null,
-                        ),
-                      ),
-                    ),
-                    // Columna: Tarea vinculada
-                    DataCell(
-                      h.tareaId.isEmpty
-                          ? Text(
-                              '—',
-                              style: TextStyle(color: Colors.grey.shade400),
-                            )
-                          : _TareaEstadoMini(
-                              tareaId: h.tareaId,
-                              hallazgoId: h.id,
-                              hallazgoEstado: h.estado,
-                              service: service,
+                      DataCell(Text(fmt.format(h.fechaHallazgo.toDate()))),
+                      // Observaciones: lo que el revisor escribió en el acta
+                      DataCell(
+                        SizedBox(
+                          width: 200,
+                          child: Text(
+                            h.observaciones.trim().isEmpty
+                                ? '—'
+                                : h.observaciones,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: h.observaciones.trim().isEmpty
+                                  ? Colors.grey.shade400
+                                  : null,
                             ),
-                    ),
-                  ],
-                );
-              }).toList(),
+                          ),
+                        ),
+                      ),
+                      // Seguimiento: notas de seguimiento posteriores
+                      DataCell(
+                        SizedBox(
+                          width: 200,
+                          child: Text(
+                            h.seguimiento.trim().isEmpty
+                                ? 'Toca para agregar…'
+                                : h.seguimiento,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: h.seguimiento.trim().isEmpty
+                                  ? Colors.grey.shade400
+                                  : null,
+                              fontStyle: h.seguimiento.trim().isEmpty
+                                  ? FontStyle.italic
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          h.fechaSubsanacion != null
+                              ? fmt.format(h.fechaSubsanacion!.toDate())
+                              : '',
+                          style: TextStyle(
+                            color: h.fechaSubsanacion == null
+                                ? Colors.grey.shade400
+                                : null,
+                          ),
+                        ),
+                      ),
+                      // Columna: Tarea vinculada
+                      DataCell(
+                        h.tareaId.isEmpty
+                            ? Text(
+                                '—',
+                                style: TextStyle(color: Colors.grey.shade400),
+                              )
+                            : _TareaEstadoMini(
+                                tareaId: h.tareaId,
+                                hallazgoId: h.id,
+                                hallazgoEstado: h.estado,
+                                service: service,
+                              ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
             ), // DataTable
           ), // inner SingleChildScrollView
         ), // outer SingleChildScrollView (Axis.horizontal)
@@ -4648,195 +4681,206 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                               child: SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
                                 child: SingleChildScrollView(
-                                  child: DataTable(
-                                    headingRowColor: WidgetStateProperty.all(
-                                      const Color(0xFFF1F5F9),
-                                    ),
-                                    columnSpacing: 16,
-                                    columns: [
-                                      const DataColumn(
-                                        label: Text(
-                                          'SECCIÓN',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 11,
+                                  child: PagedDataTable(
+                                    etiqueta: 'hallazgos',
+                                    tabla: DataTable(
+                                      headingRowColor: WidgetStateProperty.all(
+                                        const Color(0xFFF1F5F9),
+                                      ),
+                                      columnSpacing: 16,
+                                      columns: [
+                                        const DataColumn(
+                                          label: Text(
+                                            'SECCIÓN',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 11,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      // Una columna por VISITA (histórico completo)
-                                      ...visitasParaTabla.map((v) {
-                                        final pdfAdj = v.adjuntos
-                                            .where(
-                                              (a) =>
-                                                  a.contentType.contains(
-                                                    'pdf',
-                                                  ) ||
-                                                  a.nombre
-                                                      .toLowerCase()
-                                                      .endsWith('.pdf'),
-                                            )
-                                            .toList();
-                                        return DataColumn(
-                                          label: SizedBox(
-                                            width: 100,
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  v.centroCostoNombre.isNotEmpty
-                                                      ? v.centroCostoNombre
-                                                      : v.centroCostoCodigo,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    fontSize: 11,
+                                        // Una columna por VISITA (histórico completo)
+                                        ...visitasParaTabla.map((v) {
+                                          final pdfAdj = v.adjuntos
+                                              .where(
+                                                (a) =>
+                                                    a.contentType.contains(
+                                                      'pdf',
+                                                    ) ||
+                                                    a.nombre
+                                                        .toLowerCase()
+                                                        .endsWith('.pdf'),
+                                              )
+                                              .toList();
+                                          return DataColumn(
+                                            label: SizedBox(
+                                              width: 100,
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    v
+                                                            .centroCostoNombre
+                                                            .isNotEmpty
+                                                        ? v.centroCostoNombre
+                                                        : v.centroCostoCodigo,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 11,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                                Text(
-                                                  fmt.format(
-                                                    v.fechaVisita.toDate(),
+                                                  Text(
+                                                    fmt.format(
+                                                      v.fechaVisita.toDate(),
+                                                    ),
+                                                    style: const TextStyle(
+                                                      fontSize: 10,
+                                                      color: Color(0xFF64748B),
+                                                    ),
                                                   ),
-                                                  style: const TextStyle(
-                                                    fontSize: 10,
-                                                    color: Color(0xFF64748B),
-                                                  ),
-                                                ),
-                                                // Icono PDF si la visita tiene adjuntos PDF
-                                                if (pdfAdj.isNotEmpty)
-                                                  InkWell(
-                                                    onTap: () =>
-                                                        _abrirPdfVisita(
-                                                          ctx,
-                                                          pdfAdj.first.url,
-                                                          v.centroCostoNombre,
-                                                          fmt.format(
-                                                            v.fechaVisita
-                                                                .toDate(),
+                                                  // Icono PDF si la visita tiene adjuntos PDF
+                                                  if (pdfAdj.isNotEmpty)
+                                                    InkWell(
+                                                      onTap: () =>
+                                                          _abrirPdfVisita(
+                                                            ctx,
+                                                            pdfAdj.first.url,
+                                                            v.centroCostoNombre,
+                                                            fmt.format(
+                                                              v.fechaVisita
+                                                                  .toDate(),
+                                                            ),
                                                           ),
-                                                        ),
-                                                    child: Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.min,
-                                                      children: [
-                                                        Icon(
-                                                          Icons
-                                                              .picture_as_pdf_rounded,
-                                                          size: 12,
-                                                          color: Colors
-                                                              .red
-                                                              .shade500,
-                                                        ),
-                                                        const SizedBox(
-                                                          width: 2,
-                                                        ),
-                                                        Text(
-                                                          'Ver PDF',
-                                                          style: TextStyle(
-                                                            fontSize: 9,
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Icon(
+                                                            Icons
+                                                                .picture_as_pdf_rounded,
+                                                            size: 12,
                                                             color: Colors
                                                                 .red
                                                                 .shade500,
-                                                            fontWeight:
-                                                                FontWeight.w600,
                                                           ),
-                                                        ),
-                                                      ],
+                                                          const SizedBox(
+                                                            width: 2,
+                                                          ),
+                                                          Text(
+                                                            'Ver PDF',
+                                                            style: TextStyle(
+                                                              fontSize: 9,
+                                                              color: Colors
+                                                                  .red
+                                                                  .shade500,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        }),
+                                      ],
+                                      rows: [
+                                        ...kInterventoriaCategorias.map((cat) {
+                                          return DataRow(
+                                            cells: [
+                                              DataCell(
+                                                SizedBox(
+                                                  width: 200,
+                                                  child: Text(
+                                                    cat.label,
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight:
+                                                          FontWeight.w600,
                                                     ),
                                                   ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      }),
-                                    ],
-                                    rows: [
-                                      ...kInterventoriaCategorias.map((cat) {
-                                        return DataRow(
-                                          cells: [
-                                            DataCell(
-                                              SizedBox(
-                                                width: 200,
-                                                child: Text(
-                                                  cat.label,
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              ...visitasParaTabla.map((v) {
+                                                final item = v.items[cat.key];
+                                                return DataCell(
+                                                  _CeldaPuntaje(
+                                                    item: item,
+                                                    onTap:
+                                                        item != null &&
+                                                            !item.noEvaluado
+                                                        ? () =>
+                                                              _mostrarDetalleCelda(
+                                                                ctx,
+                                                                cat.label,
+                                                                v,
+                                                                cat.key,
+                                                              )
+                                                        : null,
                                                   ),
+                                                );
+                                              }),
+                                            ],
+                                          );
+                                        }),
+                                        // Fila de total
+                                        DataRow(
+                                          color: WidgetStateProperty.all(
+                                            const Color(0xFFF8FAFC),
+                                          ),
+                                          cells: [
+                                            const DataCell(
+                                              Text(
+                                                'Total condiciones del servicio',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 12,
                                                 ),
                                               ),
                                             ),
                                             ...visitasParaTabla.map((v) {
-                                              final item = v.items[cat.key];
+                                              final pct = v.porcentajeGeneral;
+                                              final color = _percentColor(pct);
                                               return DataCell(
-                                                _CeldaPuntaje(
-                                                  item: item,
-                                                  onTap:
-                                                      item != null &&
-                                                          !item.noEvaluado
-                                                      ? () =>
-                                                            _mostrarDetalleCelda(
-                                                              ctx,
-                                                              cat.label,
-                                                              v,
-                                                              cat.key,
-                                                            )
-                                                      : null,
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 3,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: color.withValues(
+                                                      alpha: 0.15,
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          4,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    '${pct.toStringAsFixed(1)}%',
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 12,
+                                                      color: color,
+                                                    ),
+                                                  ),
                                                 ),
                                               );
                                             }),
                                           ],
-                                        );
-                                      }),
-                                      // Fila de total
-                                      DataRow(
-                                        color: WidgetStateProperty.all(
-                                          const Color(0xFFF8FAFC),
                                         ),
-                                        cells: [
-                                          const DataCell(
-                                            Text(
-                                              'Total condiciones del servicio',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ),
-                                          ...visitasParaTabla.map((v) {
-                                            final pct = v.porcentajeGeneral;
-                                            final color = _percentColor(pct);
-                                            return DataCell(
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                      vertical: 3,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: color.withValues(
-                                                    alpha: 0.15,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(4),
-                                                ),
-                                                child: Text(
-                                                  '${pct.toStringAsFixed(1)}%',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w900,
-                                                    fontSize: 12,
-                                                    color: color,
-                                                  ),
-                                                ),
-                                              ),
-                                            );
-                                          }),
-                                        ],
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

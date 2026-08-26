@@ -24,6 +24,7 @@ import '../core/org_context_resolver.dart';
 import '../core/hierarchy_order.dart';
 import '../core/task_assignment_options.dart';
 import '../core/task_contract.dart';
+import '../core/area_directory.dart';
 
 /// ===================== CONFIG =====================
 /// Tu API KEY (debes tener habilitado Static Maps y billing activo)
@@ -345,6 +346,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
   bool _saving = false;
   bool _loadingData = true;
+
+  /// Solo los catálogos (áreas y cargos). Se apaga antes que [_loadingData],
+  /// que además espera el padrón completo de usuarios de la empresa.
+  bool _loadingCatalogos = true;
   bool _bootstrapped = false;
   EmpresaState? _empresaState;
 
@@ -568,7 +573,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _bootstrap() async {
-    if (mounted) setState(() => _loadingData = true);
+    if (mounted) {
+      setState(() {
+        _loadingData = true;
+        _loadingCatalogos = true;
+      });
+    }
     await _ensurePermissions();
     unawaited(_getMyPosition());
 
@@ -583,6 +593,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     // IMPORTANT: primero catálogos, luego usuarios (para poder resolver ids por nombre/código)
     await Future.wait([_loadAreas(), _loadCargos()]);
     _syncCurrentTaskScope();
+    // Área y Cargo ya se pueden elegir: esperar además a que carguen TODOS
+    // los usuarios de la empresa era lo que dejaba "Cargando áreas…" en
+    // pantalla varios segundos.
+    if (mounted) setState(() => _loadingCatalogos = false);
 
     try {
       await _loadUsuarios();
@@ -710,18 +724,21 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         final qs = await baseRef.limit(1000).get();
         docs.addAll(qs.docs);
       } else {
-        try {
-          final qs = await baseRef
+        final resultados = await Future.wait([
+          baseRef
               .where('empresas', arrayContains: scopedEmpresaId)
-              .get();
-          docs.addAll(qs.docs);
-        } catch (_) {}
-        try {
-          final qs = await baseRef
+              .get()
+              .then<QuerySnapshot<Map<String, dynamic>>?>((v) => v)
+              .catchError((_) => null),
+          baseRef
               .where('empresaId', isEqualTo: scopedEmpresaId)
-              .get();
-          docs.addAll(qs.docs);
-        } catch (_) {}
+              .get()
+              .then<QuerySnapshot<Map<String, dynamic>>?>((v) => v)
+              .catchError((_) => null),
+        ]);
+        for (final qs in resultados) {
+          if (qs != null) docs.addAll(qs.docs);
+        }
       }
 
       final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -817,24 +834,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       return snap.docs;
     }
 
-    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    try {
-      final snap = await col
-          .where('empresas', arrayContains: scopedEmpresaId)
-          .limit(limit)
-          .get();
-      docs.addAll(snap.docs);
-    } catch (_) {}
+    // Firestore no admite OR entre campos distintos, así que hay que preguntar
+    // por cada forma en que una colección declara su empresa. En serie eran
+    // cuatro viajes de red encadenados por catálogo (y por eso "Área" tardaba
+    // en habilitarse); en paralelo cuesta lo que el más lento.
+    final consultas = <Future<QuerySnapshot<Map<String, dynamic>>>>[
+      col.where('empresas', arrayContains: scopedEmpresaId).limit(limit).get(),
+      for (final k in const ['empresaId', 'empresa_id', 'empresa'])
+        col.where(k, isEqualTo: scopedEmpresaId).limit(limit).get(),
+    ];
 
-    const keys = ['empresaId', 'empresa_id', 'empresa'];
-    for (final k in keys) {
-      try {
-        final snap = await col
-            .where(k, isEqualTo: scopedEmpresaId)
-            .limit(limit)
-            .get();
-        docs.addAll(snap.docs);
-      } catch (_) {}
+    final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final resultados = await Future.wait(
+      // Un campo inexistente en la colección no es un error, pero una regla o
+      // un índice sí: si una falla, las demás igual sirven.
+      consultas.map(
+        (f) => f
+            .then<QuerySnapshot<Map<String, dynamic>>?>((v) => v)
+            .catchError((_) => null),
+      ),
+    );
+    for (final snap in resultados) {
+      if (snap != null) docs.addAll(snap.docs);
     }
 
     final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -857,33 +878,35 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _loadAreas() async {
     final docs = await _queryByEmpresa(kCollAreas, limit: 1000);
 
-    _areas =
-        docs
-            .map((d) {
-              final m = d.data();
-              if (!_empresaCoincide(m)) return null;
-              final id =
-                  (_firstNonEmpty(m, const [
-                    'areaId',
-                    'area_id',
-                  ]).trim().isEmpty)
-                  ? d.id
-                  : _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
-              final nombre = (m['nombre'] ?? '—').toString().trim();
-              final centroId =
-                  (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '')
-                      .toString()
-                      .trim();
-              return {
-                'id': id,
-                'nombre': nombre.isEmpty ? '—' : nombre,
-                'centroId': centroId,
-              };
-            })
-            .whereType<Map<String, String>>()
-            .where((m) => (m['id'] ?? '').toString().trim().isNotEmpty)
-            .toList()
-          ..sort((a, b) => (a['nombre'] ?? '').compareTo(b['nombre'] ?? ''));
+    // Centro de costos por id de área, para conservarlo tras deduplicar.
+    final centroPorArea = <String, String>{};
+    final crudas = <({String id, String? nombre})>[];
+    for (final d in docs) {
+      final m = d.data();
+      if (!_empresaCoincide(m)) continue;
+      final rawId = _firstNonEmpty(m, const ['areaId', 'area_id']).trim();
+      final id = rawId.isEmpty ? d.id : rawId;
+      if (id.isEmpty) continue;
+      final centroId = (m['centroId'] ?? m['centro_id'] ?? m['centro'] ?? '')
+          .toString()
+          .trim();
+      if (centroId.isNotEmpty) centroPorArea[id] = centroId;
+      crudas.add((id: id, nombre: m['nombre']?.toString()));
+    }
+
+    // Un área sin `nombre` mostraba su id crudo, y la misma área registrada
+    // dos veces salía repetida en el desplegable.
+    _areas = areasUnicas(crudas, empresaId: _empresaId)
+        .map(
+          (a) => {
+            'id': a.id,
+            'nombre': a.nombre,
+            'centroId': a.ids
+                .map((id) => centroPorArea[id] ?? '')
+                .firstWhere((c) => c.isNotEmpty, orElse: () => ''),
+          },
+        )
+        .toList();
 
     // Fallback: solo si TBL_AREAS está vacío
     if (_areas.isEmpty) {
@@ -923,20 +946,23 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         final qs = await col.limit(1000).get();
         docs.addAll(qs.docs);
       } else {
-        try {
-          final snap = await col
+        final resultados = await Future.wait([
+          col
               .where('empresaId', isEqualTo: scopedEmpresaId)
               .limit(1000)
-              .get();
-          docs.addAll(snap.docs);
-        } catch (_) {}
-        try {
-          final snap = await col
+              .get()
+              .then<QuerySnapshot<Map<String, dynamic>>?>((v) => v)
+              .catchError((_) => null),
+          col
               .where('empresas', arrayContains: scopedEmpresaId)
               .limit(1000)
-              .get();
-          docs.addAll(snap.docs);
-        } catch (_) {}
+              .get()
+              .then<QuerySnapshot<Map<String, dynamic>>?>((v) => v)
+              .catchError((_) => null),
+        ]);
+        for (final snap in resultados) {
+          if (snap != null) docs.addAll(snap.docs);
+        }
       }
 
       final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -2012,7 +2038,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             labelText: 'Área',
                             border: const OutlineInputBorder(),
                             prefixIcon: const Icon(Icons.account_tree_outlined),
-                            helperText: _loadingData
+                            helperText: _loadingCatalogos
                                 ? 'Cargando áreas…'
                                 : areasDisponibles.isEmpty
                                 ? 'No hay áreas disponibles para tu usuario.'
@@ -2030,7 +2056,8 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                 ),
                               )
                               .toList(),
-                          onChanged: _loadingData || areasDisponibles.isEmpty
+                          onChanged:
+                              _loadingCatalogos || areasDisponibles.isEmpty
                               ? null
                               : (v) {
                                   setState(() {
@@ -2040,7 +2067,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                                   });
                                 },
                           validator: (v) {
-                            if (_loadingData) return null;
+                            if (_loadingCatalogos) return null;
                             if (areasDisponibles.isEmpty) {
                               return 'No hay áreas disponibles para tu usuario';
                             }

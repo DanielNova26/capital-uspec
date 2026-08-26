@@ -6,8 +6,13 @@ import 'package:intl/intl.dart';
 
 import '../home/widgets/home_shared_widgets.dart';
 import '../widgets/internal_module_layout.dart';
+import '../core/app_catalog.dart';
+import '../utils/user_company.dart';
+import 'personnel_access_picker.dart';
+import 'personnel_access_service.dart';
 import 'personnel_requisition_models.dart';
 import 'personnel_requisition_service.dart';
+import '../widgets/paged_list.dart';
 
 const _primary = Color(0xFFC28942);
 const _navy = Color(0xFF173B5E);
@@ -34,6 +39,7 @@ class PersonnelRequisitionScreen extends StatefulWidget {
 class _PersonnelRequisitionScreenState
     extends State<PersonnelRequisitionScreen> {
   final _service = PersonnelRequisitionService();
+  final _accessService = PersonnelAccessService();
   final _searchController = TextEditingController();
   final _horizontalTableController = ScrollController();
   late Future<PersonnelRequisitionAccess> _accessFuture;
@@ -573,67 +579,72 @@ class _PersonnelRequisitionScreenState
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.only(bottom: 18),
                   child: SingleChildScrollView(
-                    child: DataTable(
-                      showCheckboxColumn: false,
-                      headingRowColor: WidgetStateProperty.all(
-                        const Color(0xFFF4F7FA),
+                    child: PagedDataTable(
+                      etiqueta: 'solicitudes',
+                      tabla: DataTable(
+                        showCheckboxColumn: false,
+                        headingRowColor: WidgetStateProperty.all(
+                          const Color(0xFFF4F7FA),
+                        ),
+                        columns: const [
+                          DataColumn(label: Text('Tiempo')),
+                          DataColumn(label: Text('Estado')),
+                          DataColumn(label: Text('Fecha')),
+                          DataColumn(label: Text('Establecimiento')),
+                          DataColumn(label: Text('Anexo')),
+                          DataColumn(label: Text('Cargo')),
+                          DataColumn(label: Text('Cant.')),
+                          DataColumn(label: Text('Salario')),
+                          DataColumn(label: Text('Etapa')),
+                          DataColumn(label: Text('Avance')),
+                        ],
+                        rows: rows.map((row) {
+                          final selected = row.id == _selected?.id;
+                          return DataRow(
+                            selected: selected,
+                            onSelectChanged: (_) =>
+                                setState(() => _selected = row),
+                            cells: [
+                              DataCell(_TrafficBadge(requisition: row)),
+                              DataCell(
+                                Text(row.isClosed ? 'Cerrada' : 'Abierta'),
+                              ),
+                              DataCell(Text(_shortDate(row.requestDate))),
+                              DataCell(
+                                SizedBox(
+                                  width: 130,
+                                  child: Text(
+                                    row.establishment,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                              DataCell(_AnnexBadge(isRequired: row.annex)),
+                              DataCell(
+                                SizedBox(
+                                  width: 190,
+                                  child: Text(
+                                    row.position,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                              DataCell(Text('${row.quantity}')),
+                              DataCell(
+                                Text(
+                                  row.salary == null
+                                      ? '—'
+                                      : formatter.format(row.salary),
+                                ),
+                              ),
+                              DataCell(_StageBadge(stage: row.stage)),
+                              DataCell(
+                                Text('${row.hiredCount}/${row.quantity}'),
+                              ),
+                            ],
+                          );
+                        }).toList(),
                       ),
-                      columns: const [
-                        DataColumn(label: Text('Tiempo')),
-                        DataColumn(label: Text('Estado')),
-                        DataColumn(label: Text('Fecha')),
-                        DataColumn(label: Text('Establecimiento')),
-                        DataColumn(label: Text('Anexo')),
-                        DataColumn(label: Text('Cargo')),
-                        DataColumn(label: Text('Cant.')),
-                        DataColumn(label: Text('Salario')),
-                        DataColumn(label: Text('Etapa')),
-                        DataColumn(label: Text('Avance')),
-                      ],
-                      rows: rows.map((row) {
-                        final selected = row.id == _selected?.id;
-                        return DataRow(
-                          selected: selected,
-                          onSelectChanged: (_) =>
-                              setState(() => _selected = row),
-                          cells: [
-                            DataCell(_TrafficBadge(requisition: row)),
-                            DataCell(
-                              Text(row.isClosed ? 'Cerrada' : 'Abierta'),
-                            ),
-                            DataCell(Text(_shortDate(row.requestDate))),
-                            DataCell(
-                              SizedBox(
-                                width: 130,
-                                child: Text(
-                                  row.establishment,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            DataCell(_AnnexBadge(isRequired: row.annex)),
-                            DataCell(
-                              SizedBox(
-                                width: 190,
-                                child: Text(
-                                  row.position,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                            DataCell(Text('${row.quantity}')),
-                            DataCell(
-                              Text(
-                                row.salary == null
-                                    ? '—'
-                                    : formatter.format(row.salary),
-                              ),
-                            ),
-                            DataCell(_StageBadge(stage: row.stage)),
-                            DataCell(Text('${row.hiredCount}/${row.quantity}')),
-                          ],
-                        );
-                      }).toList(),
                     ),
                   ),
                 ),
@@ -1083,9 +1094,31 @@ class _PersonnelRequisitionScreenState
   }
 
   Future<void> _registerHire(PersonnelRequisition row) async {
+    // El catálogo se resuelve contra la empresa de la requisición, no contra
+    // la empresa activa de la sesión: la contratación pertenece a esa empresa.
+    List<AppCatalogEntry> modulos = const <AppCatalogEntry>[];
+    try {
+      modulos = _accessService.modulosDisponibles(
+        await _accessService.disabledAppIds(row.empresaId),
+      );
+    } catch (_) {
+      // Sin catálogo se contrata igual; los accesos se ajustan después en
+      // Accesos del personal.
+    }
+    if (!mounted) return;
     final hire = await showDialog<PersonnelHire>(
       context: context,
-      builder: (_) => const _HireDialog(),
+      builder: (_) => _HireDialog(
+        modulos: modulos,
+        appsIniciales: modulos
+            .where(
+              (m) => kDefaultPersonnelApps.any(
+                (id) => appIdsEquivalent(id, m.appId),
+              ),
+            )
+            .map((m) => m.appId)
+            .toSet(),
+      ),
     );
     if (hire == null) return;
     setState(() => _busy = true);
@@ -1741,7 +1774,13 @@ class _StageDialogState extends State<_StageDialog> {
 }
 
 class _HireDialog extends StatefulWidget {
-  const _HireDialog();
+  /// Módulos que Talento Humano puede otorgar en la empresa activa.
+  final List<AppCatalogEntry> modulos;
+
+  /// Preselección (por defecto, lo mínimo con lo que arranca alguien nuevo).
+  final Set<String> appsIniciales;
+
+  const _HireDialog({required this.modulos, required this.appsIniciales});
 
   @override
   State<_HireDialog> createState() => _HireDialogState();
@@ -1755,6 +1794,7 @@ class _HireDialogState extends State<_HireDialog> {
   final _email = TextEditingController();
   final _phone = TextEditingController();
   String _documentType = 'CC';
+  late Set<String> _apps = {...widget.appsIniciales};
 
   @override
   void dispose() {
@@ -1839,6 +1879,7 @@ class _HireDialogState extends State<_HireDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+                _accesosSection(),
               ],
             ),
           ),
@@ -1853,6 +1894,24 @@ class _HireDialogState extends State<_HireDialog> {
           onPressed: _save,
           icon: const Icon(Icons.person_add_alt_1_rounded),
           label: const Text('Registrar y crear usuario'),
+        ),
+      ],
+    );
+  }
+
+  Widget _accesosSection() {
+    if (widget.modulos.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 20),
+        const Divider(),
+        const SizedBox(height: 8),
+        PersonnelAccessPicker(
+          densa: true,
+          seleccion: _apps,
+          modulos: widget.modulos,
+          onChanged: (next) => setState(() => _apps = next),
         ),
       ],
     );
@@ -1880,6 +1939,7 @@ class _HireDialogState extends State<_HireDialog> {
         surnames: _surnames.text.trim(),
         email: _email.text.trim(),
         phone: _phone.text.trim(),
+        apps: _apps.toList(),
       ),
     );
   }
