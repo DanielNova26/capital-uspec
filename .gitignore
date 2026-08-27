@@ -47,3 +47,9 @@ app.*.map.json
 
 # Cache local de despliegues de Firebase Hosting
 .firebase/
+
+# Secretos de Cloud Functions: NUNCA se versionan
+functions/.env
+.env
+*.env
+!*.env.example
