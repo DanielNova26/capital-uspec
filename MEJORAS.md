@@ -5,6 +5,67 @@ Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
+## Política de versiones (leer antes de tocar `version:` en pubspec.yaml)
+
+Las dos plataformas leen la versión de **un solo sitio**: `version: X.Y.Z+N` en
+`pubspec.yaml`.
+
+- Android: `versionName` y `versionCode` salen de `flutter.versionName` /
+  `flutter.versionCode` en `android/app/build.gradle.kts`.
+- iOS: `CFBundleShortVersionString` y `CFBundleVersion` usan
+  `$(FLUTTER_BUILD_NAME)` y `$(FLUTTER_BUILD_NUMBER)` en `ios/Runner/Info.plist`.
+
+Estaban hardcodeadas a `2.3` en el Info.plist, lo que obligaba a editar el
+archivo a mano en cada release. Se corrigió.
+
+### Por qué la versión arranca en 2.4.0 y no en 1.0.0
+
+La app **ya existía en App Store Connect** con bundle ID
+`com.capitaluspec.gestionapp`, bajo el nombre "To-Do", con este historial:
+
+| Versión | Estado | Fecha |
+|---|---|---|
+| 2.1 | Listo para distribución | 21 feb 2026 |
+| 1.1 | Listo para distribución | 11 dic 2025 |
+
+Las versiones de App Store **solo pueden subir**. Un build 1.0.0 sobre un
+linaje que ya llegó a 2.1 lo rechaza Apple automáticamente. Por eso el punto de
+unificación tuvo que quedar por encima de 2.1, no en 1.0.0.
+
+Se eligió 2.4.0 y no 2.2 por margen: el Info.plist tenía 2.3 hardcodeado, lo que
+sugiere que en algún momento se preparó un build con ese número. Si un
+`versión + build` llegó a subirse alguna vez a App Store Connect, ese par queda
+consumido aunque nunca se publicara.
+
+Android no tiene problema con el salto: su `versionName` es texto libre y puede
+pasar de 1.0.0 a 2.4.0 sin más. Lo único que Play exige es que el `versionCode`
+aumente siempre.
+
+### Códigos ya consumidos
+
+- **Play**: 1, 2, 3 y 4. El 3 quedó publicado en prueba cerrada Alpha.
+- **App Store**: versiones 1.1 y 2.1 publicadas.
+
+Ninguno se puede reutilizar en ninguna de las dos tiendas.
+
+### No borrar la app de App Store Connect para "empezar limpio"
+
+Apple **nunca libera un bundle ID** que ya estuvo asociado a una app, aunque se
+borre. `com.capitaluspec.gestionapp` quedaría inutilizable para siempre. Y una
+app ya aprobada no se puede eliminar del todo: se retira de la venta, pero el
+registro, las reseñas y el historial se pierden sin recuperar el identificador.
+
+### Los bundle ID de las dos tiendas son distintos, y está bien
+
+- Android: `com.todogestion.app`
+- iOS: `com.capitaluspec.gestionapp`
+
+Son espacios de nombres independientes. Lo que importa es que cada uno sea
+consistente consigo mismo: en iOS, que coincidan Xcode, `GoogleService-Info.plist`
+y `firebase_options.dart`, que es el caso.
+
+---
+
 ## Sesión 2026-08-27 — La barra de scroll horizontal no va en móvil
 
 Reporte con capturas del teléfono: salía una barra gris **atravesada sobre el
