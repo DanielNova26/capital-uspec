@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../theme/app_scroll_behavior.dart' show BarraHorizontal;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
@@ -1063,7 +1064,7 @@ class _PeopleReviewTable extends StatelessWidget {
   }
 
   Widget _buildTable(BuildContext context) {
-    return Scrollbar(
+    return BarraHorizontal(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
@@ -1263,7 +1264,7 @@ class _CatalogReviewTable extends StatelessWidget {
       return const Center(child: Text('No hay datos para revisar.'));
     }
 
-    return Scrollbar(
+    return BarraHorizontal(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
@@ -1360,7 +1361,7 @@ class _PreviewTable extends StatelessWidget {
       ..sort((a, b) => (freq[b] ?? 0).compareTo(freq[a] ?? 0));
     final display = cols.take(10).toList();
 
-    return Scrollbar(
+    return BarraHorizontal(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: ConstrainedBox(

@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import '../theme/app_scroll_behavior.dart' show BarraHorizontal;
 import 'package:flutter/services.dart' show FilteringTextInputFormatter;
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -2307,7 +2308,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
     );
 
     final dataTableCard = Card(
-      child: Scrollbar(
+      child: BarraHorizontal(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SingleChildScrollView(
@@ -4680,7 +4681,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                     final matrizCard = visitasParaTabla.isEmpty
                         ? const Center(child: Text('Sin visitas registradas'))
                         : Card(
-                            child: Scrollbar(
+                            child: BarraHorizontal(
                               child: SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
                                 child: SingleChildScrollView(

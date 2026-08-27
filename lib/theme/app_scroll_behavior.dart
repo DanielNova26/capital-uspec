@@ -16,9 +16,60 @@
 // El eje vertical conserva el comportamiento de la plataforma: barra en
 // escritorio/web y la indicación efímera de siempre en móvil, para no llenar
 // cada lista del teléfono de barras permanentes.
+//
+// Y lo horizontal solo lleva barra donde hay puntero. En un teléfono el dedo
+// ya desliza la fila, así que la barra no informa nada y encima queda pintada
+// sobre las tarjetas: es lo que se veía atravesado en Home, Requerimientos y
+// las pestañas de los módulos.
 
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
+
+/// Decide si una fila con scroll horizontal debe mostrar barra.
+///
+/// Se resuelve por plataforma, no por `kIsWeb`, y eso cubre los dos casos de
+/// una sola vez: Flutter web en un escritorio reporta windows/macOS/linux
+/// (lleva barra), y en el navegador de un teléfono reporta android/iOS (no la
+/// lleva), igual que la app nativa.
+bool usaBarraHorizontal(BuildContext context) {
+  switch (Theme.of(context).platform) {
+    case TargetPlatform.linux:
+    case TargetPlatform.macOS:
+    case TargetPlatform.windows:
+      return true;
+    case TargetPlatform.android:
+    case TargetPlatform.iOS:
+    case TargetPlatform.fuchsia:
+      return false;
+  }
+}
+
+/// Envoltorio para los scroll horizontales que ya traían `Scrollbar` a mano.
+/// En escritorio se comporta igual que antes; en móvil desaparece y deja que
+/// `AppScrollBehavior` decida (que allí es: ninguna barra).
+class BarraHorizontal extends StatelessWidget {
+  final ScrollController? controller;
+  final bool thumbVisibility;
+  final Widget child;
+
+  const BarraHorizontal({
+    super.key,
+    this.controller,
+    this.thumbVisibility = false,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!usaBarraHorizontal(context)) return child;
+    return Scrollbar(
+      controller: controller,
+      thumbVisibility: thumbVisibility,
+      interactive: true,
+      child: child,
+    );
+  }
+}
 
 class AppScrollBehavior extends MaterialScrollBehavior {
   const AppScrollBehavior();
@@ -42,7 +93,9 @@ class AppScrollBehavior extends MaterialScrollBehavior {
     final esHorizontal =
         details.direction == AxisDirection.left ||
         details.direction == AxisDirection.right;
-    if (!esHorizontal) {
+    // En móvil `super` devuelve el hijo tal cual para el eje horizontal, que
+    // es justo lo que queremos: ninguna barra.
+    if (!esHorizontal || !usaBarraHorizontal(context)) {
       return super.buildScrollbar(context, child, details);
     }
 

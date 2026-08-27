@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_scroll_behavior.dart' show usaBarraHorizontal;
 import '../theme/app_typography.dart';
 import '../home/home_screen.dart';
 
@@ -382,6 +383,19 @@ class _InternalModuleTabsState extends State<InternalModuleTabs> {
     );
   }
 
+  /// La barra solo aporta donde hay puntero: avisa que quedan pestañas y se
+  /// puede arrastrar con el mouse. En un teléfono quedaba dibujada encima de
+  /// las propias pestañas. Las flechas laterales siguen en ambos casos.
+  Widget _conBarra({required Widget child}) {
+    if (!usaBarraHorizontal(context)) return child;
+    return Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: _canScrollBack || _canScrollForward,
+      interactive: true,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -398,10 +412,7 @@ class _InternalModuleTabsState extends State<InternalModuleTabs> {
             tooltip: 'Ver opciones anteriores',
           ),
           Expanded(
-            child: Scrollbar(
-              controller: _scrollController,
-              thumbVisibility: _canScrollBack || _canScrollForward,
-              interactive: true,
+            child: _conBarra(
               child: SingleChildScrollView(
                 controller: _scrollController,
                 scrollDirection: Axis.horizontal,

@@ -5,6 +5,63 @@ Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
+## Sesión 2026-08-27 — La barra de scroll horizontal no va en móvil
+
+Reporte con capturas del teléfono: salía una barra gris **atravesada sobre el
+contenido** — encima de las tarjetas de resumen de Requerimientos de personal,
+encima del módulo "Administración" en Home y encima de las pestañas de
+Nutrición.
+
+Corrige el alcance de lo que hizo la sesión del 2026-08-25 (ronda 3), que
+introdujo las barras de scroll. La barra horizontal es una ayuda de puntero:
+avisa que hay más columnas y deja agarrar la fila con el mouse. Con el dedo no
+informa nada, y como se dibuja dentro del área del scroll, en filas bajas queda
+pintada sobre las tarjetas.
+
+### Dos orígenes distintos
+
+**1. `AppScrollBehavior`** forzaba `Scrollbar` en *todo* scroll horizontal, sin
+mirar la plataforma. De ahí salían Home y Requerimientos, que son `ListView`
+horizontales normales. Ahora en móvil delega en `super`, que para el eje
+horizontal devuelve el hijo tal cual: ninguna barra.
+
+**2. `internal_module_layout.dart`** tenía su propio `Scrollbar` con
+`thumbVisibility` para la fila de pestañas — un widget explícito que el
+`ScrollBehavior` no puede interceptar. Se envuelve condicionalmente. Las
+flechas laterales `‹ ›` se conservan en ambas plataformas.
+
+### La regla se decide por plataforma, no por `kIsWeb`
+
+`usaBarraHorizontal(context)` mira `Theme.of(context).platform`. Eso resuelve
+los dos casos de una sola vez: Flutter web en un escritorio reporta
+windows/macOS/linux y lleva barra; en el navegador de un teléfono reporta
+android/iOS y no la lleva, igual que la app nativa. Con `kIsWeb` la web móvil
+habría seguido rota.
+
+### Limpieza de paso
+
+CLAUDE.md ya dice que no hay que envolver tablas en `Scrollbar` a mano, pero
+quedaban 5 sitios que sí lo hacían (3 en `seed_admin_screen`, 2 en
+`interventoria_dashboard_screen`). No forzaban `thumbVisibility`, así que solo
+asomaban al deslizar, pero en móvil incumplían igual. Pasan a `BarraHorizontal`,
+que en escritorio se comporta idéntico y en móvil desaparece.
+
+Los dos `Scrollbar` de `rutas_dashboard_screen` **no se tocaron**: envuelven
+scroll vertical, donde la barra sí corresponde.
+
+### Verificación
+`test/app_scroll_behavior_test.dart`, 7 casos: móvil sin barra, escritorio con
+barra, el eje vertical intacto, y `BarraHorizontal` en ambos sentidos. Suite
+completa en verde (296 tests).
+
+### Archivos
+- `lib/theme/app_scroll_behavior.dart` — `usaBarraHorizontal`, `BarraHorizontal`,
+  gate en `buildScrollbar`
+- `lib/widgets/internal_module_layout.dart` — `_conBarra`
+- `lib/admin/seed_admin_screen.dart`, `lib/interventoria/interventoria_dashboard_screen.dart`
+- `test/app_scroll_behavior_test.dart` (nuevo)
+
+---
 ## Sesión 2026-08-27 — `BuildContext` después de un `await`: los 41 avisos que sí eran crashes
 
 De los 222 avisos que dejó la limpieza de lint del commit `9c5d134`, estos 41

@@ -24,10 +24,17 @@ Ningún listado se pinta completo. Se usa `lib/widgets/paged_list.dart`:
 `kPageSize = 20` es el tamaño único; no se define otro por pantalla. La barra
 de páginas solo aparece cuando hay más de una página.
 
-### 2. Todo scroll horizontal lleva barra visible
+### 2. Scroll horizontal con barra solo donde hay puntero
 Lo resuelve `AppScrollBehavior` (`lib/theme/app_scroll_behavior.dart`),
 registrado en el `MaterialApp`. No hay que envolver tablas en `Scrollbar` a
 mano: ya viene, y además el mouse puede arrastrar la tabla.
+
+La barra **horizontal** solo se pinta en plataformas de puntero (Windows,
+macOS, Linux, y Flutter web sobre escritorio). En Android e iOS el dedo ya
+desliza la fila, la barra no informa nada y queda pintada encima de las
+tarjetas. Se decide con `usaBarraHorizontal(context)`, que resuelve por
+`Theme.of(context).platform` y no por `kIsWeb`: así el navegador de un
+teléfono se comporta como la app nativa. La barra vertical no cambia.
 
 ### 3. Áreas: nunca un id crudo ni repetidas
 Toda lista de áreas pasa por `lib/core/area_directory.dart`
