@@ -793,6 +793,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final resolvedEmpresaId = await empresaState.reconcileForUserData(
         data,
         preferredEmpresaId: selectedEmpresaId,
+        // La empresa que se acaba de elegir manda sobre la que quedó guardada
+        // de la sesión anterior.
+        eleccionExplicita: true,
       );
       if (resolvedEmpresaId == null || resolvedEmpresaId.isEmpty) {
         setState(() {

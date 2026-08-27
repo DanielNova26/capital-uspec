@@ -13,6 +13,11 @@ import 'package:file_saver/file_saver.dart';
 import '../core/hierarchy_order.dart';
 import '../widgets/internal_module_layout.dart';
 import 'personnel_access_picker.dart';
+import 'personnel_requisition_service.dart'
+    show
+        personnelAccessCredentials,
+        personnelNeedsTemporaryPassword,
+        personnelTemporaryPassword;
 import 'personnel_access_service.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/user_company.dart';
@@ -1985,6 +1990,9 @@ class _OrganizationalStructureScreenState
                   'estadoLaboral',
                 ];
                 final userData = userSnap.data() ?? const <String, dynamic>{};
+                final asignaClaveTemporal =
+                    !userSnap.exists ||
+                    personnelNeedsTemporaryPassword(userData);
                 final detalle = <String, dynamic>{
                   for (final key in scopedKeys)
                     key: payload[key == 'estadoLaboral' ? 'estado' : key] ?? '',
@@ -2009,6 +2017,14 @@ class _OrganizationalStructureScreenState
                       userUpdate[key] = value;
                     }
                   });
+                  // Cuentas creadas antes, que quedaron sin forma de entrar:
+                  // se les asigna la temporal. A quien ya ingresó alguna vez
+                  // no se le toca la clave (ver personnelNeedsTemporaryPassword).
+                  if (personnelNeedsTemporaryPassword(userData)) {
+                    userUpdate.addAll(
+                      personnelAccessCredentials(const <String, dynamic>{}),
+                    );
+                  }
                   batch.update(userRef, userUpdate);
                 } else {
                   // set() NO interpreta los puntos, así que va anidado.
@@ -2025,12 +2041,14 @@ class _OrganizationalStructureScreenState
                     'empresasDetalle': {widget.empresaId: detalle},
                     for (final entry in detalle.entries)
                       if (entry.key != 'estadoLaboral') entry.key: entry.value,
-                    // `estado` global controla el login. Se crea activo pero
-                    // SIN password: el acceso lo habilita Admin al asignarla.
+                    // `estado` global controla el login.
                     'estado': 'activo',
-                    'needsPasswordChange': true,
                     'createdAt': FieldValue.serverTimestamp(),
                     'updatedAt': FieldValue.serverTimestamp(),
+                    // Contraseña temporal para que la persona pueda entrar
+                    // el mismo día, igual que al registrar una contratación.
+                    // La cambia en su primer ingreso.
+                    ...personnelAccessCredentials(const <String, dynamic>{}),
                   }, SetOptions(merge: true));
                 }
                 batch.set(
@@ -2092,7 +2110,20 @@ class _OrganizationalStructureScreenState
                     );
                   }
                 }
-                if (mounted) Navigator.pop(context);
+                if (!mounted) return;
+                if (asignaClaveTemporal) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      duration: const Duration(seconds: 8),
+                      content: Text(
+                        'Colaborador guardado. Usuario: $id · '
+                        'Contraseña temporal: $personnelTemporaryPassword. '
+                        'Debe cambiarla al ingresar.',
+                      ),
+                    ),
+                  );
+                }
+                Navigator.pop(context);
               },
               child: Text(
                 isNew ? 'Crear' : 'Guardar',

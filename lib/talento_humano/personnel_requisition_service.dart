@@ -8,11 +8,28 @@ import 'personnel_requisition_models.dart';
 
 const personnelTemporaryPassword = '123456';
 
+/// ¿Hay que darle contraseña temporal a esta persona?
+///
+/// No la necesita quien ya ingresó al menos una vez: en el primer ingreso el
+/// backend migra la clave a `TBL_AUTH_CREDENTIALS` (cifrada), **borra** el
+/// campo `password` del usuario y marca `authVersion: 2`. Sin mirar ese
+/// marcador, "sin password" parecería una cuenta sin acceso y le pediríamos
+/// cambiar una clave que ya tiene.
+bool personnelNeedsTemporaryPassword(Map<String, dynamic> existing) {
+  final migrado = (existing['authVersion'] as num?)?.toInt() == 2;
+  if (migrado) return false;
+  return (existing['password'] ?? '').toString().trim().isEmpty;
+}
+
+/// Credenciales de acceso al crear o vincular a una persona.
+///
+/// Nunca pisa una contraseña existente: solo asigna la temporal cuando la
+/// cuenta todavía no tiene forma de entrar.
 Map<String, dynamic> personnelAccessCredentials(Map<String, dynamic> existing) {
-  final currentPassword = (existing['password'] ?? '').toString().trim();
-  if (currentPassword.isNotEmpty) {
+  if (!personnelNeedsTemporaryPassword(existing)) {
+    final currentPassword = (existing['password'] ?? '').toString().trim();
     return {
-      'password': existing['password'],
+      if (currentPassword.isNotEmpty) 'password': existing['password'],
       'needsPasswordChange': existing['needsPasswordChange'] == true,
     };
   }

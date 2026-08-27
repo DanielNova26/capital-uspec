@@ -6,6 +6,47 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Sesión 2026-08-26 — Clave temporal al agregar personal y empresa elegida en el login
+
+### 1. "Agregar colaborador" no dejaba entrar a la persona
+
+El alta desde Talento Humano › Gestión de personal creaba el usuario **sin
+contraseña**, a propósito ("el acceso lo habilita Admin al asignarla"). Las
+otras dos vías sí la asignan: la contratación desde Requerimientos y la carga
+por Excel ponen `123456` + `needsPasswordChange`. Resultado: la persona quedaba
+registrada pero sin poder ingresar, y sin ninguna señal de por qué.
+
+- El alta ahora usa `personnelAccessCredentials`, igual que la contratación:
+  usuario = cédula, contraseña temporal `123456`, obligada a cambiarla al
+  entrar. Al guardar se muestra un aviso con esos datos para poder dictárselos.
+- A las cuentas ya creadas por esa vía (registradas y sin clave) se les asigna
+  la temporal al editarlas, así se recuperan sin migración.
+
+**Corregido de paso un riesgo que ya existía en la contratación:**
+`personnelAccessCredentials` miraba solo el campo `password`. Pero el backend
+**borra** ese campo en el primer ingreso, cuando migra la clave cifrada a
+`TBL_AUTH_CREDENTIALS` y marca `authVersion: 2`. Así que a alguien que ya
+usaba la app y era recontratado se le volvía a poner `123456` y se le exigía
+cambiar una clave que ya tenía. Ahora `personnelNeedsTemporaryPassword` mira
+`authVersion` y no toca a quien ya ingresó alguna vez.
+
+### 2. Elegir empresa en el login no cambiaba de empresa
+
+Al iniciar sesión con varias empresas, la elegida se pasaba a
+`reconcileForUserData` como `preferredEmpresaId`. Pero `resolveValidEmpresaId`
+da prioridad a `selectedEmpresaId` —la empresa que quedó guardada de la sesión
+anterior— y solo cae en la preferida si aquella ya no es válida. Como la
+anterior casi siempre sigue siendo válida, **la elección del usuario se
+descartaba** y entraba a la empresa donde estaba antes.
+
+- `reconcileForUserData` recibe `eleccionExplicita`. Con eso la empresa
+  elegida manda; sin eso (reanudar sesión guardada) se conserva el
+  comportamiento de antes, que ahí sí es el correcto.
+- El login la pasa en true: elegir empresa es una decisión explícita, no una
+  sugerencia.
+
+---
+
 ## Sesión 2026-08-25 (ronda 3) — Área editable en Salud de cargos, paginación de 20 y barras de scroll
 
 ### 1. "Salud de cargos" ya deja arreglar el cargo ahí mismo
