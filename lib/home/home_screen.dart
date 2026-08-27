@@ -170,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
     if ((type == 'recepcion_doc_rechazado' || type == 'documento_por_vencer') &&
         taskId.startsWith('recepcion:')) {
       final empresaId = normalizeEmpresaId(
@@ -231,6 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return;
     }
+    if (!mounted) return;
     final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
       context,
       userIdentity: cedula,
@@ -256,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .set({'visto': true}, SetOptions(merge: true));
       } catch (_) {}
     }
+    if (!mounted) return;
     if (routeDecision.target == TaskRouteTarget.taskHistory) {
       Navigator.push(
         context,
@@ -1323,23 +1326,22 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.admin_panel_settings_rounded,
           color: const Color(0xFF475569),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'admindashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AdminDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'admindashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    AdminDashboardScreen(userId: cedula, empresaId: empresaId),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'talentohumanodashboard', disabledAppIds))
@@ -1349,23 +1351,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.groups_rounded,
           color: const Color(0xFF4F46E5),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'talentohumanodashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TalentoHumanoDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'talentohumanodashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TalentoHumanoDashboardScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'gerenciadashboard', disabledAppIds))
@@ -1375,23 +1378,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.query_stats_rounded,
           color: const Color(0xFF7C3AED),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'gerenciadashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => GerenciaDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'gerenciadashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => GerenciaDashboardScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(
@@ -1406,23 +1410,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.auto_stories_rounded,
           color: const Color(0xFF0D9488),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'gestiondocumentaldashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DocumentManagementScreen(
-                      currentUserId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'gestiondocumentaldashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DocumentManagementScreen(
+                  currentUserId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_planillasVisible(userData, empresaId, apps, isDev, disabledAppIds))
@@ -1432,23 +1437,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.request_quote_rounded,
           color: const Color(0xFFB45309),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: kPlanillasPagoAppId,
-                deniedMessage: 'Sin acceso a Planillas de Pago',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PlanillasPagoModuleScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: kPlanillasPagoAppId,
+              deniedMessage: 'Sin acceso a Planillas de Pago',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PlanillasPagoModuleScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'nutriciondashboard', disabledAppIds))
@@ -1458,23 +1464,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.restaurant_menu_rounded,
           color: const Color(0xFFEA580C),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'nutriciondashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => NutricionDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'nutriciondashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NutricionDashboardScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'comprasdashboard', disabledAppIds))

@@ -6153,7 +6153,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                                     '${_nitCtrl.text}_${kDocProveedorLabels[key] ?? key}_$name',
                                 contentType: ct,
                               );
-                              if (!mounted) return;
+                              if (!mounted || !context.mounted) return;
                               DateTime? vigencia;
                               if (documentoRequiereVigencia(key)) {
                                 vigencia =
@@ -10945,7 +10945,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           nombre: name,
                           contentType: ct,
                         );
-                        if (!mounted) return;
+                        if (!mounted || !context.mounted) return;
                         DateTime? vigencia;
                         if (documentoRequiereVigencia(key)) {
                           vigencia = await _solicitarVigenciaDespuesDeCargar(

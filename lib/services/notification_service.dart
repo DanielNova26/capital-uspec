@@ -281,7 +281,7 @@ class NotificationsService {
     }
 
     final context = _navigatorKey?.currentContext;
-    if (context == null) return;
+    if (context == null || !context.mounted) return;
 
     if (_isRutasEvidenceRejected(notifType)) {
       final eid = (notifEmpresaId ?? '').trim();
@@ -382,6 +382,10 @@ class NotificationsService {
     )) {
       return;
     }
+    if (!context.mounted) return;
+    // El messenger se toma antes del await: si la pantalla se cierra mientras
+    // se resuelve la ruta, el aviso igual se muestra sin tocar un context muerto.
+    final messenger = ScaffoldMessenger.maybeOf(context);
     final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
       context,
       userIdentity: cedula,
@@ -389,7 +393,6 @@ class NotificationsService {
       type: notifType,
     );
     if (!routeDecision.allowed) {
-      final messenger = ScaffoldMessenger.maybeOf(context);
       messenger?.showSnackBar(
         SnackBar(
           content: Text(

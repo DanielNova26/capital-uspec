@@ -996,7 +996,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       rolDocumental: rolDocumental,
                       rolPlanillas: rolPlanillas,
                     );
-                    if (!mounted) return;
+                    if (!mounted || !context.mounted) return;
                     Navigator.pop(context);
                     _snack('Usuario actualizado');
                     await _loadAll(forceEmpresaId: _empresaId);
@@ -7818,7 +7818,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             saved++;
                           }
 
-                          if (!mounted) return;
+                          if (!mounted || !ctx2.mounted) return;
                           Navigator.pop(ctx2);
                           _snack('$saved usuario(s) actualizados');
                           await _loadAll(forceEmpresaId: _empresaId);
@@ -8314,7 +8314,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     direccion: direccion,
                     enabled: enabled,
                   );
-                  if (!mounted) return;
+                  if (!mounted || !dialogContext.mounted) return;
                   Navigator.pop(dialogContext);
                   _snack(
                     existing == null
@@ -8877,7 +8877,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       logoContentType: logoContentType,
                     );
                     CompanyBrandingService.clearLogoCache(empresa.empresaId);
-                    if (!mounted) return;
+                    if (!mounted || !ctx.mounted) return;
                     Navigator.pop(ctx);
                     _snack('Empresa actualizada');
                     await _loadAll(forceEmpresaId: empresa.empresaId);
@@ -9030,7 +9030,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       enabled: enabled,
                       isNew: isNew,
                     );
-                    if (!mounted) return;
+                    if (!mounted || !ctx.mounted) return;
                     Navigator.pop(ctx);
                     _snack(isNew ? 'App creada' : 'App actualizada');
                     await _loadAll(forceEmpresaId: _empresaId);

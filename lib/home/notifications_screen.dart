@@ -160,6 +160,7 @@ Future<bool> _openNotificationTask(
     return true;
   }
 
+  if (!context.mounted) return false;
   final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
     context,
     userIdentity: cedula,

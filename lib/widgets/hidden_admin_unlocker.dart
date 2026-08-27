@@ -21,6 +21,9 @@ class _HiddenAdminUnlockerState extends State<HiddenAdminUnlocker> {
   DateTime? _firstTapTime;
 
   Future<bool> _verifyPin(BuildContext context) async {
+    // Messenger tomado antes de los await: el diálogo y la lectura de Firestore
+    // pueden terminar con la pantalla ya cerrada.
+    final messenger = ScaffoldMessenger.of(context);
     final pinCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -62,7 +65,7 @@ class _HiddenAdminUnlockerState extends State<HiddenAdminUnlocker> {
       final doc = await db.collection('TBL_CONFIG').doc('SECURITY').get();
       final expected = (doc.data()?['seedAdminPin'] ?? '2468').toString();
       if (pinCtrl.text.trim() == expected) return true;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('PIN incorrecto')),
       );
       return false;

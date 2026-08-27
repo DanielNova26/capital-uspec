@@ -5,6 +5,111 @@ Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
+## Sesión 2026-08-27 — `BuildContext` después de un `await`: los 41 avisos que sí eran crashes
+
+De los 222 avisos que dejó la limpieza de lint del commit `9c5d134`, estos 41
+eran los únicos con riesgo real: `use_build_context_synchronously`. El resto es
+cosmético (`withOpacity`, `use_null_aware_elements`, código muerto).
+
+**Por qué importa.** Si la persona toca dos veces "Guardar", sale de la pantalla
+mientras está guardando o cierra la app con una subida en vuelo, el `State` se
+desmonta y el `context` que quedó capturado antes del `await` ya no apunta a
+nada. `Navigator.push`, `ScaffoldMessenger.of` o `EmpresaScope.of` sobre ese
+context lanzan excepción. Se ve como un crash intermitente imposible de
+reproducir a pedido, que es exactamente lo que veníamos arrastrando.
+
+`dart fix` no lo puede automatizar porque el arreglo depende de qué se hace con
+el context, así que fue caso por caso. Nada se silenció con `// ignore:`.
+
+### Los cuatro patrones que se aplicaron
+
+1. **Solo para un SnackBar → capturar el messenger antes del `await`.** Es el
+   patrón que ya usaba `_descargarActaPdf` en Interventoría. El aviso se muestra
+   igual aunque la pantalla se haya ido, y nunca se toca un context muerto.
+2. **Para `Navigator.push`/`pop` sobre el context del `State` → `if (!mounted) return;`**
+   justo después del `await`.
+3. **Para un context que no es el del `State`** (el `ctx` de un diálogo, el
+   parámetro de `build`, el de un `StatefulBuilder`) → `context.mounted` /
+   `ctx.mounted`. Aquí estaba el error más traicionero: había `if (!mounted)`
+   que *parecían* proteger pero comprobaban el `State` mientras el `Navigator.pop`
+   iba contra el context del diálogo. El analizador lo marca como
+   "guarded by an unrelated 'mounted' check" y tiene razón: son dos ciclos de
+   vida distintos.
+4. **En funciones sueltas y servicios** (sin `State`, así que sin `mounted`) →
+   `context.mounted` sobre el propio `BuildContext`.
+
+### Qué se tocó
+
+**`services/notification_service.dart` (9 avisos).** `_handleNotificationTapPayload`
+es estático y saca el context del `navigatorKey`; no hay `mounted` que valga.
+Se agregó `!context.mounted` al resolver el context (cubre las siete
+navegaciones por tipo de notificación) y otra guarda antes de
+`resolveNotificationRoute`, con el messenger capturado antes de ese `await`.
+Es el peor caso de todos: toda la ruta de "tocar una notificación push" pasaba
+por acá sin una sola comprobación.
+
+**`home/home_screen.dart` (13 avisos).** Seis eran las tarjetas de módulo
+(Administración, Talento Humano, Gerencia, Correspondencia, Planillas,
+Nutrición), escritas como `onTap: () async => (await _guard(...)) ? Navigator.push(context, ...) : null`.
+El `?:` no deja meter la guarda, así que pasaron a bloque con
+`if (!permitido || !mounted) return;`. Los módulos nuevos (Compras, Correo,
+Tokens DIAN, Interventoría, Facturación, Rutas) ya usaban helpers `_abrirX()`
+con `context.mounted` — ahora las doce entradas se comportan igual. Los otros
+siete estaban en `_openNotificationTask`: faltaban guardas después del guardián
+de Facturación, antes de `resolveNotificationRoute` y —el más sutil— después
+del `set({'visto': true})` en Firestore, que invalidaba el `if (!mounted)` de
+más arriba y dejaba cuatro `Navigator.push` sin protección.
+
+**`admin/admin_dashboard_screen.dart` (5 avisos).** Los cinco son el caso 3:
+guardar usuario, accesos masivos, bodega, perfil de empresa y alta de app.
+Todos tenían `if (!mounted) return;` seguido de `Navigator.pop(ctx)` /
+`pop(dialogContext)` / `pop(ctx2)`. Ahora comprueban las dos cosas: el `State`
+(porque después llaman `_snack` y `_loadAll`) y el context del diálogo.
+
+**`compras/compras_dashboard_screen.dart` (2).** Subida web de documentos de
+proveedor y de recepción: después de `subirBytes` se abre el diálogo de
+vigencia con un context de `build`/`StatefulBuilder`.
+
+**`core/task_route_guard.dart` (1).** `validateTaskAccess` lee
+`EmpresaScope.of(context)` después de dos consultas a Firestore. No es un
+`State`, así que devuelve una `TaskAccessValidation` no permitida con mensaje
+propio; quien llama ya sabe manejar ese caso.
+
+**`login/` (4).** `change_password_screen` tenía un `// ignore: use_build_context_synchronously`
+tapando el `pushAndRemoveUntil` posterior al diálogo de confirmación: se quitó
+el ignore y se puso la guarda de verdad, más otra antes del `setState` que
+sigue al `signOut()`. Igual en `forgot_password_screen`. En `login_screen`,
+`_selectEmpresaId` devuelve `null` si se desmontó, y la guarda del llamador se
+subió *antes* del `if (selectedEmpresaId == null)` — porque ese bloque hace
+`setState`, que sobre un `State` desmontado también revienta; no alcanzaba con
+proteger el `EmpresaScope.of` de abajo.
+
+**`home/create_task_screen.dart` (2, no contaban en los 41).** El archivo tenía
+`// ignore_for_file: use_build_context_synchronously` en la cabecera, o sea que
+sus avisos ni aparecían en el conteo. Se quitó y salieron dos: el
+`showTimePicker` que va después del `showDatePicker` en `_pickDeadline`, y el
+SnackBar de "no se pudo leer la información del asignado" después de releer al
+asignado. Los dos arreglados.
+
+**El resto (5).** `home/notifications_screen.dart` (función suelta que devuelve
+`bool`), `helpers/nutricion_dashboard_helper.dart` (el aviso de "reporte
+descargado" después de escribir el archivo),
+`talento_humano/areas_management_screen.dart` (`ctx2` del diálogo de área),
+`talento_humano/organizational_structure_screen.dart` (2, el context de
+`build` en Sincronizar jerarquía) y `widgets/hidden_admin_unlocker.dart`
+(messenger capturado antes del diálogo del PIN y de leer `TBL_CONFIG`).
+
+### Verificación
+- `dart analyze`: **222 → 181 avisos**, exactamente −41. `use_build_context_synchronously`
+  queda en **0**, y no se introdujo ningún aviso nuevo (la diferencia total es
+  solo esos 41). **0 errores.**
+- Los 32 `warning` que quedan son previos a esta sesión y de otra naturaleza
+  (`unused_element`, `unused_field`, `undefined_hidden_name`); no se tocaron.
+- `flutter test`: **289/289**, el mismo conteo que antes del cambio.
+- No hay ningún `// ignore:` ni `// ignore_for_file:` de esta regla en `lib/`.
+
+---
+
 ## Sesión 2026-08-26 (ronda 2) — Publicación en Google Play y recuperación del árbol
 
 ### Lo que se preparó para publicar

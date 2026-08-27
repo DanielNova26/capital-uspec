@@ -165,6 +165,14 @@ class TaskRouteGuard {
       );
     }
 
+    if (!context.mounted) {
+      return TaskAccessValidation(
+        allowed: false,
+        message: 'La pantalla se cerró antes de validar la empresa activa.',
+        resolvedUserId: userResolution.docId,
+        empresaId: taskEmpresaId,
+      );
+    }
     final empresaState = EmpresaScope.of(context, listen: false);
     final selectedEmpresaId = normalizeEmpresaId(
       empresaState.selectedEmpresaId,

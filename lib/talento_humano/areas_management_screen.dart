@@ -422,7 +422,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                     } else {
                       await doc.reference.update(payload);
                     }
-                    if (mounted) Navigator.of(ctx2).pop();
+                    if (mounted && ctx2.mounted) Navigator.of(ctx2).pop();
                   } catch (e) {
                     if (mounted) {
                       ScaffoldMessenger.of(

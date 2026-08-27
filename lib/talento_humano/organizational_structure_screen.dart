@@ -2388,7 +2388,7 @@ class _OrganizationalStructureScreenState
                   try {
                     final n = await _syncAllTH();
                     await _loadUserCache();
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -2401,7 +2401,7 @@ class _OrganizationalStructureScreenState
                       );
                     }
                   } catch (e) {
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Error al sincronizar: $e'),

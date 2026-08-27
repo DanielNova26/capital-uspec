@@ -143,6 +143,7 @@ class NutricionDashboardHelper {
         await OpenFilex.open(file.path);
       }
 
+      if (!context.mounted) return;
       _showSuccess(context, 'Reporte descargado: $nombreArchivo');
     } catch (e) {
       if (!context.mounted) return;

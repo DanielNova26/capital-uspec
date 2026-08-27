@@ -113,6 +113,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       );
       await FirebaseAuth.instance.signOut();
 
+      if (!mounted) return;
       setState(() => _isLoading = false);
 
       await showDialog(
@@ -126,7 +127,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         ),
       );
 
-      // ignore: use_build_context_synchronously
+      if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const LoginScreen()),

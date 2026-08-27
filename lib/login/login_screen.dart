@@ -127,6 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (ids.length == 1) return ids.first;
 
     final nombres = await _loadEmpresaNames(uniqueIds);
+    if (!mounted) return null;
 
     return showModalBottomSheet<String>(
       context: context,
@@ -780,6 +781,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
+      // El selector puede devolver null porque la pantalla ya se cerró; sin
+      // esta guarda el setState de abajo dispara sobre un State desmontado.
+      if (!mounted) return;
       if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
         setState(() {
           _errorMessage = 'Selecciona la empresa para continuar';

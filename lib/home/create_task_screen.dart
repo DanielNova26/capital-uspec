@@ -1,7 +1,6 @@
 import 'dart:async';
 
 // lib/home/create_task_screen.dart
-// ignore_for_file: use_build_context_synchronously
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1479,6 +1478,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       lastDate: now.add(const Duration(days: 365)),
     );
     if (d == null) return;
+    if (!mounted) return;
     final t = await showTimePicker(
       context: context,
       initialTime: const TimeOfDay(hour: 17, minute: 0),
@@ -1599,9 +1599,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     }
 
     // Relee asignado
+    final messenger = ScaffoldMessenger.of(context);
     final asignadoDoc = await _fetchUser(_asignadoUid!);
     if (asignadoDoc == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('No se pudo leer la información del asignado.'),
         ),
