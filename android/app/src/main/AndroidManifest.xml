@@ -24,6 +24,28 @@
         android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
         tools:node="remove" />
 
+    <!-- ===== Permisos de medios de Android 13+: se eliminan a proposito =====
+         file_picker e image_picker los fusionan en el manifiesto final aunque
+         nunca los declaremos. En Android no hacen falta:
+         - Las fotos se toman o se eligen con image_picker, que en Android 13+
+           usa el selector de fotos del sistema y no requiere permiso.
+         - Los dos FileType.image que quedan estan dentro de ramas if (kIsWeb),
+           asi que en Android no se ejecutan nunca.
+         - La app no maneja video ni archivos de audio en ningun flujo.
+         Dejarlos obligaria a justificar el acceso a fotos y video ante Play sin
+         que la app lo necesite. READ_EXTERNAL_STORAGE SI se conserva: sigue
+         haciendo falta en Android 12 y anteriores, que es hasta donde baja
+         minSdk 24. -->
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_VIDEO"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_AUDIO"
+        tools:node="remove" />
+
     <!-- Ubicación -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>

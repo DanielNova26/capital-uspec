@@ -1,0 +1,14 @@
+# Plantilla para la firma de release. COPIAR a android/key.properties y rellenar.
+# android/key.properties esta en .gitignore: NUNCA se sube al repo.
+#
+# Generar el keystore (elige TU propia contrasena, no la compartas por chat):
+#   keytool -genkey -v -keystore C:/Desarrollo/keys/todogestion-release.jks \
+#     -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias todogestion
+#
+# GUARDA ESE .jks Y SU CONTRASENA EN UN LUGAR SEGURO Y CON RESPALDO.
+# Si lo pierdes no puedes volver a firmar actualizaciones de la app.
+
+storeFile=C:/Desarrollo/keys/todogestion-release.jks
+storePassword=
+keyAlias=todogestion
+keyPassword=
