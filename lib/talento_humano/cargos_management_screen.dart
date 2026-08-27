@@ -222,7 +222,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                   Expanded(
                     child: ListView.separated(
                       itemCount: rows.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, index) {
                         final row = rows[index];
                         final id = row.key;
@@ -240,7 +240,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                             dense: true,
                             leading: CircleAvatar(
                               radius: 15,
-                              backgroundColor: _kPrimaryColor.withOpacity(0.12),
+                              backgroundColor: _kPrimaryColor.withValues(alpha: 0.12),
                               child: Text(
                                 '${depth + 1}',
                                 style: const TextStyle(
@@ -628,7 +628,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: _kPrimaryColor.withOpacity(0.1),
+                    color: _kPrimaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -739,7 +739,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                             ),
                           ),
                           isExpanded: true,
-                          value: validArea,
+                          initialValue: validArea,
                           hint: const Text(
                             'Selecciona un área',
                             style: TextStyle(fontFamily: _kFontFamily),
@@ -1114,7 +1114,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.all(24),
                   itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (c, i) {
                     final d = docs[i];
                     final m = d.data();
@@ -1130,7 +1130,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: _kPrimaryColor.withOpacity(0.1),
+                              color: _kPrimaryColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
@@ -1288,8 +1288,9 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
     if (completo.isNotEmpty) return completo;
     final nombres = (ud['nombres'] as String?)?.trim() ?? '';
     final apellidos = (ud['apellidos'] as String?)?.trim() ?? '';
-    if (nombres.isNotEmpty || apellidos.isNotEmpty)
+    if (nombres.isNotEmpty || apellidos.isNotEmpty) {
       return '$nombres $apellidos'.trim();
+    }
     final p1 = (ud['primerNombre'] as String?)?.trim() ?? '';
     final p2 = (ud['segundoNombre'] as String?)?.trim() ?? '';
     final a1 = (ud['primerApellido'] as String?)?.trim() ?? '';
@@ -1383,7 +1384,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                 : ListView.separated(
                     shrinkWrap: true,
                     itemCount: asignados.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final u = asignados[i];
                       final nombre = u['nombre']!;

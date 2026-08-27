@@ -713,7 +713,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
 
   Widget _buildEstablecimientoDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedEstablecimiento,
+      initialValue: _selectedEstablecimiento,
       items: _establecimientos
           .map((e) => DropdownMenuItem(value: e, child: Text(e)))
           .toList(),
@@ -779,7 +779,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: NutritionPalette.accent.withOpacity(0.1),
+                  color: NutritionPalette.accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -824,7 +824,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               return Column(
                 children: [
                   DropdownButtonFormField<_PacienteInfo>(
-                    value: _selectedPaciente,
+                    initialValue: _selectedPaciente,
                     isExpanded: true,
                     decoration: InputDecoration(
                       labelText: 'Buscar paciente por nombre o documento',
@@ -913,9 +913,9 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: NutritionPalette.accent.withOpacity(0.03),
+        color: NutritionPalette.accent.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: NutritionPalette.accent.withOpacity(0.1)),
+        border: Border.all(color: NutritionPalette.accent.withValues(alpha: 0.1)),
       ),
       child: Column(
         children: [
@@ -987,7 +987,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                 Icons.monitor_weight_outlined,
                 'Último IMC',
                 _selectedPaciente!.imc != null
-                    ? '${_selectedPaciente!.imc!.toStringAsFixed(1)}'
+                    ? _selectedPaciente!.imc!.toStringAsFixed(1)
                     : 'Sin registro',
               ),
               _buildSummaryItem(
@@ -1047,7 +1047,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: NutritionPalette.accent.withOpacity(0.1),
+                  color: NutritionPalette.accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -1160,7 +1160,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: NutritionPalette.accent.withOpacity(0.1),
+                  color: NutritionPalette.accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -1203,10 +1203,10 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: NutritionPalette.info.withOpacity(0.05),
+                color: NutritionPalette.info.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: NutritionPalette.info.withOpacity(0.2),
+                  color: NutritionPalette.info.withValues(alpha: 0.2),
                 ),
               ),
               child: Column(
@@ -1257,7 +1257,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                             });
                           }
                         },
-                        selectedColor: NutritionPalette.info.withOpacity(0.2),
+                        selectedColor: NutritionPalette.info.withValues(alpha: 0.2),
                         labelStyle: TextStyle(
                           color: selected
                               ? NutritionPalette.info
@@ -1306,11 +1306,12 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                             final ids = dietas
                                 .map((d) => d['id']?.toString())
                                 .toSet();
-                            if (currentVal != null && !ids.contains(currentVal))
+                            if (currentVal != null && !ids.contains(currentVal)) {
                               currentVal = null;
+                            }
 
                             return DropdownButtonFormField<String>(
-                              value: currentVal,
+                              initialValue: currentVal,
                               decoration: const InputDecoration(
                                 labelText: 'Dieta Principal',
                                 prefixIcon: Icon(Icons.restaurant_menu),
@@ -1345,7 +1346,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                       if (isWide)
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _periodoSeleccionado,
+                            initialValue: _periodoSeleccionado,
                             decoration: const InputDecoration(
                               labelText: 'Período',
                               prefixIcon: Icon(Icons.calendar_month_outlined),
@@ -1376,7 +1377,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
                   if (!isWide) ...[
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      value: _periodoSeleccionado,
+                      initialValue: _periodoSeleccionado,
                       decoration: const InputDecoration(
                         labelText: 'Período',
                         prefixIcon: Icon(Icons.calendar_month_outlined),
@@ -1512,7 +1513,7 @@ class _NutricionDashboardScreenState extends State<NutricionDashboardScreen>
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: NutritionPalette.success.withOpacity(0.05),
+              color: NutritionPalette.success.withValues(alpha: 0.05),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -2226,7 +2227,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _genero,
+                            initialValue: _genero,
                             decoration: const InputDecoration(
                               labelText: 'Género',
                               border: OutlineInputBorder(),
@@ -2283,7 +2284,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _regimen,
+                            initialValue: _regimen,
                             decoration: const InputDecoration(
                               labelText: 'Régimen',
                               border: OutlineInputBorder(),
@@ -2312,7 +2313,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                   icon: Icons.location_on_outlined,
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _establecimientoSeleccionado,
+                      initialValue: _establecimientoSeleccionado,
                       decoration: const InputDecoration(
                         labelText: 'Sede / Establecimiento',
                         border: OutlineInputBorder(),
@@ -2458,7 +2459,7 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
                     : null,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -2531,9 +2532,9 @@ class _DialogNuevoPacienteState extends State<_DialogNuevoPaciente> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: NutritionPalette.accent.withOpacity(0.1),
+        color: NutritionPalette.accent.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: NutritionPalette.accent.withOpacity(0.2)),
+        border: Border.all(color: NutritionPalette.accent.withValues(alpha: 0.2)),
       ),
       child: Column(
         children: [
@@ -2711,10 +2712,10 @@ class _DialogRemisionState extends State<_DialogRemision> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: NutritionPalette.accent.withOpacity(0.05),
+                  color: NutritionPalette.accent.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: NutritionPalette.accent.withOpacity(0.1),
+                    color: NutritionPalette.accent.withValues(alpha: 0.1),
                   ),
                 ),
                 child: const Row(
@@ -2724,7 +2725,7 @@ class _DialogRemisionState extends State<_DialogRemision> {
                       color: NutritionPalette.accent,
                       size: 20,
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Registra los datos de la remisión externa para integrarlos al expediente clínico del paciente.',

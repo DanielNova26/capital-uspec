@@ -103,14 +103,14 @@ class UserAvatar extends StatelessWidget {
   Widget _avatar(BuildContext context,
       {required String fotoUrl, required String initials}) {
     final scheme = Theme.of(context).colorScheme;
-    final bg = backgroundColor ?? scheme.primary.withOpacity(0.12);
+    final bg = backgroundColor ?? scheme.primary.withValues(alpha: 0.12);
     final fg = foregroundColor ?? scheme.primary;
 
     return CircleAvatar(
       radius: radius,
       backgroundColor: bg,
       foregroundImage: fotoUrl.isNotEmpty ? NetworkImage(fotoUrl) : null,
-      onForegroundImageError: fotoUrl.isNotEmpty ? (_, __) {} : null,
+      onForegroundImageError: fotoUrl.isNotEmpty ? (_, _) {} : null,
       child: initials.isNotEmpty
           ? Text(
               initials,

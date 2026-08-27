@@ -80,6 +80,7 @@ dependencies:
   speech_to_text: ^7.3.0
   pdfx: ^2.9.2
 
+  mime: ^2.0.0
 dependency_overrides:
   flutter_keyboard_visibility: ^6.0.0
   # Si llegara a chocar 'archive', descomenta:

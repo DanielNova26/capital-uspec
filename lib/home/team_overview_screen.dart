@@ -933,7 +933,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                         ? DropdownButtonFormField<String>(
                             isDense: true,
                             isExpanded: true,
-                            value: _areaSel,
+                            initialValue: _areaSel,
                             decoration: _pillInput.copyWith(labelText: 'Área'),
                             items: _areas.entries
                                 .map(
@@ -952,7 +952,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                               return DropdownButtonFormField<String>(
                                 isDense: true,
                                 isExpanded: true,
-                                value: val,
+                                initialValue: val,
                                 decoration: _pillInput.copyWith(
                                   labelText: 'Colaborador',
                                 ),
@@ -975,7 +975,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                     child: DropdownButtonFormField<String>(
                       isDense: true,
                       isExpanded: true,
-                      value: _estadoSel,
+                      initialValue: _estadoSel,
                       decoration: _pillInput.copyWith(labelText: 'Estado'),
                       items: _estados.entries
                           .map(
@@ -1001,7 +1001,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                       child: DropdownButtonFormField<String>(
                         isDense: true,
                         isExpanded: true,
-                        value: _cargoSel,
+                        initialValue: _cargoSel,
                         decoration: _pillInput.copyWith(labelText: 'Cargo'),
                         items: _cargos.entries
                             .map(
@@ -1020,7 +1020,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                       child: DropdownButtonFormField<String>(
                         isDense: true,
                         isExpanded: true,
-                        value: _centroSel,
+                        initialValue: _centroSel,
                         decoration: _pillInput.copyWith(
                           labelText: 'Centro de costos',
                         ),

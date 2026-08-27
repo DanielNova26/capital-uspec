@@ -1,6 +1,5 @@
 // lib/talento_humano/hoja_de_vida_pdf.dart
 
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
@@ -110,15 +109,19 @@ List<_Anexo> _buildAnexosList(Map<String, dynamic> d) {
   ];
   if (d['hasUniversity'] == true) {
     list.add(_Anexo('Título Universitario', d['uniUrl'] as String?));
-    if (d['hasTarjeta'] == true)
+    if (d['hasTarjeta'] == true) {
       list.add(_Anexo('Tarjeta Profesional', d['tarjetaUrl'] as String?));
+    }
   }
-  if (d['hasSecondCareer'] == true)
+  if (d['hasSecondCareer'] == true) {
     list.add(_Anexo('Segunda Carrera', d['secUrl'] as String?));
-  if (d['hasEspecializacion'] == true)
+  }
+  if (d['hasEspecializacion'] == true) {
     list.add(_Anexo('Especialización', d['espUrl'] as String?));
-  if (d['hasMaestria'] == true)
+  }
+  if (d['hasMaestria'] == true) {
     list.add(_Anexo('Maestría', d['maeUrl'] as String?));
+  }
 
   for (var i = 0; i < (d['cursos'] as List? ?? []).length; i++) {
     final c = (d['cursos'] as List)[i] as Map<String, dynamic>? ?? {};
@@ -304,14 +307,18 @@ List<pw.Widget> _seccionFormacion(Map<String, dynamic> d) {
     items.add(_itemFormacion(nivel: nivel, institucion: inst, carrera: carr, fecha: fecha));
   }
   add('Bachillerato', d['bachInst'] as String?, null, d['bachFecha'] as String?);
-  if (d['hasUniversity'] == true)
+  if (d['hasUniversity'] == true) {
     add('Universidad', d['uniInst'] as String?, d['uniCarr'] as String?, d['uniFecha'] as String?);
-  if (d['hasSecondCareer'] == true)
+  }
+  if (d['hasSecondCareer'] == true) {
     add('Segunda Carrera', d['secInst'] as String?, d['secCarr'] as String?, d['secFecha'] as String?);
-  if (d['hasEspecializacion'] == true)
+  }
+  if (d['hasEspecializacion'] == true) {
     add('Especialización', d['espInst'] as String?, d['espCarr'] as String?, d['espFecha'] as String?);
-  if (d['hasMaestria'] == true)
+  }
+  if (d['hasMaestria'] == true) {
     add('Maestría', d['maeInst'] as String?, d['maeCarr'] as String?, d['maeFecha'] as String?);
+  }
   if (items.isEmpty) return [];
   return [_titulo('FORMACIÓN ACADÉMICA'), pw.SizedBox(height: 8), ...items];
 }

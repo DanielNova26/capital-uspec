@@ -42,9 +42,9 @@ class ClinicalTag extends StatelessWidget {
         vertical: isCompact ? 2 : 4,
       ),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         label.toUpperCase(),
@@ -106,7 +106,7 @@ class NutritionStepIndicator extends StatelessWidget {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: isCurrent ? NutritionPalette.accent : (isActive ? NutritionPalette.accent.withOpacity(0.1) : NutritionPalette.surface),
+                          color: isCurrent ? NutritionPalette.accent : (isActive ? NutritionPalette.accent.withValues(alpha: 0.1) : NutritionPalette.surface),
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: isActive ? NutritionPalette.accent : NutritionPalette.border,
@@ -114,7 +114,7 @@ class NutritionStepIndicator extends StatelessWidget {
                           ),
                           boxShadow: isCurrent ? [
                             BoxShadow(
-                              color: NutritionPalette.accent.withOpacity(0.3),
+                              color: NutritionPalette.accent.withValues(alpha: 0.3),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             )
@@ -245,7 +245,7 @@ class NutritionCard extends StatelessWidget {
         border: Border.all(color: NutritionPalette.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -283,7 +283,7 @@ class NutritionCard extends StatelessWidget {
                             subtitle!,
                             style: TextStyle(
                               fontSize: 12,
-                              color: headerColor != null ? Colors.white.withOpacity(0.8) : NutritionPalette.textMuted,
+                              color: headerColor != null ? Colors.white.withValues(alpha: 0.8) : NutritionPalette.textMuted,
                               fontFamily: kArial,
                             ),
                           ),
@@ -331,7 +331,7 @@ class NutritionInfoCard extends StatelessWidget {
         border: Border.all(color: NutritionPalette.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -342,7 +342,7 @@ class NutritionInfoCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Icon(icon, color: color, size: 20),

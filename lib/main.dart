@@ -115,50 +115,50 @@ class ToDoApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ButtonStyle(
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
-            shape: MaterialStatePropertyAll(
+            shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            textStyle: const MaterialStatePropertyAll(
+            textStyle: const WidgetStatePropertyAll(
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
-            elevation: const MaterialStatePropertyAll(4),
-            shadowColor: MaterialStatePropertyAll(
-              Colors.black.withOpacity(0.25),
+            elevation: const WidgetStatePropertyAll(4),
+            shadowColor: WidgetStatePropertyAll(
+              Colors.black.withValues(alpha: 0.25),
             ),
           ),
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: ButtonStyle(
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
-            shape: MaterialStatePropertyAll(
+            shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            textStyle: const MaterialStatePropertyAll(
+            textStyle: const WidgetStatePropertyAll(
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: ButtonStyle(
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
-            shape: MaterialStatePropertyAll(
+            shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            side: MaterialStateProperty.resolveWith(
+            side: WidgetStateProperty.resolveWith(
               (states) => BorderSide(
-                color: states.contains(MaterialState.pressed)
+                color: states.contains(WidgetState.pressed)
                     ? const Color(0xFF005A9E)
                     : const Color(0xFF0078D7),
               ),
             ),
-            textStyle: const MaterialStatePropertyAll(
+            textStyle: const WidgetStatePropertyAll(
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
           ),

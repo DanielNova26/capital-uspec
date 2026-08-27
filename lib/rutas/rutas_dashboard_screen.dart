@@ -194,7 +194,7 @@ class _PerfilAccesoCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 26,
-                backgroundColor: kRutasColor.withOpacity(0.15),
+                backgroundColor: kRutasColor.withValues(alpha: 0.15),
                 foregroundColor: kRutasColor,
                 child: Icon(icon),
               ),
@@ -286,7 +286,7 @@ class _RutasDeveloperHome extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           Card(
-            color: kRutasColor.withOpacity(0.08),
+            color: kRutasColor.withValues(alpha: 0.08),
             child: const Padding(
               padding: EdgeInsets.all(14),
               child: Text(
@@ -320,7 +320,7 @@ class _RutasDeveloperHome extends StatelessWidget {
                         child: Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor: kRutasColor.withOpacity(0.15),
+                              backgroundColor: kRutasColor.withValues(alpha: 0.15),
                               foregroundColor: kRutasColor,
                               child: Icon(profile.icon),
                             ),
@@ -753,7 +753,7 @@ class _EstablecimientosTabState extends State<_EstablecimientosTab> {
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
                   itemCount: establecimientos.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
                     final e = establecimientos[i];
                     final distancia = e.distanciaCentroKm;
@@ -762,7 +762,7 @@ class _EstablecimientosTabState extends State<_EstablecimientosTab> {
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: e.activo
-                              ? kRutasColor.withOpacity(0.15)
+                              ? kRutasColor.withValues(alpha: 0.15)
                               : Colors.grey.shade200,
                           foregroundColor: e.activo ? kRutasColor : Colors.grey,
                           child: const Icon(Icons.place_outlined),
@@ -1035,7 +1035,7 @@ class _RutasListTabState extends State<_RutasListTab> {
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
                   itemCount: rutas.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) {
                     final ruta = rutas[i];
                     final geocodificadas = ruta.stops
@@ -1049,7 +1049,7 @@ class _RutasListTabState extends State<_RutasListTab> {
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: ruta.activa
-                              ? kRutasColor.withOpacity(0.15)
+                              ? kRutasColor.withValues(alpha: 0.15)
                               : Colors.grey.shade300,
                           foregroundColor: ruta.activa
                               ? kRutasColor
@@ -1077,7 +1077,7 @@ class _RutasListTabState extends State<_RutasListTab> {
                               label: Text(ruta.activa ? 'Activa' : 'Inactiva'),
                               visualDensity: VisualDensity.compact,
                               backgroundColor: ruta.activa
-                                  ? kRutasColor.withOpacity(0.12)
+                                  ? kRutasColor.withValues(alpha: 0.12)
                                   : Colors.grey.shade300,
                               labelStyle: TextStyle(
                                 color: ruta.activa
@@ -1556,7 +1556,7 @@ class _CentroControlTabState extends State<_CentroControlTab> {
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
                   radius: 14,
-                  backgroundColor: kRutasColor.withOpacity(0.15),
+                  backgroundColor: kRutasColor.withValues(alpha: 0.15),
                   foregroundColor: kRutasColor,
                   child: Text('${i + 1}'),
                 ),
@@ -1590,7 +1590,7 @@ class _CentroControlTabState extends State<_CentroControlTab> {
                   return ListTile(
                     dense: true,
                     selected: selectedDriver,
-                    selectedTileColor: kRutasColor.withOpacity(0.08),
+                    selectedTileColor: kRutasColor.withValues(alpha: 0.08),
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(
                       Icons.local_shipping,
@@ -1993,7 +1993,7 @@ class _EstablecimientoEditorScreenState
               contentPadding: EdgeInsets.zero,
               title: const Text('Establecimiento activo'),
               value: _activo,
-              activeColor: kRutasColor,
+              activeThumbColor: kRutasColor,
               onChanged: (v) => setState(() => _activo = v),
             ),
             const SizedBox(height: 24),
@@ -2377,7 +2377,7 @@ class _RutaEditorScreenState extends State<_RutaEditorScreen> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Ruta activa'),
               value: _activa,
-              activeColor: kRutasColor,
+              activeThumbColor: kRutasColor,
               onChanged: (v) => setState(() => _activa = v),
             ),
             const Divider(),
@@ -2683,7 +2683,7 @@ class _ConfigTabState extends State<_ConfigTab> {
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: esHoy
-                        ? kRutasColor.withOpacity(0.14)
+                        ? kRutasColor.withValues(alpha: 0.14)
                         : activo
                         ? Colors.white
                         : Colors.grey.shade100,
@@ -2764,7 +2764,7 @@ class _ConfigTabState extends State<_ConfigTab> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   value: activo,
-                  activeColor: kRutasColor,
+                  activeThumbColor: kRutasColor,
                   onChanged: (v) => setLocal(() => activo = v),
                   title: const Text('Disponible para asignaciones'),
                 ),
@@ -3654,7 +3654,7 @@ class _UsoAppRutasTabState extends State<_UsoAppRutasTab> {
     }
     return ListView.separated(
       itemCount: users.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, index) {
         final user = users[index];
         final latest = _latestForUser(user, latestByUser);
@@ -3699,7 +3699,7 @@ class _UsoAppRutasTabState extends State<_UsoAppRutasTab> {
                 ? const Center(child: Text('Sin ingresos registrados.'))
                 : ListView.separated(
                     itemCount: sessions.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final s = sessions[i];
                       return ListTile(
@@ -4518,7 +4518,7 @@ class _AsignacionesTabState extends State<_AsignacionesTab> {
                   etiqueta: 'registros',
                   tabla: DataTable(
                     headingRowColor: WidgetStatePropertyAll(
-                      kRutasColor.withOpacity(0.08),
+                      kRutasColor.withValues(alpha: 0.08),
                     ),
                     columnSpacing: 18,
                     horizontalMargin: 12,
@@ -4550,7 +4550,7 @@ class _AsignacionesTabState extends State<_AsignacionesTab> {
   DataRow _asignacionRow(RutaDoc ruta, RutaAsignacionDoc? asig) {
     return DataRow(
       color: WidgetStateProperty.resolveWith(
-        (_) => asig == null ? Colors.orange.withOpacity(0.03) : null,
+        (_) => asig == null ? Colors.orange.withValues(alpha: 0.03) : null,
       ),
       cells: [
         DataCell(
@@ -4624,7 +4624,7 @@ class _AsignacionesTabState extends State<_AsignacionesTab> {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
       itemCount: rutas.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
         final ruta = rutas[i];
         final asig = porRuta[ruta.id];
@@ -4637,7 +4637,7 @@ class _AsignacionesTabState extends State<_AsignacionesTab> {
                 Row(
                   children: [
                     CircleAvatar(
-                      backgroundColor: kRutasColor.withOpacity(0.15),
+                      backgroundColor: kRutasColor.withValues(alpha: 0.15),
                       foregroundColor: kRutasColor,
                       child: Text(ruta.numero == 9999 ? 'R' : '${ruta.numero}'),
                     ),
@@ -4763,7 +4763,7 @@ class _AsignacionesTabState extends State<_AsignacionesTab> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -5091,13 +5091,13 @@ class _CalidadHomeState extends State<_CalidadHome>
           ChoiceChip(
             label: const Text('Hoy'),
             selected: _esHoy,
-            selectedColor: kRutasColor.withOpacity(0.2),
+            selectedColor: kRutasColor.withValues(alpha: 0.2),
             onSelected: (_) => setState(() => _fecha = DateTime.now()),
           ),
           ChoiceChip(
             label: const Text('Todas las fechas'),
             selected: _fecha == null,
-            selectedColor: kRutasColor.withOpacity(0.2),
+            selectedColor: kRutasColor.withValues(alpha: 0.2),
             onSelected: (_) => setState(() => _fecha = null),
           ),
           OutlinedButton.icon(
@@ -5284,7 +5284,7 @@ class _CalidadHomeState extends State<_CalidadHome>
                                   color: Colors.white,
                                 );
                               },
-                              errorBuilder: (_, __, ___) => const Icon(
+                              errorBuilder: (_, _, _) => const Icon(
                                 Icons.broken_image,
                                 size: 72,
                                 color: Colors.white70,
@@ -5831,7 +5831,7 @@ class _CalidadAsignacionesViewState extends State<_CalidadAsignacionesView> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -5870,7 +5870,7 @@ class _CalidadAsignacionesViewState extends State<_CalidadAsignacionesView> {
                       child: ListView.separated(
                         shrinkWrap: true,
                         itemCount: hist.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, _) => const Divider(height: 1),
                         itemBuilder: (_, i) {
                           final a = hist[i];
                           final cubre = _cubreFecha(a);
@@ -6010,7 +6010,7 @@ class _CalidadAsignacionesViewState extends State<_CalidadAsignacionesView> {
                   etiqueta: 'registros',
                   tabla: DataTable(
                     headingRowColor: WidgetStatePropertyAll(
-                      kRutasColor.withOpacity(0.08),
+                      kRutasColor.withValues(alpha: 0.08),
                     ),
                     columnSpacing: 18,
                     horizontalMargin: 12,
@@ -6043,7 +6043,7 @@ class _CalidadAsignacionesViewState extends State<_CalidadAsignacionesView> {
   DataRow _rowAsignacion(RutaDoc ruta, RutaAsignacionDoc? asig) {
     return DataRow(
       color: WidgetStateProperty.resolveWith(
-        (_) => asig == null ? Colors.orange.withOpacity(0.03) : null,
+        (_) => asig == null ? Colors.orange.withValues(alpha: 0.03) : null,
       ),
       cells: [
         DataCell(
@@ -6163,7 +6163,7 @@ class _RevCard extends StatelessWidget {
                   : Image.network(
                       url,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const ColoredBox(
+                      errorBuilder: (_, _, _) => const ColoredBox(
                         color: Color(0x11000000),
                         child: Center(child: Icon(Icons.broken_image)),
                       ),
@@ -6228,7 +6228,7 @@ class _RevEstadoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

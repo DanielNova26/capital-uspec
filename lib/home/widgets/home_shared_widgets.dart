@@ -38,7 +38,7 @@ class ModuleCard extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [color.withOpacity(0.8), color],
+                colors: [color.withValues(alpha: 0.8), color],
               ),
             ),
             child: Column(
@@ -201,7 +201,7 @@ class CompanyLogoAvatar extends StatelessWidget {
             child: Image.network(
               logoUrl,
               fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => _fallbackAvatar(initials, theme),
+              errorBuilder: (_, _, _) => _fallbackAvatar(initials, theme),
             ),
           );
         }
@@ -262,8 +262,8 @@ class QuickActionChip extends StatelessWidget {
       padding: const EdgeInsets.only(right: 8.0),
       child: ActionChip(
         onPressed: onTap,
-        backgroundColor: primaryColor.withOpacity(0.1),
-        side: BorderSide(color: primaryColor.withOpacity(0.2)),
+        backgroundColor: primaryColor.withValues(alpha: 0.1),
+        side: BorderSide(color: primaryColor.withValues(alpha: 0.2)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         avatar: Icon(icon, size: 16, color: primaryColor),
         label: Text(

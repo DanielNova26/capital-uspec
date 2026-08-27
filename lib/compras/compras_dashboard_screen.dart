@@ -1015,7 +1015,7 @@ class ComprasDashboardScreen extends StatelessWidget {
           width: 56,
           height: 56,
           decoration: BoxDecoration(
-            color: colorRol.withOpacity(0.12),
+            color: colorRol.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Icon(
@@ -1102,9 +1102,9 @@ class ComprasDashboardScreen extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: colorRol.withOpacity(0.08),
+                    color: colorRol.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: colorRol.withOpacity(0.18)),
+                    border: Border.all(color: colorRol.withValues(alpha: 0.18)),
                   ),
                   child: Text(
                     pill,
@@ -1309,10 +1309,10 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: color.withOpacity(activo ? 0.16 : 0.08),
+            color: color.withValues(alpha: activo ? 0.16 : 0.08),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: color.withOpacity(activo ? 0.9 : 0.25),
+              color: color.withValues(alpha: activo ? 0.9 : 0.25),
               width: activo ? 1.6 : 1,
             ),
           ),
@@ -1369,7 +1369,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
                   _filtro = entry.key;
                   _diaSeleccionado = null;
                 }),
-                selectedColor: kComprasPrimary.withOpacity(0.14),
+                selectedColor: kComprasPrimary.withValues(alpha: 0.14),
               ),
             ),
           ),
@@ -1384,7 +1384,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
               label: const Text('Calendario'),
               selected: verCalendario,
               onSelected: (v) => setState(() => _verCalendario = v),
-              selectedColor: kComprasPrimary.withOpacity(0.14),
+              selectedColor: kComprasPrimary.withValues(alpha: 0.14),
             ),
           ),
           if (_diaSeleccionado != null)
@@ -1393,7 +1393,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
                 'Día: ${DateFormat('dd/MM/yyyy').format(_diaSeleccionado!)}',
               ),
               selected: true,
-              selectedColor: kComprasPrimary.withOpacity(0.14),
+              selectedColor: kComprasPrimary.withValues(alpha: 0.14),
               onDeleted: () => setState(() => _diaSeleccionado = null),
             ),
         ],
@@ -1419,7 +1419,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: color.withOpacity(0.3)),
+            side: BorderSide(color: color.withValues(alpha: 0.3)),
           ),
           child: ListTile(
             leading: Icon(Icons.description_outlined, color: color),
@@ -1504,9 +1504,9 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
+                            color: color.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: color.withOpacity(0.35)),
+                            border: Border.all(color: color.withValues(alpha: 0.35)),
                           ),
                           child: Text(
                             estadoTxt,
@@ -2280,7 +2280,7 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: _isDragging
-                      ? kComprasPrimary.withOpacity(0.07)
+                      ? kComprasPrimary.withValues(alpha: 0.07)
                       : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
@@ -3274,7 +3274,7 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                     : Colors.blueGrey.shade600,
                 side: BorderSide(
                   color: expiry != null
-                      ? kComprasPrimary.withOpacity(0.45)
+                      ? kComprasPrimary.withValues(alpha: 0.45)
                       : Colors.grey.shade300,
                 ),
                 padding: const EdgeInsets.symmetric(
@@ -4127,7 +4127,7 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               width: double.infinity,
               decoration: BoxDecoration(
                 color: _isDragging
-                    ? kComprasPrimary.withOpacity(0.07)
+                    ? kComprasPrimary.withValues(alpha: 0.07)
                     : (_isUploading
                           ? Colors.blue.shade50
                           : Colors.grey.shade50),
@@ -4261,9 +4261,9 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.05),
+        color: statusColor.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: statusColor.withOpacity(0.3), width: 1),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
       ),
       child: Row(
         children: [
@@ -5982,7 +5982,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                       'Es proveedor local',
                       style: TextStyle(fontFamily: _kFont, fontSize: 14),
                     ),
-                    activeColor: kComprasPrimary,
+                    activeThumbColor: kComprasPrimary,
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                   ),
@@ -6011,7 +6011,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                             }
                           });
                         },
-                        selectedColor: kComprasPrimary.withOpacity(0.15),
+                        selectedColor: kComprasPrimary.withValues(alpha: 0.15),
                         checkmarkColor: kComprasPrimary,
                         side: BorderSide(
                           color: sel ? kComprasPrimary : Colors.grey.shade300,
@@ -6488,7 +6488,7 @@ class _ProductoCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0277BD).withOpacity(0.1),
+                  color: const Color(0xFF0277BD).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -7004,7 +7004,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: estado.color.withOpacity(0.28)),
+          border: Border.all(color: estado.color.withValues(alpha: 0.28)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -7013,7 +7013,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                color: estado.color.withOpacity(0.11),
+                color: estado.color.withValues(alpha: 0.11),
                 shape: BoxShape.circle,
               ),
               child: Icon(estado.icon, size: 15, color: estado.color),
@@ -7115,9 +7115,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -7335,7 +7335,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _unidad,
+                      initialValue: _unidad,
                       decoration: _inputDecoration('Unidad de medida *'),
                       isExpanded: true,
                       items: kUnidadesMedida
@@ -7355,7 +7355,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _categoria,
+                      initialValue: _categoria,
                       decoration: _inputDecoration('Categoría *'),
                       isExpanded: true,
                       items: kCategoriasCompras
@@ -7382,7 +7382,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   'Es perecedero',
                   style: TextStyle(fontFamily: _kFont, fontSize: 14),
                 ),
-                activeColor: const Color(0xFF0277BD),
+                activeThumbColor: const Color(0xFF0277BD),
                 contentPadding: EdgeInsets.zero,
                 dense: true,
               ),
@@ -8485,11 +8485,12 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       }
       return;
     }
-    if (mounted)
+    if (mounted) {
       setState(() {
         _fileName = name;
         _fileBytes = bytes;
       });
+    }
     await _pedirVigenciaTrasSeleccionarArchivo();
   }
 
@@ -8554,7 +8555,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: _isDragging
-                      ? kComprasPrimary.withOpacity(0.07)
+                      ? kComprasPrimary.withValues(alpha: 0.07)
                       : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
@@ -8621,7 +8622,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             side: BorderSide(
               color: _subiendo
                   ? Colors.grey.shade300
-                  : kComprasPrimary.withOpacity(0.5),
+                  : kComprasPrimary.withValues(alpha: 0.5),
             ),
             padding: const EdgeInsets.symmetric(vertical: 8),
           ),
@@ -8859,7 +8860,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             _loadingProvs
                 ? const LinearProgressIndicator()
                 : DropdownButtonFormField<ProveedorDoc>(
-                    value: _proveedor,
+                    initialValue: _proveedor,
                     decoration: const InputDecoration(
                       labelText: 'Proveedor *',
                       labelStyle: TextStyle(fontFamily: _kFont),
@@ -9173,7 +9174,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
       child: DropdownButtonFormField<String>(
-        value: _grupoFiltro,
+        initialValue: _grupoFiltro,
         decoration: InputDecoration(
           labelText: 'Filtrar por grupo de Compras',
           prefixIcon: const Icon(Icons.groups_2_outlined, size: 19),
@@ -10823,7 +10824,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _bodegaSeleccionada,
+                    initialValue: _bodegaSeleccionada,
                     isExpanded: true,
                     menuMaxHeight: 360,
                     decoration:
@@ -10871,7 +10872,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   if (_grupos.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _grupoSeleccionado,
+                      initialValue: _grupoSeleccionado,
                       isExpanded: true,
                       decoration: _inputDecoration('Grupo de recepción *').copyWith(
                         prefixIcon: const Icon(
@@ -11351,7 +11352,7 @@ class _ProductoEntryCard extends StatelessWidget {
                     width: 26,
                     height: 26,
                     decoration: BoxDecoration(
-                      color: kComprasPrimary.withOpacity(0.1),
+                      color: kComprasPrimary.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Center(
@@ -11378,7 +11379,7 @@ class _ProductoEntryCard extends StatelessWidget {
                               ),
                               decoration: BoxDecoration(
                                 border: Border.all(
-                                  color: kComprasPrimary.withOpacity(0.4),
+                                  color: kComprasPrimary.withValues(alpha: 0.4),
                                   style: BorderStyle.solid,
                                 ),
                                 borderRadius: BorderRadius.circular(8),
@@ -11446,8 +11447,9 @@ class _ProductoEntryCard extends StatelessWidget {
                                       docs['fichaTecnica']?.tieneDoc == true;
                                   final marcaNombre =
                                       entry.marcaSeleccionada?.descripcion;
-                                  if (marcaNombre == null && cargados == 0)
+                                  if (marcaNombre == null && cargados == 0) {
                                     return const SizedBox.shrink();
+                                  }
                                   return Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Wrap(
@@ -11463,13 +11465,13 @@ class _ProductoEntryCard extends StatelessWidget {
                                             decoration: BoxDecoration(
                                               color: const Color(
                                                 0xFF283593,
-                                              ).withOpacity(0.08),
+                                              ).withValues(alpha: 0.08),
                                               borderRadius:
                                                   BorderRadius.circular(5),
                                               border: Border.all(
                                                 color: const Color(
                                                   0xFF283593,
-                                                ).withOpacity(0.3),
+                                                ).withValues(alpha: 0.3),
                                               ),
                                             ),
                                             child: Row(
@@ -11500,8 +11502,8 @@ class _ProductoEntryCard extends StatelessWidget {
                                           ),
                                           decoration: BoxDecoration(
                                             color: cargados == docKeys.length
-                                                ? kComprasGreen.withOpacity(
-                                                    0.08,
+                                                ? kComprasGreen.withValues(
+                                                    alpha: 0.08,
                                                   )
                                                 : Colors.amber.shade50,
                                             borderRadius: BorderRadius.circular(
@@ -11509,8 +11511,8 @@ class _ProductoEntryCard extends StatelessWidget {
                                             ),
                                             border: Border.all(
                                               color: cargados == docKeys.length
-                                                  ? kComprasGreen.withOpacity(
-                                                      0.4,
+                                                  ? kComprasGreen.withValues(
+                                                      alpha: 0.4,
                                                     )
                                                   : Colors.amber.shade300,
                                             ),
@@ -11549,20 +11551,20 @@ class _ProductoEntryCard extends StatelessWidget {
                                           ),
                                           decoration: BoxDecoration(
                                             color: tieneFicha
-                                                ? kComprasGreen.withOpacity(
-                                                    0.08,
+                                                ? kComprasGreen.withValues(
+                                                    alpha: 0.08,
                                                   )
-                                                : kComprasRed.withOpacity(0.08),
+                                                : kComprasRed.withValues(alpha: 0.08),
                                             borderRadius: BorderRadius.circular(
                                               5,
                                             ),
                                             border: Border.all(
                                               color: tieneFicha
-                                                  ? kComprasGreen.withOpacity(
-                                                      0.4,
+                                                  ? kComprasGreen.withValues(
+                                                      alpha: 0.4,
                                                     )
-                                                  : kComprasRed.withOpacity(
-                                                      0.4,
+                                                  : kComprasRed.withValues(
+                                                      alpha: 0.4,
                                                     ),
                                             ),
                                           ),
@@ -11677,7 +11679,7 @@ class _ProductoEntryCard extends StatelessWidget {
                           ? currentId
                           : null;
                       return DropdownButtonFormField<String>(
-                        value: validId,
+                        initialValue: validId,
                         decoration: _inputDecoration('Marca').copyWith(
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -12073,7 +12075,7 @@ class _ProductoEntryCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: kComprasPrimary.withOpacity(0.08),
+                            color: kComprasPrimary.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -12237,9 +12239,9 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: kComprasPrimary.withOpacity(0.06),
+              color: kComprasPrimary.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: kComprasPrimary.withOpacity(0.2)),
+              border: Border.all(color: kComprasPrimary.withValues(alpha: 0.2)),
             ),
             child: Row(
               children: [
@@ -12269,7 +12271,7 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0277BD).withOpacity(0.1),
+                    color: const Color(0xFF0277BD).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -12357,17 +12359,19 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
     setState(() => _generandoCodigo = true);
     try {
       final codigo = await widget.svc.generarCodigoMarca(widget.empresaId);
-      if (mounted)
+      if (mounted) {
         setState(() {
           _codigoGenerado = codigo;
           _generandoCodigo = false;
         });
+      }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _codigoGenerado = 'MRC-???';
           _generandoCodigo = false;
         });
+      }
     }
   }
 
@@ -12402,8 +12406,9 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
         descripcion: nuevaMarca.descripcion,
         createdAt: nuevaMarca.createdAt,
       );
-      if (mounted)
+      if (mounted) {
         Navigator.pop(context, _MarcaDialogResult.marcaCreada(creada));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -12432,7 +12437,7 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: kComprasPrimary.withOpacity(0.1),
+                  color: kComprasPrimary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -12504,10 +12509,10 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                       ),
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: kComprasPrimary.withOpacity(0.3),
+                          color: kComprasPrimary.withValues(alpha: 0.3),
                         ),
                         borderRadius: BorderRadius.circular(10),
-                        color: kComprasPrimary.withOpacity(0.04),
+                        color: kComprasPrimary.withValues(alpha: 0.04),
                       ),
                       child: Row(
                         children: [
@@ -12572,10 +12577,10 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: kComprasPrimary.withOpacity(0.04),
+                    color: kComprasPrimary.withValues(alpha: 0.04),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: kComprasPrimary.withOpacity(0.15),
+                      color: kComprasPrimary.withValues(alpha: 0.15),
                     ),
                   ),
                   child: Column(
@@ -12799,9 +12804,9 @@ Widget _consultaDocumentoChip(
   final chip = Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
     decoration: BoxDecoration(
-      color: estado.color.withOpacity(0.08),
+      color: estado.color.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: estado.color.withOpacity(0.3)),
+      border: Border.all(color: estado.color.withValues(alpha: 0.3)),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -13148,9 +13153,9 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: _accentColor.withOpacity(0.08),
+                  color: _accentColor.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _accentColor.withOpacity(0.18)),
+                  border: Border.all(color: _accentColor.withValues(alpha: 0.18)),
                 ),
                 child: const Text(
                   'Centro de consultas',
@@ -13220,9 +13225,9 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: _accentColor.withOpacity(0.06),
+                      color: _accentColor.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: _accentColor.withOpacity(0.14)),
+                      border: Border.all(color: _accentColor.withValues(alpha: 0.14)),
                     ),
                     child: Row(
                       children: [
@@ -13230,7 +13235,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                           width: 46,
                           height: 46,
                           decoration: BoxDecoration(
-                            color: _accentColor.withOpacity(0.12),
+                            color: _accentColor.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Icon(
@@ -13294,12 +13299,12 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: selected
-                              ? _accentColor.withOpacity(0.08)
+                              ? _accentColor.withValues(alpha: 0.08)
                               : Colors.white,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: selected
-                                ? _accentColor.withOpacity(0.28)
+                                ? _accentColor.withValues(alpha: 0.28)
                                 : const Color(0xFFE2E8F0),
                           ),
                         ),
@@ -13383,7 +13388,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: _accentColor.withOpacity(0.1),
+                      color: _accentColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(_activeTab.icon, color: _accentColor, size: 22),
@@ -13413,7 +13418,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _accentColor.withOpacity(0.08),
+                                  color: _accentColor.withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
@@ -13651,9 +13656,9 @@ class _ConsultaLegendChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -13764,11 +13769,12 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
         _loading = false;
       });
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -13853,13 +13859,14 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -13960,8 +13967,8 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
                               ),
                               decoration: BoxDecoration(
                                 color: requeridosCompletos
-                                    ? kComprasGreen.withOpacity(0.1)
-                                    : kComprasRed.withOpacity(0.08),
+                                    ? kComprasGreen.withValues(alpha: 0.1)
+                                    : kComprasRed.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
                                   color: requeridosCompletos
@@ -14175,13 +14182,14 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _marcasPorId = {};
           _fichasTecnicas = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -14331,13 +14339,14 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -14693,12 +14702,13 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _fichasTecnicas = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -14823,13 +14833,14 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -15720,11 +15731,12 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -15844,13 +15856,14 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -15926,7 +15939,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
               color: Colors.white,
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: DropdownButtonFormField<String>(
-                value: _grupoFiltro,
+                initialValue: _grupoFiltro,
                 decoration: InputDecoration(
                   labelText: 'Grupo de Compras',
                   prefixIcon: const Icon(Icons.groups_2_outlined, size: 18),
@@ -16048,7 +16061,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
                               color: const Color(0xFFF0F4FF),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: kComprasPrimary.withOpacity(0.15),
+                                color: kComprasPrimary.withValues(alpha: 0.15),
                               ),
                             ),
                             child: Column(
@@ -16332,11 +16345,12 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -16376,9 +16390,9 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         final doc = f.documentoActual;
         String estado = '—';
         if (doc != null) {
-          if (doc.aprobadoConRequerimientos)
+          if (doc.aprobadoConRequerimientos) {
             estado = 'Aprobado con requerimientos';
-          else if (doc.aprobado)
+          } else if (doc.aprobado)
             estado = 'Aprobado';
           else if (doc.rechazado)
             estado = 'Rechazado';
@@ -16420,13 +16434,14 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -16496,10 +16511,10 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
               margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF1565C0).withOpacity(0.06),
+                color: const Color(0xFF1565C0).withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: const Color(0xFF1565C0).withOpacity(0.2),
+                  color: const Color(0xFF1565C0).withValues(alpha: 0.2),
                 ),
               ),
               child: Column(
@@ -16699,7 +16714,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                                 vertical: 3,
                               ),
                               decoration: BoxDecoration(
-                                color: badgeColor.withOpacity(0.1),
+                                color: badgeColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: badgeColor),
                               ),
@@ -17345,7 +17360,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                       Container(
                         padding: const EdgeInsets.all(7),
                         decoration: BoxDecoration(
-                          color: kComprasPrimary.withOpacity(0.1),
+                          color: kComprasPrimary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
@@ -17537,7 +17552,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                             color: const Color(0xFFF0F4FF),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: kComprasPrimary.withOpacity(0.15),
+                              color: kComprasPrimary.withValues(alpha: 0.15),
                             ),
                           ),
                           child: Column(
@@ -17943,10 +17958,10 @@ class _MarcasScreenState extends State<_MarcasScreen> {
               style: const TextStyle(fontFamily: _kFont, color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Buscar marca...',
-                hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
                 prefixIcon: const Icon(Icons.search, color: Colors.white70),
                 filled: true,
-                fillColor: Colors.white.withOpacity(0.15),
+                fillColor: Colors.white.withValues(alpha: 0.15),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -18023,7 +18038,7 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1976D2).withOpacity(0.1),
+                            color: const Color(0xFF1976D2).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(
@@ -18336,7 +18351,7 @@ class _OrigenButton extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : Colors.grey.shade50,
+          color: selected ? color.withValues(alpha: 0.12) : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: selected ? color : Colors.grey.shade300,
@@ -21889,16 +21904,16 @@ class _RecepcionCalidadCard extends StatelessWidget {
                           (doc.fechaVencimiento!.toDate().isBefore(
                             DateTime.now(),
                           ))
-                          ? Colors.red.withOpacity(0.1)
-                          : Colors.blue.withOpacity(0.1),
+                          ? Colors.red.withValues(alpha: 0.1)
+                          : Colors.blue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                         color:
                             (doc.fechaVencimiento!.toDate().isBefore(
                               DateTime.now(),
                             ))
-                            ? Colors.red.withOpacity(0.3)
-                            : Colors.blue.withOpacity(0.3),
+                            ? Colors.red.withValues(alpha: 0.3)
+                            : Colors.blue.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Row(
@@ -23244,7 +23259,7 @@ class _SectionHeader extends StatelessWidget {
 Widget _Chip(String label, Color color) => Container(
   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
   decoration: BoxDecoration(
-    color: color.withOpacity(0.12),
+    color: color.withValues(alpha: 0.12),
     borderRadius: BorderRadius.circular(12),
   ),
   child: Text(

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '/services/diagnosticos_service.dart';
 import 'diagnostico_models.dart';
 
@@ -231,7 +230,7 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
           if (widget.pacienteId != null)
             Container(
               padding: const EdgeInsets.all(12),
-              color: const Color(0xFF9EC3E6).withOpacity(0.2),
+              color: const Color(0xFF9EC3E6).withValues(alpha: 0.2),
               child: Row(
                 children: [
                   const Icon(Icons.person, color: Color(0xFF9EC3E6)),
@@ -263,10 +262,10 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceVariant,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 4,
                   offset: const Offset(0, -2),
                 ),
@@ -414,7 +413,7 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
 
         // Estado Fisiológico
         DropdownButtonFormField<String>(
-          value: _estadoFisiologico,
+          initialValue: _estadoFisiologico,
           decoration: InputDecoration(
             labelText: 'Estado Fisiológico',
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -451,7 +450,7 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
             const SizedBox(width: 8),
             Expanded(
               child: DropdownButtonFormField<String>(
-                value: _gravedad,
+                initialValue: _gravedad,
                 decoration: InputDecoration(
                   labelText: 'Gravedad',
                   border: OutlineInputBorder(
@@ -540,7 +539,7 @@ class _EntradaDiagnosticosScreenState extends State<EntradaDiagnosticosScreen>
         if (_diagnosticoNutricionalSeleccionado != null) ...[
           const SizedBox(height: 12),
           Card(
-            color: const Color(0xFFF5E66B).withOpacity(0.3),
+            color: const Color(0xFFF5E66B).withValues(alpha: 0.3),
             child: ListTile(
               leading: const Icon(Icons.check_circle, color: Colors.orange),
               title: Text(_diagnosticoNutricionalSeleccionado!.nombre),

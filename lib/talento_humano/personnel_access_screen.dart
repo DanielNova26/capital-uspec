@@ -239,7 +239,7 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
               SizedBox(
                 width: isWeb ? 280 : double.infinity,
                 child: DropdownButtonFormField<String>(
-                  value: _filtroModulo,
+                  initialValue: _filtroModulo,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     isDense: true,
@@ -322,7 +322,7 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
               12,
             ),
             itemCount: visibles.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (_, i) => _PersonaCard(
               row: visibles[i],
               modulos: _modulos,

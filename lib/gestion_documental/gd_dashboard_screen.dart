@@ -135,7 +135,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                         : GdPalette.primary,
                     side: BorderSide(
                       color: _selectionMode
-                          ? Colors.redAccent.withOpacity(0.35)
+                          ? Colors.redAccent.withValues(alpha: 0.35)
                           : GdPalette.border,
                     ),
                     padding: const EdgeInsets.symmetric(
@@ -372,7 +372,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         maxWidth: 1280,
         padding: EdgeInsets.zero,
         child: ModuleCard(
-          color: GdPalette.accent.withOpacity(0.04),
+          color: GdPalette.accent.withValues(alpha: 0.04),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: const Row(
             children: [
@@ -533,7 +533,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         maxWidth: 1280,
         padding: EdgeInsets.zero,
         child: ModuleCard(
-          color: Colors.redAccent.withOpacity(0.05),
+          color: Colors.redAccent.withValues(alpha: 0.05),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
@@ -678,7 +678,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                 (d) => TableRow(
                   decoration: BoxDecoration(
                     color: _selectedDocIds.contains(d.docId)
-                        ? GdPalette.accent.withOpacity(0.06)
+                        ? GdPalette.accent.withValues(alpha: 0.06)
                         : Colors.transparent,
                   ),
                   children: [
@@ -767,7 +767,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: GdPalette.primary.withOpacity(0.03),
+                color: GdPalette.primary.withValues(alpha: 0.03),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -775,7 +775,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                     ? Icons.cloud_upload_outlined
                     : Icons.library_books_outlined,
                 size: 80,
-                color: GdPalette.primary.withOpacity(0.1),
+                color: GdPalette.primary.withValues(alpha: 0.1),
               ),
             ),
             const SizedBox(height: 32),
@@ -1004,7 +1004,7 @@ class _DocumentListItem extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: GdPalette.accent.withOpacity(0.1),
+                  color: GdPalette.accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -1303,7 +1303,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         decoration: BoxDecoration(
           color: _pdf == null
               ? GdPalette.background
-              : GdPalette.success.withOpacity(0.05),
+              : GdPalette.success.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: _pdf == null ? GdPalette.border : GdPalette.success,
@@ -1319,7 +1319,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                   : Icons.check_circle_outline,
               size: 48,
               color: _pdf == null
-                  ? GdPalette.muted.withOpacity(0.5)
+                  ? GdPalette.muted.withValues(alpha: 0.5)
                   : GdPalette.success,
             ),
             const SizedBox(height: 12),
@@ -1340,7 +1340,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 style: TextStyle(
                   fontFamily: kArial,
                   fontSize: 12,
-                  color: GdPalette.muted.withOpacity(0.7),
+                  color: GdPalette.muted.withValues(alpha: 0.7),
                 ),
               ),
             ],

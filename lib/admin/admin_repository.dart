@@ -145,7 +145,7 @@ class AdminRepository {
       final nombre = (data['nombre'] ?? data['razonSocial'] ?? id)
           .toString()
           .trim();
-      if (id.isNotEmpty)
+      if (id.isNotEmpty) {
         out.add(
           EmpresaItem(
             empresaId: id,
@@ -175,6 +175,7 @@ class AdminRepository {
                 .trim(),
           ),
         );
+      }
     }
     out.sort((a, b) => a.empresaId.compareTo(b.empresaId));
     return out;
@@ -553,8 +554,9 @@ class AdminRepository {
     final roleKey = normalizeRoleKey(
       (existingRoleKey ?? '').trim().isNotEmpty ? existingRoleKey! : nombre,
     );
-    if (roleKey.isEmpty)
+    if (roleKey.isEmpty) {
       throw ArgumentError('El nombre del rol es obligatorio');
+    }
     final roleId = (existingRoleId ?? '').trim().isNotEmpty
         ? existingRoleId!.trim()
         : '${empresaId}_$roleKey';

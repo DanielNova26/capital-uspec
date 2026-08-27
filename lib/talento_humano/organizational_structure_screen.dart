@@ -243,9 +243,9 @@ class _OrganizationalStructureScreenState
 
       // Nivel educativo más alto registrado en la hoja de vida
       String nivelEd = '';
-      if (data['hasMaestria'] == true)
+      if (data['hasMaestria'] == true) {
         nivelEd = 'Maestría';
-      else if (data['hasEspecializacion'] == true)
+      } else if (data['hasEspecializacion'] == true)
         nivelEd = 'Especialización';
       else if (data['hasUniversity'] == true)
         nivelEd = 'Universitario';
@@ -519,7 +519,9 @@ class _OrganizationalStructureScreenState
 
   void _collectNodes(_OrgChartNode n, List<_OrgChartNode> list) {
     list.add(n);
-    for (final c in n.children) _collectNodes(c, list);
+    for (final c in n.children) {
+      _collectNodes(c, list);
+    }
   }
 
   // ---- colores por área (determinístico) -----------------------------------
@@ -2281,7 +2283,7 @@ class _OrganizationalStructureScreenState
                     return ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: events.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (_, index) {
                         final event = events[index].data();
                         final active =
@@ -2599,10 +2601,12 @@ class _OrganizationalStructureScreenState
                             _statusOf(m) != _statusFilter) {
                           return false;
                         }
-                        if (_filterArea != null && m['area'] != _filterArea)
+                        if (_filterArea != null && m['area'] != _filterArea) {
                           return false;
-                        if (_filterCargo != null && m['cargo'] != _filterCargo)
+                        }
+                        if (_filterCargo != null && m['cargo'] != _filterCargo) {
                           return false;
+                        }
                         if (term.isNotEmpty) {
                           final cedula = _orgCedula(d).toLowerCase();
                           final n =
@@ -2636,7 +2640,7 @@ class _OrganizationalStructureScreenState
 
                   return ListView.separated(
                     itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (c, i) => _buildCard(docs[i]),
                   );
                 },

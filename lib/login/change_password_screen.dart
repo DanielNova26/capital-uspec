@@ -202,7 +202,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       dropdownColor: theme.brightness == Brightness.dark
                           ? scheme.surface
                           : Colors.white,
-                      value: _selectedQuestion1,
+                      initialValue: _selectedQuestion1,
                       items: _preguntas
                           .map(
                             (p) => DropdownMenuItem(
@@ -236,8 +236,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       onChanged: (value) {
                         setState(() {
                           _selectedQuestion1 = value;
-                          if (_selectedQuestion2 == value)
+                          if (_selectedQuestion2 == value) {
                             _selectedQuestion2 = null;
+                          }
                         });
                       },
                       validator: (v) => (v == null || v.isEmpty)
@@ -276,7 +277,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       dropdownColor: theme.brightness == Brightness.dark
                           ? scheme.surface
                           : Colors.white,
-                      value: _selectedQuestion2,
+                      initialValue: _selectedQuestion2,
                       items: _preguntas
                           .map(
                             (p) => DropdownMenuItem(
@@ -309,8 +310,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                       onChanged: (value) {
                         setState(() {
                           _selectedQuestion2 = value;
-                          if (_selectedQuestion1 == value)
+                          if (_selectedQuestion1 == value) {
                             _selectedQuestion1 = null;
+                          }
                         });
                       },
                       validator: (v) {

@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/widgets/empty_state_widget.dart';
 
@@ -195,7 +194,7 @@ class _NutricionCatalogosScreenState
         return ListView.separated(
           padding: EdgeInsets.fromLTRB(isWide ? 32 : 16, 8, isWide ? 16 : 16, 100),
           itemCount: filtered.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
             final p = filtered[index];
             final sel = _selected?['id'] == p['id'];
@@ -286,9 +285,9 @@ class _PacienteListTile extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: selected ? NutritionPalette.accent.withOpacity(0.05) : NutritionPalette.surface,
+          color: selected ? NutritionPalette.accent.withValues(alpha: 0.05) : NutritionPalette.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? NutritionPalette.accent : NutritionPalette.border.withOpacity(0.5)),
+          border: Border.all(color: selected ? NutritionPalette.accent : NutritionPalette.border.withValues(alpha: 0.5)),
         ),
         child: Row(
           children: [
@@ -335,7 +334,7 @@ class _CarnetFrame extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: (fotoUrl != null && fotoUrl!.isNotEmpty)
-            ? Image.network(fotoUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 40, color: NutritionPalette.textMuted))
+            ? Image.network(fotoUrl!, fit: BoxFit.cover, errorBuilder: (_, _, _) => const Icon(Icons.person, size: 40, color: NutritionPalette.textMuted))
             : const Icon(Icons.person, size: 40, color: NutritionPalette.textMuted),
       ),
     );
@@ -400,7 +399,7 @@ class _PacienteDialogState extends State<PacienteDialog> {
           children: [
             TextField(controller: _nombresCtrl, decoration: const InputDecoration(labelText: 'Nombres')),
             TextField(controller: _apellidosCtrl, decoration: const InputDecoration(labelText: 'Apellidos')),
-            DropdownButtonFormField<String>(value: _tipoDocumento, items: _tiposDocumento.map((t)=>DropdownMenuItem(value:t, child: Text(t))).toList(), onChanged: (v)=>setState(()=>_tipoDocumento=v!), decoration: const InputDecoration(labelText: 'Tipo Doc')),
+            DropdownButtonFormField<String>(initialValue: _tipoDocumento, items: _tiposDocumento.map((t)=>DropdownMenuItem(value:t, child: Text(t))).toList(), onChanged: (v)=>setState(()=>_tipoDocumento=v!), decoration: const InputDecoration(labelText: 'Tipo Doc')),
             TextField(controller: _documentoCtrl, decoration: const InputDecoration(labelText: 'Documento'), keyboardType: TextInputType.number),
           ],
         ),

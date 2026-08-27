@@ -875,8 +875,9 @@ class FacturacionService {
     required String revisorNombre,
   }) async {
     final cleanReason = motivo.trim();
-    if (cleanReason.isEmpty)
+    if (cleanReason.isEmpty) {
       throw ArgumentError('Indica el motivo del rechazo.');
+    }
     if (!fechaLimite.isAfter(DateTime.now())) {
       throw ArgumentError('La fecha límite debe ser futura.');
     }

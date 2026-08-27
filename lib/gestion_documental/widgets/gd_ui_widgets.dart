@@ -48,27 +48,27 @@ class GdStatusBadge extends StatelessWidget {
     } else {
       switch (estado) {
         case GdEstado.borrador:
-          bg = GdPalette.muted.withOpacity(0.1);
+          bg = GdPalette.muted.withValues(alpha: 0.1);
           text = GdPalette.muted;
           icon = Icons.edit_note;
           break;
         case GdEstado.en_revision:
-          bg = GdPalette.accent.withOpacity(0.1);
+          bg = GdPalette.accent.withValues(alpha: 0.1);
           text = GdPalette.accent;
           icon = Icons.visibility;
           break;
         case GdEstado.observado:
-          bg = GdPalette.warning.withOpacity(0.1);
+          bg = GdPalette.warning.withValues(alpha: 0.1);
           text = GdPalette.warning;
           icon = Icons.rule;
           break;
         case GdEstado.aprobado:
-          bg = GdPalette.success.withOpacity(0.1);
+          bg = GdPalette.success.withValues(alpha: 0.1);
           text = GdPalette.success;
           icon = Icons.check_circle_outline;
           break;
         case GdEstado.firmado:
-          bg = GdPalette.success.withOpacity(0.2);
+          bg = GdPalette.success.withValues(alpha: 0.2);
           text = GdPalette.success;
           icon = Icons.draw;
           break;
@@ -78,7 +78,7 @@ class GdStatusBadge extends StatelessWidget {
           icon = Icons.verified;
           break;
         case GdEstado.obsoleto:
-          bg = GdPalette.muted.withOpacity(0.05);
+          bg = GdPalette.muted.withValues(alpha: 0.05);
           text = GdPalette.muted;
           icon = Icons.history;
           break;
@@ -90,7 +90,7 @@ class GdStatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: text.withOpacity(0.2)),
+        border: Border.all(color: text.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -142,7 +142,7 @@ class GdCard extends StatelessWidget {
         border: border ?? Border.all(color: GdPalette.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

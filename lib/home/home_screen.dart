@@ -10,13 +10,11 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/notification_service.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/utils/user_company.dart';
-import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 
 import '../admin/admin_dashboard_screen.dart' hide kArial;
@@ -37,13 +35,11 @@ import '../rutas/rutas_models.dart';
 import '../rutas/rutas_service.dart';
 import '../correo/correo_dashboard_screen.dart';
 import '../tokens_dian/dian_tokens_dashboard_screen.dart';
-import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
 import 'notifications_screen.dart';
 import 'task_history_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
-import 'team_screen.dart' hide kArial;
 import '../core/access_guard.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
@@ -113,8 +109,9 @@ class _HomeScreenState extends State<HomeScreen> {
     // Tipos de Nutrición: navegan a NutricionDashboardScreen.
     if (type == 'cita_nutricion_agendada' ||
         type == 'cita_nutricion_recordatorio') {
-      if (taskId.isNotEmpty && mounted)
+      if (taskId.isNotEmpty && mounted) {
         await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
+      }
       return;
     }
     if ((type == 'doc_rechazado' ||
@@ -134,12 +131,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!comprasAllowed) return;
       final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
-      if (proveedorId.isNotEmpty && mounted)
+      if (proveedorId.isNotEmpty && mounted) {
         await abrirDetalleProveedor(
           context,
           userId: cedula,
           proveedorId: proveedorId,
         );
+      }
       return;
     }
     if ((type == 'ficha_rechazada' || type == 'documento_por_vencer') &&
@@ -156,12 +154,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!comprasAllowed) return;
       final fichaId = taskId.replaceFirst('ficha:', '').trim();
-      if (fichaId.isNotEmpty && mounted)
+      if (fichaId.isNotEmpty && mounted) {
         await abrirDetalleFichaRechazada(
           context,
           userId: cedula,
           fichaId: fichaId,
         );
+      }
       return;
     }
     if (await tryOpenFacturacionDocumentTask(
@@ -354,7 +353,9 @@ class _HomeScreenState extends State<HomeScreen> {
         .snapshots()
         .listen((snap) async {
           if (!_notifsPrimed) {
-            for (final doc in snap.docs) _seenNotifIds.add(doc.id);
+            for (final doc in snap.docs) {
+              _seenNotifIds.add(doc.id);
+            }
             _notifsPrimed = true;
             return;
           }
@@ -536,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> {
           userId,
         ))?.rol;
       } catch (_) {}
-      if (context.mounted)
+      if (context.mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -547,6 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
+      }
     }
   }
 
@@ -629,7 +631,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appId: kFacAppId,
       deniedMessage: 'Sin acceso a Facturación.',
     )) {
-      if (context.mounted)
+      if (context.mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -643,6 +645,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
+      }
     }
   }
 
@@ -710,10 +713,11 @@ class _HomeScreenState extends State<HomeScreen> {
       empresaId: empresaId,
       appId: appId,
     );
-    if (!d.allowed && mounted)
+    if (!d.allowed && mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(d.message ?? deniedMessage)));
+    }
     return d.allowed;
   }
 
@@ -758,8 +762,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .doc(cedula)
           .snapshots(),
       builder: (context, userSnap) {
-        if (!userSnap.hasData)
+        if (!userSnap.hasData) {
           return HomeShell(userId: cedula, body: const SkeletonList());
+        }
 
         final userData = userSnap.data?.data() ?? {};
         final apps = extractUserApps(userData, empresaId: scopeEmpresa);
@@ -1118,7 +1123,7 @@ class _HomeScreenState extends State<HomeScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 2),
         itemCount: modules.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) => modules[index],
       ),
     );
@@ -1150,7 +1155,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ? Colors.white
             : (unread > 0
                   ? scheme.primary
-                  : scheme.onSurfaceVariant.withOpacity(0.7));
+                  : scheme.onSurfaceVariant.withValues(alpha: 0.7));
 
         return IconButton(
           tooltip: 'Notificaciones',
@@ -1273,8 +1278,9 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     if (isDev) return true;
     // Si está explícitamente deshabilitado para esta empresa, no mostrar.
-    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId)))
+    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId))) {
       return false;
+    }
     return apps.any((app) => appIdsEquivalent(app, fullAppId));
   }
 
@@ -1551,7 +1557,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }),
         calendarStyle: CalendarStyle(
           todayDecoration: BoxDecoration(
-            color: scheme.primary.withOpacity(0.3),
+            color: scheme.primary.withValues(alpha: 0.3),
             shape: BoxShape.circle,
           ),
           selectedDecoration: BoxDecoration(
@@ -1621,13 +1627,13 @@ class _HomeScreenState extends State<HomeScreen> {
               Icon(
                 Icons.event_available_outlined,
                 size: 40,
-                color: scheme.onSurfaceVariant.withOpacity(0.2),
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.2),
               ),
               const SizedBox(height: 8),
               Text(
                 'Sin pendientes para este día',
                 style: TextStyle(
-                  color: scheme.onSurfaceVariant.withOpacity(0.5),
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1650,10 +1656,10 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: scheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+              border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
+                  color: Colors.black.withValues(alpha: 0.02),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -1667,7 +1673,7 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.teal.withOpacity(0.1),
+                  color: Colors.teal.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -1695,7 +1701,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.teal.withOpacity(0.1),
+                        color: Colors.teal.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1733,10 +1739,10 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: scheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+              border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
+                  color: Colors.black.withValues(alpha: 0.02),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -1750,7 +1756,7 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: scheme.primary.withOpacity(0.1),
+                  color: scheme.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -1778,7 +1784,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: scheme.primary.withOpacity(0.1),
+                        color: scheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1798,7 +1804,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
-                          color: scheme.onSurfaceVariant.withOpacity(0.75),
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
                         ),
                       ),
                     ],
@@ -1832,10 +1838,10 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: scheme.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+            border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -1853,7 +1859,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     (esFinalizada
                             ? Colors.green
                             : (isRecibida ? Colors.blue : Colors.orange))
-                        .withOpacity(0.1),
+                        .withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -1888,7 +1894,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: (isRecibida ? Colors.blue : Colors.orange)
-                          .withOpacity(0.1),
+                          .withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -1908,7 +1914,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w700,
-                      color: scheme.onSurfaceVariant.withOpacity(0.5),
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                     ),
                   ),
                 ],

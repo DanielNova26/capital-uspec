@@ -313,8 +313,9 @@ class ComprasAdminControlService {
             data['productos'] as List? ?? const [],
           );
           final index = record.productIndex;
-          if (index == null || index < 0 || index >= receptionProducts.length)
+          if (index == null || index < 0 || index >= receptionProducts.length) {
             continue;
+          }
           final product = _asMap(receptionProducts[index]);
           if (product == null) continue;
           final documents = Map<String, dynamic>.from(
@@ -763,7 +764,7 @@ class _AdminComprasDocumentControlPanelState
                         ),
                       ),
                       DropdownButtonFormField<String>(
-                        value: _origin,
+                        initialValue: _origin,
                         decoration: const InputDecoration(
                           labelText: 'Origen',
                           border: OutlineInputBorder(),
@@ -784,7 +785,7 @@ class _AdminComprasDocumentControlPanelState
                             setState(() => _origin = value ?? 'todos'),
                       ),
                       DropdownButtonFormField<String>(
-                        value: _status,
+                        initialValue: _status,
                         decoration: const InputDecoration(
                           labelText: 'Estado actual',
                           border: OutlineInputBorder(),
@@ -819,7 +820,7 @@ class _AdminComprasDocumentControlPanelState
                             setState(() => _status = value ?? 'todos'),
                       ),
                     ];
-                    if (compact)
+                    if (compact) {
                       return Column(
                         children: fields
                             .map(
@@ -830,6 +831,7 @@ class _AdminComprasDocumentControlPanelState
                             )
                             .toList(),
                       );
+                    }
                     return Row(
                       children: [
                         Expanded(flex: 2, child: fields[0]),
@@ -931,8 +933,9 @@ class _AdminComprasDocumentControlPanelState
                   ),
                   controlAffinity: ListTileControlAffinity.leading,
                 );
-                if (constraints.maxWidth < 700)
+                if (constraints.maxWidth < 700) {
                   return Column(children: [input, update]);
+                }
                 return Row(
                   children: [
                     SizedBox(width: 180, child: input),
@@ -975,7 +978,7 @@ class _AdminComprasDocumentControlPanelState
       child: ListView.separated(
         shrinkWrap: true,
         itemCount: records.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final record = records[index];
           final selected = _selected.contains(record.id);
@@ -1035,7 +1038,7 @@ class _AdminComprasDocumentControlPanelState
           LayoutBuilder(
             builder: (context, constraints) {
               final state = DropdownButtonFormField<String>(
-                value: _targetStatus,
+                initialValue: _targetStatus,
                 decoration: const InputDecoration(
                   labelText: 'Nuevo estado',
                   border: OutlineInputBorder(),
@@ -1070,10 +1073,11 @@ class _AdminComprasDocumentControlPanelState
                   fillColor: Colors.white,
                 ),
               );
-              if (constraints.maxWidth < 760)
+              if (constraints.maxWidth < 760) {
                 return Column(
                   children: [state, const SizedBox(height: 8), reason],
                 );
+              }
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

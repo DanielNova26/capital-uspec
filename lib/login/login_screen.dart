@@ -167,7 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: ids.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, index) {
                       final id = ids[index];
                       final nombre = nombres[id];
@@ -388,7 +388,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Usuario o Cédula',
                           labelStyle: TextStyle(
-                            color: scheme.primary.withOpacity(0.8),
+                            color: scheme.primary.withValues(alpha: 0.8),
                             fontFamily: kArial,
                           ),
                           border: const OutlineInputBorder(),
@@ -414,7 +414,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Contraseña',
                           labelStyle: TextStyle(
-                            color: scheme.primary.withOpacity(0.8),
+                            color: scheme.primary.withValues(alpha: 0.8),
                             fontFamily: kArial,
                           ),
                           border: const OutlineInputBorder(),

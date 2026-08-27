@@ -1,7 +1,6 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/state/empresa_scope.dart';
@@ -587,7 +586,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               userId: widget.userId,
               nameHint: nombre,
               radius: 28,
-              backgroundColor: _brand.withOpacity(0.1),
+              backgroundColor: _brand.withValues(alpha: 0.1),
               foregroundColor: _brand,
             ),
             const SizedBox(width: 12),
@@ -678,7 +677,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: defaultValue,
+              initialValue: defaultValue,
               items: items,
               decoration: const InputDecoration(
                 border: OutlineInputBorder(),
@@ -787,7 +786,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _areaFilter,
+              initialValue: _areaFilter,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por área',
                 border: OutlineInputBorder(),
@@ -995,9 +994,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
         width: 32,
         height: 32,
         decoration: BoxDecoration(
-          color: c.withOpacity(0.1),
+          color: c.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: c.withOpacity(0.4)),
+          border: Border.all(color: c.withValues(alpha: 0.4)),
         ),
         alignment: Alignment.center,
         child: Text(
@@ -1021,9 +1020,9 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: c.withOpacity(0.1),
+          color: c.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: c.withOpacity(0.3)),
+          border: Border.all(color: c.withValues(alpha: 0.3)),
         ),
         child: Text(
           pts.toStringAsFixed(1),
@@ -1057,7 +1056,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
-                color: _brand.withOpacity(0.08),
+                color: _brand.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
@@ -1349,7 +1348,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
               SizedBox(
                 width: 230,
                 child: DropdownButtonFormField<String>(
-                  value: defaultEmpresa.isEmpty ? null : defaultEmpresa,
+                  initialValue: defaultEmpresa.isEmpty ? null : defaultEmpresa,
                   items: empresaItems,
                   decoration: inputDecoration.copyWith(labelText: 'Empresa'),
                   onChanged: (v) {
@@ -1367,7 +1366,7 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
             SizedBox(
               width: 230,
               child: DropdownButtonFormField<String>(
-                value: _areaFilter,
+                initialValue: _areaFilter,
                 items: areaItems,
                 decoration: inputDecoration.copyWith(labelText: 'Área'),
                 onChanged: (v) => setState(() => _areaFilter = v ?? 'todas'),
@@ -1416,7 +1415,7 @@ class _SummaryCard extends StatelessWidget {
           boxShadow: [
             BoxShadow(
               color: isActive
-                  ? scheme.primary.withOpacity(0.12)
+                  ? scheme.primary.withValues(alpha: 0.12)
                   : const Color(0x0A000000),
               blurRadius: isActive ? 12 : 4,
               offset: const Offset(0, 2),
@@ -1445,7 +1444,7 @@ class _SummaryCard extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: scheme.primary.withOpacity(0.08),
+                      color: scheme.primary.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(
@@ -1551,7 +1550,7 @@ class _StatusPieChartState extends State<_StatusPieChart> {
                           tween: Tween(begin: 0, end: 1),
                           duration: const Duration(milliseconds: 900),
                           curve: Curves.easeOutCubic,
-                          builder: (_, progress, __) {
+                          builder: (_, progress, _) {
                             return CustomPaint(
                               painter: _PiePainter(
                                 entries: entries,
@@ -1598,9 +1597,9 @@ class _StatusPieChartState extends State<_StatusPieChart> {
                           fontSize: 12,
                         ),
                       ),
-                      backgroundColor: _statusColor(e.key).withOpacity(0.15),
+                      backgroundColor: _statusColor(e.key).withValues(alpha: 0.15),
                       side: BorderSide(
-                        color: _statusColor(e.key).withOpacity(0.6),
+                        color: _statusColor(e.key).withValues(alpha: 0.6),
                       ),
                     ),
                   )
@@ -1635,7 +1634,7 @@ class _PiePainter extends CustomPainter {
     double start = -pi / 2;
     for (final e in entries) {
       final sweep = (e.value / total) * 2 * pi * progress;
-      paint.color = _statusColor(e.key).withOpacity(0.85);
+      paint.color = _statusColor(e.key).withValues(alpha: 0.85);
       canvas.drawArc(
         rect.deflate(size.width * 0.2),
         start,
@@ -1690,7 +1689,7 @@ class _AreaBarChart extends StatelessWidget {
             Expanded(
               child: ListView.separated(
                 itemCount: data.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
                 itemBuilder: (_, i) {
                   final entry = data[i];
                   final percent = maxValue == 0 ? 0.0 : entry.value / maxValue;
@@ -1841,12 +1840,12 @@ class _WebTabToggle extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: onDark
-            ? Colors.white.withOpacity(0.15)
+            ? Colors.white.withValues(alpha: 0.15)
             : const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: onDark
-              ? Colors.white.withOpacity(0.3)
+              ? Colors.white.withValues(alpha: 0.3)
               : const Color(0xFFE5E7EB),
         ),
       ),

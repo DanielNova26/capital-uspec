@@ -52,24 +52,27 @@ class _StorageImageState extends State<_StorageImage> {
       final downloadUrl = await ref.getDownloadURL();
       final response = await http.get(Uri.parse(downloadUrl));
       if (response.statusCode == 200) {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _bytes = response.bodyBytes;
             _loading = false;
           });
+        }
       } else {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _loading = false;
             _errorMsg = 'HTTP ${response.statusCode}';
           });
+        }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _loading = false;
           _errorMsg = e.toString();
         });
+      }
     }
   }
 
@@ -271,8 +274,9 @@ class _NotificacionesTalentoHumanoScreenState
       d['primerNombre'],
       d['primerApellido'],
     ].whereType<String>().where((s) => s.isNotEmpty).join(' ');
-    if (mounted)
+    if (mounted) {
       setState(() => _senderName = nombre.isNotEmpty ? nombre : null);
+    }
   }
 
   // ── Búsqueda de empleados ──────────────────────────────────────────────────
@@ -920,7 +924,7 @@ class _NotificacionesTalentoHumanoScreenState
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: docs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
               itemBuilder: (_, i) =>
                   _HistorialTile(doc: docs[i], empresaId: widget.empresaId),
             );
@@ -1109,7 +1113,9 @@ class _HistorialTileState extends State<_HistorialTile> {
         }
         if (q.docs.isEmpty) continue;
         final b = db.batch();
-        for (final d in q.docs) b.delete(d.reference);
+        for (final d in q.docs) {
+          b.delete(d.reference);
+        }
         await b.commit();
       }
 

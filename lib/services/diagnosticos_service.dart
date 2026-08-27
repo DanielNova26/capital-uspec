@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -78,8 +77,9 @@ class DiagnosticosService {
 
       await _loadFromAssets();
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('DiagnosticosService: Error cargando desde Firestore: $e');
+      }
       await _loadFromAssets();
     }
   }
@@ -104,8 +104,9 @@ class DiagnosticosService {
       _cacheLoadedFromFirestore = false;
       _cacheLoaded = true;
     } catch (e) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('DiagnosticosService: Error cargando desde assets: $e');
+      }
       _cacheMedicos = [];
       _cacheNutricionales = [];
       _cacheLoadedFromFirestore = false;
@@ -164,10 +165,11 @@ class DiagnosticosService {
             rangos = _parseRangosSimples(rangosStr);
           }
         } catch (e) {
-          if (kDebugMode)
+          if (kDebugMode) {
             debugPrint(
               'DiagnosticosService: Error parseando rangos bioquímicos: $e',
             );
+          }
         }
       }
 

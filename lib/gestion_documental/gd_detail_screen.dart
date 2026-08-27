@@ -886,7 +886,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               fontFamily: kArial,
               fontSize: 60,
               fontWeight: FontWeight.w900,
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               letterSpacing: 10,
             ),
           ),
@@ -952,7 +952,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             onPressed: () => _handleAction(
               () => _service.enviarARevision(
                 docId: doc.docId,
-                versionId: currentVersionId!,
+                versionId: currentVersionId,
                 empresaId: widget.empresaId,
                 actorId: widget.userId,
                 rolDocumental: rolDocumental!,
@@ -968,7 +968,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             onPressed: () => _handleAction(
               () => _service.aprobar(
                 docId: doc.docId,
-                versionId: currentVersionId!,
+                versionId: currentVersionId,
                 empresaId: widget.empresaId,
                 actorId: widget.userId,
                 rolDocumental: rolDocumental!,
@@ -985,7 +985,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             color: const Color(0xFFF59E0B),
             onPressed: () => _showObservationDialog(
               doc,
-              currentVersionId!,
+              currentVersionId,
               rolDocumental!,
               nombreActor,
             ),
@@ -998,7 +998,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             icon: Icons.upload_file,
             color: const Color(0xFFF59E0B),
             onPressed: () =>
-                _pickAndUploadPdf(currentVersion!, rolDocumental!, nombreActor),
+                _pickAndUploadPdf(currentVersion, rolDocumental!, nombreActor),
           ),
         if (doc.estado == GdEstado.observado &&
             currentVersion != null &&
@@ -1012,7 +1012,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             onPressed: () => _handleAction(
               () => _service.reenviar(
                 docId: doc.docId,
-                versionId: currentVersionId!,
+                versionId: currentVersionId,
                 empresaId: widget.empresaId,
                 actorId: widget.userId,
                 rolDocumental: rolDocumental!,
@@ -1028,7 +1028,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             onPressed: () => _handleAction(
               () => _service.firmar(
                 docId: doc.docId,
-                versionId: currentVersionId!,
+                versionId: currentVersionId,
                 empresaId: widget.empresaId,
                 actorId: widget.userId,
                 rolDocumental: rolDocumental!,
@@ -1044,7 +1044,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             onPressed: () => _handleAction(
               () => _service.marcarVigente(
                 docId: doc.docId,
-                versionId: currentVersionId!,
+                versionId: currentVersionId,
                 empresaId: widget.empresaId,
                 actorId: widget.userId,
                 rolDocumental: rolDocumental!,
@@ -1096,7 +1096,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               children: [
                 Icon(
                   Icons.lock_person_outlined,
-                  color: const Color(0xFF94A3B8).withOpacity(0.5),
+                  color: const Color(0xFF94A3B8).withValues(alpha: 0.5),
                   size: 32,
                 ),
                 const SizedBox(height: 12),
@@ -1166,7 +1166,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 ? Colors.redAccent
                 : (esPasado || esHoy
                       ? GdPalette.accent
-                      : const Color(0xFF94A3B8).withOpacity(0.3));
+                      : const Color(0xFF94A3B8).withValues(alpha: 0.3));
 
             return Expanded(
               child: Column(

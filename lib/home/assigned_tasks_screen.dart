@@ -504,7 +504,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: selectedCargoId,
+                      initialValue: selectedCargoId,
                       decoration: const InputDecoration(
                         labelText: 'Cargo',
                         border: OutlineInputBorder(),
@@ -692,8 +692,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final actorName = _currentUserName();
       final toName = pickedUser!['nombre'] ?? '';
       final recipients = <String>{};
-      if (creadorId.isNotEmpty && creadorId != widget.userId)
+      if (creadorId.isNotEmpty && creadorId != widget.userId) {
         recipients.add(creadorId);
+      }
       if (jefeId.isNotEmpty && jefeId != widget.userId) recipients.add(jefeId);
       if (recipients.isNotEmpty) {
         try {
@@ -824,8 +825,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
         .where('asignado_uid', isEqualTo: widget.userId);
-    if (scopedEmpresaId != null)
+    if (scopedEmpresaId != null) {
       query = query.where('empresaId', isEqualTo: scopedEmpresaId);
+    }
     return query.snapshots();
   }
 
@@ -1217,12 +1219,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_routeValidationDone)
+    if (!_routeValidationDone) {
       return const Scaffold(body: SkeletonList(items: 5));
-    if (!_routeAllowed)
+    }
+    if (!_routeAllowed) {
       return Scaffold(
         body: Center(child: Text(_routeDeniedMessage ?? 'Sin acceso')),
       );
+    }
 
     return FutureBuilder<void>(
       future: _bootstrapFuture,
@@ -1230,8 +1234,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _streamAssignedToMe(),
           builder: (_, snap) {
-            if (snap.connectionState == ConnectionState.waiting)
+            if (snap.connectionState == ConnectionState.waiting) {
               return const Scaffold(body: SkeletonList(items: 5));
+            }
             final allDocs = snap.data?.docs ?? [];
 
             if (!_didAutoOpen && widget.highlightTaskId != null) {
@@ -1509,7 +1514,7 @@ class _ActionTile extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(icon, color: color),

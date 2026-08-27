@@ -422,8 +422,9 @@ class TaskService {
 
     // Notificar DESPUÉS de que la transacción commitee
     final recipients = <String>[];
-    if (creadorId.isNotEmpty && creadorId != byUserId)
+    if (creadorId.isNotEmpty && creadorId != byUserId) {
       recipients.add(creadorId);
+    }
     if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
     if (recipients.isNotEmpty) {
       try {
@@ -518,8 +519,9 @@ class TaskService {
 
     // Notificar DESPUÉS de que la transacción commitee
     final recipients = <String>[];
-    if (creadorId.isNotEmpty && creadorId != byUserId)
+    if (creadorId.isNotEmpty && creadorId != byUserId) {
       recipients.add(creadorId);
+    }
     if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
     if (recipients.isNotEmpty) {
       try {
@@ -680,8 +682,8 @@ class TaskService {
         final v = d[k];
         if (v is List) {
           return v
-              .where((e) => e is Map)
-              .map((e) => Map<String, dynamic>.from(e as Map))
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
               .toList();
         }
       }

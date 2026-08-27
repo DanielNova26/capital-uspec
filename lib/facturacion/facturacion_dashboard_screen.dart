@@ -644,7 +644,7 @@ class _FacturacionViewState extends State<_FacturacionView>
           SizedBox(
             width: 180,
             child: DropdownButtonFormField<String>(
-              value: _filtroMes,
+              initialValue: _filtroMes,
               isExpanded: true,
               decoration: _inputDeco('Mes'),
               items: _meses
@@ -671,7 +671,7 @@ class _FacturacionViewState extends State<_FacturacionView>
           SizedBox(
             width: 200,
             child: DropdownButtonFormField<String>(
-              value: _filtroDoc,
+              initialValue: _filtroDoc,
               isExpanded: true,
               decoration: _inputDeco('Documento'),
               items: [
@@ -702,7 +702,7 @@ class _FacturacionViewState extends State<_FacturacionView>
           SizedBox(
             width: 140,
             child: DropdownButtonFormField<String>(
-              value: _filtroEstado,
+              initialValue: _filtroEstado,
               isExpanded: true,
               decoration: _inputDeco('Estado'),
               items: const [
@@ -929,9 +929,9 @@ class _FacSummaryChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.08),
+      color: color.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: color.withOpacity(0.22)),
+      border: Border.all(color: color.withValues(alpha: 0.22)),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -973,7 +973,7 @@ class _EstCard extends StatelessWidget {
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withOpacity(0.3)),
+        side: BorderSide(color: color.withValues(alpha: 0.3)),
       ),
       child: InkWell(
         onTap: onTap,
@@ -1063,9 +1063,9 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withOpacity(0.4)),
+      border: Border.all(color: color.withValues(alpha: 0.4)),
     ),
     child: Text(
       '$pct%',
@@ -1473,14 +1473,14 @@ class _GestionTabState extends State<_GestionTab> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: color.withOpacity(0.25)),
+        side: BorderSide(color: color.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
+              color: color.withValues(alpha: 0.08),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
@@ -1491,7 +1491,7 @@ class _GestionTabState extends State<_GestionTab> {
                 Container(
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
+                    color: color.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, size: 18, color: color),
@@ -1541,7 +1541,7 @@ class _GestionTabState extends State<_GestionTab> {
     return Column(
       children: [
         DropdownButtonFormField<String>(
-          value: _mesEstId,
+          initialValue: _mesEstId,
           decoration: _inputDeco('Establecimiento'),
           items: _estItemsTodos,
           onChanged: (v) => setState(() => _mesEstId = v),
@@ -1552,7 +1552,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _mesSel,
+                  initialValue: _mesSel,
                   decoration: _inputDeco('Mes'),
                   items: kMeses
                       .map(
@@ -1574,7 +1574,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _anioSel,
+                  initialValue: _anioSel,
                   decoration: _inputDeco('Año'),
                   items: anos
                       .map(
@@ -1597,7 +1597,7 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
-            value: _mesSel,
+            initialValue: _mesSel,
             decoration: _inputDeco('Mes'),
             items: kMeses
                 .map(
@@ -1614,7 +1614,7 @@ class _GestionTabState extends State<_GestionTab> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: _anioSel,
+            initialValue: _anioSel,
             decoration: _inputDeco('Año'),
             items: anos
                 .map(
@@ -1669,7 +1669,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _fechaEstId,
+                  initialValue: _fechaEstId,
                   decoration: _inputDeco('Establecimiento'),
                   items: _estItemsTodos,
                   onChanged: (v) => setState(() => _fechaEstId = v),
@@ -1678,7 +1678,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _fechaDocTipo,
+                  initialValue: _fechaDocTipo,
                   decoration: _inputDeco('Documento'),
                   items: _docItems,
                   onChanged: (v) => setState(() => _fechaDocTipo = v),
@@ -1688,14 +1688,14 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
-            value: _fechaEstId,
+            initialValue: _fechaEstId,
             decoration: _inputDeco('Establecimiento'),
             items: _estItemsTodos,
             onChanged: (v) => setState(() => _fechaEstId = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
-            value: _fechaDocTipo,
+            initialValue: _fechaDocTipo,
             decoration: _inputDeco('Documento'),
             items: _docItems,
             onChanged: (v) => setState(() => _fechaDocTipo = v),
@@ -1832,7 +1832,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _obsEstId,
+                  initialValue: _obsEstId,
                   decoration: _inputDeco('Establecimiento'),
                   items: _estItemsSolo,
                   onChanged: (v) => setState(() => _obsEstId = v),
@@ -1841,7 +1841,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _obsDocTipo,
+                  initialValue: _obsDocTipo,
                   decoration: _inputDeco('Documento'),
                   items: _docItems,
                   onChanged: (v) => setState(() => _obsDocTipo = v),
@@ -1851,14 +1851,14 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
-            value: _obsEstId,
+            initialValue: _obsEstId,
             decoration: _inputDeco('Establecimiento'),
             items: _estItemsSolo,
             onChanged: (v) => setState(() => _obsEstId = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
-            value: _obsDocTipo,
+            initialValue: _obsDocTipo,
             decoration: _inputDeco('Documento'),
             items: _docItems,
             onChanged: (v) => setState(() => _obsDocTipo = v),
@@ -1872,9 +1872,9 @@ class _GestionTabState extends State<_GestionTab> {
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: _kGreen.withOpacity(0.08),
+              color: _kGreen.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: _kGreen.withOpacity(0.3)),
+              border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
@@ -2094,7 +2094,7 @@ class _GestionTabState extends State<_GestionTab> {
       ),
       style: FilledButton.styleFrom(
         backgroundColor: color,
-        disabledBackgroundColor: color.withOpacity(0.5),
+        disabledBackgroundColor: color.withValues(alpha: 0.5),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
@@ -2182,7 +2182,7 @@ class _CargaTabState extends State<_CargaTab> {
               SizedBox(
                 width: isWide ? 320 : double.infinity,
                 child: DropdownButtonFormField<String>(
-                  value: _estId,
+                  initialValue: _estId,
                   isExpanded: true,
                   decoration: _inputDeco('Establecimiento'),
                   items: widget.ests
@@ -2206,7 +2206,7 @@ class _CargaTabState extends State<_CargaTab> {
               SizedBox(
                 width: isWide ? 200 : double.infinity,
                 child: DropdownButtonFormField<String>(
-                  value: _mes,
+                  initialValue: _mes,
                   isExpanded: true,
                   decoration: _inputDeco('Mes'),
                   items: widget.meses
@@ -2469,11 +2469,12 @@ class _DetalleEstablecimientoScreenState
       normalizedMes,
       documentos: widget.documentos,
     );
-    if (mounted)
+    if (mounted) {
       setState(() {
         _archivos = archivos;
         _loading = false;
       });
+    }
   }
 
   bool get _todoCompleto => widget.documentos.every((doc) {
@@ -2733,7 +2734,7 @@ class _DetalleEstablecimientoScreenState
           if (_mesesDisponibles.length > 1) ...[
             Expanded(
               child: DropdownButtonFormField<String>(
-                value: _mesesDisponibles.contains(mesActual) ? mesActual : null,
+                initialValue: _mesesDisponibles.contains(mesActual) ? mesActual : null,
                 isDense: true,
                 decoration: _inputDeco('Mes'),
                 items: _mesesDisponibles
@@ -3433,8 +3434,9 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
           .collection('TBL_USUARIOS')
           .doc(widget.userId)
           .get();
-      if (snap.exists)
+      if (snap.exists) {
         nombre = (snap.data()!['nombre'] ?? widget.userId).toString();
+      }
     } catch (_) {}
     await widget.svc.solicitarSiguienteMes(
       empresaId: widget.empresaId,
@@ -3555,15 +3557,15 @@ class _DocCardState extends State<_DocCard> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       decoration: BoxDecoration(
-        color: _isDragging ? _kPrimary.withOpacity(0.04) : Colors.white,
+        color: _isDragging ? _kPrimary.withValues(alpha: 0.04) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: _isDragging ? _kPrimary : color.withOpacity(0.3),
+          color: _isDragging ? _kPrimary : color.withValues(alpha: 0.3),
           width: _isDragging ? 2 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -3611,7 +3613,7 @@ class _DocCardState extends State<_DocCard> {
   Widget _buildHeader(Color color) => Container(
     padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.08),
+      color: color.withValues(alpha: 0.08),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
     ),
     child: Column(
@@ -3683,7 +3685,7 @@ class _DocCardState extends State<_DocCard> {
                   color: _kPrimary,
                 ),
               ),
-        errorBuilder: (_, __, ___) => _fileIcon(ext),
+        errorBuilder: (_, _, _) => _fileIcon(ext),
       );
       onTap = () => previewImage(context, archivo.downloadUrl);
     } else if (isPdf) {
@@ -3715,7 +3717,7 @@ class _DocCardState extends State<_DocCard> {
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  colors: [Colors.black.withOpacity(0.45), Colors.transparent],
+                  colors: [Colors.black.withValues(alpha: 0.45), Colors.transparent],
                 ),
               ),
               child: const Row(
@@ -3821,7 +3823,7 @@ class _DocCardState extends State<_DocCard> {
   }
 
   Widget _buildDragOverlay() => Container(
-    color: _kPrimary.withOpacity(0.06),
+    color: _kPrimary.withValues(alpha: 0.06),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -3845,7 +3847,7 @@ class _DocCardState extends State<_DocCard> {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.block_rounded, size: 28, color: _kGrey.withOpacity(0.4)),
+        Icon(Icons.block_rounded, size: 28, color: _kGrey.withValues(alpha: 0.4)),
         const SizedBox(height: 6),
         Text(
           'No requerido',
@@ -3873,14 +3875,14 @@ class _DocCardState extends State<_DocCard> {
   );
 
   Widget _buildEmptyBody() => Container(
-    color: Colors.red.shade50.withOpacity(0.5),
+    color: Colors.red.shade50.withValues(alpha: 0.5),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
           Icons.cloud_upload_outlined,
           size: 30,
-          color: _kRed.withOpacity(0.4),
+          color: _kRed.withValues(alpha: 0.4),
         ),
         const SizedBox(height: 6),
         Text(
@@ -3888,7 +3890,7 @@ class _DocCardState extends State<_DocCard> {
           style: TextStyle(
             fontFamily: _kFont,
             fontSize: 10,
-            color: _kRed.withOpacity(0.55),
+            color: _kRed.withValues(alpha: 0.55),
           ),
         ),
       ],
@@ -4075,7 +4077,7 @@ class _DocCardState extends State<_DocCard> {
         style: TextStyle(fontFamily: _kFont, fontSize: 10),
       ),
       style: FilledButton.styleFrom(
-        backgroundColor: _kRed.withOpacity(0.85),
+        backgroundColor: _kRed.withValues(alpha: 0.85),
         padding: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
       ),
@@ -4089,11 +4091,11 @@ class _DocCardState extends State<_DocCard> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
         decoration: BoxDecoration(
-          color: count > 0 ? _kPrimary.withOpacity(0.1) : Colors.grey.shade100,
+          color: count > 0 ? _kPrimary.withValues(alpha: 0.1) : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(7),
           border: Border.all(
             color: count > 0
-                ? _kPrimary.withOpacity(0.3)
+                ? _kPrimary.withValues(alpha: 0.3)
                 : Colors.grey.shade300,
           ),
         ),
@@ -4137,7 +4139,7 @@ class _DocCardState extends State<_DocCard> {
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
-        side: BorderSide(color: color.withOpacity(0.4)),
+        side: BorderSide(color: color.withValues(alpha: 0.4)),
         padding: const EdgeInsets.symmetric(horizontal: 4),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         textStyle: const TextStyle(fontFamily: _kFont, fontSize: 10),
@@ -4190,7 +4192,7 @@ class _DocCardState extends State<_DocCard> {
               leading: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: _kPrimary.withOpacity(0.08),
+                  color: _kPrimary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Icon(
@@ -4414,7 +4416,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: _kPrimary.withOpacity(0.1),
+                        color: _kPrimary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(
@@ -4486,7 +4488,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     controller: widget.scrollController,
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     itemCount: widget.observaciones.length,
-                    separatorBuilder: (_, __) => const Divider(height: 12),
+                    separatorBuilder: (_, _) => const Divider(height: 12),
                     itemBuilder: (_, i) {
                       final o = widget.observaciones[i];
                       return Row(
@@ -4496,7 +4498,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                             userId: o.autorId,
                             nameHint: _displayName(o.autorNombre),
                             radius: 16,
-                            backgroundColor: _kPrimary.withOpacity(0.12),
+                            backgroundColor: _kPrimary.withValues(alpha: 0.12),
                             foregroundColor: _kPrimary,
                           ),
                           const SizedBox(width: 10),
@@ -4597,12 +4599,12 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                           vertical: 9,
                         ),
                         decoration: BoxDecoration(
-                          color: _kPrimary.withOpacity(0.06),
+                          color: _kPrimary.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: _fechaLimite == null
                                 ? Colors.grey.shade300
-                                : _kPrimary.withOpacity(0.5),
+                                : _kPrimary.withValues(alpha: 0.5),
                           ),
                         ),
                         child: Row(
@@ -4841,10 +4843,10 @@ class _ObservacionesScreen extends StatelessWidget {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: _kPrimary.withOpacity(0.08),
+                          color: _kPrimary.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                            color: _kPrimary.withOpacity(0.25),
+                            color: _kPrimary.withValues(alpha: 0.25),
                           ),
                         ),
                         child: Row(

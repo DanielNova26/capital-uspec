@@ -477,7 +477,7 @@ class _TeamScreenState extends State<TeamScreen>
     final isWeb = MediaQuery.of(context).size.width >= 900;
 
     return Scaffold(
-      backgroundColor: scheme.surfaceVariant.withOpacity(0.15),
+      backgroundColor: scheme.surfaceContainerHighest.withValues(alpha: 0.15),
       appBar: AppBar(
         title: const Text(
           'Mi equipo de trabajo',
@@ -527,7 +527,7 @@ class _TeamScreenState extends State<TeamScreen>
             Icon(
               Icons.account_tree_outlined,
               size: 64,
-              color: scheme.onSurfaceVariant.withOpacity(0.3),
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.3),
             ),
             const SizedBox(height: 16),
             Text(
@@ -545,7 +545,7 @@ class _TeamScreenState extends State<TeamScreen>
               style: TextStyle(
                 fontFamily: kArial,
                 fontSize: 13,
-                color: scheme.onSurfaceVariant.withOpacity(0.7),
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
               ),
               textAlign: TextAlign.center,
             ),
@@ -599,9 +599,9 @@ class _TeamScreenState extends State<TeamScreen>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: kTeal.withOpacity(0.08),
+        color: kTeal.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: kTeal.withOpacity(0.2)),
+        border: Border.all(color: kTeal.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -611,7 +611,7 @@ class _TeamScreenState extends State<TeamScreen>
               Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: kTeal.withOpacity(0.15),
+                  color: kTeal.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -643,7 +643,7 @@ class _TeamScreenState extends State<TeamScreen>
                       style: TextStyle(
                         fontFamily: kArial,
                         fontSize: 11,
-                        color: kTeal.withOpacity(0.7),
+                        color: kTeal.withValues(alpha: 0.7),
                       ),
                     ),
                     Text(
@@ -654,7 +654,7 @@ class _TeamScreenState extends State<TeamScreen>
                         fontFamily: kArial,
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: kTeal.withOpacity(0.65),
+                        color: kTeal.withValues(alpha: 0.65),
                       ),
                     ),
                   ],
@@ -675,7 +675,7 @@ class _TeamScreenState extends State<TeamScreen>
         hintStyle: TextStyle(
           fontFamily: kArial,
           fontSize: 13,
-          color: scheme.onSurfaceVariant.withOpacity(0.5),
+          color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
         ),
         prefixIcon: const Icon(Icons.search, size: 20),
         suffixIcon: _searchQuery.isNotEmpty
@@ -693,7 +693,7 @@ class _TeamScreenState extends State<TeamScreen>
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant.withOpacity(0.5)),
+          borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5)),
         ),
         filled: true,
         fillColor: scheme.surface,
@@ -734,7 +734,7 @@ class _TeamScreenState extends State<TeamScreen>
                       bottom: 26,
                       child: Container(
                         width: 1.5,
-                        color: _colorForDepth(node.depth - 1).withOpacity(0.35),
+                        color: _colorForDepth(node.depth - 1).withValues(alpha: 0.35),
                       ),
                     ),
                     Positioned(
@@ -743,7 +743,7 @@ class _TeamScreenState extends State<TeamScreen>
                       right: 0,
                       child: Container(
                         height: 1.5,
-                        color: _colorForDepth(node.depth - 1).withOpacity(0.35),
+                        color: _colorForDepth(node.depth - 1).withValues(alpha: 0.35),
                       ),
                     ),
                     Positioned(
@@ -757,7 +757,7 @@ class _TeamScreenState extends State<TeamScreen>
                           border: Border.all(
                             color: _colorForDepth(
                               node.depth - 1,
-                            ).withOpacity(0.45),
+                            ).withValues(alpha: 0.45),
                             width: 1.5,
                           ),
                           shape: BoxShape.circle,
@@ -802,17 +802,17 @@ class _TeamScreenState extends State<TeamScreen>
                   vertical: 9,
                 ),
                 decoration: BoxDecoration(
-                  color: isSelected ? color.withOpacity(0.12) : scheme.surface,
+                  color: isSelected ? color.withValues(alpha: 0.12) : scheme.surface,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: isSelected
                         ? color
-                        : scheme.outlineVariant.withOpacity(0.3),
+                        : scheme.outlineVariant.withValues(alpha: 0.3),
                     width: isSelected ? 1.5 : 1,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
+                      color: Colors.black.withValues(alpha: 0.03),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -835,7 +835,7 @@ class _TeamScreenState extends State<TeamScreen>
                       userId: node.empleadoId,
                       nameHint: node.nombre,
                       radius: 17,
-                      backgroundColor: color.withOpacity(0.15),
+                      backgroundColor: color.withValues(alpha: 0.15),
                       foregroundColor: color,
                     ),
                     const SizedBox(width: 10),
@@ -861,7 +861,7 @@ class _TeamScreenState extends State<TeamScreen>
                                 fontFamily: kArial,
                                 fontSize: 11,
                                 color: isSelected
-                                    ? color.withOpacity(0.8)
+                                    ? color.withValues(alpha: 0.8)
                                     : scheme.onSurfaceVariant,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -877,7 +877,7 @@ class _TeamScreenState extends State<TeamScreen>
                               style: TextStyle(
                                 fontFamily: kArial,
                                 fontSize: 10,
-                                color: scheme.onSurfaceVariant.withOpacity(0.5),
+                                color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -894,7 +894,7 @@ class _TeamScreenState extends State<TeamScreen>
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
+                            color: color.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
@@ -914,7 +914,7 @@ class _TeamScreenState extends State<TeamScreen>
                             style: TextStyle(
                               fontFamily: kArial,
                               fontSize: 9,
-                              color: color.withOpacity(0.6),
+                              color: color.withValues(alpha: 0.6),
                             ),
                           ),
                         ],
@@ -953,7 +953,7 @@ class _TeamScreenState extends State<TeamScreen>
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -968,7 +968,7 @@ class _TeamScreenState extends State<TeamScreen>
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: _selectedUserId,
+            initialValue: _selectedUserId,
             isExpanded: true,
             decoration: InputDecoration(
               border: OutlineInputBorder(
@@ -1034,7 +1034,7 @@ class _TeamScreenState extends State<TeamScreen>
                 Icon(
                   Icons.person_pin_outlined,
                   size: 13,
-                  color: kTeal.withOpacity(0.7),
+                  color: kTeal.withValues(alpha: 0.7),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -1102,11 +1102,11 @@ class _TeamScreenState extends State<TeamScreen>
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: scheme.outlineVariant.withOpacity(0.3)),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 44, color: scheme.onSurfaceVariant.withOpacity(0.3)),
+          Icon(icon, size: 44, color: scheme.onSurfaceVariant.withValues(alpha: 0.3)),
           const SizedBox(height: 10),
           Text(
             title,
@@ -1154,10 +1154,10 @@ class _TeamScreenState extends State<TeamScreen>
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: sc.withOpacity(0.2)),
+        border: Border.all(color: sc.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 5,
             offset: const Offset(0, 2),
           ),
@@ -1183,7 +1183,7 @@ class _TeamScreenState extends State<TeamScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
                 decoration: BoxDecoration(
-                  color: sc.withOpacity(0.1),
+                  color: sc.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(

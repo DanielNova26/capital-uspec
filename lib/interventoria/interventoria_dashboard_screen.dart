@@ -753,11 +753,12 @@ class _HallazgosTableState extends State<_HallazgosTable> {
 
   Future<void> _loadAreas() async {
     final areas = await widget.service.getAreas(widget.empresaId);
-    if (mounted)
+    if (mounted) {
       setState(() {
         _areas = areas;
         _areasLoaded = true;
       });
+    }
   }
 
   Future<void> _asignarArea(InterventoriaHallazgo h, Area area) async {
@@ -1919,7 +1920,7 @@ class _HallazgoFormState extends State<_HallazgoForm> {
                 else
                   DropdownButtonFormField<String>(
                     key: ValueKey(_areaId),
-                    value: _areaId.isEmpty ? null : _areaId,
+                    initialValue: _areaId.isEmpty ? null : _areaId,
                     decoration: const InputDecoration(
                       labelText: 'Departamento encargado',
                       border: OutlineInputBorder(),
@@ -2721,8 +2722,9 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
             value = v.porcentajeGeneral;
           } else {
             final item = v.items[_categoriaKey];
-            if (item == null || item.noEvaluado || item.valor == null)
+            if (item == null || item.noEvaluado || item.valor == null) {
               return null;
+            }
             value = item.valor!.clamp(0, 100).toDouble();
           }
           return _TimelinePoint(
@@ -2968,7 +2970,7 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
               );
               final dropCat = _modo == 'puntajes'
                   ? DropdownButtonFormField<String>(
-                      value: _categoriaKey,
+                      initialValue: _categoriaKey,
                       decoration: const InputDecoration(
                         labelText: 'Filtrar por',
                         border: OutlineInputBorder(),
@@ -7588,10 +7590,12 @@ class _AdjuntosDeTareaState extends State<_AdjuntosDeTarea> {
   static IconData _iconForMime(String mime) {
     if (mime.startsWith('image/')) return Icons.image_rounded;
     if (mime.contains('pdf')) return Icons.picture_as_pdf_rounded;
-    if (mime.contains('zip') || mime.contains('rar'))
+    if (mime.contains('zip') || mime.contains('rar')) {
       return Icons.folder_zip_rounded;
-    if (mime.contains('word') || mime.contains('document'))
+    }
+    if (mime.contains('word') || mime.contains('document')) {
       return Icons.description_rounded;
+    }
     return Icons.attach_file_rounded;
   }
 
@@ -7599,16 +7603,18 @@ class _AdjuntosDeTareaState extends State<_AdjuntosDeTarea> {
     if (mime.startsWith('image/')) return const Color(0xFF0EA5E9);
     if (mime.contains('pdf')) return const Color(0xFFEF4444);
     if (mime.contains('zip')) return const Color(0xFFF59E0B);
-    if (mime.contains('word') || mime.contains('document'))
+    if (mime.contains('word') || mime.contains('document')) {
       return const Color(0xFF3B82F6);
+    }
     return const Color(0xFF64748B);
   }
 
   void _maybeSyncEstado(Map<String, dynamic> tareaData) {
     final svc = widget.service;
     if (svc == null || widget.hallazgoId.isEmpty) return;
-    if (widget.hallazgoEstado != 'activo')
+    if (widget.hallazgoEstado != 'activo') {
       return; // solo si el hallazgo está activo
+    }
 
     final tareaEstado = (tareaData['estado'] ?? tareaData['status'] ?? '')
         .toString()

@@ -3,7 +3,6 @@ import 'dart:async';
 // lib/home/create_task_screen.dart
 // ignore_for_file: use_build_context_synchronously
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -219,8 +218,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       'departamentoId',
       'departamento_id',
     ]);
-    if (direct.isNotEmpty && _areas.any((a) => a['id'] == direct))
+    if (direct.isNotEmpty && _areas.any((a) => a['id'] == direct)) {
       return direct;
+    }
 
     // 2) si viene por nombre: area / areaNombre / departamento
     final nombre = _firstNonEmpty(u, const [
@@ -236,8 +236,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         (a) => _norm(a['nombre'] ?? '') == _norm(nombre),
         orElse: () => {},
       );
-      if ((hit['id'] ?? '').toString().trim().isNotEmpty)
+      if ((hit['id'] ?? '').toString().trim().isNotEmpty) {
         return hit['id']!.trim();
+      }
     }
 
     return null;
@@ -1820,9 +1821,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: (color ?? Colors.black).withOpacity(0.07),
+        color: (color ?? Colors.black).withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: (color ?? Colors.black).withOpacity(0.10)),
+        border: Border.all(color: (color ?? Colors.black).withValues(alpha: 0.10)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1830,7 +1831,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           Icon(
             icon,
             size: 16,
-            color: (color ?? Colors.black).withOpacity(0.75),
+            color: (color ?? Colors.black).withValues(alpha: 0.75),
           ),
           const SizedBox(width: 6),
           Flexible(
@@ -1838,7 +1839,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               text,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: (color ?? Colors.black).withOpacity(0.85),
+                color: (color ?? Colors.black).withValues(alpha: 0.85),
                 fontSize: 12,
               ),
             ),
@@ -2021,7 +2022,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                             Expanded(
                               child: DropdownButtonFormField<String>(
                                 isExpanded: true,
-                                value: _priority,
+                                initialValue: _priority,
                                 decoration: const InputDecoration(
                                   labelText: 'Prioridad',
                                   border: OutlineInputBorder(),
@@ -2072,7 +2073,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         // Área (primer filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
-                          value: _areaId,
+                          initialValue: _areaId,
                           decoration: InputDecoration(
                             labelText: 'Área',
                             border: const OutlineInputBorder(),
@@ -2121,7 +2122,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         // Cargo (segundo filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
-                          value: _cargoFiltro,
+                          initialValue: _cargoFiltro,
                           decoration: const InputDecoration(
                             labelText: 'Cargo',
                             border: OutlineInputBorder(),
@@ -2162,7 +2163,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                         // Persona asignada (resultado del filtro)
                         DropdownButtonFormField<String>(
                           isExpanded: true,
-                          value: _asignadoUid,
+                          initialValue: _asignadoUid,
                           decoration: InputDecoration(
                             labelText: 'Persona asignada',
                             border: const OutlineInputBorder(),
@@ -2341,7 +2342,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: _pickedFiles.length,
-                          separatorBuilder: (_, __) => const Divider(height: 8),
+                          separatorBuilder: (_, _) => const Divider(height: 8),
                           itemBuilder: (_, i) {
                             final f = _pickedFiles[i];
                             return Row(

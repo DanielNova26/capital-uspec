@@ -27,9 +27,9 @@ class SkeletonBox extends StatelessWidget {
               begin: Alignment(value - 1, -0.3),
               end: Alignment(value, 0.3),
               colors: [
-                scheme.surfaceContainerHighest.withOpacity(.55),
-                scheme.surface.withOpacity(.95),
-                scheme.surfaceContainerHighest.withOpacity(.55),
+                scheme.surfaceContainerHighest.withValues(alpha: .55),
+                scheme.surface.withValues(alpha: .95),
+                scheme.surfaceContainerHighest.withValues(alpha: .55),
               ],
               stops: const [0.2, 0.5, 0.8],
             ).createShader(bounds);
@@ -59,8 +59,8 @@ class SkeletonList extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: items,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => const Card(
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => const Card(
         child: Padding(
           padding: EdgeInsets.all(12),
           child: Column(

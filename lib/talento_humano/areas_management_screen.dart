@@ -38,8 +38,9 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
     if (completo.isNotEmpty) return completo;
     final nombres = (ud['nombres'] as String?)?.trim() ?? '';
     final apellidos = (ud['apellidos'] as String?)?.trim() ?? '';
-    if (nombres.isNotEmpty || apellidos.isNotEmpty)
+    if (nombres.isNotEmpty || apellidos.isNotEmpty) {
       return '$nombres $apellidos'.trim();
+    }
     final p1 = (ud['primerNombre'] as String?)?.trim() ?? '';
     final p2 = (ud['segundoNombre'] as String?)?.trim() ?? '';
     final a1 = (ud['primerApellido'] as String?)?.trim() ?? '';
@@ -162,7 +163,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                 : ListView.separated(
                     shrinkWrap: true,
                     itemCount: asignados.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final u = asignados[i];
                       final nombre = u['nombre']!;
@@ -257,7 +258,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: _khPrimary.withOpacity(0.1),
+                    color: _khPrimary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -419,7 +420,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                       final id = '${widget.empresaId}_${_slug(nombre)}';
                       await _areasColl.doc(id).set(payload);
                     } else {
-                      await doc!.reference.update(payload);
+                      await doc.reference.update(payload);
                     }
                     if (mounted) Navigator.of(ctx2).pop();
                   } catch (e) {
@@ -505,7 +506,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
           return ListView.separated(
             padding: const EdgeInsets.all(24),
             itemCount: docs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (ctx, idx) {
               final doc = docs[idx];
               final data = doc.data();
@@ -515,7 +516,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: _khPrimary.withOpacity(0.1),
+                        color: _khPrimary.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(

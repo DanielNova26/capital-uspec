@@ -500,7 +500,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     : ListView.separated(
                         padding: const EdgeInsets.all(16),
                         itemCount: docs.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
                         itemBuilder: (_, i) {
                           final data = docs[i].data();
                           final itemAttachments = _collectionItemAttachments(
@@ -660,7 +660,7 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     : ListView.separated(
                         padding: const EdgeInsets.all(16),
                         itemCount: docs.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
                         itemBuilder: (_, i) {
                           final data = docs[i].data();
                           final attachments = _collectionItemAttachments(data);
@@ -720,10 +720,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: Colors.teal.withOpacity(0.08),
+                                      color: Colors.teal.withValues(alpha: 0.08),
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
-                                        color: Colors.teal.withOpacity(0.16),
+                                        color: Colors.teal.withValues(alpha: 0.16),
                                       ),
                                     ),
                                     child: Column(
@@ -1504,13 +1504,13 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: hasAvance
-                        ? const Color(0xFF0D9488).withOpacity(0.08)
-                        : const Color(0xFF3B82F6).withOpacity(0.08),
+                        ? const Color(0xFF0D9488).withValues(alpha: 0.08)
+                        : const Color(0xFF3B82F6).withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
                       color: hasAvance
-                          ? const Color(0xFF0D9488).withOpacity(0.25)
-                          : const Color(0xFF3B82F6).withOpacity(0.25),
+                          ? const Color(0xFF0D9488).withValues(alpha: 0.25)
+                          : const Color(0xFF3B82F6).withValues(alpha: 0.25),
                     ),
                   ),
                   child: Row(
@@ -1521,8 +1521,8 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                         height: 36,
                         decoration: BoxDecoration(
                           color: hasAvance
-                              ? const Color(0xFF0D9488).withOpacity(0.15)
-                              : const Color(0xFF3B82F6).withOpacity(0.15),
+                              ? const Color(0xFF0D9488).withValues(alpha: 0.15)
+                              : const Color(0xFF3B82F6).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Icon(
@@ -1631,15 +1631,15 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          Colors.purple.withOpacity(0.10),
-                          Colors.deepPurple.withOpacity(0.05),
+                          Colors.purple.withValues(alpha: 0.10),
+                          Colors.deepPurple.withValues(alpha: 0.05),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: Colors.purple.withOpacity(0.22),
+                        color: Colors.purple.withValues(alpha: 0.22),
                       ),
                     ),
                     child: Row(
@@ -1649,10 +1649,10 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
                           width: 52,
                           height: 52,
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: Colors.purple.withOpacity(0.18),
+                              color: Colors.purple.withValues(alpha: 0.18),
                             ),
                           ),
                           child: const Icon(
@@ -1791,8 +1791,9 @@ class _CreatedTasksScreenState extends State<CreatedTasksScreen> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _stream(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting)
+        if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: SkeletonList(items: 5));
+        }
 
         final allDocs = snap.data?.docs ?? [];
 
@@ -2036,9 +2037,9 @@ class _StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         status.toUpperCase(),
@@ -2077,7 +2078,7 @@ class _ActionTile extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(icon, color: color),
@@ -2141,7 +2142,7 @@ class _AttachmentActionTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: color.withOpacity(0.06),
+        color: color.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -2215,9 +2216,9 @@ class _ReassignMetaPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
+        color: Colors.white.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.purple.withOpacity(0.14)),
+        border: Border.all(color: Colors.purple.withValues(alpha: 0.14)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

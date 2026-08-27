@@ -585,7 +585,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                             '${pv.diferenciaPct.toStringAsFixed(1)} % al '
                             'tiempo de recorrido',
                           ),
-                          backgroundColor: _kVerde.withOpacity(.1),
+                          backgroundColor: _kVerde.withValues(alpha: .1),
                         ),
                       ],
                     ),
@@ -1762,7 +1762,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: PaginatedDataTable(
                 headingRowColor: WidgetStateProperty.all(
-                  _kVerde.withOpacity(.08),
+                  _kVerde.withValues(alpha: .08),
                 ),
                 columns: const [
                   DataColumn(label: Text('Fecha')),
@@ -2496,7 +2496,7 @@ class _MedicionesSource extends DataTableSource {
     return DataRow.byIndex(
       index: index,
       color: m.alerta
-          ? WidgetStateProperty.all(kMovColorCritico.withOpacity(.07))
+          ? WidgetStateProperty.all(kMovColorCritico.withValues(alpha: .07))
           : null,
       // La casilla selecciona para borrar; el detalle se abre con el ícono
       // de la última columna, para que no se confundan las dos acciones.
@@ -2639,7 +2639,7 @@ class _MedicionesSource extends DataTableSource {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
             decoration: BoxDecoration(
-              color: movRiesgoColor(m.riesgo).withOpacity(.14),
+              color: movRiesgoColor(m.riesgo).withValues(alpha: .14),
               borderRadius: BorderRadius.circular(10),
             ),
             child: celda(
@@ -3826,7 +3826,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
               const SizedBox(height: 12),
               // ── Cómo funciona ────────────────────────────────────────────
               Card(
-                color: _kVerde.withOpacity(.05),
+                color: _kVerde.withValues(alpha: .05),
                 child: const Padding(
                   padding: EdgeInsets.all(16),
                   child: Column(

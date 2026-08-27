@@ -349,7 +349,7 @@ class _HistorialAprobacionesLista extends StatelessWidget {
           controller: controller,
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
           itemCount: items.length,
-          separatorBuilder: (_, __) => const Divider(height: 12),
+          separatorBuilder: (_, _) => const Divider(height: 12),
           itemBuilder: (_, i) => _EventoTile(evento: items[i]),
         );
       },
