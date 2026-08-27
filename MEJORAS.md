@@ -5,6 +5,73 @@ Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
+## Sesión 2026-08-26 (ronda 2) — Publicación en Google Play y recuperación del árbol
+
+### Lo que se preparó para publicar
+- **R8 abortaba el release.** `google_mlkit_text_recognition` referencia los
+  reconocedores de chino, devanagari, japonés y coreano, cuyos artefactos no se
+  incluyen (la app solo escanea texto latino). Se creó
+  `android/app/proguard-rules.pro` con los `-dontwarn` y se activó
+  `proguardFiles` en el `buildType` de release, que estaba comentado: Flutter
+  activa R8 por defecto, así que sin declararlo las reglas nunca se aplicaban.
+- **Validación de `key.properties`.** `hasReleaseKeystore` solo comprobaba que
+  el archivo existiera, así que uno a medio llenar hacía fallar la firma con un
+  error incomprensible. Ahora exige las cuatro claves y que el `.jks` exista.
+- **Permisos que entraban solos.** El manifiesto fusionado del AAB traía
+  `AD_ID`, `ACCESS_ADSERVICES_AD_ID`, `ACCESS_ADSERVICES_ATTRIBUTION`,
+  `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` y `READ_MEDIA_AUDIO` sin que nadie
+  los declarara. Los inyectan la cadena de medición de `firebase_messaging` y
+  `file_picker`. Se eliminan con `tools:node="remove"`: la app no tiene
+  publicidad, no maneja video ni audio, y las fotos pasan por `image_picker`,
+  que en Android 13+ usa el selector del sistema sin pedir permiso. Los dos
+  `FileType.image` que quedan están dentro de ramas `if (kIsWeb)`.
+  `READ_EXTERNAL_STORAGE` **sí** se conserva: hace falta en Android 12 y
+  anteriores. Verificado leyendo el manifiesto proto dentro del AAB, no el
+  fuente: el fuente nunca los mostró.
+- **Seed demo ampliado.** Pasó de 3 a 8 tareas cubriendo los cuatro estados
+  (`en_progreso`, `por_aprobar`, `devuelta`, `finalizado`) y las tres
+  prioridades, más hojas de vida ficticias para los tres usuarios demo. Sin
+  esto, Talento Humano y los listados salían vacíos en las capturas de la ficha.
+
+### El árbol se revirtió y hubo que recuperarlo
+Una herramienta de cambio de rama dejó el working tree en HEAD y guardó todo en
+un stash (`epitaxy: pre-switch`). Se perdieron de vista ~3.274 líneas sin
+commitear. El stash se había creado con `--include-untracked`, así que también
+traía `proguard-rules.pro`, `MainActivity.kt` y `play-assets/`.
+
+`git stash apply` dejó **11 conflictos en 6 archivos**, porque el stash se basa
+en `59a5da0` y la rama ya tenía tres commits encima. Los conflictos cortaban por
+la mitad de árboles de widgets anidados, así que no se resolvieron eligiendo
+lados sino decidiendo **por archivo** y portando funciones:
+
+| Archivo | Decisión |
+|---|---|
+| `interventoria_tablero_asignacion.dart` | versión del stash + se le devolvió la paginación |
+| `interventoria_hallazgo_panel.dart` | versión del stash (lo único propio era un `setState`) |
+| `interventoria_dashboard_screen.dart` | versión del commit + se portó `_descargarActaPdf` |
+| `personnel_requisition_screen.dart` | versión del commit + se portaron los candidatos |
+| `gd_correspondencia_screen.dart` | versión del commit, sin tocar |
+| `MEJORAS.md` | versión del commit + esta sección |
+
+**`gd_correspondencia_screen.dart` se dejó como estaba a propósito**: la versión
+del stash filtraba con `user.areaId == selectedArea!.id` y caía a mostrar el
+`areaId` crudo como nombre. Las dos cosas que la regla 3 de CLAUDE.md prohíbe.
+La versión commiteada ya usa `contiene()` y `GdArea.desdeResponsables()`.
+
+Resultado: `dart analyze` con 0 errores y 0 warnings, y los mismos 966 `info`
+preexistentes de antes del merge.
+
+### Estado del bundle
+`build/app/outputs/bundle/release/app-release.aab`, 103,6 MB, `versionCode 2`
+(el 1 ya se consumió en la primera subida a prueba cerrada). Firmado con
+`CN=Daniel Felipe Nova Velasco` desde `C:/Desarrollo/keys/todogestion-release.jks`.
+
+Queda pendiente el `strip` de símbolos del NDK, que falla porque el SDK de
+Android está en una ruta con espacios (`C:\Users\SERVICIO TECNICO\...`). El AAB
+se genera igual; solo pesa más de lo necesario.
+
+---
+
 
 ## Sesión 2026-08-26 — Clave temporal al agregar personal y empresa elegida en el login
 

@@ -1,0 +1,9 @@
+Primera versión de To-Do Gestión.
+
+• Tareas: asignación por área o persona, seguimiento de avances y evidencia fotográfica con ubicación.
+• Talento humano: hojas de vida, cargos, áreas y requisiciones de personal.
+• Gestión documental: radicación de correspondencia y planillas de reparto.
+• Compras, facturación, interventoría y rutas de campo.
+• Acceso a varias empresas desde la misma cuenta.
+
+El acceso lo otorga el administrador de tu organización.
