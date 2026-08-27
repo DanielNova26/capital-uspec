@@ -18,12 +18,16 @@
 	<string>ToDo</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- La version sale de pubspec.yaml (`version: X.Y.Z+N`) a traves de estos
+	     marcadores. Hardcodearla obliga a editar este archivo en cada release y,
+	     si se olvida, App Store Connect rechaza la subida por numero de build
+	     repetido sin explicar por que. -->
 	<key>CFBundleShortVersionString</key>
-	<string>2.3</string>
+	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>2.3</string>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
