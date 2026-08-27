@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>ToDo</string>
+	<string>To-Do Gestión</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -34,10 +34,13 @@
 	<string>La aplicación necesita acceder a los archivos locales para cargar y consultar documentos relacionados con las operaciones internas.</string>
 	<key>NSFileProviderDomainUsageDescription</key>
 	<string>La aplicación requiere acceso a los archivos y recursos locales para compartir información entre módulos internos.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>La aplicación puede usar tu ubicación incluso en segundo plano para garantizar la trazabilidad y seguimiento de los procesos logísticos.</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>La aplicación puede acceder a tu ubicación para optimizar tareas internas relacionadas con desplazamientos y monitoreo.</string>
+	<!-- Sin claves de ubicación "Always": la app solo rastrea con la pantalla
+	     abierta. rutas_conductor_screen usa getPositionStream con un
+	     LocationSettings normal, UIBackgroundModes no incluye "location" y no
+	     hay allowBackgroundLocationUpdates en ninguna parte. Pedir "Siempre"
+	     sin poder usarlo es causa habitual de rechazo en App Review. Si algún
+	     día el seguimiento debe continuar con el teléfono bloqueado, hay que
+	     implementarlo de verdad y recién entonces volver a declararlo. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>La aplicación necesita tu ubicación mientras está en uso para registrar rutas, ubicaciones o validar operaciones logísticas internas.</string>
 	<key>NSMicrophoneUsageDescription</key>
