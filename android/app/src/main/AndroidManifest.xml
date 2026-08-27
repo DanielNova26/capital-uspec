@@ -7,6 +7,23 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- ===== ID de publicidad: se elimina a proposito =====
+         La cadena de medicion que arrastra firebase_messaging fusiona estos
+         permisos en el manifiesto final aunque nunca los declaremos. La app no
+         tiene publicidad ni atribucion, asi que se quitan para poder declarar
+         "no usa ID de publicidad" en Play Console.
+         Si algun dia se agrega Analytics o Ads, hay que borrar este bloque y
+         actualizar la declaracion en Play. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
+        tools:node="remove" />
+
     <!-- Ubicación -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
@@ -30,9 +47,6 @@
         android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="33" />
 
-    <!-- Alarmas exactas -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-
     <!-- Recomendado para alarmas/servicios en background -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -49,7 +63,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="ToDo"
+        android:label="To-Do Gestión"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false">
 
@@ -61,7 +75,7 @@
         <!-- ===== Flutter / Lanzador ===== -->
         <!-- OJO: nombre COMPLETO del Activity (ya no .MainActivity) -->
         <activity
-            android:name="com.example.todo.MainActivity"
+            android:name="com.todogestion.app.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

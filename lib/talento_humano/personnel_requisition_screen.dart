@@ -10,6 +10,7 @@ import '../core/app_catalog.dart';
 import '../utils/user_company.dart';
 import 'personnel_access_picker.dart';
 import 'personnel_access_service.dart';
+import '../utils/text_input_formatters.dart';
 import 'personnel_requisition_models.dart';
 import 'personnel_requisition_service.dart';
 import '../widgets/paged_list.dart';
@@ -723,6 +724,7 @@ class _PersonnelRequisitionScreenState
               const SizedBox(height: 8),
               ...row.history.map(_historyEntry),
             ],
+            _candidatesSection(row, access),
             if (row.hires.isNotEmpty) ...[
               const SizedBox(height: 12),
               const Text(
@@ -784,6 +786,186 @@ class _PersonnelRequisitionScreenState
           ],
         ),
       ),
+    );
+  }
+
+  Widget _candidatesSection(
+    PersonnelRequisition row,
+    PersonnelRequisitionAccess access,
+  ) {
+    final puedeGestionar = access.canUpdateStage && !row.isClosed;
+    if (row.candidates.isEmpty && !puedeGestionar) {
+      return const SizedBox.shrink();
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Aspirantes',
+                style: TextStyle(
+                  fontFamily: _font,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: _ink,
+                ),
+              ),
+            ),
+            if (puedeGestionar)
+              TextButton.icon(
+                onPressed: _busy ? null : () => _addCandidate(row),
+                icon: const Icon(Icons.person_add_alt_rounded, size: 17),
+                label: const Text('Agregar'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+          ],
+        ),
+        if (row.candidates.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 2, bottom: 4),
+            child: Text(
+              'Todavía no hay aspirantes registrados. Agrégalos para seguir el '
+              'avance de cada uno por separado.',
+              style: TextStyle(
+                fontFamily: _font,
+                color: _muted,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
+          )
+        else ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              row.candidateSummary,
+              style: const TextStyle(
+                fontFamily: _font,
+                color: _muted,
+                fontSize: 11,
+              ),
+            ),
+          ),
+          ...row.candidates.map(
+            (candidate) => _candidateTile(row, candidate, puedeGestionar),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _candidateTile(
+    PersonnelRequisition row,
+    PersonnelCandidate candidate,
+    bool puedeGestionar,
+  ) {
+    // Un contratado ya no se mueve: su ficha está cerrada por la creación del
+    // usuario, y "reabrirla" desde aquí dejaría TBL_USUARIOS inconsistente.
+    final editable =
+        puedeGestionar && candidate.stage != PersonnelCandidateStage.hired;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(11, 9, 7, 9),
+      decoration: BoxDecoration(
+        color: candidate.stage == PersonnelCandidateStage.discarded
+            ? const Color(0xFFFDF6F6)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  candidate.fullName,
+                  style: const TextStyle(
+                    fontFamily: _font,
+                    color: _ink,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${candidate.documentType} ${candidate.document}',
+                  style: const TextStyle(
+                    fontFamily: _font,
+                    color: _muted,
+                    fontSize: 10,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                _CandidateStageBadge(stage: candidate.stage),
+                if (candidate.note.isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    candidate.note,
+                    style: const TextStyle(
+                      fontFamily: _font,
+                      color: _muted,
+                      fontSize: 10,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (editable)
+            IconButton(
+              tooltip: 'Cambiar etapa',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : () => _moveCandidate(row, candidate),
+              icon: const Icon(Icons.route_rounded, size: 18),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addCandidate(PersonnelRequisition row) async {
+    final candidate = await showDialog<PersonnelCandidate>(
+      context: context,
+      builder: (_) => const _CandidateDialog(),
+    );
+    if (candidate == null) return;
+    await _run(
+      () => _service.addCandidate(
+        requisition: row,
+        candidate: candidate,
+        userId: widget.userId,
+      ),
+      success: 'Aspirante agregado al proceso.',
+    );
+  }
+
+  Future<void> _moveCandidate(
+    PersonnelRequisition row,
+    PersonnelCandidate candidate,
+  ) async {
+    final result = await showDialog<(PersonnelCandidateStage, String)>(
+      context: context,
+      builder: (_) => _CandidateStageDialog(candidate: candidate),
+    );
+    if (result == null) return;
+    await _run(
+      () => _service.updateCandidateStage(
+        requisition: row,
+        document: candidate.document,
+        stage: result.$1,
+        note: result.$2,
+        userId: widget.userId,
+      ),
+      success: '${candidate.fullName}: ${result.$1.label}.',
     );
   }
 
@@ -1945,6 +2127,396 @@ class _HireDialogState extends State<_HireDialog> {
   }
 }
 
+class _CandidateDialog extends StatefulWidget {
+  const _CandidateDialog();
+
+  @override
+  State<_CandidateDialog> createState() => _CandidateDialogState();
+}
+
+class _CandidateDialogState extends State<_CandidateDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _document = TextEditingController();
+  final _names = TextEditingController();
+  final _surnames = TextEditingController();
+  final _email = TextEditingController();
+  final _phone = TextEditingController();
+  final _note = TextEditingController();
+  String _documentType = 'CC';
+  PersonnelCandidateStage _stage = PersonnelCandidateStage.recruitment;
+
+  @override
+  void dispose() {
+    _document.dispose();
+    _names.dispose();
+    _surnames.dispose();
+    _email.dispose();
+    _phone.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Agregar aspirante'),
+      content: SizedBox(
+        width: 560,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Cada aspirante avanza por su cuenta: la vacante deja de tener '
+                  'un solo estado y pasa a mostrar quién está en entrevistas, '
+                  'quién en exámenes y quién quedó descartado.',
+                  style: TextStyle(
+                    fontFamily: _font,
+                    color: _muted,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 120,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _documentType,
+                        decoration: const InputDecoration(
+                          labelText: 'Tipo',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const ['CC', 'CE', 'PPT', 'PA']
+                            .map(
+                              (item) => DropdownMenuItem(
+                                value: item,
+                                child: Text(item),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _documentType = value ?? 'CC'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _document,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [digitsOnlyFormatter],
+                        decoration: const InputDecoration(
+                          labelText: 'Documento',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) => (value ?? '').trim().isEmpty
+                            ? 'Campo obligatorio'
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _upperField(_names, 'Nombres', true)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _upperField(_surnames, 'Apellidos', false)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _email,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Correo (opcional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _phone,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [digitsOnlyFormatter],
+                        decoration: const InputDecoration(
+                          labelText: 'Teléfono (opcional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<PersonnelCandidateStage>(
+                  initialValue: _stage,
+                  decoration: const InputDecoration(
+                    labelText: 'Entra en la etapa',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: PersonnelCandidateStage.values
+                      .where(
+                        (stage) => stage != PersonnelCandidateStage.hired,
+                      )
+                      .map(
+                        (stage) => DropdownMenuItem(
+                          value: stage,
+                          child: Text(stage.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setState(() => _stage = value ?? _stage),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _note,
+                  minLines: 2,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.characters,
+                  inputFormatters: const [UpperCaseTextFormatter()],
+                  decoration: const InputDecoration(
+                    labelText: 'Observación (opcional)',
+                    helperText: 'Se registra en MAYÚSCULAS para el informe.',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            Navigator.pop(
+              context,
+              PersonnelCandidate(
+                document: _document.text.trim(),
+                documentType: _documentType,
+                names: _names.text.trim(),
+                surnames: _surnames.text.trim(),
+                email: _email.text.trim(),
+                phone: _phone.text.trim(),
+                stage: _stage,
+                note: _note.text.trim(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.person_add_alt_rounded),
+          label: const Text('Agregar'),
+        ),
+      ],
+    );
+  }
+
+  Widget _upperField(
+    TextEditingController controller,
+    String label,
+    bool required,
+  ) => TextFormField(
+    controller: controller,
+    textCapitalization: TextCapitalization.characters,
+    inputFormatters: const [UpperCaseTextFormatter()],
+    decoration: InputDecoration(
+      labelText: label,
+      border: const OutlineInputBorder(),
+    ),
+    validator: required
+        ? (value) => (value ?? '').trim().isEmpty ? 'Campo obligatorio' : null
+        : null,
+  );
+}
+
+/// Avance de UN aspirante. La observación es obligatoria: es lo que sustenta
+/// el informe a interventoría, sobre todo cuando alguien queda descartado.
+class _CandidateStageDialog extends StatefulWidget {
+  final PersonnelCandidate candidate;
+
+  const _CandidateStageDialog({required this.candidate});
+
+  @override
+  State<_CandidateStageDialog> createState() => _CandidateStageDialogState();
+}
+
+class _CandidateStageDialogState extends State<_CandidateStageDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _note = TextEditingController();
+  late PersonnelCandidateStage _stage = widget.candidate.stage;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final discarding = _stage == PersonnelCandidateStage.discarded;
+    return AlertDialog(
+      title: Text(widget.candidate.fullName),
+      content: SizedBox(
+        width: 480,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '${widget.candidate.documentType} ${widget.candidate.document}'
+                  ' · hoy: ${widget.candidate.stage.label}',
+                  style: const TextStyle(
+                    fontFamily: _font,
+                    color: _muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<PersonnelCandidateStage>(
+                initialValue: _stage,
+                decoration: const InputDecoration(
+                  labelText: 'Nueva etapa',
+                  border: OutlineInputBorder(),
+                ),
+                items: PersonnelCandidateStage.values
+                    .where((stage) => stage != PersonnelCandidateStage.hired)
+                    .map(
+                      (stage) => DropdownMenuItem(
+                        value: stage,
+                        child: Text(stage.label),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) => setState(() => _stage = value ?? _stage),
+              ),
+              const SizedBox(height: 8),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Contratar se hace desde "Registrar contratación": ahí se '
+                  'crea el usuario en el sistema.',
+                  style: TextStyle(
+                    fontFamily: _font,
+                    color: _muted,
+                    fontSize: 11,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _note,
+                minLines: 3,
+                maxLines: 5,
+                textCapitalization: TextCapitalization.characters,
+                inputFormatters: const [UpperCaseTextFormatter()],
+                decoration: InputDecoration(
+                  labelText: discarding ? 'Motivo del descarte' : 'Observación',
+                  hintText: discarding
+                      ? 'POR QUÉ NO CONTINÚA EN EL PROCESO'
+                      : 'QUÉ PASÓ EN ESTA ETAPA',
+                  helperText: 'Se registra en MAYÚSCULAS para el informe.',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) => (value ?? '').trim().isEmpty
+                    ? (discarding
+                          ? 'Escribe por qué no continúa'
+                          : 'Escribe la observación del avance')
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            Navigator.pop(context, (_stage, _note.text.trim()));
+          },
+          child: const Text('Guardar avance'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Chip de etapa de un aspirante. Los colores siguen la lectura del semáforo
+/// del módulo: gris = arranca, azul = en curso, verde = contratado, rojo =
+/// descartado.
+class _CandidateStageBadge extends StatelessWidget {
+  final PersonnelCandidateStage stage;
+
+  const _CandidateStageBadge({required this.stage});
+
+  @override
+  Widget build(BuildContext context) {
+    final (background, foreground) = switch (stage) {
+      PersonnelCandidateStage.recruitment => (
+        const Color(0xFFEEF2F7),
+        const Color(0xFF475569),
+      ),
+      PersonnelCandidateStage.preselection => (
+        const Color(0xFFE0F2FE),
+        const Color(0xFF075985),
+      ),
+      PersonnelCandidateStage.interview => (
+        const Color(0xFFDBEAFE),
+        const Color(0xFF1D4ED8),
+      ),
+      PersonnelCandidateStage.exams => (
+        const Color(0xFFEDE9FE),
+        const Color(0xFF6D28D9),
+      ),
+      PersonnelCandidateStage.documents => (
+        const Color(0xFFFEF3C7),
+        const Color(0xFF92400E),
+      ),
+      PersonnelCandidateStage.hired => (
+        const Color(0xFFDCFCE7),
+        const Color(0xFF166534),
+      ),
+      PersonnelCandidateStage.discarded => (
+        const Color(0xFFFEE2E2),
+        const Color(0xFF991B1B),
+      ),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        stage.label,
+        style: TextStyle(
+          fontFamily: _font,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          color: foreground,
+        ),
+      ),
+    );
+  }
+}
 class _TrafficBadge extends StatelessWidget {
   final PersonnelRequisition requisition;
   final bool expanded;

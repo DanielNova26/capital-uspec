@@ -9,6 +9,7 @@ import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show FilteringTextInputFormatter;
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
@@ -4755,6 +4756,9 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                                                               v.fechaVisita
                                                                   .toDate(),
                                                             ),
+                                                            fechaVisita: v
+                                                                .fechaVisita
+                                                                .toDate(),
                                                           ),
                                                       child: Row(
                                                         mainAxisSize:
@@ -4998,8 +5002,9 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
     BuildContext context,
     String url,
     String centro,
-    String fecha,
-  ) {
+    String fecha, {
+    DateTime? fechaVisita,
+  }) {
     showDialog<void>(
       context: context,
       builder: (_) => Dialog(
@@ -5019,6 +5024,19 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                       child: Text(
                         'Acta PDF — $centro · $fecha',
                         style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    // Descarga propia: el botón del visor del navegador no
+                    // sirve porque el PDF se muestra desde un blob URL y el
+                    // archivo sale con el UUID del blob por nombre.
+                    IconButton(
+                      icon: const Icon(Icons.download_rounded),
+                      tooltip: 'Descargar acta',
+                      onPressed: () => _descargarActaPdf(
+                        context,
+                        url: url,
+                        centro: centro,
+                        fechaVisita: fechaVisita,
                       ),
                     ),
                     IconButton(
@@ -5043,6 +5061,53 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
         ),
       ),
     );
+  }
+
+  /// Descarga el acta y la abre. En web el visor muestra el PDF desde un blob
+  /// URL, así que el "guardar" del navegador produce un archivo con el UUID
+  /// del blob por nombre; aquí se rearma con centro y fecha para que el
+  /// archivo sea reconocible fuera de la app.
+  Future<void> _descargarActaPdf(
+    BuildContext context, {
+    required String url,
+    required String centro,
+    DateTime? fechaVisita,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final centroSlug = (centro.trim().isEmpty ? 'acta' : centro)
+        .replaceAll(RegExp(r'[^\wáéíóúÁÉÍÓÚñÑ ]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '_');
+    final fechaSlug = DateFormat(
+      'yyyyMMdd',
+    ).format(fechaVisita ?? DateTime.now());
+    final nombre = 'Acta_${centroSlug}_$fechaSlug';
+    try {
+      final res = await http.get(Uri.parse(url));
+      if (res.statusCode != 200) {
+        throw Exception('HTTP ${res.statusCode}');
+      }
+      if (kIsWeb) {
+        await FileSaver.instance.saveFile(
+          name: nombre,
+          bytes: res.bodyBytes,
+          fileExtension: 'pdf',
+          mimeType: MimeType.pdf,
+        );
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/$nombre.pdf');
+        await file.writeAsBytes(res.bodyBytes);
+        await OpenFilex.open(file.path);
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kDanger,
+          content: Text('No se pudo descargar el acta: $e'),
+        ),
+      );
+    }
   }
 
   void _mostrarDetalleCelda(

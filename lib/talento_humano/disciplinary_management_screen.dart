@@ -50,7 +50,9 @@ class _DisciplinaryManagementScreenState
   final _searchController = TextEditingController();
   late Future<List<DisciplinaryPerson>> _peopleFuture;
   DisciplinaryPerson? _selected;
-  String _peopleFilter = 'todos';
+  // Arranca en 'activos': el listado operativo es la plantilla vigente. Los
+  // retirados conservan su historial y siguen a un clic con 'Todos'/'Inactivos'.
+  String _peopleFilter = 'activos';
   String _recordFilter = 'todos';
 
   @override

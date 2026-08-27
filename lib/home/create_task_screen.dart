@@ -257,6 +257,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return n.isEmpty ? null : n;
   }
 
+  /// Marca del maestro de cargos para el cargo de una persona.
+  ///
+  /// Se busca primero por id y, si el usuario solo trae el nombre del cargo
+  /// (el caso común: `TBL_USUARIOS.cargoId` suele venir vacío), por nombre
+  /// normalizado. Devuelve `null` cuando el cargo no está en el maestro, para
+  /// que la decisión caiga en el valor por defecto y nadie desaparezca por un
+  /// dato faltante.
+  bool? _marcaCargoRecibeAsignaciones(String cargoId, String cargoNombre) {
+    final id = cargoId.trim();
+    final nombre = cargoNombre.trim().toLowerCase();
+    for (final cargo in _cargos) {
+      final matchId = id.isNotEmpty && (cargo['id'] ?? '').toString() == id;
+      final matchNombre =
+          nombre.isNotEmpty &&
+          (cargo['nombre'] ?? '').toString().trim().toLowerCase() == nombre;
+      if (!matchId && !matchNombre) continue;
+      final marca = cargo['recibeAsignaciones'];
+      if (marca is bool) return marca;
+    }
+    return null;
+  }
+
   String? _nombreCargoPorId(String? id) {
     if (id == null || id.trim().isEmpty) return null;
     final hit = _cargosFiltrados.firstWhere(
@@ -446,6 +468,9 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
 
       final estado = (u['estado'] ?? '').toString().toLowerCase();
       if (estado != 'activo') continue;
+      // Retiro registrado en Talento Humano: el estado vive en el bloque de la
+      // empresa activa, no en el `estado` global que solo rige el login.
+      if (!isPersonaActivaEnEmpresa(u, _empresaId)) continue;
       if (_currentUid != null && uid == _currentUid) continue;
 
       // 1) filtra por área / estructura
@@ -460,6 +485,16 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         } else if (areaId != areaActiva) {
           continue;
         }
+      }
+
+      // 1.b) fuera quien esté marcado como no operativo. No es un retiro: la
+      // persona sigue vinculada y con acceso, pero no se le asignan tareas.
+      if (!recibeAsignacionesEnEmpresa(
+        u,
+        _empresaId,
+        marcaDelCargo: _marcaCargoRecibeAsignaciones(cargoId, cargo),
+      )) {
+        continue;
       }
 
       // 2) filtra por cargo (si aún aplica)
@@ -1006,6 +1041,10 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   'areaNombre': areaNombre,
                   'empresaId': empresaId,
                   'enabled': enabled.toString(),
+                  // Cargos marcados como no operativos (Talento Humano,
+                  // administrativos sin computador): su gente no aparece como
+                  // candidata a recibir tareas.
+                  'recibeAsignaciones': cargoRecibeAsignaciones(m),
                   'cedulas': cedulas,
                   'parent_cargo': (m['parent_cargo'] ?? m['parentCargo'] ?? '')
                       .toString()

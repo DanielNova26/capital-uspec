@@ -429,8 +429,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
       empresaId: company,
     );
     for (final id in subordinateIds) {
-      final scoped = TeamCompanyScope.scopedPerson(people[id] ?? {}, company);
+      final raw = people[id] ?? <String, dynamic>{};
+      final scoped = TeamCompanyScope.scopedPerson(raw, company);
       if (scoped == null) continue;
+      // La jerarquía se recorre completa (para no cortar la rama de un jefe
+      // retirado), pero el filtro "a cargo" solo lista personal vigente.
+      if (!isPersonaActivaEnEmpresa(raw, company)) continue;
       _subordinados[id] = (scoped['nombre'] ?? scoped['nombres'] ?? id)
           .toString();
     }

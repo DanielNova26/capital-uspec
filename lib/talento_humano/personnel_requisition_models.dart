@@ -93,6 +93,193 @@ PersonnelRequisitionTraffic requisitionTraffic({
   return PersonnelRequisitionTraffic.green;
 }
 
+/// Etapa de UNA persona dentro del proceso de una vacante.
+///
+/// Es deliberadamente distinta de [PersonnelRequisitionStage]: la vacante
+/// puede estar "en entrevistas" mientras un aspirante ya está en exámenes y
+/// otro quedó descartado. Antes solo existía el estado global y el informe
+/// para interventoría no podía decir quién iba dónde.
+///
+/// No incluye `solicitado` (eso le pasa a la vacante, no a la persona) ni
+/// `cancelado` (cancelar es de la vacante; a la persona se la descarta).
+enum PersonnelCandidateStage {
+  recruitment,
+  preselection,
+  interview,
+  exams,
+  documents,
+  hired,
+  discarded,
+}
+
+extension PersonnelCandidateStageX on PersonnelCandidateStage {
+  String get value => switch (this) {
+    PersonnelCandidateStage.recruitment => 'reclutamiento',
+    PersonnelCandidateStage.preselection => 'preseleccion',
+    PersonnelCandidateStage.interview => 'entrevista',
+    PersonnelCandidateStage.exams => 'examenes',
+    PersonnelCandidateStage.documents => 'documentos',
+    PersonnelCandidateStage.hired => 'contratado',
+    PersonnelCandidateStage.discarded => 'descartado',
+  };
+
+  String get label => switch (this) {
+    PersonnelCandidateStage.recruitment => 'En reclutamiento',
+    PersonnelCandidateStage.preselection => 'Preseleccionado',
+    PersonnelCandidateStage.interview => 'En entrevistas',
+    PersonnelCandidateStage.exams => 'En exámenes',
+    PersonnelCandidateStage.documents => 'En documentación',
+    PersonnelCandidateStage.hired => 'Contratado',
+    PersonnelCandidateStage.discarded => 'Descartado',
+  };
+
+  /// Un candidato cerrado ya no cuenta como carga viva del proceso.
+  bool get isClosed =>
+      this == PersonnelCandidateStage.hired ||
+      this == PersonnelCandidateStage.discarded;
+
+  /// Qué tan avanzada está la persona. Sirve para derivar la etapa de la
+  /// vacante a partir del aspirante que va más adelante.
+  int get order => switch (this) {
+    PersonnelCandidateStage.recruitment => 0,
+    PersonnelCandidateStage.preselection => 1,
+    PersonnelCandidateStage.interview => 2,
+    PersonnelCandidateStage.exams => 3,
+    PersonnelCandidateStage.documents => 4,
+    PersonnelCandidateStage.hired => 5,
+    PersonnelCandidateStage.discarded => -1,
+  };
+
+  /// Etapa equivalente de la vacante, para que el semáforo y el tablero
+  /// sigan funcionando sin que nadie tenga que mover el estado a mano.
+  PersonnelRequisitionStage get requisitionStage => switch (this) {
+    PersonnelCandidateStage.recruitment =>
+      PersonnelRequisitionStage.recruitment,
+    PersonnelCandidateStage.preselection =>
+      PersonnelRequisitionStage.preselection,
+    PersonnelCandidateStage.interview => PersonnelRequisitionStage.interview,
+    PersonnelCandidateStage.exams => PersonnelRequisitionStage.exams,
+    PersonnelCandidateStage.documents => PersonnelRequisitionStage.documents,
+    PersonnelCandidateStage.hired => PersonnelRequisitionStage.hired,
+    PersonnelCandidateStage.discarded =>
+      PersonnelRequisitionStage.recruitment,
+  };
+
+  static PersonnelCandidateStage parse(Object? raw) {
+    final normalized = _text(raw).toLowerCase();
+    if (normalized.contains('descart') || normalized.contains('rechaz')) {
+      return PersonnelCandidateStage.discarded;
+    }
+    if (normalized.contains('contrat')) return PersonnelCandidateStage.hired;
+    if (normalized.contains('document') || normalized.contains('firma')) {
+      return PersonnelCandidateStage.documents;
+    }
+    if (normalized.contains('examen') || normalized.contains('estudio')) {
+      return PersonnelCandidateStage.exams;
+    }
+    if (normalized.contains('entrevista')) {
+      return PersonnelCandidateStage.interview;
+    }
+    if (normalized.contains('presele') || normalized.contains('terna')) {
+      return PersonnelCandidateStage.preselection;
+    }
+    return PersonnelCandidateStage.recruitment;
+  }
+}
+
+/// Un aspirante concreto dentro de una vacante, con su propio avance.
+class PersonnelCandidate {
+  final String document;
+  final String documentType;
+  final String names;
+  final String surnames;
+  final String email;
+  final String phone;
+  final PersonnelCandidateStage stage;
+
+  /// Última observación registrada sobre esta persona. Cuando se descarta,
+  /// aquí queda el motivo — que es el dato que pide la interventoría.
+  final String note;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final String createdBy;
+  final String updatedBy;
+
+  const PersonnelCandidate({
+    required this.document,
+    required this.names,
+    this.surnames = '',
+    this.documentType = 'CC',
+    this.email = '',
+    this.phone = '',
+    this.stage = PersonnelCandidateStage.recruitment,
+    this.note = '',
+    this.createdAt,
+    this.updatedAt,
+    this.createdBy = '',
+    this.updatedBy = '',
+  });
+
+  String get fullName => '$names $surnames'.trim();
+  bool get isActive => !stage.isClosed;
+
+  PersonnelCandidate copyWith({
+    PersonnelCandidateStage? stage,
+    String? note,
+    DateTime? updatedAt,
+    String? updatedBy,
+  }) => PersonnelCandidate(
+    document: document,
+    documentType: documentType,
+    names: names,
+    surnames: surnames,
+    email: email,
+    phone: phone,
+    stage: stage ?? this.stage,
+    note: note ?? this.note,
+    createdAt: createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    createdBy: createdBy,
+    updatedBy: updatedBy ?? this.updatedBy,
+  );
+
+  factory PersonnelCandidate.fromMap(Map<String, dynamic> data) =>
+      PersonnelCandidate(
+        document: _text(data['documento'] ?? data['cedula']),
+        documentType: _text(data['tipoDocumento']).isEmpty
+            ? 'CC'
+            : _text(data['tipoDocumento']),
+        names: _text(data['nombres']),
+        surnames: _text(data['apellidos']),
+        email: _text(data['correo']),
+        phone: _text(data['telefono']),
+        stage: PersonnelCandidateStageX.parse(data['etapa']),
+        note: _text(data['nota']),
+        createdAt: _date(data['createdAt']),
+        updatedAt: _date(data['updatedAt']),
+        createdBy: _text(data['creadoPor']),
+        updatedBy: _text(data['actualizadoPor']),
+      );
+
+  /// [timestamp] permite escribir `Timestamp.now()` desde el servicio: dentro
+  /// de un array de Firestore no se puede usar `serverTimestamp()`.
+  Map<String, dynamic> toMap({Object? timestamp}) => {
+    'documento': document,
+    'tipoDocumento': documentType,
+    'nombres': names,
+    'apellidos': surnames,
+    'nombreCompleto': fullName,
+    'correo': email,
+    'telefono': phone,
+    'etapa': stage.value,
+    'nota': note,
+    'createdAt': createdAt ?? timestamp,
+    'updatedAt': timestamp ?? updatedAt,
+    'creadoPor': createdBy,
+    'actualizadoPor': updatedBy,
+  };
+}
+
 class PersonnelHire {
   final String document;
   final String documentType;
@@ -196,6 +383,7 @@ class PersonnelRequisition {
   final String observations;
   final String processNote;
   final List<PersonnelHire> hires;
+  final List<PersonnelCandidate> candidates;
   final List<PersonnelRequisitionHistoryEntry> history;
   final String createdBy;
   final DateTime? createdAt;
@@ -218,6 +406,7 @@ class PersonnelRequisition {
     this.observations = '',
     this.processNote = '',
     this.hires = const [],
+    this.candidates = const [],
     this.history = const [],
     this.createdBy = '',
     this.createdAt,
@@ -226,8 +415,54 @@ class PersonnelRequisition {
   });
 
   bool get isClosed => stage.isClosed;
+
+  /// Los contratados siguen contándose desde `contratados`, no desde los
+  /// candidatos: ese array es el que se escribe junto con la creación del
+  /// usuario en `TBL_USUARIOS` y es el dato con el que se cierra la vacante.
   int get hiredCount => hires.length;
   int get pendingCount => (quantity - hiredCount).clamp(0, quantity);
+
+  /// Aspirantes que siguen vivos en el proceso (ni contratados ni descartados).
+  List<PersonnelCandidate> get activeCandidates =>
+      candidates.where((item) => item.isActive).toList();
+
+  List<PersonnelCandidate> get discardedCandidates => candidates
+      .where((item) => item.stage == PersonnelCandidateStage.discarded)
+      .toList();
+
+  /// Cuántas personas hay en cada etapa. Es lo que el informe muestra en vez
+  /// de un único estado global.
+  Map<PersonnelCandidateStage, int> get candidateStageCounts {
+    final counts = <PersonnelCandidateStage, int>{};
+    for (final candidate in candidates) {
+      counts[candidate.stage] = (counts[candidate.stage] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Etapa del aspirante que va más adelante, ignorando a los descartados.
+  /// `null` cuando todavía no hay nadie en el proceso.
+  PersonnelCandidateStage? get furthestCandidateStage {
+    PersonnelCandidateStage? best;
+    for (final candidate in candidates) {
+      if (candidate.stage == PersonnelCandidateStage.discarded) continue;
+      if (best == null || candidate.stage.order > best.order) {
+        best = candidate.stage;
+      }
+    }
+    return best;
+  }
+
+  /// Resumen legible del avance por persona, para el informe y el detalle.
+  /// Vacío cuando la vacante todavía se maneja solo con el estado global.
+  String get candidateSummary {
+    if (candidates.isEmpty) return '';
+    final counts = candidateStageCounts;
+    return PersonnelCandidateStage.values
+        .where((stage) => (counts[stage] ?? 0) > 0)
+        .map((stage) => '${stage.label}: ${counts[stage]}')
+        .join(' · ');
+  }
 
   int daysAt(DateTime now) => businessDaysElapsed(
     requestDate,
@@ -239,6 +474,7 @@ class PersonnelRequisition {
 
   factory PersonnelRequisition.fromMap(String id, Map<String, dynamic> data) {
     final rawHires = data['contratados'];
+    final rawCandidates = data['candidatos'];
     final rawHistory = data['historial'];
     return PersonnelRequisition(
       id: id,
@@ -266,6 +502,26 @@ class PersonnelRequisition {
                   ),
                 )
                 .toList()
+          : const [],
+      candidates: rawCandidates is Iterable
+          ? (rawCandidates
+                .whereType<Map>()
+                .map(
+                  (item) => PersonnelCandidate.fromMap(
+                    item.map((key, value) => MapEntry(key.toString(), value)),
+                  ),
+                )
+                .where((item) => item.document.isNotEmpty)
+                .toList()
+              // Primero los que siguen vivos y más avanzados: es el orden en
+              // el que se mira "¿quién va ganando?".
+              ..sort((a, b) {
+                final byStage = b.stage.order.compareTo(a.stage.order);
+                if (byStage != 0) return byStage;
+                return a.fullName.toLowerCase().compareTo(
+                  b.fullName.toLowerCase(),
+                );
+              }))
           : const [],
       history: rawHistory is Iterable
           ? (rawHistory
@@ -308,6 +564,8 @@ class PersonnelRequisition {
     'notaProceso': processNote,
     'contratados': hires.map((hire) => hire.toMap()).toList(),
     'cantidadContratada': hiredCount,
+    'candidatos': candidates.map((item) => item.toMap()).toList(),
+    'candidatosActivos': activeCandidates.length,
     'creadoPor': createdBy,
   };
 }

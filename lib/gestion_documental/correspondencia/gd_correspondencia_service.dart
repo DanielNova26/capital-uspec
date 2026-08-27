@@ -276,9 +276,9 @@ class GdCorrespondenciaService {
       )) {
         continue;
       }
-      if (data['activo'] == false || data['estado']?.toString() == 'inactivo') {
-        continue;
-      }
+      // Retirado en Talento Humano para esta empresa: no puede quedar como
+      // responsable, revisor ni clasificador de correspondencia.
+      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
       final nombre = _userName(data, doc.id);
       final org = const OrgContextResolver().resolve(
         userData: data,

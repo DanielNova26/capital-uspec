@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../services/task_service.dart';
+import '../utils/user_company.dart';
 import 'facturacion_models.dart';
 
 class FacturacionService {
@@ -21,6 +22,7 @@ class FacturacionService {
   static const String _colObligaciones = 'TBL_FAC_OBLIGACIONES';
   static const String _colRevisiones = 'TBL_FAC_REVISIONES';
   static const String _colUsers = 'TBL_USUARIOS';
+  static const String _colConfig = 'TBL_FAC_CONFIG';
 
   FacturacionService({
     FirebaseFirestore? db,
@@ -105,7 +107,11 @@ class FacturacionService {
       final snap = await _db.collection(_colUsers).get();
       final ids = <String>[];
       for (final doc in snap.docs) {
-        final detalle = doc.data()['empresasDetalle'];
+        final data = doc.data();
+        // El rol sobrevive al retiro: sin este filtro se notifica a personal
+        // que Talento Humano ya inhabilitó en la empresa.
+        if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
+        final detalle = data['empresasDetalle'];
         if (detalle is Map) {
           final emp = detalle[empresaId];
           if (emp is Map && (emp['rolFac'] ?? '') == kRolFacturacion) {
@@ -417,6 +423,39 @@ class FacturacionService {
       }, SetOptions(merge: true));
     }
     await batch.commit();
+    await registrarMesesAsignados(empresaId, [mes]);
+  }
+
+  // ─── Meses asignados por Facturación ───────────────────────────────────────
+
+  DocumentReference<Map<String, dynamic>> _configRef(String empresaId) =>
+      _db.collection(_colConfig).doc(empresaId);
+
+  /// Catálogo de meses que Facturación ha asignado en esta empresa.
+  /// Se conserva el histórico a propósito: reasignar un establecimiento a otro
+  /// mes no puede borrar el anterior, porque sus archivos siguen en Storage y
+  /// el tablero debe poder volver a consultarlos.
+  Stream<List<String>> streamMesesAsignados(String empresaId) =>
+      _configRef(empresaId).snapshots().map((snap) {
+        final raw = snap.data()?['mesesAsignados'];
+        if (raw is! List) return <String>[];
+        return normalizeFacMesKeys(raw.map((item) => item.toString()));
+      });
+
+  /// Registra meses en el catálogo de la empresa. Idempotente: arrayUnion no
+  /// duplica y las variantes `junio_2026` / `Junio_2026` se unifican antes.
+  Future<void> registrarMesesAsignados(
+    String empresaId,
+    Iterable<String> meses,
+  ) async {
+    final limpios = normalizeFacMesKeys(
+      meses,
+    ).where((m) => m.isNotEmpty && m != 'Sin asignar').toList();
+    if (limpios.isEmpty) return;
+    await _configRef(empresaId).set({
+      'empresaId': empresaId,
+      'mesesAsignados': FieldValue.arrayUnion(limpios),
+    }, SetOptions(merge: true));
   }
 
   /// Asigna fecha límite. Usa merge para auto-crear el doc FAC si no existe.
@@ -1028,6 +1067,10 @@ class FacturacionService {
       });
     });
 
+    // El mes aprobado también entra al catálogo: si no, al pasar de Julio a
+    // Agosto el tablero perdería Julio y sus archivos quedarían inalcanzables.
+    await registrarMesesAsignados(aut.empresaId, [aut.nextMes]);
+
     // Notificar al establecimiento
     if (aut.solicitanteId.isNotEmpty) {
       await _notif.pushNotification(
@@ -1090,6 +1133,9 @@ class FacturacionService {
     final snap = await _db.collection(_colUsers).get();
     for (final doc in snap.docs) {
       final data = doc.data();
+      // Un responsable retirado no puede recibir la devolución: se prefiere
+      // fallar con "no hay responsable" antes que asignarle la tarea.
+      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
       final info = resolveFacUserInfoFromData(data, empresaId);
       if (info.rol != kRolEstablecimiento || info.establecimientoId != estId) {
         continue;

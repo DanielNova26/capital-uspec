@@ -3,6 +3,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../core/hierarchy_order.dart';
+import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 
@@ -46,19 +47,36 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
     return '$p1 $p2 $a1 $a2'.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  Future<String> _resolveNombreArea(String cedula) async {
+  /// Nombre y vinculación de una cédula. El array `cedulas` del área conserva
+  /// a quien ya se retiró, así que el estado laboral se lee del usuario para
+  /// no listar personal inactivo.
+  Future<({String nombre, bool activa})> _resolvePersonaArea(
+    String cedula,
+  ) async {
     final col = _db.collection('TBL_USUARIOS');
     final direct = await col.doc(cedula).get();
-    if (direct.exists && direct.data() != null) {
-      final n = _nombreDeUsuario(direct.data()!);
-      if (n.isNotEmpty) return n;
+    final directData = direct.data();
+    if (direct.exists && directData != null) {
+      final n = _nombreDeUsuario(directData);
+      if (n.isNotEmpty) {
+        return (
+          nombre: n,
+          activa: isPersonaActivaEnEmpresa(directData, widget.empresaId),
+        );
+      }
     }
     final q = await col.where('cedula', isEqualTo: cedula).limit(1).get();
     if (q.docs.isNotEmpty) {
-      final n = _nombreDeUsuario(q.docs.first.data());
-      if (n.isNotEmpty) return n;
+      final data = q.docs.first.data();
+      final n = _nombreDeUsuario(data);
+      if (n.isNotEmpty) {
+        return (
+          nombre: n,
+          activa: isPersonaActivaEnEmpresa(data, widget.empresaId),
+        );
+      }
     }
-    return cedula;
+    return (nombre: cedula, activa: true);
   }
 
   Future<void> _showAreaUsersDialog(
@@ -92,17 +110,25 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
       }
     }
 
-    final asignados = await Future.wait(
+    final resueltos = await Future.wait(
       cedulas.map((ced) async {
         final cargo = cargoByCedula[ced] ?? const <String, dynamic>{};
-        return <String, dynamic>{
-          'cedula': ced,
-          'nombre': await _resolveNombreArea(ced),
-          'cargoId': cargoIdOf(cargo),
-          'cargo': cargoNameOf(cargo),
-        };
+        final persona = await _resolvePersonaArea(ced);
+        return (
+          activa: persona.activa,
+          fila: <String, dynamic>{
+            'cedula': ced,
+            'nombre': persona.nombre,
+            'cargoId': cargoIdOf(cargo),
+            'cargo': cargoNameOf(cargo),
+          },
+        );
       }),
     );
+    final asignados = [
+      for (final r in resueltos)
+        if (r.activa) r.fila,
+    ];
     asignados.sort(hierarchy.comparePersonnel);
 
     if (!mounted) return;

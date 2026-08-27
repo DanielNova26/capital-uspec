@@ -268,6 +268,9 @@ class _TeamScreenState extends State<TeamScreen>
         final raw = d.data();
         final data = TeamCompanyScope.scopedPerson(raw, emp);
         if (data == null) continue;
+        // El organigrama muestra la plantilla vigente: quien Talento Humano
+        // inhabilitó en esta empresa conserva su historial pero sale del árbol.
+        if (!isPersonaActivaEnEmpresa(raw, emp)) continue;
         final id = ((data['cedula'] ?? data['empleadoId'] ?? d.id) as String)
             .trim();
         if (id.isNotEmpty) byId[id] = data;

@@ -30,6 +30,7 @@ import 'package:printing/printing.dart';
 
 import '../../services/task_service.dart';
 import '../../utils/url_binary_loader.dart';
+import '../../utils/user_company.dart';
 import 'pp_excel_parser.dart';
 import 'pp_models.dart';
 
@@ -5310,6 +5311,9 @@ class PpService {
         final ids = <String>{};
         for (final snap in snaps) {
           for (final doc in snap.docs) {
+            // Quien ya salió de la empresa conserva el rol en su ficha pero no
+            // debe seguir recibiendo planillas.
+            if (!isPersonaActivaEnEmpresa(doc.data(), empresaId)) continue;
             ids.add(doc.id);
           }
         }

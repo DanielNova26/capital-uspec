@@ -397,8 +397,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           )) {
             return null;
           }
-          final estado = (m['estado'] ?? '').toString().trim().toLowerCase();
-          if (estado.isNotEmpty && estado != 'activo') return null;
+          // No se puede pedir reasignación hacia alguien ya retirado en
+          // Talento Humano: el estado laboral vive por empresa.
+          if (!isPersonaActivaEnEmpresa(m, empresaId)) return null;
           final nombre = [
             (m['nombres'] ?? m['primerNombre'] ?? '').toString(),
             (m['apellidos'] ?? m['primerApellido'] ?? '').toString(),

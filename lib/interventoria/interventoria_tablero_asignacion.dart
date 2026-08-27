@@ -56,6 +56,11 @@ class _InterventoriaTableroAsignacionState
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargandoUsuarios = true;
   final Set<String> _asignando = {};
+  bool _asignandoMasivo = false;
+
+  /// areaId → nombre legible. Solo sirve para etiquetar el filtro por área
+  /// del selector: los usuarios ya traen su `areaId`, pero no su nombre.
+  Map<String, String> _areas = const {};
 
   /// Página abierta de cada grupo. Los grupos largos (vencidos, en gestión)
   /// se muestran de a 20 en vez de pintar cientos de tarjetas de una vez.
@@ -82,9 +87,20 @@ class _InterventoriaTableroAsignacionState
       final rows = await widget.service.listarUsuariosAsignables(
         widget.empresaId,
       );
+      // Las áreas son opcionales: si fallan, el selector cae a mostrar el
+      // areaId crudo en vez de quedarse sin lista de gente.
+      var areas = <String, String>{};
+      try {
+        final lista = await widget.service.getAreas(widget.empresaId);
+        areas = {
+          for (final a in lista)
+            if (a.nombre.trim().isNotEmpty) a.id: a.nombre.trim(),
+        };
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _usuarios = rows;
+          _areas = areas;
           _cargandoUsuarios = false;
         });
       }
@@ -163,6 +179,14 @@ class _InterventoriaTableroAsignacionState
             : constraints.maxWidth >= 760
             ? 2
             : 1;
+        final sugeridosPendientes = _cargandoUsuarios
+            ? const <InterventoriaHallazgo>[]
+            : sinAsignar
+                  .where(
+                    (h) => widget.service.sugerirResponsable(h, _usuarios) != null,
+                  )
+                  .toList();
+
         final secciones = <Widget>[
           _seccion(
             titulo: 'Sin asignar',
@@ -171,6 +195,9 @@ class _InterventoriaTableroAsignacionState
             icono: Icons.person_off_outlined,
             rows: sinAsignar,
             columnas: columnas,
+            accion: widget.canWrite && sugeridosPendientes.isNotEmpty
+                ? _botonAsignarTodos(sugeridosPendientes)
+                : null,
           ),
           _seccion(
             titulo: 'Vencidos',
@@ -219,6 +246,7 @@ class _InterventoriaTableroAsignacionState
     required IconData icono,
     required List<InterventoriaHallazgo> rows,
     required int columnas,
+    Widget? accion,
   }) {
     if (rows.isEmpty) return const SizedBox.shrink();
     final maxPagina = pageCountOf(rows.length) - 1;
@@ -266,6 +294,7 @@ class _InterventoriaTableroAsignacionState
                   style: const TextStyle(fontSize: 11, color: _muted),
                 ),
               ),
+              ?accion,
             ],
           ),
         ),
@@ -522,7 +551,9 @@ class _InterventoriaTableroAsignacionState
           ),
         OutlinedButton.icon(
           onPressed: () => _elegirPersona(h),
-          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+          style: OutlinedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+          ),
           icon: Icon(
             asignado ? Icons.swap_horiz_rounded : Icons.person_search_outlined,
             size: 16,
@@ -556,6 +587,8 @@ class _InterventoriaTableroAsignacionState
         usuarios: _usuarios,
         sugeridoId: sugerido?.id ?? '',
         centroCostoId: h.centroCostoId,
+        centroCostoNombre: h.centroCostoNombre,
+        areas: _areas,
       ),
     );
     if (elegido == null) return;
@@ -569,6 +602,84 @@ class _InterventoriaTableroAsignacionState
         delCentro: elegido.centroId == h.centroCostoId,
       ),
       forzado: true,
+    );
+  }
+
+  /// Botón de la cabecera de "Sin asignar": asigna de una sola vez todos los
+  /// hallazgos para los que el acta ya sugiere responsable. No los asigna
+  /// solo, hay que pedirlo, porque cada asignación crea una tarea y dispara
+  /// una notificación real a esa persona — si la sugerencia falla (cargo mal
+  /// leído del OCR, numeral equivocado) el error queda contenido a un clic y
+  /// no se dispara en cuanto el acta entra al tablero.
+  Widget _botonAsignarTodos(List<InterventoriaHallazgo> sugeridos) {
+    if (_asignandoMasivo) {
+      return const Padding(
+        padding: EdgeInsets.only(left: 10),
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(left: 10),
+      child: FilledButton.icon(
+        onPressed: () => _asignarTodosSugeridos(sugeridos),
+        style: FilledButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          backgroundColor: _accent,
+        ),
+        icon: const Icon(Icons.done_all_rounded, size: 16),
+        label: Text(
+          'Asignar sugeridos (${sugeridos.length})',
+          style: const TextStyle(fontSize: 12),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _asignarTodosSugeridos(
+    List<InterventoriaHallazgo> sugeridos,
+  ) async {
+    setState(() => _asignandoMasivo = true);
+    var ok = 0;
+    var fallidos = 0;
+    // Uno por uno, no en paralelo: cada asignación puede persistir el
+    // hallazgo primero (los que vienen de un acta todavía no son documento) y
+    // dos asignaciones a la vez sobre el mismo hallazgo duplicarían la tarea.
+    for (final h in sugeridos) {
+      final sugerido = widget.service.sugerirResponsable(h, _usuarios);
+      if (sugerido == null) continue;
+      final clave = _claveOcupado(h);
+      if (_asignando.contains(clave)) continue;
+      try {
+        var hallazgo = h;
+        if (hallazgo.id.isEmpty) {
+          final id = await widget.service.guardarHallazgo(hallazgo);
+          hallazgo = hallazgo.copyWithId(id);
+        }
+        await widget.service.crearTareaYNotificarHallazgo(
+          hallazgo: hallazgo,
+          creadorId: widget.userId,
+          creadorNombre: widget.userId,
+        );
+        ok++;
+      } catch (_) {
+        fallidos++;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _asignandoMasivo = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: fallidos == 0 ? _ok : _warn,
+        content: Text(
+          fallidos == 0
+              ? 'Asignados $ok hallazgos · tarea creada para cada uno'
+              : 'Asignados $ok · $fallidos no se pudieron asignar',
+        ),
+      ),
     );
   }
 
@@ -630,28 +741,68 @@ class _InterventoriaTableroAsignacionState
 /// Buscador de personas para asignar un hallazgo a mano.
 ///
 /// Marca al que sugiere el acta y a los del mismo establecimiento, que son
-/// los dos criterios con los que la gente decide.
+/// los dos criterios con los que la gente decide. Por defecto filtra la
+/// lista a ese establecimiento (más los cargos corporativos, que no tienen
+/// centro fijo): mostrar de una vez a toda la empresa mezclaba auxiliares,
+/// conductores y supervisores de otros sitios que nunca aplican a este
+/// hallazgo. "Toda la empresa" queda como escape para cubrir ausencias.
 class InterventoriaSelectorPersona extends StatefulWidget {
   final List<InterventoriaUsuario> usuarios;
   final String sugeridoId;
   final String centroCostoId;
+  final String centroCostoNombre;
+
+  /// areaId → nombre. Vacío = no se muestra el desplegable de áreas.
+  final Map<String, String> areas;
 
   const InterventoriaSelectorPersona({
     super.key,
     required this.usuarios,
     required this.sugeridoId,
     required this.centroCostoId,
+    this.centroCostoNombre = '',
+    this.areas = const {},
   });
 
   @override
-  State<InterventoriaSelectorPersona> createState() =>
-      InterventoriaSelectorPersonaState();
+  State<InterventoriaSelectorPersona> createState() => InterventoriaSelectorPersonaState();
 }
 
-class InterventoriaSelectorPersonaState
-    extends State<InterventoriaSelectorPersona> {
+class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPersona> {
   final _ctrl = TextEditingController();
   String _query = '';
+  bool _soloEstablecimiento = false;
+
+  /// '' = todas las áreas. Es un filtro aparte del establecimiento porque el
+  /// responsable puede estar en otra área del mismo sitio (o al revés).
+  String _areaId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // widget.centroCostoId no está disponible de forma segura como
+    // inicializador de campo (el framework aún no ha enlazado `widget`).
+    _soloEstablecimiento = widget.centroCostoId.isNotEmpty;
+  }
+
+  /// Áreas que tienen al menos una persona. Se calcula sobre TODO el personal
+  /// de la empresa, no sobre el filtrado por establecimiento: el responsable
+  /// puede estar en un área que no tiene a nadie en este sitio, y filtrarlas
+  /// antes dejaría esa área fuera del desplegable justo cuando hace falta.
+  List<MapEntry<String, String>> _areasConGente(
+    List<InterventoriaUsuario> base,
+  ) {
+    final ids = <String>{};
+    for (final u in base) {
+      final id = u.areaId.trim();
+      if (id.isNotEmpty) ids.add(id);
+    }
+    final rows = ids
+        .map((id) => MapEntry(id, widget.areas[id] ?? id))
+        .toList()
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
+    return rows;
+  }
 
   @override
   void dispose() {
@@ -662,9 +813,31 @@ class InterventoriaSelectorPersonaState
   @override
   Widget build(BuildContext context) {
     final query = _query.trim().toLowerCase();
+    final areasDisponibles = _areasConGente(widget.usuarios);
+    final areaActiva =
+        areasDisponibles.any((e) => e.key == _areaId) ? _areaId : '';
+
+    // Elegir un área es decir "búscame a alguien de esta área", y esa persona
+    // casi nunca está en el establecimiento del hallazgo. Mantener además el
+    // filtro de sitio devolvería una lista vacía la mayoría de las veces.
+    final filtraPorSitio =
+        _soloEstablecimiento &&
+        widget.centroCostoId.isNotEmpty &&
+        areaActiva.isEmpty;
+
     final rows = widget.usuarios.where((u) {
-      if (query.isEmpty) return true;
-      return '${u.nombre} ${u.cargo}'.toLowerCase().contains(query);
+      if (query.isNotEmpty &&
+          !'${u.nombre} ${u.cargo}'.toLowerCase().contains(query)) {
+        return false;
+      }
+      if (areaActiva.isNotEmpty) return u.areaId.trim() == areaActiva;
+      if (!filtraPorSitio) return true;
+      final esSugerido = u.id == widget.sugeridoId;
+      final delCentro = u.centroId == widget.centroCostoId;
+      // Los cargos sin centro (Gerencia, Dirección de operaciones…) no
+      // tienen establecimiento propio y deben seguir apareciendo.
+      final corporativo = u.centroId.trim().isEmpty;
+      return esSugerido || delCentro || corporativo;
     }).toList();
 
     // El sugerido primero, luego los del mismo establecimiento.
@@ -683,7 +856,9 @@ class InterventoriaSelectorPersonaState
     });
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewInsetsOf(context).bottom,
+      ),
       child: DraggableScrollableSheet(
         expand: false,
         initialChildSize: .8,
@@ -705,7 +880,10 @@ class InterventoriaSelectorPersonaState
                 children: [
                   const Text(
                     'Elegir responsable',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -719,16 +897,100 @@ class InterventoriaSelectorPersonaState
                       isDense: true,
                     ),
                   ),
+                  if (widget.centroCostoId.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: Text(
+                            widget.centroCostoNombre.isNotEmpty
+                                ? widget.centroCostoNombre
+                                : 'Este establecimiento',
+                          ),
+                          // Con un área elegida el filtro de sitio no aplica,
+                          // y dejar el chip pintado como activo mentiría sobre
+                          // lo que se está viendo.
+                          selected: filtraPorSitio,
+                          onSelected: (v) => setState(() {
+                            _soloEstablecimiento = true;
+                            _areaId = '';
+                          }),
+                        ),
+                        ChoiceChip(
+                          label: const Text('Toda la empresa'),
+                          selected: !filtraPorSitio && areaActiva.isEmpty,
+                          onSelected: (v) => setState(() {
+                            _soloEstablecimiento = false;
+                            _areaId = '';
+                          }),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (areasDisponibles.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      initialValue: areaActiva,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Área',
+                        prefixIcon: Icon(Icons.account_tree_outlined, size: 20),
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('Todas las áreas'),
+                        ),
+                        ...areasDisponibles.map(
+                          (e) => DropdownMenuItem(
+                            value: e.key,
+                            child: Text(
+                              e.value,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (v) => setState(() => _areaId = v ?? ''),
+                    ),
+                  ],
                 ],
               ),
             ),
             const Divider(height: 1),
             Expanded(
               child: rows.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Nadie coincide con la búsqueda',
-                        style: TextStyle(color: Color(0xFF64748B)),
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Nadie coincide con la búsqueda',
+                              style: TextStyle(color: Color(0xFF64748B)),
+                            ),
+                            if (areaActiva.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: () => setState(() => _areaId = ''),
+                                child: const Text('Ver todas las áreas'),
+                              ),
+                            ],
+                            if (filtraPorSitio) ...[
+                              const SizedBox(height: 8),
+                              TextButton(
+                                onPressed: () => setState(
+                                  () => _soloEstablecimiento = false,
+                                ),
+                                child: const Text('Ver toda la empresa'),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     )
                   : ListView.builder(

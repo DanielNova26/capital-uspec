@@ -98,6 +98,7 @@ class _InterventoriaHallazgoPanelState
   bool _guardando = false;
   bool _asignando = false;
   List<InterventoriaUsuario> _usuarios = const [];
+  Map<String, String> _areas = const {};
 
   @override
   void initState() {
@@ -119,7 +120,22 @@ class _InterventoriaHallazgoPanelState
       final rows = await widget.service.listarUsuariosAsignables(
         widget.empresaId,
       );
-      if (mounted) setState(() => _usuarios = rows);
+      // Las áreas solo etiquetan el filtro del selector: si fallan se sigue
+      // sin ese desplegable, no sin personal.
+      var areas = <String, String>{};
+      try {
+        final lista = await widget.service.getAreas(widget.empresaId);
+        areas = {
+          for (final a in lista)
+            if (a.nombre.trim().isNotEmpty) a.id: a.nombre.trim(),
+        };
+      } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _usuarios = rows;
+          _areas = areas;
+        });
+      }
     } catch (_) {
       // Sin la lista no se puede sugerir, pero el resto del panel sirve igual.
     }
@@ -516,6 +532,8 @@ class _InterventoriaHallazgoPanelState
         usuarios: _usuarios,
         sugeridoId: sugerido?.id ?? '',
         centroCostoId: _h.centroCostoId,
+        centroCostoNombre: _h.centroCostoNombre,
+        areas: _areas,
       ),
     );
     if (elegido == null) return;

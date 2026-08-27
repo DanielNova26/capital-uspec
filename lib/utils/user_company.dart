@@ -379,3 +379,108 @@ bool matchesEmpresaScope(
 
   return false;
 }
+
+/// Estado laboral con el que Talento Humano marca a una persona en una empresa.
+const String kEstadoPersonaActivo = 'activo';
+const String kEstadoPersonaInactivo = 'inactivo';
+
+/// Indica si una persona sigue vinculada (activa) dentro de [empresaId].
+///
+/// Talento Humano inhabilita por empresa, no de forma global
+/// (`PersonnelStatusService.changeStatus`), y cada colección guarda ese estado
+/// con un nombre distinto:
+///   * `TBL_USUARIOS`            → `empresasDetalle.{empresaId}.estadoLaboral`
+///   * `TBL_ESTRUCTURA_ORGANIZACIONAL` → `empresasDetalle.{empresaId}.estado`
+///     (y el `estado` raíz cuando el documento es de esa misma empresa)
+/// Por eso mirar solo el `estado` raíz deja pasar a los retirados: ese campo
+/// controla el inicio de sesión, no la vinculación laboral.
+///
+/// El bloque de la empresa manda sobre el valor raíz: una cédula puede estar
+/// retirada en una empresa y vigente en otra. Si la empresa no dice nada se
+/// usa el estado global, y un `estado` vacío se considera activo (igual que en
+/// AuthGate). `activo: false` —el interruptor de Admin— siempre inhabilita.
+bool isPersonaActivaEnEmpresa(Map<String, dynamic> data, String? empresaId) {
+  if (data['activo'] == false) return false;
+
+  final detail = getUserCompanyDetail(data, empresaId);
+  if (detail != null) {
+    if (detail['activo'] == false) return false;
+    for (final key in const ['estadoLaboral', 'estado']) {
+      final value = (detail[key] ?? '').toString().trim().toLowerCase();
+      if (value.isEmpty) continue;
+      return value != kEstadoPersonaInactivo;
+    }
+  }
+
+  final global = (data['estado'] ?? '').toString().trim().toLowerCase();
+  return global.isEmpty || global == kEstadoPersonaActivo;
+}
+
+/// Marca con la que Talento Humano saca a alguien de los desplegables de
+/// asignación **sin retirarlo**.
+///
+/// Nace de un problema real: el personal administrativo (Talento Humano,
+/// contabilidad) y quien no usa computador seguían apareciendo como candidatos
+/// a subsanar un hallazgo o recibir una tarea, y cada asignación equivocada
+/// cuesta un reproceso. No es lo mismo que estar inactivo
+/// ([isPersonaActivaEnEmpresa]): la persona sigue vinculada, entra a la app y
+/// aparece en el organigrama; simplemente no es a quien se le asigna trabajo
+/// operativo.
+const String kCampoRecibeAsignaciones = 'recibeAsignaciones';
+
+/// Lee la marca en un mapa de Firestore. `null` = el dato no está escrito.
+///
+/// Se acepta tanto el booleano como las cadenas que llegan de importaciones de
+/// Excel ('true'/'false', 'si'/'no'), porque el maestro de cargos se carga por
+/// ahí y un `'false'` de texto es `true` para Dart.
+bool? _marcaRecibeAsignaciones(Map<String, dynamic>? source) {
+  if (source == null) return null;
+  final raw = source[kCampoRecibeAsignaciones];
+  if (raw == null) return null;
+  if (raw is bool) return raw;
+  final text = raw.toString().trim().toLowerCase();
+  if (text.isEmpty) return null;
+  if (const {'false', 'no', '0', 'n'}.contains(text)) return false;
+  if (const {'true', 'si', 'sí', '1', 's'}.contains(text)) return true;
+  return null;
+}
+
+/// Indica si a esta persona se le pueden asignar tareas operativas.
+///
+/// Orden de decisión, del más específico al más general:
+///   1. la marca de la persona en la empresa activa (`empresasDetalle`),
+///   2. la marca de la persona a nivel global (cuentas de una sola empresa),
+///   3. [marcaDelCargo] — lo que diga `TBL_CARGOS.recibeAsignaciones`,
+///   4. `true`.
+///
+/// El valor por defecto es afirmativo a propósito: nadie desaparece de los
+/// desplegables hasta que alguien lo decida explícitamente, así que activar
+/// esta función no puede dejar un módulo sin candidatos.
+bool recibeAsignacionesEnEmpresa(
+  Map<String, dynamic> data,
+  String? empresaId, {
+  bool? marcaDelCargo,
+}) {
+  final propia =
+      _marcaRecibeAsignaciones(getUserCompanyDetail(data, empresaId)) ??
+      _marcaRecibeAsignaciones(data);
+  if (propia != null) return propia;
+  return marcaDelCargo ?? true;
+}
+
+/// Igual que [recibeAsignacionesEnEmpresa] pero leyendo la marca del cargo
+/// desde el documento de `TBL_CARGOS`. Se separa para que quien ya tiene el
+/// mapa del cargo no tenga que interpretarlo dos veces.
+bool cargoRecibeAsignaciones(Map<String, dynamic> cargo) =>
+    _marcaRecibeAsignaciones(cargo) ?? true;
+
+/// Una persona es asignable si sigue vinculada **y** no está marcada como
+/// fuera del flujo operativo. Es el filtro que deben usar los desplegables de
+/// "¿a quién le asigno esto?".
+bool esPersonaAsignable(
+  Map<String, dynamic> data,
+  String? empresaId, {
+  bool? marcaDelCargo,
+}) =>
+    isPersonaActivaEnEmpresa(data, empresaId) &&
+    recibeAsignacionesEnEmpresa(data, empresaId, marcaDelCargo: marcaDelCargo);

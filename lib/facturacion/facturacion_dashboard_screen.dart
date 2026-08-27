@@ -322,11 +322,16 @@ class _FacturacionViewState extends State<_FacturacionView>
   List<FacEstablecimiento> _ests = [];
   List<FacObligacion> _obligaciones = [];
 
-  // Meses disponibles (derivados de los establecimientos)
+  // Meses ofrecidos en el filtro. Son la unión de dos fuentes: el catálogo que
+  // Facturación va asignando (histórico, no se pierde al reasignar) y el mes
+  // vigente de cada establecimiento (respaldo para empresas sin catálogo aún).
   List<String> _meses = [];
+  List<String> _mesesCatalogo = [];
+  List<String> _mesesEst = [];
 
   StreamSubscription<List<FacEstablecimiento>>? _estSub;
   StreamSubscription<List<FacObligacion>>? _obligacionSub;
+  StreamSubscription<List<String>>? _mesesSub;
 
   List<String> get _documentos => _obligaciones
       .where((item) => item.enabled)
@@ -336,7 +341,7 @@ class _FacturacionViewState extends State<_FacturacionView>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: widget.canManage ? 4 : 2, vsync: this);
+    _tab = TabController(length: widget.canManage ? 5 : 2, vsync: this);
     _obligacionSub = widget.svc.streamObligaciones(widget.empresaId).listen((
       items,
     ) {
@@ -353,6 +358,13 @@ class _FacturacionViewState extends State<_FacturacionView>
     _estSub = widget.svc
         .streamEstablecimientos(widget.empresaId)
         .listen(_onEstsChanged);
+    _mesesSub = widget.svc.streamMesesAsignados(widget.empresaId).listen((
+      meses,
+    ) {
+      if (!mounted) return;
+      _mesesCatalogo = meses;
+      _recomputarMeses();
+    });
   }
 
   @override
@@ -361,6 +373,7 @@ class _FacturacionViewState extends State<_FacturacionView>
     _buscarEstCtrl.dispose();
     _estSub?.cancel();
     _obligacionSub?.cancel();
+    _mesesSub?.cancel();
     super.dispose();
   }
 
@@ -371,9 +384,18 @@ class _FacturacionViewState extends State<_FacturacionView>
         mesesSet.add(normalizeFacMesKey(e.mes));
       }
     }
-    final meses = mesesSet.toList()..sort(compareFacMesDesc);
+    _ests = ests;
+    _mesesEst = mesesSet.toList()..sort(compareFacMesDesc);
+    _recomputarMeses();
+    _sembrarCatalogoMeses();
+  }
+
+  /// Une catálogo y meses vigentes, y reencuadra el filtro si el mes elegido
+  /// dejó de existir. No dispara escrituras: solo recalcula la lista visible.
+  void _recomputarMeses() {
+    final meses = normalizeFacMesKeys([..._mesesCatalogo, ..._mesesEst]);
+    if (!mounted) return;
     setState(() {
-      _ests = ests;
       _meses = meses;
       if (meses.isEmpty) {
         _filtroMes = null;
@@ -382,6 +404,20 @@ class _FacturacionViewState extends State<_FacturacionView>
       }
     });
     _recargarProgreso();
+  }
+
+  /// Empresas que ya venían operando no tienen catálogo todavía. La primera
+  /// carga lo siembra con los meses vigentes para no arrancar con la lista
+  /// vacía; después el catálogo manda y sobrevive a las reasignaciones.
+  void _sembrarCatalogoMeses() {
+    if (!widget.canManage) return;
+    final faltantes = _mesesEst
+        .where((m) => !_mesesCatalogo.contains(m))
+        .toList();
+    if (faltantes.isEmpty) return;
+    widget.svc
+        .registrarMesesAsignados(widget.empresaId, faltantes)
+        .catchError((_) {});
   }
 
   Future<void> _recargarProgreso() async {
@@ -441,6 +477,11 @@ class _FacturacionViewState extends State<_FacturacionView>
         label: 'Establecimientos',
         icon: Icons.apartment_rounded,
       ),
+      if (widget.canManage)
+        const InternalModuleTabItem(
+          label: 'Cargar',
+          icon: Icons.cloud_upload_outlined,
+        ),
       const InternalModuleTabItem(
         label: 'Autorizaciones',
         icon: Icons.check_circle_outline_rounded,
@@ -492,6 +533,14 @@ class _FacturacionViewState extends State<_FacturacionView>
               controller: _tab,
               children: [
                 _buildDashboardTab(),
+                if (widget.canManage)
+                  _CargaTab(
+                    userId: widget.userId,
+                    empresaId: widget.empresaId,
+                    ests: _ests,
+                    meses: _meses,
+                    svc: widget.svc,
+                  ),
                 _AutorizacionesTab(
                   empresaId: widget.empresaId,
                   svc: widget.svc,
@@ -2057,6 +2106,199 @@ class _GestionTabState extends State<_GestionTab> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tab: Cargar documentos (perfil Facturación)
+// Reutiliza la vista del establecimiento en modo embebido para no duplicar la
+// lógica de subida, que ya está probada por el rol establecimiento.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CargaTab extends StatefulWidget {
+  final String userId;
+  final String empresaId;
+  final List<FacEstablecimiento> ests;
+  final List<String> meses;
+  final FacturacionService svc;
+
+  const _CargaTab({
+    required this.userId,
+    required this.empresaId,
+    required this.ests,
+    required this.meses,
+    required this.svc,
+  });
+
+  @override
+  State<_CargaTab> createState() => _CargaTabState();
+}
+
+class _CargaTabState extends State<_CargaTab> {
+  String? _estId;
+  String? _mes;
+
+  /// Los docs de establecimiento vienen con el id compuesto `empresa_centro`,
+  /// pero Storage y el servicio trabajan con el id pelado.
+  String _plainId(String id) => id.startsWith('${widget.empresaId}_')
+      ? id.substring(widget.empresaId.length + 1)
+      : id;
+
+  @override
+  void didUpdateWidget(covariant _CargaTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Si lo elegido desaparece del catálogo, se limpia: un DropdownButton con
+    // un value que no está entre sus items revienta en tiempo de ejecución.
+    if (_estId != null && !widget.ests.any((e) => _plainId(e.id) == _estId)) {
+      _estId = null;
+    }
+    if (_mes != null && !widget.meses.contains(_mes)) _mes = null;
+  }
+
+  void _elegirEst(String? id) {
+    if (id == null) return;
+    setState(() {
+      _estId = id;
+      // Arranca en el mes vigente del establecimiento cuando está en el
+      // catálogo; si no, deja que el usuario lo escoja.
+      final est = widget.ests.firstWhere(
+        (e) => _plainId(e.id) == id,
+        orElse: () => widget.ests.first,
+      );
+      final propio = normalizeFacMesKey(est.mes);
+      if (_mes == null && widget.meses.contains(propio)) _mes = propio;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width >= 900;
+    return Column(
+      children: [
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: isWide ? 320 : double.infinity,
+                child: DropdownButtonFormField<String>(
+                  value: _estId,
+                  isExpanded: true,
+                  decoration: _inputDeco('Establecimiento'),
+                  items: widget.ests
+                      .map(
+                        (e) => DropdownMenuItem(
+                          value: _plainId(e.id),
+                          child: Text(
+                            e.nombre,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _elegirEst,
+                ),
+              ),
+              SizedBox(
+                width: isWide ? 200 : double.infinity,
+                child: DropdownButtonFormField<String>(
+                  value: _mes,
+                  isExpanded: true,
+                  decoration: _inputDeco('Mes'),
+                  items: widget.meses
+                      .map(
+                        (m) => DropdownMenuItem(
+                          value: m,
+                          child: Text(
+                            facMesLabel(m),
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _mes = v),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(child: _buildCuerpo()),
+      ],
+    );
+  }
+
+  Widget _buildCuerpo() {
+    if (widget.meses.isEmpty) {
+      return _aviso(
+        Icons.event_busy_outlined,
+        'Todavía no hay meses asignados',
+        'Asigna un mes desde la pestaña Gestión para poder cargar documentos.',
+      );
+    }
+    if (_estId == null || _mes == null) {
+      return _aviso(
+        Icons.cloud_upload_outlined,
+        'Elige establecimiento y mes',
+        'Al seleccionarlos aparecerán los documentos del período para cargarlos.',
+      );
+    }
+    return _EstablecimientoView(
+      // Remonta la vista al cambiar de establecimiento o de mes: su estado
+      // (archivos, revisiones, observaciones) se carga en initState.
+      key: ValueKey('$_estId|$_mes'),
+      userId: widget.userId,
+      empresaId: widget.empresaId,
+      estId: _estId!,
+      svc: widget.svc,
+      targetMes: _mes,
+      embedded: true,
+      asFacturacion: true,
+    );
+  }
+
+  Widget _aviso(IconData icon, String titulo, String detalle) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 46, color: Colors.black26),
+          const SizedBox(height: 12),
+          Text(
+            titulo,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            detalle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 13,
+              height: 1.4,
+              color: Colors.black54,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Pantalla detalle de un establecimiento (usada tanto por facturación como
 // por el rol establecimiento)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2634,7 +2876,17 @@ class _EstablecimientoView extends StatefulWidget {
   final String? linkedTaskId;
   final DateTime? linkedDeadline;
 
+  /// Se monta dentro de otra pantalla (la pestaña Cargar de Facturación), así
+  /// que no debe dibujar su propio InternalModuleLayout: quedarían dos.
+  final bool embedded;
+
+  /// Lo opera Facturación en nombre del establecimiento. Oculta "Solicitar
+  /// siguiente mes", que es un trámite del establecimiento hacia Facturación
+  /// y no tiene sentido cuando ese mismo perfil asigna el mes en Gestión.
+  final bool asFacturacion;
+
   const _EstablecimientoView({
+    super.key,
     required this.userId,
     required this.empresaId,
     required this.estId,
@@ -2643,6 +2895,8 @@ class _EstablecimientoView extends StatefulWidget {
     this.targetMes,
     this.linkedTaskId,
     this.linkedDeadline,
+    this.embedded = false,
+    this.asFacturacion = false,
   });
 
   @override
@@ -2725,7 +2979,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       estId: widget.estId,
       establecimientoNombre: _est?.nombre ?? widget.estId,
       texto: texto,
-      mes: _est?.mes ?? '',
+      mes: _activeMes,
       autorId: widget.userId,
       autorNombre: _autorNombre.isNotEmpty ? _autorNombre : widget.userId,
       destinatarioId:
@@ -2790,6 +3044,23 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   Widget build(BuildContext context) {
     final isWeb = MediaQuery.of(context).size.width >= 900;
 
+    final contenido = _loading
+        ? const Center(child: CircularProgressIndicator(color: _kPrimary))
+        : Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _cargar,
+                  child: isWeb ? _buildWebGrid() : _buildMobileGrid(),
+                ),
+              ),
+              _buildBottomBar(),
+            ],
+          );
+
+    if (widget.embedded) return contenido;
+
     return InternalModuleLayout(
       title: 'Facturación — ${_est?.nombre ?? widget.estId}',
       subtitle: _isTaskFlow
@@ -2798,20 +3069,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       accentColor: _kPrimary,
       userId: widget.userId,
       empresaId: widget.empresaId,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator(color: _kPrimary))
-          : Column(
-              children: [
-                _buildHeader(),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _cargar,
-                    child: isWeb ? _buildWebGrid() : _buildMobileGrid(),
-                  ),
-                ),
-                _buildBottomBar(),
-              ],
-            ),
+      child: contenido,
     );
   }
 
@@ -3029,6 +3287,16 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
                 color: _kPrimary,
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
+              ),
+            )
+          else if (_todoCompleto && widget.asFacturacion)
+            const Text(
+              'Mes completo',
+              style: TextStyle(
+                fontFamily: _kFont,
+                color: _kPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
               ),
             )
           else if (_todoCompleto)

@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 
 const Color _kPrimary = Color(0xFFC28942);
@@ -131,6 +132,9 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
 
       for (final doc in usersSnap.docs) {
         final d = doc.data();
+        // Los retirados conservan su hoja de vida, pero no cuentan en los
+        // indicadores ni en los cumpleaños de la plantilla vigente.
+        if (!isPersonaActivaEnEmpresa(d, eid)) continue;
 
         // Tab 1
         final status = (d['estadoHojaDeVida'] as String?) ?? 'sin_enviar';

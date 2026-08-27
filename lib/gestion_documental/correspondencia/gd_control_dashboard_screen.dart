@@ -670,9 +670,9 @@ class _StatusChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // El acuerdo operativo usa exactamente los mismos tres estados en todas
-    // las vistas. El anillo no puede omitir Terminados porque dejaría de ser un
-    // resumen del estado general.
+    // Por pedido operativo, el anillo solo resume la carga activa (Recibido y
+    // Asignado); los Terminados ya se ven en el KPI y en el histórico, y aquí
+    // solo diluían el peso visual de lo pendiente.
     final data = <({String label, int value, Color color})>[
       (
         label: 'Recibido',
@@ -684,20 +684,15 @@ class _StatusChart extends StatelessWidget {
         value: rows.where((e) => e.asignado).length,
         color: const Color(0xFF2563EB),
       ),
-      (
-        label: 'Terminado',
-        value: rows.where((e) => e.terminado).length,
-        color: const Color(0xFF16A34A),
-      ),
     ];
     final total = data.fold<int>(0, (sum, item) => sum + item.value);
     return _Panel(
       title: 'Estado general',
-      subtitle: 'Recibido, Asignado y Terminado',
+      subtitle: 'Recibido y Asignado (carga activa)',
       child: SizedBox(
         height: 245,
         child: total == 0
-            ? const _ChartEmpty(message: 'No hay procesos registrados')
+            ? const _ChartEmpty(message: 'No hay procesos activos')
             : Row(
                 children: [
                   Expanded(
@@ -731,7 +726,7 @@ class _StatusChart extends StatelessWidget {
                               ),
                             ),
                             const Text(
-                              'procesos',
+                              'activos',
                               style: TextStyle(
                                 fontSize: 10,
                                 color: Color(0xFF64748B),

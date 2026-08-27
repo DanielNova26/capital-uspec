@@ -21,6 +21,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/session_audit_service.dart';
+import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 import 'movilidad/movilidad_screen.dart';
 import 'rutas_conductor_screen.dart';
@@ -3321,21 +3322,9 @@ String _cargoUsuario(Map<String, dynamic> m, String empresaId) {
 
 /// Activo = no inhabilitado en Talento Humano para esta empresa
 /// (`empresasDetalle.{empresaId}.estadoLaboral`) y con `estado` global válido.
-bool _usuarioActivo(Map<String, dynamic> m, String empresaId) {
-  final detalle = m['empresasDetalle'];
-  if (detalle is Map) {
-    final scoped = detalle[empresaId];
-    if (scoped is Map) {
-      final laboral = _firstString(scoped, const [
-        'estadoLaboral',
-        'estado',
-      ]).toLowerCase();
-      if (laboral == 'inactivo') return false;
-    }
-  }
-  final global = (m['estado'] ?? '').toString().trim().toLowerCase();
-  return global.isEmpty || global == 'activo';
-}
+/// La regla es la misma en todos los módulos: vive en `utils/user_company`.
+bool _usuarioActivo(Map<String, dynamic> m, String empresaId) =>
+    isPersonaActivaEnEmpresa(m, empresaId);
 
 Future<List<_UsuarioOpcion>> _cargarUsuariosEmpresa(
   String empresaId, {

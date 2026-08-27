@@ -31,6 +31,7 @@ import 'compras_req_engine.dart';
 import 'compras_validation.dart';
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
+import '../utils/text_input_formatters.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart' show UserNameText;
 
@@ -203,22 +204,6 @@ Widget _comprasResponsiveList<T>({
 
 String _normalizarNombre(String input) {
   return input.trim().replaceAll(RegExp(r'\s+'), ' ').toUpperCase();
-}
-
-class _UpperCaseTextFormatter extends TextInputFormatter {
-  const _UpperCaseTextFormatter();
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    return newValue.copyWith(
-      text: newValue.text.toUpperCase(),
-      selection: newValue.selection,
-      composing: TextRange.empty,
-    );
-  }
 }
 
 String _normalizarUM(String input) {
@@ -6234,7 +6219,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
     keyboardType: keyboardType,
     inputFormatters: [
       ...?inputFormatters,
-      if (uppercase) const _UpperCaseTextFormatter(),
+      if (uppercase) const UpperCaseTextFormatter(),
     ],
     textCapitalization: uppercase
         ? TextCapitalization.characters
@@ -7317,7 +7302,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               // Código — ingreso manual
               TextFormField(
                 controller: _codigoCtrl,
-                inputFormatters: const [_UpperCaseTextFormatter()],
+                inputFormatters: const [UpperCaseTextFormatter()],
                 decoration: _inputDecoration('Código *').copyWith(
                   hintText: 'Ej: PRD-0001, CARNE-001',
                   prefixIcon: const Icon(Icons.qr_code, size: 18),
@@ -7336,7 +7321,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               const SizedBox(height: 14),
               TextFormField(
                 controller: _nombreCtrl,
-                inputFormatters: const [_UpperCaseTextFormatter()],
+                inputFormatters: const [UpperCaseTextFormatter()],
                 decoration: _inputDecoration(
                   'Nombre del producto *',
                 ).copyWith(hintText: 'Ej: Carne De Res'),
@@ -8935,7 +8920,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           TextFormField(
             controller: _obsCtrl,
             textCapitalization: TextCapitalization.characters,
-            inputFormatters: const [_UpperCaseTextFormatter()],
+            inputFormatters: const [UpperCaseTextFormatter()],
             minLines: 2,
             maxLines: 4,
             decoration: InputDecoration(
@@ -10432,7 +10417,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     controller: numeroCtrl,
                     autofocus: true,
                     textCapitalization: TextCapitalization.characters,
-                    inputFormatters: const [_UpperCaseTextFormatter()],
+                    inputFormatters: const [UpperCaseTextFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Número de lote *',
                       hintText: 'Ej: L-2026-001',
@@ -10830,7 +10815,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     controller: _ordenCtrl,
                     readOnly: !isNew,
                     textCapitalization: TextCapitalization.characters,
-                    inputFormatters: const [_UpperCaseTextFormatter()],
+                    inputFormatters: const [UpperCaseTextFormatter()],
                     decoration: _inputDecoration(
                       'Orden de Compra',
                     ).copyWith(hintText: 'OC-2024-001'),
@@ -12148,7 +12133,7 @@ class _ProductoEntryCard extends StatelessWidget {
                       controller: entry.observacionesCtrl,
                       readOnly: readOnlyStructure,
                       textCapitalization: TextCapitalization.characters,
-                      inputFormatters: const [_UpperCaseTextFormatter()],
+                      inputFormatters: const [UpperCaseTextFormatter()],
                       decoration:
                           _inputDecoration(
                             'Observaciones de la ficha técnica',
@@ -12654,7 +12639,7 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                   controller: _nombreCtrl,
                   autofocus: true,
                   textCapitalization: TextCapitalization.characters,
-                  inputFormatters: const [_UpperCaseTextFormatter()],
+                  inputFormatters: const [UpperCaseTextFormatter()],
                   decoration:
                       _inputDecoration(
                         'Nombre / Descripción de la marca',
@@ -18252,7 +18237,7 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
             // Código
             TextFormField(
               controller: _codigoCtrl,
-              inputFormatters: const [_UpperCaseTextFormatter()],
+              inputFormatters: const [UpperCaseTextFormatter()],
               decoration: _inputDecoration('Código *').copyWith(
                 hintText: 'MRC-0001',
                 prefixIcon: _generandoCodigo
@@ -18281,7 +18266,7 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
             // Descripción
             TextFormField(
               controller: _descCtrl,
-              inputFormatters: const [_UpperCaseTextFormatter()],
+              inputFormatters: const [UpperCaseTextFormatter()],
               decoration: _inputDecoration(
                 'Descripción / Nombre *',
               ).copyWith(hintText: 'Ej: Nike, Zenú, Colanta'),
