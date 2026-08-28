@@ -27,6 +27,7 @@ import 'compras_recepcion_logic.dart';
 import 'compras_service.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
+import 'abastecimiento_screen.dart';
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
 import '../widgets/internal_module_layout.dart';
@@ -968,6 +969,24 @@ class ComprasDashboardScreen extends StatelessWidget {
             ),
           ),
         ),
+      card(
+        icon: Icons.route_outlined,
+        titulo: 'Abastecimiento',
+        subtitulo: _esBodega
+            ? 'Entregas programadas y recepción del día'
+            : 'Programación, novedades y seguimiento de entregas',
+        color: const Color(0xFF0F4C81),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AbastecimientoScreen(
+              empresaId: empresaId,
+              userId: userId,
+              rolCompras: _rolNormalizado,
+            ),
+          ),
+        ),
+      ),
       card(
         icon: Icons.manage_search,
         titulo: 'Consultas',
@@ -20069,6 +20088,8 @@ class _AprobadosAdminTab extends StatelessWidget {
         const SizedBox(height: 14),
         _buildProveedoresAprobados(context),
         const SizedBox(height: 14),
+        _buildFichasAprobadas(context),
+        const SizedBox(height: 14),
         _buildRecepcionesAprobadas(context),
       ],
     );
@@ -20217,6 +20238,63 @@ class _AprobadosAdminTab extends StatelessWidget {
     );
   }
 
+  Widget _buildFichasAprobadas(BuildContext context) {
+    return _CalidadSectionPanel(
+      titulo: 'Fichas técnicas',
+      subtitulo:
+          'Fichas aprobadas que pueden volver a revisión o quedar rechazadas.',
+      icon: Icons.description_outlined,
+      color: const Color(0xFF0277BD),
+      child: StreamBuilder<List<FichaTecnicaDoc>>(
+        stream: svc.streamFichasTecnicas(empresaId),
+        builder: (_, snap) {
+          if (!snap.hasData) {
+            return const _CalidadLoadingState(
+              message: 'Cargando fichas técnicas...',
+            );
+          }
+          final fichas = snap.data!
+              .where(
+                (ficha) =>
+                    ficha.documentoActual?.aprobado == true &&
+                    ficha.documentoActual?.tieneDoc == true &&
+                    (_coincide(ficha.productoNombre) ||
+                        _coincide(ficha.marcaNombre) ||
+                        _coincide(ficha.proveedorNombre)),
+              )
+              .toList();
+
+          if (fichas.isEmpty) {
+            return const _CalidadEmptyState(
+              icon: Icons.description_outlined,
+              message: 'No hay fichas técnicas aprobadas.',
+            );
+          }
+
+          return Column(
+            children: [
+              for (final ficha in fichas)
+                _AprobadoGrupo(
+                  titulo: ficha.productoNombre,
+                  subtitulo: [
+                    ficha.marcaNombre,
+                    ficha.proveedorNombre,
+                  ].where((value) => value.trim().isNotEmpty).join(' · '),
+                  filas: [
+                    _AprobadoFila(
+                      label: 'Ficha técnica',
+                      doc: ficha.documentoActual!,
+                      onRevertir: () => _revertirFicha(context, ficha: ficha),
+                    ),
+                  ],
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _revertirProveedor(
     BuildContext context, {
     required String proveedorId,
@@ -20243,6 +20321,35 @@ class _AprobadosAdminTab extends StatelessWidget {
     } catch (e) {
       if (!context.mounted) return;
       _avisoError(context, e);
+    }
+  }
+
+  Future<void> _revertirFicha(
+    BuildContext context, {
+    required FichaTecnicaDoc ficha,
+  }) async {
+    final decision = await _pedirMotivoReversion(
+      context,
+      docLabel: 'Ficha técnica',
+      contexto: [
+        ficha.productoNombre,
+        ficha.marcaNombre,
+        ficha.proveedorNombre,
+      ].where((value) => value.trim().isNotEmpty).join(' · '),
+    );
+    if (decision == null || !context.mounted) return;
+    try {
+      await svc.revertirAprobacionFichaTecnica(
+        fichaId: ficha.id,
+        motivo: decision.motivo,
+        revertidoPor: userId,
+        rechazar: decision.rechazar,
+      );
+      if (!context.mounted) return;
+      _avisoReversion(context, decision.rechazar);
+    } catch (error) {
+      if (!context.mounted) return;
+      _avisoError(context, error);
     }
   }
 

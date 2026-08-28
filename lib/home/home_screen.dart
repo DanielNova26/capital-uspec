@@ -26,7 +26,10 @@ import 'document_management_screen.dart' hide kArial;
 import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
+import '../compras/compras_models.dart';
 import '../compras/compras_service.dart';
+import '../compras/abastecimiento_models.dart';
+import '../compras/abastecimiento_screen.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
 import '../interventoria/interventoria_models.dart';
 import '../interventoria/interventoria_service.dart';
@@ -90,6 +93,10 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _notificationCalendarSub;
   String? _lastNotificationCalendarKey;
+  Map<String, List<Map<String, dynamic>>> _abastecimientoEvents = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _abastecimientoSub;
+  String? _lastAbastecimientoKey;
+  String? _abastecimientoRol;
   String? _lastSyncedActiveCedula;
 
   bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
@@ -391,7 +398,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final tasks = _events[key] ?? [];
     final citas = _citasEvents[key] ?? [];
     final notificaciones = _notificationEvents[key] ?? [];
-    return [...tasks, ...citas, ...notificaciones];
+    final abastecimiento = _abastecimientoEvents[key] ?? [];
+    return [...tasks, ...citas, ...notificaciones, ...abastecimiento];
   }
 
   /// Suscribe (o re-suscribe) a TBL_CITAS_NUTRICION para el cedula+empresa activa.
@@ -500,6 +508,63 @@ class _HomeScreenState extends State<HomeScreen> {
             newEvents.putIfAbsent(k, () => []).add(data);
           }
           if (mounted) setState(() => _notificationEvents = newEvents);
+        });
+  }
+
+  Future<void> _restartAbastecimientoSubscription(
+    String cedula,
+    String empresaId,
+  ) async {
+    final key = '$cedula:$empresaId';
+    if (_lastAbastecimientoKey == key) return;
+    _lastAbastecimientoKey = key;
+    _abastecimientoSub?.cancel();
+    _abastecimientoEvents = {};
+    _abastecimientoRol = null;
+
+    String? role;
+    try {
+      role = normalizeComprasRol(
+        (await ComprasService().resolveRolUsuario(empresaId, cedula))?.rol,
+      );
+    } catch (_) {}
+    if (!mounted || _lastAbastecimientoKey != key) return;
+    _abastecimientoRol = role;
+    if (role != kRolBodega && role != kRolAdmin) {
+      if (mounted) setState(() => _abastecimientoEvents = {});
+      return;
+    }
+
+    _abastecimientoSub = FirebaseFirestore.instance
+        .collection(kAbastecimientoCollection)
+        .where('empresaId', isEqualTo: empresaId)
+        .snapshots()
+        .listen((snapshot) {
+          final events = <String, List<Map<String, dynamic>>>{};
+          for (final doc in snapshot.docs) {
+            final delivery = AbastecimientoDoc.fromMap(doc.id, doc.data());
+            if (!delivery.estado.visibleEnCalendario) continue;
+            final date = delivery.fechaProgramada;
+            if (date == null) continue;
+            final dateKey = DateFormat('yyyy-MM-dd').format(date);
+            events.putIfAbsent(dateKey, () => []).add({
+              'id': delivery.id,
+              'empresaId': delivery.empresaId,
+              '_calType': 'abastecimiento',
+              'titulo': '${delivery.producto} · ${delivery.proveedor}',
+              'description': [
+                delivery.destino,
+                delivery.ordenCompra,
+                delivery.estado.label,
+                if (delivery.pendencias.isNotEmpty)
+                  delivery.pendencias.map((item) => item.label).join(', '),
+              ].where((value) => value.trim().isNotEmpty).join(' · '),
+              'estado': delivery.estado.value,
+            });
+          }
+          if (mounted && _lastAbastecimientoKey == key) {
+            setState(() => _abastecimientoEvents = events);
+          }
         });
   }
 
@@ -722,6 +787,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _notifSub?.cancel();
     _citasSub?.cancel();
     _notificationCalendarSub?.cancel();
+    _abastecimientoSub?.cancel();
     super.dispose();
   }
 
@@ -737,6 +803,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Suscribir/re-suscribir citas de Nutrición para el calendario.
     _restartCitasSubscription(cedula, scopeEmpresa);
     _restartNotificationCalendarSubscription(cedula, scopeEmpresa);
+    unawaited(_restartAbastecimientoSubscription(cedula, scopeEmpresa));
     _syncActiveNotificationCedula(cedula);
 
     if (!_didRegisterToken) {
@@ -1603,6 +1670,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: tasks.map((t) {
         final esCita = t['_calType'] == 'cita_nutricion';
         final esNotificacion = t['_calType'] == 'notificacion';
+        final esAbastecimiento = t['_calType'] == 'abastecimiento';
 
         if (esCita) {
           // ── Evento de Nutrición ───────────────────────────────────────────
@@ -1772,6 +1840,66 @@ class _HomeScreenState extends State<HomeScreen> {
                 taskId: (t['taskId'] ?? '').toString(),
                 cedula: cedula,
                 userData: userData,
+              ),
+            ),
+          );
+        }
+
+        if (esAbastecimiento) {
+          final description = (t['description'] ?? '').toString();
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFF0F4C81).withOpacity(0.28),
+              ),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 5,
+              ),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F4C81).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.local_shipping_outlined,
+                  color: Color(0xFF0F4C81),
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                _titleOf(t),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontFamily: kArial,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: description.isEmpty
+                  ? null
+                  : Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+              trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AbastecimientoScreen(
+                    empresaId: scopeEmpresa,
+                    userId: cedula,
+                    rolCompras: _abastecimientoRol,
+                    initialDate: _selectedDay,
+                  ),
+                ),
               ),
             ),
           );

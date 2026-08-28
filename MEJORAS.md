@@ -6,6 +6,54 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Sesión 2026-08-27 — Compras: Abastecimiento y reversión de fichas técnicas
+
+### Abastecimiento conectado con el consolidado Excel
+- Nuevo apartado **Compras › Abastecimiento**, con experiencia diferenciada:
+  tabla y detalle persistente en Web; tarjetas y acciones rápidas en Móvil.
+- Importación idempotente del consolidado XLSX: detecta las hojas operativas,
+  presenta vista previa, evita duplicados y registra cada diferencia en el
+  historial como cambio originado en Excel.
+- Estados operativos: programado, confirmado, en camino, recibido, no entrega,
+  reprogramado y cancelado. Los registros de no entrega se muestran tachados.
+- Las observaciones `PND`, `PND PAGO`, `PENDIENTE POR PAGO`, `PND ENTRADA` y
+  equivalentes se clasifican como pendientes operativos y se muestran en el
+  tablero y en el calendario de Home de Bodega.
+- La observación del consolidado queda separada del motivo del cambio de estado,
+  por lo que marcar recibido/no entrega no borra novedades de pago o entrada.
+- Cada fila exige OC/OS, proveedor activo y una categoría asociada al proveedor.
+  Los proveedores desconocidos quedan fuera y se listan como pendientes de
+  creación. La creación manual usa selectores de proveedor y categoría reales.
+- Cuando ya existe una recepción con la misma OC, el abastecimiento conserva el
+  vínculo con `TBL_COMPRAS_RECEPCIONES`.
+
+### Reversión de fichas técnicas
+- En documentos aprobados, Admin Documental puede regresar una ficha técnica a
+  revisión o revertirla como rechazada, siempre con motivo y trazabilidad.
+- La copia aprobada deja de ser utilizable en nuevas recepciones mientras la
+  ficha vuelve a revisión.
+
+### Verificación y publicación
+- `flutter test test/compras`: **76/76**.
+- Analizador de los componentes nuevos de Abastecimiento: sin hallazgos.
+- El consolidado real se procesó correctamente: 6 hojas operativas, 76 filas
+  estructuradas y 22 filas incompletas reportadas para corrección.
+- `flutter build web --release --no-tree-shake-icons --no-wasm-dry-run`: correcto.
+- `firebase deploy --only hosting`: desplegado en
+  <https://to-do-gestion.web.app> y verificado con HTTP 200 sobre el bundle.
+
+### Estado de artefactos móviles
+- Existe un AAB anterior de compilación 4 (`com.todogestion.app`), firmado con
+  el certificado de carga de To-Do. No contiene esta sesión de Abastecimiento.
+- No hay artefacto iOS en este equipo Windows; App Store requiere compilar y
+  firmar desde macOS/Xcode.
+- Antes del próximo AAB debe consolidarse en el repositorio la configuración de
+  Android para producción: el archivo actual aún declara `com.example.todo` y
+  firma `release` con la configuración debug, aunque el `key.properties` y el
+  almacén de claves de carga sí existen localmente.
+
+---
+
 ## Sesión 2026-08-10 — Renombre de módulo + tarea de cierre saltaba la aprobación
 
 Dos pedidos de Daniel en pruebas en vivo sobre el trabajo de esta misma sesión.

@@ -2757,6 +2757,77 @@ class ComprasService {
     );
   }
 
+  /// Revierte la aprobación de una ficha técnica y conserva la trazabilidad.
+  Future<void> revertirAprobacionFichaTecnica({
+    required String fichaId,
+    required String motivo,
+    required String revertidoPor,
+    bool rechazar = false,
+  }) async {
+    final motivoLimpio = motivo.trim();
+    if (motivoLimpio.isEmpty) {
+      throw StateError('Debes indicar el motivo de la reversión.');
+    }
+    final ref = _db.collection('TBL_COMPRAS_FICHAS_TECNICAS').doc(fichaId);
+    final snap = await ref.get();
+    if (!snap.exists || snap.data() == null) {
+      throw StateError('La ficha técnica ya no existe.');
+    }
+    final ficha = FichaTecnicaDoc.fromMap(snap.id, snap.data()!);
+    final actual = ficha.documentoActual;
+    if (actual == null || !actual.tieneDoc) {
+      throw StateError('La ficha técnica ya no tiene un documento vigente.');
+    }
+    if (!actual.aprobado) {
+      throw StateError(
+        'Solo se puede revertir una ficha aprobada. '
+        'Estado actual: ${actual.estadoCalidad}',
+      );
+    }
+
+    final revertido = actual.copyWith(
+      estadoCalidad: rechazar ? 'rechazado' : 'pendiente_revision_calidad',
+      observacionCalidad: rechazar ? motivoLimpio : null,
+      revertidoPor: revertidoPor,
+      fechaReversion: Timestamp.now(),
+      motivoReversion: motivoLimpio,
+      estadoAnteriorReversion: actual.estadoCalidad,
+    );
+    await ref.update({
+      'documentoActual': revertido.toMap(),
+      // Una aprobación revertida no puede seguir disponible para nuevas
+      // recepciones a través de documentoAprobado.
+      'documentoAprobado': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (!rechazar) return;
+    final subidoPor = (actual.subidoPor?.trim().isNotEmpty ?? false)
+        ? actual.subidoPor!.trim()
+        : ficha.creadoPor.trim();
+    final label = ficha.marcaNombre.isEmpty
+        ? 'Ficha Técnica – ${ficha.productoNombre} (${ficha.proveedorNombre})'
+        : 'Ficha Técnica – ${ficha.productoNombre} / ${ficha.marcaNombre} '
+              '(${ficha.proveedorNombre})';
+    await _notificarYTareaRechazo(
+      empresaId: ficha.empresaId,
+      subidoPor: subidoPor,
+      revisadoPor: revertidoPor,
+      title: 'Aprobación de ficha técnica revertida',
+      descripcionSubidor:
+          'La aprobación de "$label" fue revertida y la ficha quedó '
+          'rechazada. Motivo: $motivoLimpio. Corrígela y vuelve a cargarla.',
+      type: 'ficha_rechazada',
+      taskKey: 'ficha:$fichaId',
+      recepcionId: 'ficha:$fichaId',
+      tipoCorreccion: 'ficha',
+      productoNombre: ficha.productoNombre,
+      docKey: 'fichaTecnica',
+      docLabel: label,
+      motivo: motivoLimpio,
+    );
+  }
+
   /// Rechaza la ficha técnica y envía notificación al subidor.
   Future<void> rechazarFichaTecnica({
     required String fichaId,
