@@ -76,6 +76,12 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 - Compilación web de producción correcta y publicación verificada con HTTP 200
   en `to-do-gestion.web.app` y `to-do-gestion.com`.
 
+### Destino de la entrega
+- La creación manual de Abastecimiento usa el catálogo de bodegas de la empresa
+  activa, igual que Recepción, en lugar de un campo libre permanente.
+- El desplegable siempre incluye **Otro destino…**; al seleccionarlo aparece un
+  campo obligatorio para escribir la ciudad, bodega o establecimiento.
+
 ### Estado de artefactos móviles
 - Existe un AAB anterior de compilación 4 (`com.todogestion.app`), firmado con
   el certificado de carga de To-Do. No contiene esta sesión de Abastecimiento.

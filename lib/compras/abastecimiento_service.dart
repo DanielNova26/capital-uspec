@@ -7,6 +7,7 @@ import '../services/compras_abastecimiento_excel_parser.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
+import 'compras_recepcion_logic.dart';
 
 class AbastecimientoImportResult {
   final int creados;
@@ -210,6 +211,66 @@ class AbastecimientoService {
         .toList();
     result.sort((a, b) => a.nombre.compareTo(b.nombre));
     return result;
+  }
+
+  /// Devuelve únicamente las bodegas configuradas para la empresa activa.
+  /// Conserva las mismas fuentes de compatibilidad usadas por Recepción.
+  Future<List<String>> getBodegas(String empresaId) async {
+    final id = empresaId.trim();
+    if (id.isEmpty) return const [];
+
+    final bodegas = <String>[];
+    try {
+      final snapshot = await _db
+          .collection('TBL_COMPRAS_BODEGAS')
+          .where('empresaId', isEqualTo: id)
+          .get();
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (data['activo'] == false) continue;
+        final nombre = (data['nombre'] ?? data['bodega'] ?? data['label'] ?? '')
+            .toString()
+            .trim();
+        if (nombre.isNotEmpty) bodegas.add(nombre);
+      }
+    } catch (_) {
+      // Continúa con las fuentes de compatibilidad de la empresa.
+    }
+
+    String empresaNombre = '';
+    if (bodegas.isEmpty) {
+      try {
+        final empresa = await _db.collection('TBL_EMPRESAS').doc(id).get();
+        final data = empresa.data() ?? const <String, dynamic>{};
+        empresaNombre = (data['nombre'] ?? data['razonSocial'] ?? '')
+            .toString()
+            .trim();
+        final raw = data['bodegas'];
+        if (raw is List) {
+          for (final item in raw) {
+            final nombre = item is Map
+                ? (item['nombre'] ?? item['bodega'] ?? item['label'] ?? '')
+                      .toString()
+                      .trim()
+                : item.toString().trim();
+            if (nombre.isNotEmpty) bodegas.add(nombre);
+          }
+        }
+      } catch (_) {
+        // Continúa con el catálogo legado, limitado a la empresa activa.
+      }
+    }
+
+    if (bodegas.isEmpty) {
+      bodegas.addAll(
+        bodegasLegacyParaEmpresa(empresaId: id, empresaNombre: empresaNombre),
+      );
+    }
+    final unique = <String, String>{};
+    for (final bodega in bodegas) {
+      unique.putIfAbsent(bodega.toLowerCase(), () => bodega);
+    }
+    return unique.values.toList()..sort((a, b) => a.compareTo(b));
   }
 
   Future<AbastecimientoCatalogValidation> validarCatalogo({

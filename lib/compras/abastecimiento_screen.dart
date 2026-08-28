@@ -1716,9 +1716,11 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final providersFuture = _service.getProveedoresActivos(widget.empresaId);
     final productsFuture = _service.getProductos(widget.empresaId);
     final groupsFuture = _service.getGrupos(widget.empresaId);
+    final warehousesFuture = _service.getBodegas(widget.empresaId);
     final providers = await providersFuture;
     final products = await productsFuture;
     final groups = await groupsFuture;
+    final warehouses = await warehousesFuture;
     if (!mounted) return;
     if (providers.isEmpty || products.isEmpty || groups.isEmpty) {
       _message(
@@ -1731,6 +1733,9 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     String? selectedCategory;
     ProductoDoc? selectedProduct;
     ComprasGrupoDoc? selectedGroup;
+    const otherDestinationValue = '__otro__';
+    String? selectedDestination;
+    bool attempted = false;
     final destination = TextEditingController();
     final condition = TextEditingController();
     final oc = TextEditingController();
@@ -1867,7 +1872,58 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                               setLocal(() => selectedProduct = product),
                   ),
                   const SizedBox(height: 10),
-                  _input(destination, 'Ciudad / bodega / establecimiento'),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedDestination,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Bodega / destino *',
+                      prefixIcon: const Icon(Icons.warehouse_outlined),
+                      border: const OutlineInputBorder(),
+                      errorText: attempted && selectedDestination == null
+                          ? 'Selecciona una bodega o “Otro”'
+                          : null,
+                    ),
+                    items: [
+                      ...warehouses.map(
+                        (warehouse) => DropdownMenuItem(
+                          value: warehouse,
+                          child: Text(
+                            warehouse,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      const DropdownMenuItem(
+                        value: otherDestinationValue,
+                        child: Text('Otro destino…'),
+                      ),
+                    ],
+                    onChanged: (value) => setLocal(() {
+                      selectedDestination = value;
+                      if (value != otherDestinationValue) {
+                        destination.clear();
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 10),
+                  if (selectedDestination == otherDestinationValue)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TextField(
+                        controller: destination,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          labelText: 'Escribe el otro destino *',
+                          prefixIcon: const Icon(Icons.edit_location_alt),
+                          border: const OutlineInputBorder(),
+                          errorText:
+                              attempted && destination.text.trim().isEmpty
+                              ? 'Escribe la ciudad, bodega o establecimiento'
+                              : null,
+                        ),
+                        onChanged: (_) => setLocal(() {}),
+                      ),
+                    ),
                   Row(
                     children: [
                       Expanded(child: _input(condition, 'Condición')),
@@ -1902,11 +1958,17 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
             ),
             FilledButton(
               onPressed: () {
+                final resolvedDestination =
+                    selectedDestination == otherDestinationValue
+                    ? destination.text.trim()
+                    : (selectedDestination ?? '').trim();
                 if (selectedProvider == null ||
                     selectedCategory == null ||
                     selectedProduct == null ||
                     selectedGroup == null ||
+                    resolvedDestination.isEmpty ||
                     oc.text.trim().isEmpty) {
+                  setLocal(() => attempted = true);
                   return;
                 }
                 Navigator.pop(dialogContext, true);
@@ -1930,7 +1992,9 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           producto: selectedProduct!.nombre,
           grupoId: selectedGroup!.id,
           grupo: selectedGroup!.nombre,
-          destino: destination.text,
+          destino: selectedDestination == otherDestinationValue
+              ? destination.text
+              : selectedDestination!,
           condicion: condition.text,
           fechaProgramada: date,
           ordenCompra: oc.text,
