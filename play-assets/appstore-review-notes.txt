@@ -1,0 +1,53 @@
+Hello App Review Team,
+
+1) HOW TO SIGN IN
+
+The app interface is in Spanish. A demo company with sample data is already
+provisioned on our servers, so no setup is required on your side.
+
+On the login screen:
+- In the field labelled "Usuario o Cedula", type: 900000001
+- In the field labelled "Contrasena", type: Review2025!
+- Tap the login button.
+
+This account has the administrator role and full access to every module:
+Tasks, Admin, HR (Talento Humano), Document Management (Gestion Documental),
+Purchasing (Compras), Site Inspection (Interventoria), Routes (Rutas) and
+Nutrition.
+
+Two more accounts are available if you want to see the app from a
+non-administrator perspective, with the same password:
+- 900000002 (coordinator)
+- 900000003 (analyst)
+
+There is no 2-step verification, OTP, QR code or location restriction.
+Fingerprint/Face ID login is optional: it only appears after a user turns it on
+inside the app, so a fresh install always shows the user/password form.
+You will not be asked security questions with these accounts.
+
+2) GUIDELINE 3.2 - BUSINESS (DISTRIBUTION METHOD)
+
+This app is designed for internal company use and is not intended for the
+general public. Following Guideline 3.2 - Business, the app is configured as
+Unlisted in App Store Connect. Our Unlisted App request was approved under case
+number 102749730900.
+
+The unlisted URL will be distributed only to authorized users in our client
+organizations. Access is further restricted by authenticated sign-in and
+role-based module permissions: accounts cannot be self-created, they are
+provisioned by each organization's administrator.
+
+3) ABOUT THE NUTRITION MODULE
+
+The Nutrition module is a record-keeping tool for nutrition professionals
+employed by our client institutions. It stores patient records, ICD-11
+diagnoses entered by the professional, body mass index calculated from weight
+and height, and diet plans. It does not diagnose or treat on its own and it is
+not a regulated medical device. Access is limited to authorized professional
+staff within each organization.
+
+Please let us know if you need any additional information, screenshots or a
+short video of the sign-in flow.
+
+Best regards,
+Daniel Nova
