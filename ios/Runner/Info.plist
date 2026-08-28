@@ -28,6 +28,15 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Cumplimiento de exportacion. La app solo usa cifrado estandar del
+	     sistema: HTTPS/TLS para hablar con Firebase y el llavero de iOS a
+	     traves de flutter_secure_storage. Nada de algoritmos propios ni
+	     implementaciones alternativas, asi que aplica la exencion.
+	     Sin esta clave, App Store Connect pregunta por cumplimiento de
+	     exportacion en CADA subida y el build queda bloqueado hasta
+	     responderla a mano. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
