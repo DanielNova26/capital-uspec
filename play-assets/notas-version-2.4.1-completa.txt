@@ -1,0 +1,5 @@
+• Compras: nuevo módulo de abastecimiento, con carga desde Excel, selector de bodegas y sincronización con recepción.
+• Interventoría: asignación masiva de hallazgos y descarga del acta en PDF.
+• Talento humano: gestión de candidatos en las requisiciones de personal.
+• Listados largos paginados de a 20, para que abran más rápido.
+• La aplicación ahora abre siempre, aunque falle la conexión inicial con el servicio de notificaciones.

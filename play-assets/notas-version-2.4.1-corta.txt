@@ -1,0 +1,2 @@
+• La aplicación ahora abre siempre, aunque falle la conexión inicial con el servicio de notificaciones. Antes, un problema en ese arranque podía dejar la pantalla en blanco.
+• Correcciones menores de estabilidad al guardar información y cambiar de pantalla.
