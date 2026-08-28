@@ -1,0 +1,9 @@
+Novedades de esta versión
+
+• Compras: nuevo módulo de abastecimiento, con carga desde Excel, selector de bodegas, acuerdos, filtros ampliados y sincronización con recepción.
+• Interventoría: asignación masiva de hallazgos sugeridos, selector de responsable filtrado por establecimiento y descarga del acta en PDF con nombre reconocible.
+• Talento humano: gestión de candidatos dentro de las requisiciones de personal, con seguimiento por etapas.
+• Correspondencia: el filtro por área agrupa las variantes de un mismo departamento y ya no muestra identificadores internos.
+• Listados extensos paginados de a 20, para que las pantallas con muchos registros abran rápido.
+• En el celular se quitó la barra de desplazamiento horizontal que quedaba encima de las tarjetas.
+• Correcciones de estabilidad al guardar información y cambiar de pantalla.
