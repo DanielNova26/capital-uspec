@@ -82,6 +82,10 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 - El desplegable siempre incluye **Otro destino…**; al seleccionarlo aparece un
   campo obligatorio para escribir la ciudad, bodega o establecimiento.
 
+### Semáforo de estados
+- Los estados ahora se presentan como **Cancelado** en rojo, **Entregado** en
+  verde y **En entrega** en naranja, de forma consistente en Web y Móvil.
+
 ### Estado de artefactos móviles
 - Existe un AAB anterior de compilación 4 (`com.todogestion.app`), firmado con
   el certificado de carga de To-Do. No contiene esta sesión de Abastecimiento.

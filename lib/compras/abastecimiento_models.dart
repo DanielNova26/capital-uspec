@@ -69,8 +69,8 @@ extension AbastecimientoEstadoX on AbastecimientoEstado {
   String get label => switch (this) {
     AbastecimientoEstado.programado => 'Programado',
     AbastecimientoEstado.confirmado => 'Confirmado',
-    AbastecimientoEstado.enCamino => 'En camino',
-    AbastecimientoEstado.recibido => 'Recibido',
+    AbastecimientoEstado.enCamino => 'En entrega',
+    AbastecimientoEstado.recibido => 'Entregado',
     AbastecimientoEstado.noEntrega => 'No entrega',
     AbastecimientoEstado.reprogramado => 'Reprogramado',
     AbastecimientoEstado.cancelado => 'Cancelado',

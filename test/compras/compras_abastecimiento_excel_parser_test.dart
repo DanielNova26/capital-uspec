@@ -135,6 +135,9 @@ void main() {
   });
 
   test('normaliza los estados usados por Excel y la interfaz', () {
+    expect(AbastecimientoEstado.cancelado.label, 'Cancelado');
+    expect(AbastecimientoEstado.recibido.label, 'Entregado');
+    expect(AbastecimientoEstado.enCamino.label, 'En entrega');
     expect(
       parseAbastecimientoEstado('NO ENTREGA'),
       AbastecimientoEstado.noEntrega,

@@ -249,7 +249,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       ('Atrasadas', overdue, Icons.warning_amber_rounded, _abOrange),
       ('No entregan', noDelivery, Icons.block_outlined, _abRed),
       ('Pendientes', pending, Icons.pending_actions_outlined, _abOrange),
-      ('Recibidas', received, Icons.inventory_2_outlined, _abGreen),
+      ('Entregados', received, Icons.inventory_2_outlined, _abGreen),
     ];
     return Container(
       color: Colors.white,
@@ -307,7 +307,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         _estado = null;
         _soloPendientes = true;
         break;
-      case 'Recibidas':
+      case 'Entregados':
         _estado = AbastecimientoEstado.recibido;
         break;
       case 'Atrasadas':
@@ -2179,7 +2179,7 @@ Color _statusColor(AbastecimientoEstado status) => switch (status) {
   AbastecimientoEstado.recibido => _abGreen,
   AbastecimientoEstado.noEntrega => _abRed,
   AbastecimientoEstado.reprogramado => const Color(0xFF9A6700),
-  AbastecimientoEstado.cancelado => Colors.blueGrey,
+  AbastecimientoEstado.cancelado => _abRed,
 };
 
 String _dateLabel(DateTime? value) =>
