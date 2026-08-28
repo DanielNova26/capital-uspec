@@ -1,0 +1,6 @@
+• Compras: nuevo módulo de abastecimiento, con carga desde Excel, selector de bodegas y sincronización con recepción.
+• Interventoría: asignación masiva de hallazgos y descarga del acta en PDF.
+• Talento humano: gestión de candidatos en las requisiciones de personal.
+• Listados largos paginados de a 20, para que abran más rápido.
+• Se quitó la barra de desplazamiento que tapaba las tarjetas en el celular.
+• Correcciones de estabilidad al guardar y cambiar de pantalla.
