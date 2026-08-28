@@ -2,8 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Este archivo lo usa la configuracion Release (ver CODE_SIGN_ENTITLEMENTS
+         en project.pbxproj), pese a llamarse "Profile". Un build de App Store
+         corre contra APNs de PRODUCCION: con "development" aqui, el token de
+         APNs nunca llega y FirebaseMessaging.getToken() se queda colgado. -->
     <key>aps-environment</key>
-    <string>development</string>
+    <string>production</string>
 </dict>
 </plist>
-

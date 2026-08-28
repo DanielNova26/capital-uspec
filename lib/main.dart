@@ -1,6 +1,8 @@
 // lib/main.dart
 // Arranque de la app + Firebase + App Check + FCM + notificaciones locales.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -25,6 +27,18 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Aquí podrías registrar logs o preprocesar 'message.data'
 }
 
+/// Arranque de servicios. Nada de lo que hay aquí puede impedir que la app
+/// pinte su primer frame.
+///
+/// Antes `main()` hacía `await` de todo esto sin protección y llamaba a
+/// `runApp()` al final: cualquier fallo dejaba la pantalla en blanco para
+/// siempre, sin mensaje ni forma de salir. Eso fue exactamente lo que pasó en
+/// la 2.4.0 de App Store: el entitlement de APNs decía `development` en un
+/// build de producción, `FirebaseMessaging.getToken()` se quedó esperando un
+/// token que nunca iba a llegar, y la app nunca arrancó.
+///
+/// Ahora cada pieza se aísla y las notificaciones se inicializan DESPUÉS de
+/// `runApp()`: si algo falla, se pierde esa función concreta, no la app.
 Future<void> _initFirebaseAndPushCore() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -48,19 +62,39 @@ Future<void> _initFirebaseAndPushCore() async {
     );
   }
 
-  // NotificationsService maneja: notificaciones locales, FCM foreground,
-  // onMessageOpenedApp, getInitialMessage y deep-linking con navigatorKey.
-  // En web no se usan notificaciones locales (dart:io no soportado).
-  if (!kIsWeb) {
-    await NotificationsService.init(navigatorKey: navigatorKey);
-  }
 }
 
 Future<void> main() async {
-  await _initFirebaseAndPushCore();
+  // Firebase es imprescindible, pero ni siquiera él puede dejar la pantalla en
+  // blanco: si falla, la app abre igual y el usuario ve el error al intentar
+  // entrar, que es información mucho más útil que un rectángulo vacío.
+  try {
+    await _initFirebaseAndPushCore();
+  } catch (e, s) {
+    debugPrint('[main] fallo al inicializar Firebase/App Check: $e\n$s');
+  }
+
   final empresaState = EmpresaState();
-  await empresaState.hydrate();
+  try {
+    await empresaState.hydrate();
+  } catch (e) {
+    debugPrint('[main] fallo al hidratar la empresa activa: $e');
+  }
+
   runApp(EmpresaScope(notifier: empresaState, child: const ToDoApp()));
+
+  // Notificaciones DESPUÉS de runApp y sin await: piden permisos al sistema y
+  // esperan el token de APNs, dos cosas que pueden tardar o no llegar nunca.
+  // Ninguna justifica retrasar el arranque.
+  if (!kIsWeb) {
+    unawaited(
+      NotificationsService.init(navigatorKey: navigatorKey).catchError((
+        Object e,
+      ) {
+        debugPrint('[main] fallo al inicializar notificaciones: $e');
+      }),
+    );
+  }
 }
 
 class _FadePageTransitionsBuilder extends PageTransitionsBuilder {
