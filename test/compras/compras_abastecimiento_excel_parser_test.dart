@@ -68,10 +68,8 @@ void main() {
       expect(result.filas.single.producto, 'Cerdo');
       expect(result.filas.single.grupo, '1');
       expect(result.filas.single.fechaProgramada, DateTime(2026, 9, 4));
-      expect(
-        result.filas.single.estadoExplicito,
-        AbastecimientoEstado.confirmado,
-      );
+      expect(result.filas.single.numeroEntrada, 'Confirmado');
+      expect(result.filas.single.estadoExplicito, isNull);
       expect(result.filas.single.pendencias, [AbastecimientoPendencia.pago]);
       expect(result.incidencias, isEmpty);
     });
@@ -137,19 +135,24 @@ void main() {
   test('normaliza los estados usados por Excel y la interfaz', () {
     expect(AbastecimientoEstado.cancelado.label, 'Cancelado');
     expect(AbastecimientoEstado.recibido.label, 'Entregado');
-    expect(AbastecimientoEstado.enCamino.label, 'En entrega');
     expect(
       parseAbastecimientoEstado('NO ENTREGA'),
-      AbastecimientoEstado.noEntrega,
+      AbastecimientoEstado.cancelado,
     );
     expect(
       parseAbastecimientoEstado('En camino'),
-      AbastecimientoEstado.enCamino,
+      AbastecimientoEstado.programado,
     );
     expect(
       parseAbastecimientoEstado('valor legado'),
       AbastecimientoEstado.programado,
     );
+  });
+
+  test('calcula el período de consumo de viernes a jueves', () {
+    expect(inicioPeriodoConsumo(DateTime(2026, 8, 27)), DateTime(2026, 8, 21));
+    expect(inicioPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 8, 28));
+    expect(finPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 9, 3));
   });
 
   test('clasifica las observaciones operativas del consolidado', () {

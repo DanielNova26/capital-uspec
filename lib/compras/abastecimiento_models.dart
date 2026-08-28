@@ -1,16 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 const String kAbastecimientoCollection = 'TBL_COMPRAS_ABASTECIMIENTO';
+const String kAbastecimientoReportesCollection =
+    'TBL_COMPRAS_ABASTECIMIENTO_REPORTES';
 
-enum AbastecimientoEstado {
-  programado,
-  confirmado,
-  enCamino,
-  recibido,
-  noEntrega,
-  reprogramado,
-  cancelado,
-}
+enum AbastecimientoEstado { programado, recibido, reprogramado, cancelado }
 
 enum AbastecimientoPendencia { general, pago, entrada }
 
@@ -58,20 +52,14 @@ List<AbastecimientoPendencia> detectarPendenciasAbastecimiento(
 extension AbastecimientoEstadoX on AbastecimientoEstado {
   String get value => switch (this) {
     AbastecimientoEstado.programado => 'programado',
-    AbastecimientoEstado.confirmado => 'confirmado',
-    AbastecimientoEstado.enCamino => 'en_camino',
     AbastecimientoEstado.recibido => 'recibido',
-    AbastecimientoEstado.noEntrega => 'no_entrega',
     AbastecimientoEstado.reprogramado => 'reprogramado',
     AbastecimientoEstado.cancelado => 'cancelado',
   };
 
   String get label => switch (this) {
     AbastecimientoEstado.programado => 'Programado',
-    AbastecimientoEstado.confirmado => 'Confirmado',
-    AbastecimientoEstado.enCamino => 'En entrega',
     AbastecimientoEstado.recibido => 'Entregado',
-    AbastecimientoEstado.noEntrega => 'No entrega',
     AbastecimientoEstado.reprogramado => 'Reprogramado',
     AbastecimientoEstado.cancelado => 'Cancelado',
   };
@@ -98,10 +86,10 @@ AbastecimientoEstado parseAbastecimientoEstado(Object? raw) {
       .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
       .replaceAll(RegExp(r'^_|_$'), '');
   return switch (value) {
-    'confirmado' || 'confirmada' => AbastecimientoEstado.confirmado,
+    'confirmado' || 'confirmada' => AbastecimientoEstado.programado,
     'en_camino' ||
     'despachado' ||
-    'despachada' => AbastecimientoEstado.enCamino,
+    'despachada' => AbastecimientoEstado.programado,
     'recibido' ||
     'recibida' ||
     'entregado' ||
@@ -109,7 +97,7 @@ AbastecimientoEstado parseAbastecimientoEstado(Object? raw) {
     'no_entrega' ||
     'no_entregan' ||
     'no_va' ||
-    'no_van' => AbastecimientoEstado.noEntrega,
+    'no_van' => AbastecimientoEstado.cancelado,
     'reprogramado' || 'reprogramada' => AbastecimientoEstado.reprogramado,
     'cancelado' ||
     'cancelada' ||
@@ -117,6 +105,17 @@ AbastecimientoEstado parseAbastecimientoEstado(Object? raw) {
     'anulada' => AbastecimientoEstado.cancelado,
     _ => AbastecimientoEstado.programado,
   };
+}
+
+DateTime inicioPeriodoConsumo(DateTime fecha) {
+  final date = DateTime(fecha.year, fecha.month, fecha.day);
+  final diasDesdeViernes = (date.weekday - DateTime.friday + 7) % 7;
+  return date.subtract(Duration(days: diasDesdeViernes));
+}
+
+DateTime finPeriodoConsumo(DateTime inicio) {
+  final date = DateTime(inicio.year, inicio.month, inicio.day);
+  return date.add(const Duration(days: 6));
 }
 
 class AbastecimientoCambio {
@@ -158,6 +157,57 @@ class AbastecimientoCambio {
   };
 }
 
+class AbastecimientoReporteDoc {
+  final String id;
+  final String empresaId;
+  final String grupo;
+  final DateTime? consumoDesde;
+  final DateTime? consumoHasta;
+  final String url;
+  final String storagePath;
+  final int registros;
+  final Timestamp generatedAt;
+  final bool automatico;
+
+  const AbastecimientoReporteDoc({
+    required this.id,
+    required this.empresaId,
+    required this.grupo,
+    this.consumoDesde,
+    this.consumoHasta,
+    required this.url,
+    required this.storagePath,
+    required this.registros,
+    required this.generatedAt,
+    required this.automatico,
+  });
+
+  factory AbastecimientoReporteDoc.fromMap(
+    String id,
+    Map<String, dynamic> map,
+  ) {
+    DateTime? date(Object? value) => value is Timestamp
+        ? value.toDate()
+        : value is DateTime
+        ? value
+        : DateTime.tryParse((value ?? '').toString());
+    return AbastecimientoReporteDoc(
+      id: id,
+      empresaId: (map['empresaId'] ?? '').toString(),
+      grupo: (map['grupo'] ?? '').toString(),
+      consumoDesde: date(map['consumoDesde']),
+      consumoHasta: date(map['consumoHasta']),
+      url: (map['url'] ?? '').toString(),
+      storagePath: (map['storagePath'] ?? '').toString(),
+      registros: (map['registros'] as num?)?.toInt() ?? 0,
+      generatedAt: map['generatedAt'] is Timestamp
+          ? map['generatedAt'] as Timestamp
+          : Timestamp.now(),
+      automatico: map['automatico'] == true,
+    );
+  }
+}
+
 class AbastecimientoDoc {
   final String id;
   final String empresaId;
@@ -181,6 +231,11 @@ class AbastecimientoDoc {
   final String ordenCompra;
   final String recepcionId;
   final DateTime? fechaRecibido;
+  final String numeroEntrada;
+  final String entradaRegistradaPor;
+  final Timestamp? entradaRegistradaAt;
+  final DateTime? consumoDesde;
+  final DateTime? consumoHasta;
   final AbastecimientoEstado estado;
   final String observaciones;
   final String novedadEstado;
@@ -220,6 +275,11 @@ class AbastecimientoDoc {
     this.ordenCompra = '',
     this.recepcionId = '',
     this.fechaRecibido,
+    this.numeroEntrada = '',
+    this.entradaRegistradaPor = '',
+    this.entradaRegistradaAt,
+    this.consumoDesde,
+    this.consumoHasta,
     this.estado = AbastecimientoEstado.programado,
     this.observaciones = '',
     this.novedadEstado = '',
@@ -268,6 +328,23 @@ class AbastecimientoDoc {
       ordenCompra: (map['ordenCompra'] ?? '').toString(),
       recepcionId: (map['recepcionId'] ?? '').toString(),
       fechaRecibido: date(map['fechaRecibido']),
+      numeroEntrada: (map['numeroEntrada'] ?? map['entrada'] ?? '').toString(),
+      entradaRegistradaPor: (map['entradaRegistradaPor'] ?? '').toString(),
+      entradaRegistradaAt: map['entradaRegistradaAt'] is Timestamp
+          ? map['entradaRegistradaAt'] as Timestamp
+          : null,
+      consumoDesde:
+          date(map['consumoDesde']) ??
+          (date(map['fechaProgramada']) == null
+              ? null
+              : inicioPeriodoConsumo(date(map['fechaProgramada'])!)),
+      consumoHasta:
+          date(map['consumoHasta']) ??
+          (date(map['fechaProgramada']) == null
+              ? null
+              : finPeriodoConsumo(
+                  inicioPeriodoConsumo(date(map['fechaProgramada'])!),
+                )),
       estado: parseAbastecimientoEstado(map['estado']),
       observaciones: (map['observaciones'] ?? '').toString(),
       novedadEstado: (map['novedadEstado'] ?? '').toString(),
@@ -315,7 +392,7 @@ class AbastecimientoDoc {
   }
 
   bool get sinFecha => fechaProgramada == null;
-  bool get noEntrega => estado == AbastecimientoEstado.noEntrega;
+  bool get noEntrega => estado == AbastecimientoEstado.cancelado;
 
   Map<String, dynamic> toMap() => {
     'empresaId': empresaId,
@@ -345,6 +422,15 @@ class AbastecimientoDoc {
     'fechaRecibido': fechaRecibido == null
         ? null
         : Timestamp.fromDate(fechaRecibido!),
+    'numeroEntrada': numeroEntrada,
+    'entradaRegistradaPor': entradaRegistradaPor,
+    if (entradaRegistradaAt != null) 'entradaRegistradaAt': entradaRegistradaAt,
+    'consumoDesde': consumoDesde == null
+        ? null
+        : Timestamp.fromDate(consumoDesde!),
+    'consumoHasta': consumoHasta == null
+        ? null
+        : Timestamp.fromDate(consumoHasta!),
     'estado': estado.value,
     'observaciones': observaciones,
     'novedadEstado': novedadEstado,

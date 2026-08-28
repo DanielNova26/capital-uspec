@@ -26,6 +26,7 @@ class AbastecimientoImportRow {
   final String ordenCompra;
   final String recepcionId;
   final DateTime? fechaRecibido;
+  final String numeroEntrada;
   final AbastecimientoEstado? estadoExplicito;
   final String observaciones;
 
@@ -49,6 +50,7 @@ class AbastecimientoImportRow {
     required this.ordenCompra,
     this.recepcionId = '',
     required this.fechaRecibido,
+    this.numeroEntrada = '',
     required this.estadoExplicito,
     required this.observaciones,
   });
@@ -73,6 +75,7 @@ class AbastecimientoImportRow {
     String? grupo,
     String? recepcionId,
     DateTime? fechaRecibido,
+    String? numeroEntrada,
   }) => AbastecimientoImportRow(
     hoja: hoja,
     fila: fila,
@@ -93,6 +96,7 @@ class AbastecimientoImportRow {
     ordenCompra: ordenCompra,
     recepcionId: recepcionId ?? this.recepcionId,
     fechaRecibido: fechaRecibido ?? this.fechaRecibido,
+    numeroEntrada: numeroEntrada ?? this.numeroEntrada,
     estadoExplicito: estadoExplicito,
     observaciones: observaciones,
   );
@@ -185,7 +189,13 @@ class ComprasAbastecimientoExcelParser {
             ? 'UND'
             : '';
 
-        final estadoRaw = _value(row, headers, const ['entrada', 'estado']);
+        final estadoRaw = _value(row, headers, const ['estado']);
+        final numeroEntrada = _value(row, headers, const [
+          'entrada',
+          'numeroentrada',
+          'noentrada',
+          'documentoentrada',
+        ]);
         final fechaRecibido = _date(row, headers, const [
           'fecharecibido',
           'fecharecibida',
@@ -227,6 +237,7 @@ class ComprasAbastecimientoExcelParser {
               'ordendecompra',
             ]),
             fechaRecibido: fechaRecibido,
+            numeroEntrada: numeroEntrada,
             estadoExplicito: estadoExplicito,
             observaciones: _value(row, headers, const [
               'observaciones',
@@ -341,7 +352,7 @@ class ComprasAbastecimientoExcelParser {
     final value = _normalizar(raw);
     if (value.isEmpty) return null;
     if (value.contains('no entrega') || value.contains('no va')) {
-      return AbastecimientoEstado.noEntrega;
+      return AbastecimientoEstado.cancelado;
     }
     if (value.contains('cancel') || value.contains('anulad')) {
       return AbastecimientoEstado.cancelado;
@@ -350,9 +361,9 @@ class ComprasAbastecimientoExcelParser {
       return AbastecimientoEstado.recibido;
     }
     if (value.contains('camino') || value.contains('despach')) {
-      return AbastecimientoEstado.enCamino;
+      return AbastecimientoEstado.programado;
     }
-    if (value.contains('confirm')) return AbastecimientoEstado.confirmado;
+    if (value.contains('confirm')) return AbastecimientoEstado.programado;
     if (value.contains('reprogram')) {
       return AbastecimientoEstado.reprogramado;
     }

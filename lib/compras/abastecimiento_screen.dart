@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
 import 'abastecimiento_models.dart';
@@ -41,6 +42,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   final _searchController = TextEditingController();
   AbastecimientoEstado? _estado;
   DateTime? _fecha;
+  DateTime? _consumoDesde;
   String? _proveedor;
   String? _producto;
   String? _grupo;
@@ -53,8 +55,17 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   String? get _rol => normalizeComprasRol(widget.rolCompras);
   bool get _canImport =>
       _rol == null || _rol == kRolAdmin || _rol == kRolCompras;
-  bool get _canOperate => _canImport || _rol == kRolBodega;
+  bool get _isAdmin => _rol == null || _rol == kRolAdmin;
+  bool get _isPurchasing => _isAdmin || _rol == kRolCompras;
+  bool get _canReceive => _isAdmin || _rol == kRolBodega;
+  bool get _canOperate => _isPurchasing || _canReceive;
+  bool get _canRegisterEntry => _isPurchasing;
   bool get _canDelete => _canImport;
+
+  bool _canChangeStatusFor(AbastecimientoDoc row) =>
+      _isAdmin ||
+      (_rol == kRolCompras && row.estado != AbastecimientoEstado.recibido) ||
+      (_rol == kRolBodega && !row.estado.finalizado);
 
   @override
   void initState() {
@@ -96,6 +107,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       ),
                     )
                   : const Icon(Icons.sync_rounded),
+            ),
+          if (_canImport)
+            IconButton(
+              onPressed: _mostrarReportes,
+              tooltip: 'Reportes de abastecimiento',
+              icon: const Icon(Icons.picture_as_pdf_outlined),
             ),
           if (_canImport)
             IconButton(
@@ -179,14 +196,18 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       if (_proveedor != null && row.proveedor != _proveedor) return false;
       if (_producto != null && row.producto != _producto) return false;
       if (_grupo != null && row.grupo != _grupo) return false;
+      if (_consumoDesde != null &&
+          (row.consumoDesde == null ||
+              !DateUtils.isSameDay(row.consumoDesde, _consumoDesde))) {
+        return false;
+      }
       if (_soloPendientes && row.pendencias.isEmpty) return false;
       if (_soloAtrasadas) {
         final date = row.fechaProgramada;
         final today = DateUtils.dateOnly(DateTime.now());
         if (date == null ||
             !DateUtils.dateOnly(date).isBefore(today) ||
-            row.estado.finalizado ||
-            row.estado == AbastecimientoEstado.noEntrega) {
+            row.estado.finalizado) {
           return false;
         }
       }
@@ -233,13 +254,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     for (final row in rows) {
       if (row.pendencias.isNotEmpty) pending++;
       if (row.estado == AbastecimientoEstado.recibido) received++;
-      if (row.estado == AbastecimientoEstado.noEntrega) noDelivery++;
+      if (row.estado == AbastecimientoEstado.cancelado) noDelivery++;
       final date = row.fechaProgramada;
       if (date != null && DateUtils.isSameDay(date, now)) today++;
       if (date != null &&
           DateUtils.dateOnly(date).isBefore(now) &&
-          !row.estado.finalizado &&
-          row.estado != AbastecimientoEstado.noEntrega) {
+          !row.estado.finalizado) {
         overdue++;
       }
     }
@@ -247,7 +267,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final metrics = [
       ('Hoy', today, Icons.today_outlined, _abBlue),
       ('Atrasadas', overdue, Icons.warning_amber_rounded, _abOrange),
-      ('No entregan', noDelivery, Icons.block_outlined, _abRed),
+      ('Cancelados', noDelivery, Icons.block_outlined, _abRed),
       ('Pendientes', pending, Icons.pending_actions_outlined, _abOrange),
       ('Entregados', received, Icons.inventory_2_outlined, _abGreen),
     ];
@@ -300,8 +320,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         _estado = null;
         _fecha = DateUtils.dateOnly(DateTime.now());
         break;
-      case 'No entregan':
-        _estado = AbastecimientoEstado.noEntrega;
+      case 'Cancelados':
+        _estado = AbastecimientoEstado.cancelado;
         break;
       case 'Pendientes':
         _estado = null;
@@ -321,6 +341,14 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final providers = _options(rows.map((row) => row.proveedor));
     final products = _options(rows.map((row) => row.producto));
     final groups = _options(rows.map((row) => row.grupo));
+    final consumptionPeriods =
+        rows
+            .map((row) => row.consumoDesde)
+            .whereType<DateTime>()
+            .map(DateUtils.dateOnly)
+            .toSet()
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
     return Container(
       color: Colors.white,
       padding: EdgeInsets.fromLTRB(desktop ? 24 : 12, 4, desktop ? 24 : 12, 14),
@@ -385,6 +413,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   ),
                 ),
                 _dateFilter(),
+                SizedBox(
+                  width: 225,
+                  child: _consumptionFilter(consumptionPeriods),
+                ),
                 FilterChip(
                   selected: _soloPendientes,
                   onSelected: (selected) =>
@@ -415,13 +447,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 scrollDirection: Axis.horizontal,
                 children: [
                   FilterChip(
-                    selected: _estado == AbastecimientoEstado.noEntrega,
+                    selected: _estado == AbastecimientoEstado.cancelado,
                     onSelected: (selected) => setState(
                       () => _estado = selected
-                          ? AbastecimientoEstado.noEntrega
+                          ? AbastecimientoEstado.cancelado
                           : null,
                     ),
-                    label: const Text('No entregan'),
+                    label: const Text('Cancelados'),
                   ),
                   const SizedBox(width: 8),
                   FilterChip(
@@ -432,8 +464,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   ),
                   const SizedBox(width: 8),
                   ActionChip(
-                    onPressed: () =>
-                        _showMobileFilters(providers, products, groups),
+                    onPressed: () => _showMobileFilters(
+                      providers,
+                      products,
+                      groups,
+                      consumptionPeriods,
+                    ),
                     avatar: const Icon(Icons.tune, size: 17),
                     label: const Text('Proveedor, producto y grupo'),
                   ),
@@ -458,10 +494,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     List<String> providers,
     List<String> products,
     List<String> groups,
+    List<DateTime> consumptionPeriods,
   ) async {
     var provider = _proveedor;
     var product = _producto;
     var group = _grupo;
+    var consumption = _consumoDesde;
     final accepted = await showModalBottomSheet<bool>(
       context: context,
       useSafeArea: true,
@@ -488,6 +526,25 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 value: provider,
                 options: providers,
                 onChanged: (value) => setLocal(() => provider = value),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<DateTime?>(
+                initialValue: consumption,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Período de consumo',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Todos')),
+                  ...consumptionPeriods.map(
+                    (date) => DropdownMenuItem(
+                      value: date,
+                      child: Text(_periodLabel(date)),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => setLocal(() => consumption = value),
               ),
               const SizedBox(height: 10),
               _mobileTextFilter(
@@ -519,6 +576,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         _proveedor = provider;
         _producto = product;
         _grupo = group;
+        _consumoDesde = consumption;
       });
     }
   }
@@ -588,6 +646,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       _proveedor != null ||
       _producto != null ||
       _grupo != null ||
+      _consumoDesde != null ||
       _soloPendientes ||
       _soloAtrasadas ||
       _searchController.text.trim().isNotEmpty;
@@ -598,6 +657,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     _proveedor = null;
     _producto = null;
     _grupo = null;
+    _consumoDesde = null;
     _soloPendientes = false;
     _soloAtrasadas = false;
     _searchController.clear();
@@ -653,6 +713,28 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     }),
   );
 
+  Widget _consumptionFilter(List<DateTime> periods) =>
+      DropdownButtonFormField<DateTime?>(
+        key: ValueKey('consumo|${_consumoDesde?.toIso8601String()}'),
+        initialValue: _consumoDesde,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: 'Período de consumo',
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+        items: [
+          const DropdownMenuItem(value: null, child: Text('Todos')),
+          ...periods.map(
+            (date) => DropdownMenuItem(
+              value: date,
+              child: Text(_periodLabel(date), overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        ],
+        onChanged: (value) => setState(() => _consumoDesde = value),
+      );
+
   Widget _dateFilter() => OutlinedButton.icon(
     onPressed: _pickFilterDate,
     icon: Icon(_fecha == null ? Icons.date_range : Icons.event_busy, size: 18),
@@ -695,7 +777,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: constraints.maxWidth < 930 ? 930 : constraints.maxWidth,
+              width: constraints.maxWidth < 1080 ? 1080 : constraints.maxWidth,
               child: SingleChildScrollView(
                 child: DataTable(
                   showCheckboxColumn: false,
@@ -704,6 +786,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   ),
                   columns: const [
                     DataColumn(label: Text('Fecha')),
+                    DataColumn(label: Text('Consumo')),
                     DataColumn(label: Text('Proveedor')),
                     DataColumn(label: Text('Producto')),
                     DataColumn(label: Text('Destino')),
@@ -728,6 +811,14 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       cells: [
                         DataCell(
                           Text(_dateLabel(row.fechaProgramada), style: style),
+                        ),
+                        DataCell(
+                          Text(
+                            row.consumoDesde == null
+                                ? '—'
+                                : _periodLabel(row.consumoDesde!),
+                            style: style,
+                          ),
                         ),
                         DataCell(
                           SizedBox(
@@ -774,10 +865,15 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                               if (action == 'ver_recepcion') {
                                 _abrirRecepcion(row);
                               }
+                              if (action == 'entrada') {
+                                _registrarNumeroEntrada(row);
+                              }
                               if (action == 'eliminar') _eliminar(row);
                             },
                             itemBuilder: (_) => [
-                              if (_canOperate && row.recepcionId.isEmpty)
+                              if (_canReceive &&
+                                  row.recepcionId.isEmpty &&
+                                  !row.estado.finalizado)
                                 const PopupMenuItem(
                                   value: 'recibir',
                                   child: ListTile(
@@ -795,13 +891,29 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                                     title: Text('Ver recepción'),
                                   ),
                                 ),
-                              if (_canOperate)
+                              if (_canChangeStatusFor(row))
                                 const PopupMenuItem(
                                   value: 'estado',
                                   child: ListTile(
                                     dense: true,
                                     leading: Icon(Icons.sync_alt_rounded),
                                     title: Text('Cambiar estado'),
+                                  ),
+                                ),
+                              if (_canRegisterEntry &&
+                                  row.estado == AbastecimientoEstado.recibido)
+                                PopupMenuItem(
+                                  value: 'entrada',
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: const Icon(
+                                      Icons.confirmation_number_outlined,
+                                    ),
+                                    title: Text(
+                                      row.numeroEntrada.isEmpty
+                                          ? 'Registrar número de entrada'
+                                          : 'Editar número de entrada',
+                                    ),
                                   ),
                                 ),
                               if (_canDelete)
@@ -926,37 +1038,23 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 ],
                 if (_canOperate && !row.estado.finalizado) ...[
                   const Divider(height: 22),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _cambiarEstado(
-                            row,
-                            preset: AbastecimientoEstado.noEntrega,
-                          ),
-                          icon: const Icon(Icons.block, size: 17),
-                          label: const Text('No entrega'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _abRed,
-                          ),
-                        ),
+                  if (_isPurchasing)
+                    OutlinedButton.icon(
+                      onPressed: () => _cambiarEstado(
+                        row,
+                        preset: AbastecimientoEstado.cancelado,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => _registrarRecepcion(row),
-                          icon: const Icon(
-                            Icons.check_circle_outline,
-                            size: 17,
-                          ),
-                          label: const Text('Recibir'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: _abGreen,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                      icon: const Icon(Icons.block, size: 17),
+                      label: const Text('Cancelar entrega'),
+                      style: OutlinedButton.styleFrom(foregroundColor: _abRed),
+                    ),
+                  if (_canReceive)
+                    FilledButton.icon(
+                      onPressed: () => _registrarRecepcion(row),
+                      icon: const Icon(Icons.check_circle_outline, size: 17),
+                      label: const Text('Marcar entregado'),
+                      style: FilledButton.styleFrom(backgroundColor: _abGreen),
+                    ),
                 ],
               ],
             ),
@@ -994,7 +1092,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           ),
           const Divider(height: 26),
           _detail('Fecha programada', _dateLabel(row.fechaProgramada)),
+          _detail(
+            'Período de consumo',
+            row.consumoDesde == null ? '' : _periodLabel(row.consumoDesde!),
+          ),
           _detail('Segunda entrega', _dateLabel(row.fechaSegundaEntrega)),
+          _detail('Fecha de entrega', _dateLabel(row.fechaRecibido)),
+          _detail('Número de entrada', row.numeroEntrada),
           _detail('Destino', row.destino),
           _detail(
             'Grupo / categoría',
@@ -1022,32 +1126,54 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           _detail('Última novedad', row.novedadEstado),
           if (_canOperate) ...[
             const SizedBox(height: 8),
-            if (row.recepcionId.isEmpty)
+            if (_canReceive &&
+                row.recepcionId.isEmpty &&
+                !row.estado.finalizado)
               FilledButton.icon(
                 onPressed: () => _registrarRecepcion(row),
                 icon: const Icon(Icons.inventory_outlined),
                 label: const Text('Registrar recepción'),
                 style: FilledButton.styleFrom(backgroundColor: _abGreen),
               )
-            else
+            else if (row.recepcionId.isNotEmpty)
               OutlinedButton.icon(
                 onPressed: () => _abrirRecepcion(row),
                 icon: const Icon(Icons.open_in_new_rounded),
                 label: const Text('Ver recepción vinculada'),
               ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => _editarObservaciones(row),
-              icon: const Icon(Icons.edit_note_outlined),
-              label: const Text('Editar observaciones y pendientes'),
-            ),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              onPressed: () => _cambiarEstado(row),
-              icon: const Icon(Icons.sync_alt_rounded),
-              label: const Text('Cambiar estado'),
-              style: FilledButton.styleFrom(backgroundColor: _abBlue),
-            ),
+            if (_canRegisterEntry &&
+                row.estado == AbastecimientoEstado.recibido) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _registrarNumeroEntrada(row),
+                icon: const Icon(Icons.confirmation_number_outlined),
+                label: Text(
+                  row.numeroEntrada.isEmpty
+                      ? 'Registrar número de entrada'
+                      : 'Editar número de entrada',
+                ),
+                style: FilledButton.styleFrom(backgroundColor: _abOrange),
+              ),
+            ],
+            if (_isPurchasing) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => _editarObservaciones(row),
+                icon: const Icon(Icons.edit_note_outlined),
+                label: const Text('Editar observaciones y pendientes'),
+              ),
+            ],
+            if (_canChangeStatusFor(row)) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _cambiarEstado(row),
+                icon: const Icon(Icons.sync_alt_rounded),
+                label: Text(
+                  _rol == kRolBodega ? 'Marcar entregado' : 'Cambiar estado',
+                ),
+                style: FilledButton.styleFrom(backgroundColor: _abBlue),
+              ),
+            ],
             if (_canDelete) ...[
               const SizedBox(height: 8),
               TextButton.icon(
@@ -1333,6 +1459,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           const Divider(height: 28),
           _detail('Estado', row.estado.label),
           _detail('Fecha', _dateLabel(row.fechaProgramada)),
+          _detail(
+            'Consumo',
+            row.consumoDesde == null ? '' : _periodLabel(row.consumoDesde!),
+          ),
+          _detail('Fecha de entrega', _dateLabel(row.fechaRecibido)),
+          _detail('Número de entrada', row.numeroEntrada),
           _detail('Destino', row.destino),
           _detail('Categoría', row.categoria),
           _detail('OC', row.ordenCompra),
@@ -1343,7 +1475,27 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           ],
           _detail('Observaciones', row.observaciones),
           _detail('Última novedad', row.novedadEstado),
-          if (_canOperate)
+          if (_canReceive && row.recepcionId.isEmpty && !row.estado.finalizado)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _registrarRecepcion(row);
+              },
+              icon: const Icon(Icons.inventory_outlined),
+              label: const Text('Marcar entregado'),
+              style: FilledButton.styleFrom(backgroundColor: _abGreen),
+            ),
+          if (_canRegisterEntry && row.estado == AbastecimientoEstado.recibido)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _registrarNumeroEntrada(row);
+              },
+              icon: const Icon(Icons.confirmation_number_outlined),
+              label: const Text('Registrar número de entrada'),
+              style: FilledButton.styleFrom(backgroundColor: _abOrange),
+            ),
+          if (_isPurchasing)
             OutlinedButton.icon(
               onPressed: () {
                 Navigator.pop(context);
@@ -1351,6 +1503,18 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               },
               icon: const Icon(Icons.edit_note_outlined),
               label: const Text('Editar observaciones'),
+            ),
+          if (_canChangeStatusFor(row))
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _cambiarEstado(row);
+              },
+              icon: const Icon(Icons.sync_alt_rounded),
+              label: Text(
+                _rol == kRolBodega ? 'Marcar entregado' : 'Cambiar estado',
+              ),
+              style: FilledButton.styleFrom(backgroundColor: _abBlue),
             ),
           if (_canDelete)
             TextButton.icon(
@@ -1545,7 +1709,20 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     AbastecimientoDoc row, {
     AbastecimientoEstado? preset,
   }) async {
-    var status = preset ?? row.estado;
+    final allowed = _isAdmin
+        ? AbastecimientoEstado.values
+        : _rol == kRolBodega
+        ? const [AbastecimientoEstado.recibido]
+        : const [
+            AbastecimientoEstado.programado,
+            AbastecimientoEstado.reprogramado,
+            AbastecimientoEstado.cancelado,
+          ];
+    var status = preset != null && allowed.contains(preset)
+        ? preset
+        : allowed.contains(row.estado)
+        ? row.estado
+        : allowed.first;
     DateTime? newDate = row.fechaProgramada;
     final reasonController = TextEditingController();
     final accepted = await showDialog<bool>(
@@ -1565,7 +1742,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       labelText: 'Nuevo estado',
                       border: OutlineInputBorder(),
                     ),
-                    items: AbastecimientoEstado.values
+                    items: allowed
                         .map(
                           (item) => DropdownMenuItem(
                             value: item,
@@ -1601,8 +1778,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     maxLines: 3,
                     decoration: InputDecoration(
                       labelText:
-                          status == AbastecimientoEstado.noEntrega ||
-                              status == AbastecimientoEstado.cancelado ||
+                          status == AbastecimientoEstado.cancelado ||
                               status == AbastecimientoEstado.reprogramado
                           ? 'Motivo *'
                           : 'Nota del cambio',
@@ -1644,6 +1820,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         estado: status,
         usuarioId: widget.userId,
         motivo: reasonController.text,
+        rolCompras: widget.rolCompras,
         nuevaFecha: status == AbastecimientoEstado.reprogramado
             ? newDate
             : null,
@@ -1661,6 +1838,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   }
 
   Future<void> _registrarRecepcion(AbastecimientoDoc row) async {
+    if (!_canReceive) {
+      _message(
+        'Solo Bodega puede marcar una entrega como Entregada.',
+        error: true,
+      );
+      return;
+    }
     if (row.recepcionId.isNotEmpty) {
       await _abrirRecepcion(row);
       return;
@@ -1677,6 +1861,175 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     if (created == true && mounted) {
       _message('Recepción creada y entrega marcada como recibida.');
     }
+  }
+
+  Future<void> _registrarNumeroEntrada(AbastecimientoDoc row) async {
+    if (!_canRegisterEntry) return;
+    final controller = TextEditingController(text: row.numeroEntrada);
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Documento de entrada'),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${row.producto} · ${row.ordenCompra}'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Número de entrada *',
+                  hintText: 'Ej. EN-001245',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                Navigator.pop(dialogContext, true);
+              }
+            },
+            style: FilledButton.styleFrom(backgroundColor: _abOrange),
+            child: const Text('Guardar entrada'),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && mounted) {
+      try {
+        await _service.actualizarNumeroEntrada(
+          id: row.id,
+          usuarioId: widget.userId,
+          numeroEntrada: controller.text,
+        );
+        if (mounted) _message('Número de entrada registrado.');
+      } catch (error) {
+        if (mounted) _message('No se pudo registrar: $error', error: true);
+      }
+    }
+    controller.dispose();
+  }
+
+  Future<void> _mostrarReportes() async {
+    var generating = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setLocal) => AlertDialog(
+          title: const Text('Reportes de abastecimiento'),
+          content: SizedBox(
+            width: 680,
+            height: 440,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Se generan automáticamente todos los días a las 5:00 p. m., '
+                  'por grupo y para el período de consumo vigente.',
+                  style: TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: StreamBuilder<List<AbastecimientoReporteDoc>>(
+                    stream: _service.streamReportes(widget.empresaId),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Error: ${snapshot.error}'));
+                      }
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final reports = snapshot.data!;
+                      if (reports.isEmpty) {
+                        return const Center(
+                          child: Text('Aún no hay reportes generados.'),
+                        );
+                      }
+                      return ListView.separated(
+                        itemCount: reports.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (_, index) {
+                          final report = reports[index];
+                          return ListTile(
+                            leading: const Icon(
+                              Icons.picture_as_pdf,
+                              color: _abRed,
+                            ),
+                            title: Text(report.grupo),
+                            subtitle: Text(
+                              '${report.consumoDesde == null ? 'Sin período' : _periodLabel(report.consumoDesde!)} · '
+                              '${report.registros} registros · '
+                              '${DateFormat('dd/MM/yyyy HH:mm').format(report.generatedAt.toDate())}',
+                            ),
+                            trailing: const Icon(Icons.open_in_new),
+                            onTap: report.url.isEmpty
+                                ? null
+                                : () => launchUrl(
+                                    Uri.parse(report.url),
+                                    mode: LaunchMode.externalApplication,
+                                  ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cerrar'),
+            ),
+            FilledButton.icon(
+              onPressed: generating
+                  ? null
+                  : () async {
+                      setLocal(() => generating = true);
+                      try {
+                        final count = await _service.generarReportesAhora(
+                          empresaId: widget.empresaId,
+                        );
+                        if (mounted) {
+                          _message(
+                            '$count reporte${count == 1 ? '' : 's'} generado${count == 1 ? '' : 's'}.',
+                          );
+                        }
+                      } catch (error) {
+                        if (mounted) {
+                          _message('No se pudo generar: $error', error: true);
+                        }
+                      } finally {
+                        setLocal(() => generating = false);
+                      }
+                    },
+              icon: generating
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: const Text('Generar ahora'),
+              style: FilledButton.styleFrom(backgroundColor: _abBlue),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _sincronizarRecepciones() async {
@@ -1714,33 +2067,38 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
   Future<void> _crearManual() async {
     final providersFuture = _service.getProveedoresActivos(widget.empresaId);
-    final productsFuture = _service.getProductos(widget.empresaId);
     final groupsFuture = _service.getGrupos(widget.empresaId);
     final warehousesFuture = _service.getBodegas(widget.empresaId);
     final providers = await providersFuture;
-    final products = await productsFuture;
     final groups = await groupsFuture;
     final warehouses = await warehousesFuture;
     if (!mounted) return;
-    if (providers.isEmpty || products.isEmpty || groups.isEmpty) {
+    if (providers.isEmpty || groups.isEmpty) {
       _message(
-        'Primero debes tener proveedores, productos y grupos activos en los catálogos de Compras.',
+        'Primero debes tener proveedores y grupos activos en los catálogos de Compras.',
         error: true,
       );
       return;
     }
     ProveedorDoc? selectedProvider;
     String? selectedCategory;
-    ProductoDoc? selectedProduct;
     ComprasGrupoDoc? selectedGroup;
     const otherDestinationValue = '__otro__';
     String? selectedDestination;
     bool attempted = false;
     final destination = TextEditingController();
+    final product = TextEditingController();
     final condition = TextEditingController();
     final oc = TextEditingController();
     final observations = TextEditingController();
     DateTime? date;
+    DateTime consumptionStart = inicioPeriodoConsumo(DateTime.now());
+    final consumptionPeriods = List.generate(
+      21,
+      (index) => inicioPeriodoConsumo(
+        DateTime.now().add(Duration(days: (index - 4) * 7)),
+      ),
+    );
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -1774,7 +2132,6 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       selectedCategory = provider?.categorias.length == 1
                           ? provider!.categorias.first
                           : null;
-                      selectedProduct = null;
                     }),
                   ),
                   const SizedBox(height: 10),
@@ -1806,7 +2163,6 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                               ? null
                               : (category) => setLocal(() {
                                   selectedCategory = category;
-                                  selectedProduct = null;
                                 }),
                         ),
                       ),
@@ -1837,39 +2193,18 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  DropdownButtonFormField<ProductoDoc>(
-                    key: ValueKey(
-                      '${selectedCategory ?? ''}|${selectedProduct?.id ?? ''}',
+                  TextField(
+                    controller: product,
+                    decoration: InputDecoration(
+                      labelText: 'Producto (informativo) *',
+                      helperText:
+                          'Texto libre; no se crea ni se vincula al catálogo de productos.',
+                      border: const OutlineInputBorder(),
+                      errorText: attempted && product.text.trim().isEmpty
+                          ? 'Escribe el producto de esta entrega'
+                          : null,
                     ),
-                    initialValue: selectedProduct,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Producto del catálogo *',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: products
-                        .where(
-                          (product) =>
-                              selectedCategory != null &&
-                              _sameCatalogText(
-                                product.categoria,
-                                selectedCategory!,
-                              ),
-                        )
-                        .map(
-                          (product) => DropdownMenuItem(
-                            value: product,
-                            child: Text(
-                              product.nombre,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: selectedCategory == null
-                        ? null
-                        : (product) =>
-                              setLocal(() => selectedProduct = product),
+                    onChanged: (_) => setLocal(() {}),
                   ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
@@ -1943,9 +2278,42 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                         firstDate: DateTime(2020),
                         lastDate: DateTime(2035),
                       );
-                      if (chosen != null) setLocal(() => date = chosen);
+                      if (chosen != null) {
+                        setLocal(() {
+                          date = chosen;
+                          consumptionStart = inicioPeriodoConsumo(chosen);
+                        });
+                      }
                     },
                   ),
+                  DropdownButtonFormField<DateTime>(
+                    key: ValueKey(consumptionStart.toIso8601String()),
+                    initialValue: consumptionStart,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Período de consumo (viernes a jueves) *',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.date_range_outlined),
+                    ),
+                    items:
+                        (<DateTime>{
+                              ...consumptionPeriods,
+                              consumptionStart,
+                            }.toList()..sort((a, b) => a.compareTo(b)))
+                            .map(
+                              (period) => DropdownMenuItem(
+                                value: period,
+                                child: Text(_periodLabel(period)),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (period) {
+                      if (period != null) {
+                        setLocal(() => consumptionStart = period);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
                   _input(observations, 'Observaciones', maxLines: 3),
                 ],
               ),
@@ -1964,7 +2332,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     : (selectedDestination ?? '').trim();
                 if (selectedProvider == null ||
                     selectedCategory == null ||
-                    selectedProduct == null ||
+                    product.text.trim().isEmpty ||
                     selectedGroup == null ||
                     resolvedDestination.isEmpty ||
                     oc.text.trim().isEmpty) {
@@ -1988,8 +2356,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           proveedorId: selectedProvider!.id,
           proveedor: selectedProvider!.razonSocial,
           categoria: selectedCategory!,
-          productoId: selectedProduct!.id,
-          producto: selectedProduct!.nombre,
+          producto: product.text,
           grupoId: selectedGroup!.id,
           grupo: selectedGroup!.nombre,
           destino: selectedDestination == otherDestinationValue
@@ -1997,6 +2364,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               : selectedDestination!,
           condicion: condition.text,
           fechaProgramada: date,
+          consumoDesde: consumptionStart,
           ordenCompra: oc.text,
           observaciones: observations.text,
         );
@@ -2005,7 +2373,13 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         if (mounted) _message('No se pudo crear: $error', error: true);
       }
     }
-    for (final controller in [destination, condition, oc, observations]) {
+    for (final controller in [
+      destination,
+      product,
+      condition,
+      oc,
+      observations,
+    ]) {
       controller.dispose();
     }
   }
@@ -2174,43 +2548,30 @@ class _EmptyAbastecimiento extends StatelessWidget {
 
 Color _statusColor(AbastecimientoEstado status) => switch (status) {
   AbastecimientoEstado.programado => _abBlue,
-  AbastecimientoEstado.confirmado => const Color(0xFF6750A4),
-  AbastecimientoEstado.enCamino => _abOrange,
   AbastecimientoEstado.recibido => _abGreen,
-  AbastecimientoEstado.noEntrega => _abRed,
-  AbastecimientoEstado.reprogramado => const Color(0xFF9A6700),
+  AbastecimientoEstado.reprogramado => _abOrange,
   AbastecimientoEstado.cancelado => _abRed,
 };
 
 String _dateLabel(DateTime? value) =>
     value == null ? 'Sin fecha' : DateFormat('dd MMM yyyy', 'es').format(value);
 
+String _periodLabel(DateTime start) =>
+    '${DateFormat('dd MMM', 'es').format(start)} – '
+    '${DateFormat('dd MMM yyyy', 'es').format(finPeriodoConsumo(start))}';
+
 String _number(double value) => value == value.roundToDouble()
     ? value.toInt().toString()
     : value.toStringAsFixed(2);
-
-bool _sameCatalogText(String left, String right) =>
-    _catalogText(left) == _catalogText(right);
-
-String _catalogText(String value) => value
-    .trim()
-    .toLowerCase()
-    .replaceAll('á', 'a')
-    .replaceAll('é', 'e')
-    .replaceAll('í', 'i')
-    .replaceAll('ó', 'o')
-    .replaceAll('ú', 'u')
-    .replaceAll('ü', 'u')
-    .replaceAll('ñ', 'n')
-    .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-    .replaceAll(RegExp(r'\s+'), ' ')
-    .trim();
 
 String _fieldLabel(String field) => switch (field) {
   'registro' => 'Registro',
   'fechaProgramada' => 'Fecha programada',
   'fechaSegundaEntrega' => 'Segunda entrega',
   'fechaRecibido' => 'Fecha recibida',
+  'consumoDesde' => 'Inicio período de consumo',
+  'consumoHasta' => 'Fin período de consumo',
+  'numeroEntrada' => 'Número de entrada',
   'ordenCompra' => 'Orden de compra',
   'observaciones' => 'Observaciones',
   'novedadEstado' => 'Novedad del estado',

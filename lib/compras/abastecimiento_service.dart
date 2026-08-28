@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:crypto/crypto.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
@@ -43,9 +44,12 @@ class AbastecimientoCatalogValidation {
 
 class AbastecimientoService {
   final FirebaseFirestore _db;
+  final FirebaseFunctions _functions;
 
-  AbastecimientoService({FirebaseFirestore? db})
-    : _db = db ?? FirebaseFirestore.instance;
+  AbastecimientoService({FirebaseFirestore? db, FirebaseFunctions? functions})
+    : _db = db ?? FirebaseFirestore.instance,
+      _functions =
+          functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
   Stream<List<AbastecimientoDoc>> stream(String empresaId) => _db
       .collection(kAbastecimientoCollection)
@@ -68,6 +72,28 @@ class AbastecimientoService {
         });
         return rows;
       });
+
+  Stream<List<AbastecimientoReporteDoc>> streamReportes(String empresaId) => _db
+      .collection(kAbastecimientoReportesCollection)
+      .where('empresaId', isEqualTo: empresaId.trim())
+      .snapshots()
+      .map((snapshot) {
+        final rows = snapshot.docs
+            .map((doc) => AbastecimientoReporteDoc.fromMap(doc.id, doc.data()))
+            .toList();
+        rows.sort((a, b) => b.generatedAt.compareTo(a.generatedAt));
+        return rows.take(40).toList();
+      });
+
+  Future<int> generarReportesAhora({required String empresaId}) async {
+    final callable = _functions.httpsCallable(
+      'comprasGenerarReporteAbastecimiento',
+    );
+    final result = await callable.call<Map<String, dynamic>>({
+      'empresaId': empresaId.trim(),
+    });
+    return (result.data['generados'] as num?)?.toInt() ?? 0;
+  }
 
   /// Repara vínculos históricos y deja ambos documentos enlazados. Las nuevas
   /// recepciones se sincronizan en tiempo real desde [ComprasService].
@@ -284,10 +310,6 @@ class AbastecimientoService {
           .where('empresaId', isEqualTo: empresa)
           .get(),
       _db
-          .collection('TBL_COMPRAS_PRODUCTOS')
-          .where('empresaId', isEqualTo: empresa)
-          .get(),
-      _db
           .collection('TBL_COMPRAS_RECEPCIONES')
           .where('empresaId', isEqualTo: empresa)
           .get(),
@@ -297,21 +319,13 @@ class AbastecimientoService {
           .get(),
     ]);
     final providerSnapshot = results[0];
-    final productSnapshot = results[1];
-    final receptionSnapshot = results[2];
-    final groupSnapshot = results[3];
+    final receptionSnapshot = results[1];
+    final groupSnapshot = results[2];
 
     final providers = <String, ProveedorDoc>{};
     for (final doc in providerSnapshot.docs) {
       final provider = ProveedorDoc.fromMap(doc.id, doc.data());
       providers[_catalogKey(provider.razonSocial)] = provider;
-    }
-    final products = <String, ProductoDoc>{};
-    for (final doc in productSnapshot.docs) {
-      final product = ProductoDoc.fromMap(doc.id, doc.data());
-      if (product.nombre.trim().isNotEmpty) {
-        products[_catalogKey(product.nombre)] = product;
-      }
     }
     final receptions = <String, List<RecepcionDoc>>{};
     for (final doc in receptionSnapshot.docs) {
@@ -332,7 +346,6 @@ class AbastecimientoService {
     final valid = <AbastecimientoImportRow>[];
     final issues = <AbastecimientoExcelIssue>[];
     final missingProviders = <String, String>{};
-    final missingProducts = <String, String>{};
     final missingGroups = <String, String>{};
     for (final row in filas) {
       if (row.ordenCompra.trim().isEmpty) {
@@ -396,34 +409,6 @@ class AbastecimientoService {
         continue;
       }
 
-      final product = products[_catalogKey(row.producto)];
-      if (product == null) {
-        missingProducts.putIfAbsent(
-          _catalogKey(row.producto),
-          () => row.producto,
-        );
-        issues.add(
-          AbastecimientoExcelIssue(
-            hoja: row.hoja,
-            fila: row.fila,
-            mensaje:
-                'Producto "${row.producto}" no existe; debe crearse en Productos.',
-          ),
-        );
-        continue;
-      }
-      if (_catalogKey(product.categoria) != _catalogKey(category)) {
-        issues.add(
-          AbastecimientoExcelIssue(
-            hoja: row.hoja,
-            fila: row.fila,
-            mensaje:
-                'El producto "${product.nombre}" pertenece a ${product.categoria}, no a $category.',
-          ),
-        );
-        continue;
-      }
-
       final group = groups[_groupKey(row.grupo)];
       if (group == null) {
         missingGroups.putIfAbsent(_groupKey(row.grupo), () => row.grupo);
@@ -448,11 +433,9 @@ class AbastecimientoService {
                   _catalogKey(provider.razonSocial);
         final sameGroup =
             candidate.grupoId.isEmpty || candidate.grupoId == group.id;
-        final sameProduct =
-            candidate.productoIds.contains(product.id) ||
-            candidate.productos.any(
-              (item) => _catalogKey(item.nombre) == _catalogKey(product.nombre),
-            );
+        final sameProduct = candidate.productos.any(
+          (item) => _catalogKey(item.nombre) == _catalogKey(row.producto),
+        );
         if (sameProvider && sameGroup && sameProduct) {
           reception = candidate;
           break;
@@ -463,8 +446,8 @@ class AbastecimientoService {
           proveedorId: provider.id,
           proveedor: provider.razonSocial,
           categoria: category,
-          productoId: product.id,
-          producto: product.nombre,
+          productoId: '',
+          producto: row.producto.trim(),
           grupoId: group.id,
           grupo: group.nombre,
           recepcionId: reception?.id ?? '',
@@ -475,8 +458,6 @@ class AbastecimientoService {
 
     final pending = missingProviders.values.toList()
       ..sort((a, b) => a.compareTo(b));
-    final pendingProducts = missingProducts.values.toList()
-      ..sort((a, b) => a.compareTo(b));
     final pendingGroups =
         missingGroups.values.where((value) => value.trim().isNotEmpty).toList()
           ..sort((a, b) => a.compareTo(b));
@@ -484,7 +465,7 @@ class AbastecimientoService {
       filas: valid,
       incidencias: issues,
       proveedoresPendientes: pending,
-      productosPendientes: pendingProducts,
+      productosPendientes: const [],
       gruposPendientes: pendingGroups,
     );
   }
@@ -589,6 +570,17 @@ class AbastecimientoService {
           ordenCompra: row.ordenCompra,
           recepcionId: row.recepcionId,
           fechaRecibido: row.fechaRecibido,
+          numeroEntrada: row.numeroEntrada,
+          entradaRegistradaPor: row.numeroEntrada.trim().isEmpty
+              ? ''
+              : usuarioId,
+          entradaRegistradaAt: row.numeroEntrada.trim().isEmpty ? null : now,
+          consumoDesde: row.fechaProgramada == null
+              ? null
+              : inicioPeriodoConsumo(row.fechaProgramada!),
+          consumoHasta: row.fechaProgramada == null
+              ? null
+              : finPeriodoConsumo(inicioPeriodoConsumo(row.fechaProgramada!)),
           estado: estado,
           observaciones: row.observaciones,
           pendencias: row.pendencias,
@@ -647,7 +639,7 @@ class AbastecimientoService {
         changeText('proveedorId', row.proveedorId);
         changeText('proveedor', row.proveedor);
         changeText('categoria', row.categoria);
-        changeText('productoId', row.productoId);
+        changeText('productoId', '', acceptEmpty: true);
         changeText('producto', row.producto);
         changeText('grupoId', row.grupoId);
         changeText('grupo', row.grupo);
@@ -656,12 +648,24 @@ class AbastecimientoService {
         changeText('unidad', row.unidad);
         changeText('ordenCompra', row.ordenCompra);
         changeText('recepcionId', row.recepcionId);
+        final previousEntry = (data['numeroEntrada'] ?? '').toString().trim();
+        changeText('numeroEntrada', row.numeroEntrada);
+        if (row.numeroEntrada.trim().isNotEmpty &&
+            previousEntry != row.numeroEntrada.trim()) {
+          data['entradaRegistradaPor'] = usuarioId;
+          data['entradaRegistradaAt'] = now;
+        }
         changeText('observaciones', row.observaciones);
         changeNumber('cantidad', row.cantidad);
         changeNumber('precio', row.precio);
         changeDate('fechaProgramada', row.fechaProgramada);
         changeDate('fechaSegundaEntrega', row.fechaSegundaEntrega);
         changeDate('fechaRecibido', row.fechaRecibido);
+        if (row.fechaProgramada != null) {
+          final periodStart = inicioPeriodoConsumo(row.fechaProgramada!);
+          changeDate('consumoDesde', periodStart);
+          changeDate('consumoHasta', finPeriodoConsumo(periodStart));
+        }
 
         final pendingValues = row.pendencias.map((item) => item.value).toList();
         final oldPending = (data['pendencias'] as List? ?? const [])
@@ -751,13 +755,13 @@ class AbastecimientoService {
     required String proveedorId,
     required String proveedor,
     required String categoria,
-    required String productoId,
     required String producto,
     required String grupoId,
     required String grupo,
     required String destino,
     required String condicion,
     required DateTime? fechaProgramada,
+    required DateTime consumoDesde,
     required String ordenCompra,
     required String observaciones,
   }) async {
@@ -767,8 +771,8 @@ class AbastecimientoService {
     if (ordenCompra.trim().isEmpty) {
       throw StateError('La orden de compra es obligatoria.');
     }
-    if (productoId.trim().isEmpty || grupoId.trim().isEmpty) {
-      throw StateError('Debes seleccionar un producto y un grupo registrados.');
+    if (producto.trim().isEmpty || grupoId.trim().isEmpty) {
+      throw StateError('Debes escribir el producto y seleccionar un grupo.');
     }
     final now = Timestamp.now();
     final rawKey =
@@ -791,13 +795,15 @@ class AbastecimientoService {
       proveedorId: proveedorId.trim(),
       proveedor: proveedor.trim(),
       categoria: categoria.trim(),
-      productoId: productoId.trim(),
+      productoId: '',
       producto: producto.trim(),
       grupoId: grupoId.trim(),
       grupo: grupo.trim(),
       destino: destino.trim(),
       condicion: condicion.trim(),
       fechaProgramada: fechaProgramada,
+      consumoDesde: inicioPeriodoConsumo(consumoDesde),
+      consumoHasta: finPeriodoConsumo(inicioPeriodoConsumo(consumoDesde)),
       ordenCompra: ordenCompra.trim(),
       observaciones: observaciones.trim(),
       pendencias: detectarPendenciasAbastecimiento(observaciones),
@@ -816,11 +822,24 @@ class AbastecimientoService {
     required AbastecimientoEstado estado,
     required String usuarioId,
     required String motivo,
+    String? rolCompras,
     DateTime? nuevaFecha,
   }) async {
     final reason = motivo.trim();
-    if ((estado == AbastecimientoEstado.noEntrega ||
-            estado == AbastecimientoEstado.cancelado ||
+    final rol = normalizeComprasRol(rolCompras);
+    final esAdmin = rol == null || rol == kRolAdmin;
+    final esBodega = rol == kRolBodega;
+    final esCompras = rol == kRolCompras;
+    if (!esAdmin && esBodega && estado != AbastecimientoEstado.recibido) {
+      throw StateError('Bodega solo puede marcar la entrega como Entregada.');
+    }
+    if (!esAdmin && esCompras && estado == AbastecimientoEstado.recibido) {
+      throw StateError('Solo Bodega puede marcar una entrega como Entregada.');
+    }
+    if (!esAdmin && !esBodega && !esCompras) {
+      throw StateError('Tu rol no tiene permiso para cambiar este estado.');
+    }
+    if ((estado == AbastecimientoEstado.cancelado ||
             estado == AbastecimientoEstado.reprogramado) &&
         reason.isEmpty) {
       throw StateError('Debes indicar el motivo del cambio.');
@@ -836,6 +855,13 @@ class AbastecimientoService {
         throw StateError('La entrega ya no existe.');
       }
       final current = AbastecimientoDoc.fromMap(id, snapshot.data()!);
+      if (!esAdmin &&
+          current.estado == AbastecimientoEstado.recibido &&
+          estado != AbastecimientoEstado.recibido) {
+        throw StateError(
+          'Una entrega confirmada por Bodega solo puede corregirla un administrador.',
+        );
+      }
       final now = Timestamp.now();
       final changes = <AbastecimientoCambio>[];
       if (current.estado != estado) {
@@ -901,6 +927,54 @@ class AbastecimientoService {
             current.fechaRecibido != null)
           'fechaRecibido': FieldValue.delete(),
         if (reason.isNotEmpty) 'novedadEstado': reason,
+        'actualizadoPor': usuarioId,
+        'updatedAt': now,
+        'historial': history
+            .skip(history.length > 100 ? history.length - 100 : 0)
+            .map((item) => item.toMap())
+            .toList(),
+      });
+    });
+  }
+
+  Future<void> actualizarNumeroEntrada({
+    required String id,
+    required String usuarioId,
+    required String numeroEntrada,
+  }) async {
+    final next = numeroEntrada.trim();
+    if (next.isEmpty) {
+      throw StateError('Debes indicar el número del documento de entrada.');
+    }
+    final ref = _db.collection(kAbastecimientoCollection).doc(id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists || snapshot.data() == null) {
+        throw StateError('La entrega ya no existe.');
+      }
+      final current = AbastecimientoDoc.fromMap(id, snapshot.data()!);
+      if (current.estado != AbastecimientoEstado.recibido) {
+        throw StateError(
+          'El número de entrada solo se registra después de la entrega.',
+        );
+      }
+      if (current.numeroEntrada == next) return;
+      final now = Timestamp.now();
+      final history = [
+        ...current.historial,
+        _change(
+          'numeroEntrada',
+          current.numeroEntrada,
+          next,
+          usuarioId,
+          now,
+          'entorno',
+        ),
+      ];
+      transaction.update(ref, {
+        'numeroEntrada': next,
+        'entradaRegistradaPor': usuarioId,
+        'entradaRegistradaAt': now,
         'actualizadoPor': usuarioId,
         'updatedAt': now,
         'historial': history

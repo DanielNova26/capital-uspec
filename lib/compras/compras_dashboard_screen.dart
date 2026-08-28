@@ -10078,7 +10078,11 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           if (_entries.isEmpty) _entries = [_RecepcionEntry()];
           try {
             _entries.first.producto = _productos.firstWhere(
-              (product) => product.id == entrega.productoId,
+              (product) =>
+                  (entrega.productoId.isNotEmpty &&
+                      product.id == entrega.productoId) ||
+                  normalizarClaveCatalogoCompras(product.nombre) ==
+                      normalizarClaveCatalogoCompras(entrega.producto),
             );
           } catch (_) {}
         }
@@ -20327,18 +20331,23 @@ class _AprobadosAdminTab extends StatelessWidget {
               message: 'Cargando fichas técnicas...',
             );
           }
-          final fichas = snap.data!
+          final todasLasFichas = snap.data!
               .where(
                 (ficha) =>
                     ficha.documentoActual?.aprobado == true &&
-                    ficha.documentoActual?.tieneDoc == true &&
-                    (_coincide(ficha.productoNombre) ||
-                        _coincide(ficha.marcaNombre) ||
-                        _coincide(ficha.proveedorNombre)),
+                    ficha.documentoActual?.tieneDoc == true,
+              )
+              .toList();
+          final fichas = todasLasFichas
+              .where(
+                (ficha) =>
+                    _coincide(ficha.productoNombre) ||
+                    _coincide(ficha.marcaNombre) ||
+                    _coincide(ficha.proveedorNombre),
               )
               .toList();
 
-          if (fichas.isEmpty) {
+          if (todasLasFichas.isEmpty) {
             return const _CalidadEmptyState(
               icon: Icons.description_outlined,
               message: 'No hay fichas técnicas aprobadas.',
@@ -20347,6 +20356,30 @@ class _AprobadosAdminTab extends StatelessWidget {
 
           return Column(
             children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: () =>
+                      _revertirTodasLasFichas(context, fichas: todasLasFichas),
+                  icon: const Icon(Icons.settings_backup_restore_rounded),
+                  label: Text(
+                    'Cambiar estado de todas (${todasLasFichas.length})',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFB45309),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (fichas.isEmpty)
+                const _CalidadEmptyState(
+                  icon: Icons.filter_alt_off_outlined,
+                  message: 'Ninguna ficha aprobada coincide con los filtros.',
+                ),
               for (final ficha in fichas)
                 _AprobadoGrupo(
                   titulo: ficha.productoNombre,
@@ -20425,6 +20458,47 @@ class _AprobadosAdminTab extends StatelessWidget {
       if (!context.mounted) return;
       _avisoError(context, error);
     }
+  }
+
+  Future<void> _revertirTodasLasFichas(
+    BuildContext context, {
+    required List<FichaTecnicaDoc> fichas,
+  }) async {
+    final decision = await _pedirMotivoReversion(
+      context,
+      docLabel: '${fichas.length} fichas técnicas aprobadas',
+      contexto:
+          'La acción se aplicará a todas las fichas aprobadas de la empresa, '
+          'incluso si algún filtro no las muestra.',
+    );
+    if (decision == null || !context.mounted) return;
+    var completed = 0;
+    final errors = <String>[];
+    for (final ficha in fichas) {
+      try {
+        await svc.revertirAprobacionFichaTecnica(
+          fichaId: ficha.id,
+          motivo: decision.motivo,
+          revertidoPor: userId,
+          rechazar: decision.rechazar,
+        );
+        completed++;
+      } catch (error) {
+        errors.add('${ficha.productoNombre}: $error');
+      }
+    }
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          errors.isEmpty
+              ? '$completed fichas técnicas cambiaron de estado.'
+              : '$completed de ${fichas.length} fichas cambiaron de estado. '
+                    '${errors.length} presentaron error.',
+        ),
+        backgroundColor: errors.isEmpty ? kComprasGreen : kComprasRed,
+      ),
+    );
   }
 
   Future<void> _revertirRecepcion(

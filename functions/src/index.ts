@@ -103,6 +103,12 @@ export {
   rutasMovilidadTick,
   rutasMovilidadMedirAhora,
 } from "./rutas_movilidad";
+
+// Compras — reporte diario de abastecimiento por grupo y período de consumo.
+export {
+  comprasReporteAbastecimiento1700,
+  comprasGenerarReporteAbastecimiento,
+} from "./compras_abastecimiento_reports";
 import * as admin from "firebase-admin";
 
 console.log("[BUILD] functions v2025-10-09-#fix-notif-subcollection-jsdoc");
