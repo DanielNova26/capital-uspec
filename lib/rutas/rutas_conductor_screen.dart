@@ -733,7 +733,7 @@ class _ConductorHomeScreenState extends State<ConductorHomeScreen>
         children: [
           // Resumen
           Card(
-            color: _kRutasColor.withOpacity(0.08),
+            color: _kRutasColor.withValues(alpha: 0.08),
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -1083,7 +1083,7 @@ class _EvidenciaCard extends StatelessWidget {
                   : Image.network(
                       url,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const ColoredBox(
+                      errorBuilder: (_, _, _) => const ColoredBox(
                         color: Color(0x11000000),
                         child: Center(child: Icon(Icons.broken_image)),
                       ),
@@ -1139,7 +1139,7 @@ class _EstadoChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

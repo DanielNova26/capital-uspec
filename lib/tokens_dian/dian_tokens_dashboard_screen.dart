@@ -9,6 +9,7 @@ import '../widgets/internal_module_layout.dart';
 import 'dian_buzon_dialog.dart';
 import 'dian_tokens_models.dart';
 import 'dian_tokens_service.dart';
+import '../widgets/paged_list.dart';
 
 const kDianTokensAppId = 'tokensdiandashboard';
 const _navy = Color(0xFF102A43);
@@ -459,51 +460,54 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen> {
       margin: EdgeInsets.zero,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Estado')),
-            DataColumn(label: Text('Recibido')),
-            DataColumn(label: Text('NIT / empresa')),
-            DataColumn(label: Text('Buzón')),
-            DataColumn(label: Text('Abierto por')),
-            DataColumn(label: Text('Accesos')),
-            DataColumn(label: Text('Acción')),
-          ],
-          rows: _filtered.map((token) {
-            return DataRow(
-              cells: [
-                DataCell(_statusChip(token.estado)),
-                DataCell(Text(_date(token.recibidoAt))),
-                DataCell(
-                  Text(
-                    token.nitRelacionado.isEmpty ? '—' : token.nitRelacionado,
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 190,
-                    child: Text(
-                      token.buzon.isEmpty ? 'Registro manual' : token.buzon,
+        child: PagedDataTable(
+          etiqueta: 'tokens',
+          tabla: DataTable(
+            columns: const [
+              DataColumn(label: Text('Estado')),
+              DataColumn(label: Text('Recibido')),
+              DataColumn(label: Text('NIT / empresa')),
+              DataColumn(label: Text('Buzón')),
+              DataColumn(label: Text('Abierto por')),
+              DataColumn(label: Text('Accesos')),
+              DataColumn(label: Text('Acción')),
+            ],
+            rows: _filtered.map((token) {
+              return DataRow(
+                cells: [
+                  DataCell(_statusChip(token.estado)),
+                  DataCell(Text(_date(token.recibidoAt))),
+                  DataCell(
+                    Text(
+                      token.nitRelacionado.isEmpty ? '—' : token.nitRelacionado,
                     ),
                   ),
-                ),
-                DataCell(
-                  Text(
-                    token.firstOpenedByName.isEmpty
-                        ? 'Sin abrir'
-                        : '${token.firstOpenedByName}\n${_date(token.firstOpenedAt)}',
+                  DataCell(
+                    SizedBox(
+                      width: 190,
+                      child: Text(
+                        token.buzon.isEmpty ? 'Registro manual' : token.buzon,
+                      ),
+                    ),
                   ),
-                ),
-                DataCell(
-                  TextButton(
-                    onPressed: () => _showAccesses(token),
-                    child: Text('${token.accessCount}'),
+                  DataCell(
+                    Text(
+                      token.firstOpenedByName.isEmpty
+                          ? 'Sin abrir'
+                          : '${token.firstOpenedByName}\n${_date(token.firstOpenedAt)}',
+                    ),
                   ),
-                ),
-                DataCell(_actions(token)),
-              ],
-            );
-          }).toList(),
+                  DataCell(
+                    TextButton(
+                      onPressed: () => _showAccesses(token),
+                      child: Text('${token.accessCount}'),
+                    ),
+                  ),
+                  DataCell(_actions(token)),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
     );

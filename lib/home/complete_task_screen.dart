@@ -89,8 +89,9 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         await Geolocator.openLocationSettings();
       }
       var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied)
+      if (perm == LocationPermission.denied) {
         perm = await Geolocator.requestPermission();
+      }
       if (perm == LocationPermission.deniedForever) {
         await Geolocator.openAppSettings();
         return;
@@ -111,8 +112,9 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
   // ---------- UI Helpers ----------
 
   String _fmtDueDate(dynamic ts) {
-    if (ts is Timestamp)
+    if (ts is Timestamp) {
       return DateFormat('dd/MM/yyyy HH:mm').format(ts.toDate());
+    }
     return '—';
   }
 
@@ -351,7 +353,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     final pb =
         ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
           ..pushStyle(
-            ui.TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 24),
+            ui.TextStyle(color: Colors.white.withValues(alpha: 0.95), fontSize: 24),
           );
     pb.addText(lines.join('\n'));
     final p = pb.build()..layout(ui.ParagraphConstraints(width: rText.width));
@@ -380,7 +382,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2.5
-          ..color = Colors.white.withOpacity(0.9),
+          ..color = Colors.white.withValues(alpha: 0.9),
       );
     }
 
@@ -720,7 +722,7 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: ListView.separated(
                     itemCount: _picked.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (_, i) {
                       final f = _picked[i];
                       final isImg =
@@ -755,8 +757,9 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
                                 : () => setState(() {
                                     _picked.removeAt(i);
                                     if (i < _photos.length &&
-                                        _photos[i].name == f.name)
+                                        _photos[i].name == f.name) {
                                       _photos.removeAt(i);
+                                    }
                                   }),
                           ),
                         ),

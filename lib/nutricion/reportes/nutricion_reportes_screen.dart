@@ -202,7 +202,7 @@ class _NutricionReportesScreenState extends State<NutricionReportesScreen> {
       decoration: BoxDecoration(
         color: NutritionPalette.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: NutritionPalette.border.withOpacity(0.5)),
+        border: Border.all(color: NutritionPalette.border.withValues(alpha: 0.5)),
       ),
       child: Row(
         children: [

@@ -11,6 +11,7 @@ import 'package:todo/utils/user_company.dart';
 import 'package:todo/widgets/task_responsive_layout.dart' hide kArial;
 import 'package:todo/widgets/task_summary_header.dart' hide kArial;
 import 'package:todo/widgets/user_avatar.dart';
+import '../core/area_directory.dart';
 
 /// ====== Paleta unificada (tema teal) ======
 const Color kTeal = Color(0xFF0F766E); // AppBar, acentos
@@ -153,6 +154,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
   // Catálogos
   final Map<String, String> _areas = {'todas': 'Todas las áreas'};
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   final Map<String, String> _estados = const {
     'todos': 'Todos',
     'en_progreso': 'En progreso',
@@ -348,11 +350,20 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
         q = q.where('empresaId', isEqualTo: _empresaId);
       }
       final qs = await q.get();
-      for (final d in qs.docs) {
-        final m = d.data();
-        final id = (m['areaId'] ?? d.id).toString();
-        final nombre = (m['nombre'] ?? id).toString();
-        _areas[id] = nombre;
+      // Una entrada por área real y sin ids crudos en pantalla.
+      final catalogo = AreaCatalogo.desde(
+        qs.docs.map((d) {
+          final m = d.data();
+          return (
+            id: (m['areaId'] ?? d.id).toString(),
+            nombre: m['nombre']?.toString(),
+          );
+        }),
+        empresaId: _empresaId,
+      );
+      _catalogoAreas = catalogo;
+      for (final opcion in catalogo.opciones) {
+        _areas[opcion.id] = opcion.nombre;
       }
     } catch (_) {}
   }
@@ -418,8 +429,12 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
       empresaId: company,
     );
     for (final id in subordinateIds) {
-      final scoped = TeamCompanyScope.scopedPerson(people[id] ?? {}, company);
+      final raw = people[id] ?? <String, dynamic>{};
+      final scoped = TeamCompanyScope.scopedPerson(raw, company);
       if (scoped == null) continue;
+      // La jerarquía se recorre completa (para no cortar la rama de un jefe
+      // retirado), pero el filtro "a cargo" solo lista personal vigente.
+      if (!isPersonaActivaEnEmpresa(raw, company)) continue;
       _subordinados[id] = (scoped['nombre'] ?? scoped['nombres'] ?? id)
           .toString();
     }
@@ -546,7 +561,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
 
       if (_areaSel != 'todas' &&
           (areaId ?? '').isNotEmpty &&
-          areaId != _areaSel) {
+          !_catalogoAreas.coincide(filtro: _areaSel, valor: areaId)) {
         return false;
       }
       if (_cargoSel != 'todos' &&
@@ -918,7 +933,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                         ? DropdownButtonFormField<String>(
                             isDense: true,
                             isExpanded: true,
-                            value: _areaSel,
+                            initialValue: _areaSel,
                             decoration: _pillInput.copyWith(labelText: 'Área'),
                             items: _areas.entries
                                 .map(
@@ -937,7 +952,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                               return DropdownButtonFormField<String>(
                                 isDense: true,
                                 isExpanded: true,
-                                value: val,
+                                initialValue: val,
                                 decoration: _pillInput.copyWith(
                                   labelText: 'Colaborador',
                                 ),
@@ -960,7 +975,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                     child: DropdownButtonFormField<String>(
                       isDense: true,
                       isExpanded: true,
-                      value: _estadoSel,
+                      initialValue: _estadoSel,
                       decoration: _pillInput.copyWith(labelText: 'Estado'),
                       items: _estados.entries
                           .map(
@@ -986,7 +1001,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                       child: DropdownButtonFormField<String>(
                         isDense: true,
                         isExpanded: true,
-                        value: _cargoSel,
+                        initialValue: _cargoSel,
                         decoration: _pillInput.copyWith(labelText: 'Cargo'),
                         items: _cargos.entries
                             .map(
@@ -1005,7 +1020,7 @@ class _TeamOverviewScreenState extends State<TeamOverviewScreen> {
                       child: DropdownButtonFormField<String>(
                         isDense: true,
                         isExpanded: true,
-                        value: _centroSel,
+                        initialValue: _centroSel,
                         decoration: _pillInput.copyWith(
                           labelText: 'Centro de costos',
                         ),

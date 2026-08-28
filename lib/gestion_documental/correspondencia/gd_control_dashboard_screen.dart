@@ -12,6 +12,7 @@ import 'gd_correspondencia_models.dart';
 import 'gd_correspondencia_screen.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
+import '../../widgets/paged_list.dart';
 
 const _navy = Color(0xFF17324D);
 const _teal = Color(0xFF157A8A);
@@ -669,9 +670,9 @@ class _StatusChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // El acuerdo operativo usa exactamente los mismos tres estados en todas
-    // las vistas. El anillo no puede omitir Terminados porque dejaría de ser un
-    // resumen del estado general.
+    // Por pedido operativo, el anillo solo resume la carga activa (Recibido y
+    // Asignado); los Terminados ya se ven en el KPI y en el histórico, y aquí
+    // solo diluían el peso visual de lo pendiente.
     final data = <({String label, int value, Color color})>[
       (
         label: 'Recibido',
@@ -683,20 +684,15 @@ class _StatusChart extends StatelessWidget {
         value: rows.where((e) => e.asignado).length,
         color: const Color(0xFF2563EB),
       ),
-      (
-        label: 'Terminado',
-        value: rows.where((e) => e.terminado).length,
-        color: const Color(0xFF16A34A),
-      ),
     ];
     final total = data.fold<int>(0, (sum, item) => sum + item.value);
     return _Panel(
       title: 'Estado general',
-      subtitle: 'Recibido, Asignado y Terminado',
+      subtitle: 'Recibido y Asignado (carga activa)',
       child: SizedBox(
         height: 245,
         child: total == 0
-            ? const _ChartEmpty(message: 'No hay procesos registrados')
+            ? const _ChartEmpty(message: 'No hay procesos activos')
             : Row(
                 children: [
                   Expanded(
@@ -730,7 +726,7 @@ class _StatusChart extends StatelessWidget {
                               ),
                             ),
                             const Text(
-                              'procesos',
+                              'activos',
                               style: TextStyle(
                                 fontSize: 10,
                                 color: Color(0xFF64748B),
@@ -1273,135 +1269,138 @@ class _ProcessTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     scrollDirection: Axis.horizontal,
-    child: DataTable(
-      headingRowColor: WidgetStateProperty.all(_background),
-      columnSpacing: 22,
-      columns: const [
-        DataColumn(label: Text('CÓDIGO')),
-        DataColumn(label: Text('FECHA')),
-        DataColumn(label: Text('TIPO')),
-        DataColumn(label: Text('ALIAS / ASUNTO')),
-        DataColumn(label: Text('RESPONSABLE')),
-        DataColumn(label: Text('FECHA LÍMITE')),
-        DataColumn(label: Text('ESTADO')),
-        DataColumn(label: Text('CANAL DE RESPUESTA')),
-        DataColumn(label: Text('ARCHIVOS')),
-      ],
-      rows: [
-        for (final row in rows.take(50))
-          DataRow(
-            onSelectChanged: (_) => onOpen(row.id),
-            cells: [
-              DataCell(
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      row.codigoVisible,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: _teal,
-                      ),
-                    ),
-                    // El radicado se mantiene visible bajo el código interno:
-                    // es el número con el que se registró el expediente antes
-                    // de que existiera el maestro.
-                    if (row.codigoInterno.trim().isNotEmpty)
-                      Text(
-                        row.radicado,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Color(0xFF94A3B8),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              DataCell(Text(_formatDate(row.fechaRecepcion))),
-              DataCell(
-                SizedBox(
-                  width: 120,
-                  child: Text(
-                    row.tipoDocumental,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-              DataCell(
-                SizedBox(
-                  width: 260,
-                  child: Column(
+    child: PagedDataTable(
+      etiqueta: 'documentos',
+      tabla: DataTable(
+        headingRowColor: WidgetStateProperty.all(_background),
+        columnSpacing: 22,
+        columns: const [
+          DataColumn(label: Text('CÓDIGO')),
+          DataColumn(label: Text('FECHA')),
+          DataColumn(label: Text('TIPO')),
+          DataColumn(label: Text('ALIAS / ASUNTO')),
+          DataColumn(label: Text('RESPONSABLE')),
+          DataColumn(label: Text('FECHA LÍMITE')),
+          DataColumn(label: Text('ESTADO')),
+          DataColumn(label: Text('CANAL DE RESPUESTA')),
+          DataColumn(label: Text('ARCHIVOS')),
+        ],
+        rows: [
+          for (final row in rows.take(50))
+            DataRow(
+              onSelectChanged: (_) => onOpen(row.id),
+              cells: [
+                DataCell(
+                  Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        row.titulo,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: row.tieneAlias
-                              ? FontWeight.w700
-                              : FontWeight.normal,
+                        row.codigoVisible,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: _teal,
                         ),
                       ),
-                      if (row.tieneAlias)
+                      // El radicado se mantiene visible bajo el código interno:
+                      // es el número con el que se registró el expediente antes
+                      // de que existiera el maestro.
+                      if (row.codigoInterno.trim().isNotEmpty)
                         Text(
-                          row.asunto,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          row.radicado,
                           style: const TextStyle(
-                            fontSize: 11,
-                            color: Color(0xFF64748B),
+                            fontSize: 10,
+                            color: Color(0xFF94A3B8),
                           ),
                         ),
                     ],
                   ),
                 ),
-              ),
-              DataCell(
-                SizedBox(
-                  width: 150,
-                  child: Text(
-                    row.responsableNombre.isEmpty
-                        ? 'Sin asignar'
-                        : row.responsableNombre,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                DataCell(Text(_formatDate(row.fechaRecepcion))),
+                DataCell(
+                  SizedBox(
+                    width: 120,
+                    child: Text(
+                      row.tipoDocumental,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-              ),
-              DataCell(Text(_formatDate(row.fechaLimite))),
-              DataCell(_DashboardStatus(row: row)),
-              DataCell(
-                SizedBox(
-                  width: 165,
-                  child: Text(
-                    row.respondido ? _deliveryChannel(row) : 'Pendiente',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                DataCell(
+                  SizedBox(
+                    width: 260,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          row.titulo,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: row.tieneAlias
+                                ? FontWeight.w700
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        if (row.tieneAlias)
+                          Text(
+                            row.asunto,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              DataCell(
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.attach_file,
-                      size: 16,
-                      color: Color(0xFF64748B),
+                DataCell(
+                  SizedBox(
+                    width: 150,
+                    child: Text(
+                      row.responsableNombre.isEmpty
+                          ? 'Sin asignar'
+                          : row.responsableNombre,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      '${row.adjuntosEntrada.length + row.adjuntosRespuesta.length}',
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-      ],
+                DataCell(Text(_formatDate(row.fechaLimite))),
+                DataCell(_DashboardStatus(row: row)),
+                DataCell(
+                  SizedBox(
+                    width: 165,
+                    child: Text(
+                      row.respondido ? _deliveryChannel(row) : 'Pendiente',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.attach_file,
+                        size: 16,
+                        color: Color(0xFF64748B),
+                      ),
+                      Text(
+                        '${row.adjuntosEntrada.length + row.adjuntosRespuesta.length}',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
     ),
   );
 }

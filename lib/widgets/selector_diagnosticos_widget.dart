@@ -613,7 +613,7 @@ class _SelectorDiagnosticosWidgetState
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -623,7 +623,7 @@ class _SelectorDiagnosticosWidgetState
             child: ListView.separated(
               shrinkWrap: true,
               itemCount: resultados.length,
-              separatorBuilder: (_, __) =>
+              separatorBuilder: (_, _) =>
                   const Divider(height: 1, color: NutritionPalette.border),
               itemBuilder: (_, index) {
                 final item = resultados[index];
@@ -651,7 +651,7 @@ class _SelectorDiagnosticosWidgetState
                 decoration: BoxDecoration(
                   color: chipColor,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: accentColor.withOpacity(0.2)),
+                  border: Border.all(color: accentColor.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -664,7 +664,7 @@ class _SelectorDiagnosticosWidgetState
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: accentColor.withOpacity(0.9),
+                          color: accentColor.withValues(alpha: 0.9),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -675,7 +675,7 @@ class _SelectorDiagnosticosWidgetState
                       child: Icon(
                         Icons.cancel,
                         size: 16,
-                        color: accentColor.withOpacity(0.5),
+                        color: accentColor.withValues(alpha: 0.5),
                       ),
                     ),
                   ],
@@ -1218,12 +1218,12 @@ class _CatalogoContentState extends State<_CatalogoContent> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: (seleccionadoMedico || seleccionadoNutri)
-              ? NutritionPalette.accent.withOpacity(0.3)
+              ? NutritionPalette.accent.withValues(alpha: 0.3)
               : NutritionPalette.border,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -1406,9 +1406,9 @@ class _SourceBadge extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isCompact ? 6 : 8, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.3)),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Text(
         shortLabel,
@@ -1437,7 +1437,7 @@ class _MetadataTag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: baseColor.withOpacity(0.05),
+        color: baseColor.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -1486,7 +1486,7 @@ class _ActionButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? color : Colors.transparent,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: color.withOpacity(selected ? 1 : 0.3)),
+          border: Border.all(color: color.withValues(alpha: selected ? 1 : 0.3)),
         ),
         child: Center(
           child: Text(
@@ -1525,7 +1525,7 @@ class _FilterChip extends StatelessWidget {
       label: Text(label),
       selected: selected,
       onSelected: (_) => onSelected(),
-      selectedColor: color.withOpacity(0.2),
+      selectedColor: color.withValues(alpha: 0.2),
       backgroundColor: NutritionPalette.surface,
       labelStyle: TextStyle(
         color: selected ? color : NutritionPalette.textMuted,
@@ -1535,7 +1535,7 @@ class _FilterChip extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(
-          color: selected ? color.withOpacity(0.5) : NutritionPalette.border,
+          color: selected ? color.withValues(alpha: 0.5) : NutritionPalette.border,
         ),
       ),
       showCheckmark: false,

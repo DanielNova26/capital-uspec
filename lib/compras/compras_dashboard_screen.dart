@@ -16,6 +16,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
 
+import '../widgets/paged_list.dart';
+import 'compras_aprobaciones.dart';
 import 'compras_models.dart';
 import 'compras_catalog_logic.dart';
 import 'compras_excel_download.dart';
@@ -31,6 +33,7 @@ import 'abastecimiento_models.dart';
 import 'abastecimiento_screen.dart';
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
+import '../utils/text_input_formatters.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart' show UserNameText;
 
@@ -203,22 +206,6 @@ Widget _comprasResponsiveList<T>({
 
 String _normalizarNombre(String input) {
   return input.trim().replaceAll(RegExp(r'\s+'), ' ').toUpperCase();
-}
-
-class _UpperCaseTextFormatter extends TextInputFormatter {
-  const _UpperCaseTextFormatter();
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    return newValue.copyWith(
-      text: newValue.text.toUpperCase(),
-      selection: newValue.selection,
-      composing: TextRange.empty,
-    );
-  }
 }
 
 String _normalizarUM(String input) {
@@ -1079,7 +1066,7 @@ class ComprasDashboardScreen extends StatelessWidget {
           width: 56,
           height: 56,
           decoration: BoxDecoration(
-            color: colorRol.withOpacity(0.12),
+            color: colorRol.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Icon(
@@ -1166,9 +1153,9 @@ class ComprasDashboardScreen extends StatelessWidget {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: colorRol.withOpacity(0.08),
+                    color: colorRol.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: colorRol.withOpacity(0.18)),
+                    border: Border.all(color: colorRol.withValues(alpha: 0.18)),
                   ),
                   child: Text(
                     pill,
@@ -1229,6 +1216,9 @@ class _VencimientosScreen extends StatefulWidget {
 }
 
 class _VencimientosScreenState extends State<_VencimientosScreen> {
+  /// Página visible de la tabla (20 filas por página).
+  int _paginaTabla = 0;
+
   late Future<List<_VencimientoItem>> _future;
   String _filtro = '60';
 
@@ -1370,10 +1360,10 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: color.withOpacity(activo ? 0.16 : 0.08),
+            color: color.withValues(alpha: activo ? 0.16 : 0.08),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: color.withOpacity(activo ? 0.9 : 0.25),
+              color: color.withValues(alpha: activo ? 0.9 : 0.25),
               width: activo ? 1.6 : 1,
             ),
           ),
@@ -1430,7 +1420,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
                   _filtro = entry.key;
                   _diaSeleccionado = null;
                 }),
-                selectedColor: kComprasPrimary.withOpacity(0.14),
+                selectedColor: kComprasPrimary.withValues(alpha: 0.14),
               ),
             ),
           ),
@@ -1445,7 +1435,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
               label: const Text('Calendario'),
               selected: verCalendario,
               onSelected: (v) => setState(() => _verCalendario = v),
-              selectedColor: kComprasPrimary.withOpacity(0.14),
+              selectedColor: kComprasPrimary.withValues(alpha: 0.14),
             ),
           ),
           if (_diaSeleccionado != null)
@@ -1454,7 +1444,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
                 'Día: ${DateFormat('dd/MM/yyyy').format(_diaSeleccionado!)}',
               ),
               selected: true,
-              selectedColor: kComprasPrimary.withOpacity(0.14),
+              selectedColor: kComprasPrimary.withValues(alpha: 0.14),
               onDeleted: () => setState(() => _diaSeleccionado = null),
             ),
         ],
@@ -1480,7 +1470,7 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: color.withOpacity(0.3)),
+            side: BorderSide(color: color.withValues(alpha: 0.3)),
           ),
           child: ListTile(
             leading: Icon(Icons.description_outlined, color: color),
@@ -1513,6 +1503,11 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
   }
 
   Widget _webTable(List<_VencimientoItem> items, DateTime hoy) {
+    // Tabla larga: de a 20 filas con paginador debajo.
+    final maxPagina = pageCountOf(items.length) - 1;
+    final pagina = _paginaTabla.clamp(0, maxPagina < 0 ? 0 : maxPagina);
+    final visibles = pageOf(items, pagina);
+
     return Card(
       margin: const EdgeInsets.only(top: 12, bottom: 24),
       elevation: 0,
@@ -1520,70 +1515,84 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
       // horizontal (columnas anchas). Sin el vertical, en pantallas anchas
       // las filas de abajo quedaban inalcanzables.
       child: SingleChildScrollView(
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Documento')),
-              DataColumn(label: Text('Proveedor / producto')),
-              DataColumn(label: Text('Origen')),
-              DataColumn(label: Text('Vigente hasta')),
-              DataColumn(label: Text('Estado')),
-              DataColumn(label: Text('Abrir')),
-            ],
-            rows: items.map((item) {
-              final dias = item.sinFecha ? null : item.diasDesde(hoy);
-              final color = dias == null
-                  ? const Color(0xFF64748B)
-                  : _color(dias);
-              final estadoTxt = dias == null
-                  ? 'Sin fecha registrada'
-                  : _estado(dias);
-              return DataRow(
-                cells: [
-                  DataCell(Text(item.documento)),
-                  DataCell(SizedBox(width: 320, child: Text(item.titular))),
-                  DataCell(Text(item.origen)),
-                  DataCell(
-                    Text(
-                      item.fecha == null
-                          ? '—'
-                          : DateFormat('dd/MM/yyyy').format(item.fecha!),
-                    ),
-                  ),
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: color.withOpacity(0.35)),
-                      ),
-                      child: Text(
-                        estadoTxt,
-                        style: TextStyle(
-                          fontFamily: _kFont,
-                          fontSize: 11.5,
-                          color: color,
-                          fontWeight: FontWeight.w700,
+        child: Column(
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('Documento')),
+                  DataColumn(label: Text('Proveedor / producto')),
+                  DataColumn(label: Text('Origen')),
+                  DataColumn(label: Text('Vigente hasta')),
+                  DataColumn(label: Text('Estado')),
+                  DataColumn(label: Text('Abrir')),
+                ],
+                rows: visibles.map((item) {
+                  final dias = item.sinFecha ? null : item.diasDesde(hoy);
+                  final color = dias == null
+                      ? const Color(0xFF64748B)
+                      : _color(dias);
+                  final estadoTxt = dias == null
+                      ? 'Sin fecha registrada'
+                      : _estado(dias);
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(item.documento)),
+                      DataCell(SizedBox(width: 320, child: Text(item.titular))),
+                      DataCell(Text(item.origen)),
+                      DataCell(
+                        Text(
+                          item.fecha == null
+                              ? '—'
+                              : DateFormat('dd/MM/yyyy').format(item.fecha!),
                         ),
                       ),
-                    ),
-                  ),
-                  DataCell(
-                    IconButton(
-                      onPressed: () => _abrirUrl(context, item.doc.url),
-                      icon: const Icon(Icons.open_in_new, size: 18),
-                      tooltip: 'Ver documento',
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
-          ),
+                      DataCell(
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: color.withValues(alpha: 0.35)),
+                          ),
+                          child: Text(
+                            estadoTxt,
+                            style: TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 11.5,
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        IconButton(
+                          onPressed: () => _abrirUrl(context, item.doc.url),
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                          tooltip: 'Ver documento',
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+            if (items.length > kPageSize)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                child: PagerBar(
+                  total: items.length,
+                  page: pagina,
+                  etiqueta: 'documentos',
+                  onPageChanged: (p) => setState(() => _paginaTabla = p),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -2322,7 +2331,7 @@ class _ScannerSheetState extends State<_ScannerSheet> {
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: _isDragging
-                      ? kComprasPrimary.withOpacity(0.07)
+                      ? kComprasPrimary.withValues(alpha: 0.07)
                       : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
@@ -3316,7 +3325,7 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                     : Colors.blueGrey.shade600,
                 side: BorderSide(
                   color: expiry != null
-                      ? kComprasPrimary.withOpacity(0.45)
+                      ? kComprasPrimary.withValues(alpha: 0.45)
                       : Colors.grey.shade300,
                 ),
                 padding: const EdgeInsets.symmetric(
@@ -4169,7 +4178,7 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               width: double.infinity,
               decoration: BoxDecoration(
                 color: _isDragging
-                    ? kComprasPrimary.withOpacity(0.07)
+                    ? kComprasPrimary.withValues(alpha: 0.07)
                     : (_isUploading
                           ? Colors.blue.shade50
                           : Colors.grey.shade50),
@@ -4303,9 +4312,9 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.05),
+        color: statusColor.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: statusColor.withOpacity(0.3), width: 1),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3), width: 1),
       ),
       child: Row(
         children: [
@@ -6024,7 +6033,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                       'Es proveedor local',
                       style: TextStyle(fontFamily: _kFont, fontSize: 14),
                     ),
-                    activeColor: kComprasPrimary,
+                    activeThumbColor: kComprasPrimary,
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                   ),
@@ -6053,7 +6062,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                             }
                           });
                         },
-                        selectedColor: kComprasPrimary.withOpacity(0.15),
+                        selectedColor: kComprasPrimary.withValues(alpha: 0.15),
                         checkmarkColor: kComprasPrimary,
                         side: BorderSide(
                           color: sel ? kComprasPrimary : Colors.grey.shade300,
@@ -6195,7 +6204,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                                     '${_nitCtrl.text}_${kDocProveedorLabels[key] ?? key}_$name',
                                 contentType: ct,
                               );
-                              if (!mounted) return;
+                              if (!mounted || !context.mounted) return;
                               DateTime? vigencia;
                               if (documentoRequiereVigencia(key)) {
                                 vigencia =
@@ -6261,7 +6270,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
     keyboardType: keyboardType,
     inputFormatters: [
       ...?inputFormatters,
-      if (uppercase) const _UpperCaseTextFormatter(),
+      if (uppercase) const UpperCaseTextFormatter(),
     ],
     textCapitalization: uppercase
         ? TextCapitalization.characters
@@ -6530,7 +6539,7 @@ class _ProductoCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0277BD).withOpacity(0.1),
+                  color: const Color(0xFF0277BD).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -7046,7 +7055,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: estado.color.withOpacity(0.28)),
+          border: Border.all(color: estado.color.withValues(alpha: 0.28)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -7055,7 +7064,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               width: 28,
               height: 28,
               decoration: BoxDecoration(
-                color: estado.color.withOpacity(0.11),
+                color: estado.color.withValues(alpha: 0.11),
                 shape: BoxShape.circle,
               ),
               child: Icon(estado.icon, size: 15, color: estado.color),
@@ -7157,9 +7166,9 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -7344,7 +7353,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               // Código — ingreso manual
               TextFormField(
                 controller: _codigoCtrl,
-                inputFormatters: const [_UpperCaseTextFormatter()],
+                inputFormatters: const [UpperCaseTextFormatter()],
                 decoration: _inputDecoration('Código *').copyWith(
                   hintText: 'Ej: PRD-0001, CARNE-001',
                   prefixIcon: const Icon(Icons.qr_code, size: 18),
@@ -7363,7 +7372,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
               const SizedBox(height: 14),
               TextFormField(
                 controller: _nombreCtrl,
-                inputFormatters: const [_UpperCaseTextFormatter()],
+                inputFormatters: const [UpperCaseTextFormatter()],
                 decoration: _inputDecoration(
                   'Nombre del producto *',
                 ).copyWith(hintText: 'Ej: Carne De Res'),
@@ -7377,7 +7386,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _unidad,
+                      initialValue: _unidad,
                       decoration: _inputDecoration('Unidad de medida *'),
                       isExpanded: true,
                       items: kUnidadesMedida
@@ -7397,7 +7406,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _categoria,
+                      initialValue: _categoria,
                       decoration: _inputDecoration('Categoría *'),
                       isExpanded: true,
                       items: kCategoriasCompras
@@ -7424,7 +7433,7 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                   'Es perecedero',
                   style: TextStyle(fontFamily: _kFont, fontSize: 14),
                 ),
-                activeColor: const Color(0xFF0277BD),
+                activeThumbColor: const Color(0xFF0277BD),
                 contentPadding: EdgeInsets.zero,
                 dense: true,
               ),
@@ -8527,11 +8536,12 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       }
       return;
     }
-    if (mounted)
+    if (mounted) {
       setState(() {
         _fileName = name;
         _fileBytes = bytes;
       });
+    }
     await _pedirVigenciaTrasSeleccionarArchivo();
   }
 
@@ -8596,7 +8606,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: _isDragging
-                      ? kComprasPrimary.withOpacity(0.07)
+                      ? kComprasPrimary.withValues(alpha: 0.07)
                       : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
@@ -8663,7 +8673,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             side: BorderSide(
               color: _subiendo
                   ? Colors.grey.shade300
-                  : kComprasPrimary.withOpacity(0.5),
+                  : kComprasPrimary.withValues(alpha: 0.5),
             ),
             padding: const EdgeInsets.symmetric(vertical: 8),
           ),
@@ -8901,7 +8911,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
             _loadingProvs
                 ? const LinearProgressIndicator()
                 : DropdownButtonFormField<ProveedorDoc>(
-                    value: _proveedor,
+                    initialValue: _proveedor,
                     decoration: const InputDecoration(
                       labelText: 'Proveedor *',
                       labelStyle: TextStyle(fontFamily: _kFont),
@@ -8962,7 +8972,7 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           TextFormField(
             controller: _obsCtrl,
             textCapitalization: TextCapitalization.characters,
-            inputFormatters: const [_UpperCaseTextFormatter()],
+            inputFormatters: const [UpperCaseTextFormatter()],
             minLines: 2,
             maxLines: 4,
             decoration: InputDecoration(
@@ -9215,7 +9225,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
       child: DropdownButtonFormField<String>(
-        value: _grupoFiltro,
+        initialValue: _grupoFiltro,
         decoration: InputDecoration(
           labelText: 'Filtrar por grupo de Compras',
           prefixIcon: const Icon(Icons.groups_2_outlined, size: 19),
@@ -10496,7 +10506,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     controller: numeroCtrl,
                     autofocus: true,
                     textCapitalization: TextCapitalization.characters,
-                    inputFormatters: const [_UpperCaseTextFormatter()],
+                    inputFormatters: const [UpperCaseTextFormatter()],
                     decoration: const InputDecoration(
                       labelText: 'Número de lote *',
                       hintText: 'Ej: L-2026-001',
@@ -10894,7 +10904,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                     controller: _ordenCtrl,
                     readOnly: !isNew,
                     textCapitalization: TextCapitalization.characters,
-                    inputFormatters: const [_UpperCaseTextFormatter()],
+                    inputFormatters: const [UpperCaseTextFormatter()],
                     decoration: _inputDecoration(
                       'Orden de Compra',
                     ).copyWith(hintText: 'OC-2024-001'),
@@ -10902,7 +10912,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _bodegaSeleccionada,
+                    initialValue: _bodegaSeleccionada,
                     isExpanded: true,
                     menuMaxHeight: 360,
                     decoration:
@@ -10950,7 +10960,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   if (_grupos.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _grupoSeleccionado,
+                      initialValue: _grupoSeleccionado,
                       isExpanded: true,
                       decoration: _inputDecoration('Grupo de recepción *').copyWith(
                         prefixIcon: const Icon(
@@ -11023,7 +11033,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           nombre: name,
                           contentType: ct,
                         );
-                        if (!mounted) return;
+                        if (!mounted || !context.mounted) return;
                         DateTime? vigencia;
                         if (documentoRequiereVigencia(key)) {
                           vigencia = await _solicitarVigenciaDespuesDeCargar(
@@ -11430,7 +11440,7 @@ class _ProductoEntryCard extends StatelessWidget {
                     width: 26,
                     height: 26,
                     decoration: BoxDecoration(
-                      color: kComprasPrimary.withOpacity(0.1),
+                      color: kComprasPrimary.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Center(
@@ -11457,7 +11467,7 @@ class _ProductoEntryCard extends StatelessWidget {
                               ),
                               decoration: BoxDecoration(
                                 border: Border.all(
-                                  color: kComprasPrimary.withOpacity(0.4),
+                                  color: kComprasPrimary.withValues(alpha: 0.4),
                                   style: BorderStyle.solid,
                                 ),
                                 borderRadius: BorderRadius.circular(8),
@@ -11525,8 +11535,9 @@ class _ProductoEntryCard extends StatelessWidget {
                                       docs['fichaTecnica']?.tieneDoc == true;
                                   final marcaNombre =
                                       entry.marcaSeleccionada?.descripcion;
-                                  if (marcaNombre == null && cargados == 0)
+                                  if (marcaNombre == null && cargados == 0) {
                                     return const SizedBox.shrink();
+                                  }
                                   return Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Wrap(
@@ -11542,13 +11553,13 @@ class _ProductoEntryCard extends StatelessWidget {
                                             decoration: BoxDecoration(
                                               color: const Color(
                                                 0xFF283593,
-                                              ).withOpacity(0.08),
+                                              ).withValues(alpha: 0.08),
                                               borderRadius:
                                                   BorderRadius.circular(5),
                                               border: Border.all(
                                                 color: const Color(
                                                   0xFF283593,
-                                                ).withOpacity(0.3),
+                                                ).withValues(alpha: 0.3),
                                               ),
                                             ),
                                             child: Row(
@@ -11579,8 +11590,8 @@ class _ProductoEntryCard extends StatelessWidget {
                                           ),
                                           decoration: BoxDecoration(
                                             color: cargados == docKeys.length
-                                                ? kComprasGreen.withOpacity(
-                                                    0.08,
+                                                ? kComprasGreen.withValues(
+                                                    alpha: 0.08,
                                                   )
                                                 : Colors.amber.shade50,
                                             borderRadius: BorderRadius.circular(
@@ -11588,8 +11599,8 @@ class _ProductoEntryCard extends StatelessWidget {
                                             ),
                                             border: Border.all(
                                               color: cargados == docKeys.length
-                                                  ? kComprasGreen.withOpacity(
-                                                      0.4,
+                                                  ? kComprasGreen.withValues(
+                                                      alpha: 0.4,
                                                     )
                                                   : Colors.amber.shade300,
                                             ),
@@ -11628,20 +11639,20 @@ class _ProductoEntryCard extends StatelessWidget {
                                           ),
                                           decoration: BoxDecoration(
                                             color: tieneFicha
-                                                ? kComprasGreen.withOpacity(
-                                                    0.08,
+                                                ? kComprasGreen.withValues(
+                                                    alpha: 0.08,
                                                   )
-                                                : kComprasRed.withOpacity(0.08),
+                                                : kComprasRed.withValues(alpha: 0.08),
                                             borderRadius: BorderRadius.circular(
                                               5,
                                             ),
                                             border: Border.all(
                                               color: tieneFicha
-                                                  ? kComprasGreen.withOpacity(
-                                                      0.4,
+                                                  ? kComprasGreen.withValues(
+                                                      alpha: 0.4,
                                                     )
-                                                  : kComprasRed.withOpacity(
-                                                      0.4,
+                                                  : kComprasRed.withValues(
+                                                      alpha: 0.4,
                                                     ),
                                             ),
                                           ),
@@ -11756,7 +11767,7 @@ class _ProductoEntryCard extends StatelessWidget {
                           ? currentId
                           : null;
                       return DropdownButtonFormField<String>(
-                        value: validId,
+                        initialValue: validId,
                         decoration: _inputDecoration('Marca').copyWith(
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -12152,7 +12163,7 @@ class _ProductoEntryCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: kComprasPrimary.withOpacity(0.08),
+                            color: kComprasPrimary.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -12212,7 +12223,7 @@ class _ProductoEntryCard extends StatelessWidget {
                       controller: entry.observacionesCtrl,
                       readOnly: readOnlyStructure,
                       textCapitalization: TextCapitalization.characters,
-                      inputFormatters: const [_UpperCaseTextFormatter()],
+                      inputFormatters: const [UpperCaseTextFormatter()],
                       decoration:
                           _inputDecoration(
                             'Observaciones de la ficha técnica',
@@ -12316,9 +12327,9 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: kComprasPrimary.withOpacity(0.06),
+              color: kComprasPrimary.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: kComprasPrimary.withOpacity(0.2)),
+              border: Border.all(color: kComprasPrimary.withValues(alpha: 0.2)),
             ),
             child: Row(
               children: [
@@ -12348,7 +12359,7 @@ class _ProductoSelectorSheetState extends State<_ProductoSelectorSheet> {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0277BD).withOpacity(0.1),
+                    color: const Color(0xFF0277BD).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -12436,17 +12447,19 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
     setState(() => _generandoCodigo = true);
     try {
       final codigo = await widget.svc.generarCodigoMarca(widget.empresaId);
-      if (mounted)
+      if (mounted) {
         setState(() {
           _codigoGenerado = codigo;
           _generandoCodigo = false;
         });
+      }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _codigoGenerado = 'MRC-???';
           _generandoCodigo = false;
         });
+      }
     }
   }
 
@@ -12481,8 +12494,9 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
         descripcion: nuevaMarca.descripcion,
         createdAt: nuevaMarca.createdAt,
       );
-      if (mounted)
+      if (mounted) {
         Navigator.pop(context, _MarcaDialogResult.marcaCreada(creada));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -12511,7 +12525,7 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
               Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: kComprasPrimary.withOpacity(0.1),
+                  color: kComprasPrimary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(
@@ -12583,10 +12597,10 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                       ),
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: kComprasPrimary.withOpacity(0.3),
+                          color: kComprasPrimary.withValues(alpha: 0.3),
                         ),
                         borderRadius: BorderRadius.circular(10),
-                        color: kComprasPrimary.withOpacity(0.04),
+                        color: kComprasPrimary.withValues(alpha: 0.04),
                       ),
                       child: Row(
                         children: [
@@ -12651,10 +12665,10 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: kComprasPrimary.withOpacity(0.04),
+                    color: kComprasPrimary.withValues(alpha: 0.04),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: kComprasPrimary.withOpacity(0.15),
+                      color: kComprasPrimary.withValues(alpha: 0.15),
                     ),
                   ),
                   child: Column(
@@ -12718,7 +12732,7 @@ class _MarcaSelectorDialogState extends State<_MarcaSelectorDialog> {
                   controller: _nombreCtrl,
                   autofocus: true,
                   textCapitalization: TextCapitalization.characters,
-                  inputFormatters: const [_UpperCaseTextFormatter()],
+                  inputFormatters: const [UpperCaseTextFormatter()],
                   decoration:
                       _inputDecoration(
                         'Nombre / Descripción de la marca',
@@ -12878,9 +12892,9 @@ Widget _consultaDocumentoChip(
   final chip = Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
     decoration: BoxDecoration(
-      color: estado.color.withOpacity(0.08),
+      color: estado.color.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: estado.color.withOpacity(0.3)),
+      border: Border.all(color: estado.color.withValues(alpha: 0.3)),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -13227,9 +13241,9 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: _accentColor.withOpacity(0.08),
+                  color: _accentColor.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _accentColor.withOpacity(0.18)),
+                  border: Border.all(color: _accentColor.withValues(alpha: 0.18)),
                 ),
                 child: const Text(
                   'Centro de consultas',
@@ -13299,9 +13313,9 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: _accentColor.withOpacity(0.06),
+                      color: _accentColor.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: _accentColor.withOpacity(0.14)),
+                      border: Border.all(color: _accentColor.withValues(alpha: 0.14)),
                     ),
                     child: Row(
                       children: [
@@ -13309,7 +13323,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                           width: 46,
                           height: 46,
                           decoration: BoxDecoration(
-                            color: _accentColor.withOpacity(0.12),
+                            color: _accentColor.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Icon(
@@ -13373,12 +13387,12 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: selected
-                              ? _accentColor.withOpacity(0.08)
+                              ? _accentColor.withValues(alpha: 0.08)
                               : Colors.white,
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: selected
-                                ? _accentColor.withOpacity(0.28)
+                                ? _accentColor.withValues(alpha: 0.28)
                                 : const Color(0xFFE2E8F0),
                           ),
                         ),
@@ -13462,7 +13476,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: _accentColor.withOpacity(0.1),
+                      color: _accentColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(_activeTab.icon, color: _accentColor, size: 22),
@@ -13492,7 +13506,7 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _accentColor.withOpacity(0.08),
+                                  color: _accentColor.withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
@@ -13730,9 +13744,9 @@ class _ConsultaLegendChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -13843,11 +13857,12 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
         _loading = false;
       });
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -13932,13 +13947,14 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -14039,8 +14055,8 @@ class _ConsultaProveedoresTabState extends State<_ConsultaProveedoresTab> {
                               ),
                               decoration: BoxDecoration(
                                 color: requeridosCompletos
-                                    ? kComprasGreen.withOpacity(0.1)
-                                    : kComprasRed.withOpacity(0.08),
+                                    ? kComprasGreen.withValues(alpha: 0.1)
+                                    : kComprasRed.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
                                   color: requeridosCompletos
@@ -14254,13 +14270,14 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _marcasPorId = {};
           _fichasTecnicas = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -14410,13 +14427,14 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -14772,12 +14790,13 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _fichasTecnicas = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -14902,13 +14921,14 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -15799,11 +15819,12 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -15923,13 +15944,14 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -16005,7 +16027,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
               color: Colors.white,
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: DropdownButtonFormField<String>(
-                value: _grupoFiltro,
+                initialValue: _grupoFiltro,
                 decoration: InputDecoration(
                   labelText: 'Grupo de Compras',
                   prefixIcon: const Icon(Icons.groups_2_outlined, size: 18),
@@ -16127,7 +16149,7 @@ class _ConsultaRecepcionesTabState extends State<_ConsultaRecepcionesTab> {
                               color: const Color(0xFFF0F4FF),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: kComprasPrimary.withOpacity(0.15),
+                                color: kComprasPrimary.withValues(alpha: 0.15),
                               ),
                             ),
                             child: Column(
@@ -16411,11 +16433,12 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _todos = [];
           _loading = false;
         });
+      }
     }
   }
 
@@ -16455,9 +16478,9 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         final doc = f.documentoActual;
         String estado = '—';
         if (doc != null) {
-          if (doc.aprobadoConRequerimientos)
+          if (doc.aprobadoConRequerimientos) {
             estado = 'Aprobado con requerimientos';
-          else if (doc.aprobado)
+          } else if (doc.aprobado)
             estado = 'Aprobado';
           else if (doc.rechazado)
             estado = 'Rechazado';
@@ -16499,13 +16522,14 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         filas: filas,
       );
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error al exportar: $e'),
             backgroundColor: kComprasRed,
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _exportando = false);
     }
@@ -16575,10 +16599,10 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
               margin: const EdgeInsets.fromLTRB(10, 6, 10, 0),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF1565C0).withOpacity(0.06),
+                color: const Color(0xFF1565C0).withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: const Color(0xFF1565C0).withOpacity(0.2),
+                  color: const Color(0xFF1565C0).withValues(alpha: 0.2),
                 ),
               ),
               child: Column(
@@ -16778,7 +16802,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
                                 vertical: 3,
                               ),
                               decoration: BoxDecoration(
-                                color: badgeColor.withOpacity(0.1),
+                                color: badgeColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: badgeColor),
                               ),
@@ -17425,7 +17449,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                       Container(
                         padding: const EdgeInsets.all(7),
                         decoration: BoxDecoration(
-                          color: kComprasPrimary.withOpacity(0.1),
+                          color: kComprasPrimary.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
@@ -17621,7 +17645,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                             color: const Color(0xFFF0F4FF),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: kComprasPrimary.withOpacity(0.15),
+                              color: kComprasPrimary.withValues(alpha: 0.15),
                             ),
                           ),
                           child: Column(
@@ -18031,10 +18055,10 @@ class _MarcasScreenState extends State<_MarcasScreen> {
               style: const TextStyle(fontFamily: _kFont, color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Buscar marca...',
-                hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
                 prefixIcon: const Icon(Icons.search, color: Colors.white70),
                 filled: true,
-                fillColor: Colors.white.withOpacity(0.15),
+                fillColor: Colors.white.withValues(alpha: 0.15),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -18111,7 +18135,7 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1976D2).withOpacity(0.1),
+                            color: const Color(0xFF1976D2).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(
@@ -18325,7 +18349,7 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
             // Código
             TextFormField(
               controller: _codigoCtrl,
-              inputFormatters: const [_UpperCaseTextFormatter()],
+              inputFormatters: const [UpperCaseTextFormatter()],
               decoration: _inputDecoration('Código *').copyWith(
                 hintText: 'MRC-0001',
                 prefixIcon: _generandoCodigo
@@ -18354,7 +18378,7 @@ class _MarcaFormSheetState extends State<_MarcaFormSheet> {
             // Descripción
             TextFormField(
               controller: _descCtrl,
-              inputFormatters: const [_UpperCaseTextFormatter()],
+              inputFormatters: const [UpperCaseTextFormatter()],
               decoration: _inputDecoration(
                 'Descripción / Nombre *',
               ).copyWith(hintText: 'Ej: Nike, Zenú, Colanta'),
@@ -18424,7 +18448,7 @@ class _OrigenButton extends StatelessWidget {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : Colors.grey.shade50,
+          color: selected ? color.withValues(alpha: 0.12) : Colors.grey.shade50,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: selected ? color : Colors.grey.shade300,
@@ -20973,6 +20997,32 @@ class _FichaCalidadCard extends StatelessWidget {
                   ),
               ],
             ),
+            // Quién tomó la última decisión de calidad y el historial completo.
+            if ((doc?.revisadoPor ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              AprobadoPorLinea(
+                revisadoPor: doc!.revisadoPor,
+                fecha: doc.fechaRevision?.toDate(),
+                etiqueta: doc.rechazado
+                    ? 'Rechazado'
+                    : (doc.aprobadoConRequerimientos
+                          ? 'Aprobado con requerimientos'
+                          : 'Aprobado'),
+                color: doc.rechazado
+                    ? kComprasRed
+                    : (doc.aprobadoConRequerimientos
+                          ? const Color(0xFFB45309)
+                          : kComprasGreen),
+              ),
+            ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: HistorialAprobacionesBoton(
+                entidadId: ficha.id,
+                docKey: 'fichaTecnica',
+                titulo: 'Historial de aprobaciones · Ficha técnica',
+              ),
+            ),
             if (doc?.observacionActualizacion?.isNotEmpty == true) ...[
               const SizedBox(height: 6),
               Container(
@@ -21906,59 +21956,84 @@ class _RecepcionCalidadCard extends StatelessWidget {
     }
 
     if (doc.aprobado) {
-      // Aprobado — solo visual
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.green.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.shade200),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  color: Colors.black87,
-                ),
-              ),
+      // Aprobado: además del estado se dice QUIÉN aprobó y se ofrece el
+      // historial completo (aprobaciones, rechazos y reversiones).
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.green.shade200),
             ),
-            if (doc.tieneDoc)
-              IconButton(
-                onPressed: () => _abrirUrl(context, doc.url),
-                icon: const Icon(
-                  Icons.open_in_new,
-                  size: 14,
-                  color: Colors.blue,
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, size: 14, color: kComprasGreen),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black87,
+                    ),
+                  ),
                 ),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                tooltip: 'Ver documento',
-              ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.green.shade100,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.green.shade300),
-              ),
-              child: const Text(
-                'Aprobado',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: kComprasGreen,
+                if (doc.tieneDoc)
+                  IconButton(
+                    onPressed: () => _abrirUrl(context, doc.url),
+                    icon: const Icon(
+                      Icons.open_in_new,
+                      size: 14,
+                      color: Colors.blue,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
+                    tooltip: 'Ver documento',
+                  ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.green.shade300),
+                  ),
+                  child: const Text(
+                    'Aprobado',
+                    style: TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: kComprasGreen,
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+          AprobadoPorLinea(
+            revisadoPor: doc.revisadoPor,
+            fecha: doc.fechaRevision?.toDate(),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: HistorialAprobacionesBoton(
+              entidadId: recepcion.id,
+              docKey: docKey,
+              titulo: 'Historial de aprobaciones · $label',
+            ),
+          ),
+        ],
       );
     }
 
@@ -22084,16 +22159,16 @@ class _RecepcionCalidadCard extends StatelessWidget {
                           (doc.fechaVencimiento!.toDate().isBefore(
                             DateTime.now(),
                           ))
-                          ? Colors.red.withOpacity(0.1)
-                          : Colors.blue.withOpacity(0.1),
+                          ? Colors.red.withValues(alpha: 0.1)
+                          : Colors.blue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                         color:
                             (doc.fechaVencimiento!.toDate().isBefore(
                               DateTime.now(),
                             ))
-                            ? Colors.red.withOpacity(0.3)
-                            : Colors.blue.withOpacity(0.3),
+                            ? Colors.red.withValues(alpha: 0.3)
+                            : Colors.blue.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Row(
@@ -23439,7 +23514,7 @@ class _SectionHeader extends StatelessWidget {
 Widget _Chip(String label, Color color) => Container(
   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
   decoration: BoxDecoration(
-    color: color.withOpacity(0.12),
+    color: color.withValues(alpha: 0.12),
     borderRadius: BorderRadius.circular(12),
   ),
   child: Text(

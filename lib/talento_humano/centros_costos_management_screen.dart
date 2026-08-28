@@ -75,6 +75,9 @@ class _CentrosCostosManagementScreenState
       final people = <_CentroPerson>[];
       for (final doc in docs.values) {
         final root = doc.data();
+        // Los retirados conservan su historial pero no ocupan plaza: el conteo
+        // por centro de costo es de personal vigente.
+        if (!isPersonaActivaEnEmpresa(root, widget.empresaId)) continue;
         final data = mergeCompanyScopedData(root, widget.empresaId);
         final center = _text(
           data['centroCostos'] ?? data['centro_nombre'] ?? data['centroNombre'],

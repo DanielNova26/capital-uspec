@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../theme/app_scroll_behavior.dart' show BarraHorizontal;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
@@ -20,6 +21,7 @@ import '../services/catalog_export_service.dart';
 import '../services/demo_seed_service.dart';
 import '../bootstrap/static_excel_catalogs_seed.dart';
 import '../utils/user_company.dart';
+import '../widgets/paged_list.dart';
 
 class SeedAdminScreen extends StatefulWidget {
   const SeedAdminScreen({super.key});
@@ -1062,90 +1064,95 @@ class _PeopleReviewTable extends StatelessWidget {
   }
 
   Widget _buildTable(BuildContext context) {
-    return Scrollbar(
+    return BarraHorizontal(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
-          child: DataTable(
-            columnSpacing: 18,
-            columns: const [
-              DataColumn(label: Text('Estado')),
-              DataColumn(label: Text('Persona')),
-              DataColumn(label: Text('Empresas actuales')),
-              DataColumn(label: Text('Comparacion')),
-              DataColumn(label: Text('Accion')),
-            ],
-            rows: items.map((item) {
-              final skipped = skippedCedulas.contains(item.cedula);
-              return DataRow(
-                selected: skipped,
-                color: item.hasCedulaWarning && !skipped
-                    ? WidgetStatePropertyAll(Colors.red.withValues(alpha: 0.06))
-                    : null,
-                cells: [
-                  DataCell(_StatusChip(item: item)),
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 250),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (item.hasCedulaWarning) ...[
-                            Tooltip(
-                              message: item.cedulaWarnings.join('\n'),
-                              child: const Icon(
-                                Icons.warning_amber_rounded,
-                                size: 18,
-                                color: Colors.red,
+          child: PagedDataTable(
+            etiqueta: 'registros',
+            tabla: DataTable(
+              columnSpacing: 18,
+              columns: const [
+                DataColumn(label: Text('Estado')),
+                DataColumn(label: Text('Persona')),
+                DataColumn(label: Text('Empresas actuales')),
+                DataColumn(label: Text('Comparacion')),
+                DataColumn(label: Text('Accion')),
+              ],
+              rows: items.map((item) {
+                final skipped = skippedCedulas.contains(item.cedula);
+                return DataRow(
+                  selected: skipped,
+                  color: item.hasCedulaWarning && !skipped
+                      ? WidgetStatePropertyAll(
+                          Colors.red.withValues(alpha: 0.06),
+                        )
+                      : null,
+                  cells: [
+                    DataCell(_StatusChip(item: item)),
+                    DataCell(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 250),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (item.hasCedulaWarning) ...[
+                              Tooltip(
+                                message: item.cedulaWarnings.join('\n'),
+                                child: const Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 18,
+                                  color: Colors.red,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            Flexible(
+                              child: Text(
+                                '${item.name}\n${item.cedula}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            const SizedBox(width: 6),
                           ],
-                          Flexible(
-                            child: Text(
-                              '${item.name}\n${item.cedula}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: Text(
-                        item.currentCompanies.isEmpty
-                            ? 'Sin registro'
-                            : item.currentCompanies.join(', '),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                    DataCell(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Text(
+                          item.currentCompanies.isEmpty
+                              ? 'Sin registro'
+                              : item.currentCompanies.join(', '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
-                  ),
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 380),
-                      child: Text(
-                        item.diffSummary,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
+                    DataCell(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 380),
+                        child: Text(
+                          item.diffSummary,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
-                  ),
-                  DataCell(
-                    OutlinedButton.icon(
-                      onPressed: () => onToggleSkip(item.cedula),
-                      icon: Icon(
-                        skipped ? Icons.undo : Icons.pause_circle_outline,
+                    DataCell(
+                      OutlinedButton.icon(
+                        onPressed: () => onToggleSkip(item.cedula),
+                        icon: Icon(
+                          skipped ? Icons.undo : Icons.pause_circle_outline,
+                        ),
+                        label: Text(skipped ? 'Incluir' : item.skipLabel),
                       ),
-                      label: Text(skipped ? 'Incluir' : item.skipLabel),
                     ),
-                  ),
-                ],
-              );
-            }).toList(),
+                  ],
+                );
+              }).toList(),
+            ),
           ),
         ),
       ),
@@ -1257,44 +1264,47 @@ class _CatalogReviewTable extends StatelessWidget {
       return const Center(child: Text('No hay datos para revisar.'));
     }
 
-    return Scrollbar(
+    return BarraHorizontal(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SingleChildScrollView(
-          child: DataTable(
-            columns: const [
-              DataColumn(label: Text('Estado')),
-              DataColumn(label: Text('Nombre')),
-              DataColumn(label: Text('ID destino')),
-              DataColumn(label: Text('Detalle')),
-            ],
-            rows: items.map((item) {
-              final color = item.exists ? Colors.teal : Colors.green;
-              return DataRow(
-                cells: [
-                  DataCell(
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      avatar: Icon(
-                        item.exists
-                            ? Icons.check_circle_outline
-                            : Icons.add_circle_outline,
-                        size: 16,
-                        color: color,
+          child: PagedDataTable(
+            etiqueta: 'registros',
+            tabla: DataTable(
+              columns: const [
+                DataColumn(label: Text('Estado')),
+                DataColumn(label: Text('Nombre')),
+                DataColumn(label: Text('ID destino')),
+                DataColumn(label: Text('Detalle')),
+              ],
+              rows: items.map((item) {
+                final color = item.exists ? Colors.teal : Colors.green;
+                return DataRow(
+                  cells: [
+                    DataCell(
+                      Chip(
+                        visualDensity: VisualDensity.compact,
+                        avatar: Icon(
+                          item.exists
+                              ? Icons.check_circle_outline
+                              : Icons.add_circle_outline,
+                          size: 16,
+                          color: color,
+                        ),
+                        label: Text(item.exists ? 'Ya existe' : 'Nuevo'),
+                        side: BorderSide(color: color.withValues(alpha: 0.35)),
+                        backgroundColor: color.withValues(alpha: 0.08),
                       ),
-                      label: Text(item.exists ? 'Ya existe' : 'Nuevo'),
-                      side: BorderSide(color: color.withValues(alpha: 0.35)),
-                      backgroundColor: color.withValues(alpha: 0.08),
                     ),
-                  ),
-                  DataCell(Text(item.name)),
-                  DataCell(Text(item.id)),
-                  DataCell(
-                    Text(item.detail.isEmpty ? item.source : item.detail),
-                  ),
-                ],
-              );
-            }).toList(),
+                    DataCell(Text(item.name)),
+                    DataCell(Text(item.id)),
+                    DataCell(
+                      Text(item.detail.isEmpty ? item.source : item.detail),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
           ),
         ),
       ),
@@ -1351,7 +1361,7 @@ class _PreviewTable extends StatelessWidget {
       ..sort((a, b) => (freq[b] ?? 0).compareTo(freq[a] ?? 0));
     final display = cols.take(10).toList();
 
-    return Scrollbar(
+    return BarraHorizontal(
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: ConstrainedBox(
@@ -1360,18 +1370,23 @@ class _PreviewTable extends StatelessWidget {
           ),
           child: SingleChildScrollView(
             scrollDirection: Axis.vertical,
-            child: DataTable(
-              columns: display.map((k) => DataColumn(label: Text(k))).toList(),
-              rows: rows
-                  .take(200)
-                  .map(
-                    (r) => DataRow(
-                      cells: display
-                          .map((k) => DataCell(Text('${r[k] ?? ''}')))
-                          .toList(),
-                    ),
-                  )
-                  .toList(),
+            child: PagedDataTable(
+              etiqueta: 'registros',
+              tabla: DataTable(
+                columns: display
+                    .map((k) => DataColumn(label: Text(k)))
+                    .toList(),
+                rows: rows
+                    .take(200)
+                    .map(
+                      (r) => DataRow(
+                        cells: display
+                            .map((k) => DataCell(Text('${r[k] ?? ''}')))
+                            .toList(),
+                      ),
+                    )
+                    .toList(),
+              ),
             ),
           ),
         ),

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:todo/data/firestore_user_repository.dart';
 import 'package:todo/utils/user_company.dart';
 
 class EmpresaItem {
@@ -144,7 +145,7 @@ class AdminRepository {
       final nombre = (data['nombre'] ?? data['razonSocial'] ?? id)
           .toString()
           .trim();
-      if (id.isNotEmpty)
+      if (id.isNotEmpty) {
         out.add(
           EmpresaItem(
             empresaId: id,
@@ -174,6 +175,7 @@ class AdminRepository {
                 .trim(),
           ),
         );
+      }
     }
     out.sort((a, b) => a.empresaId.compareTo(b.empresaId));
     return out;
@@ -308,35 +310,11 @@ class AdminRepository {
   }
 
   // ---------------- USUARIOS ----------------
+  /// Delega en el repositorio compartido: Admin y Talento Humano deben ver
+  /// exactamente el mismo padron de usuarios por empresa.
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadUsersByEmpresa(
     String empresaId,
-  ) async {
-    final results = await Future.wait([
-      _db
-          .collection('TBL_USUARIOS')
-          .where('empresas', arrayContains: empresaId)
-          .get(),
-      _db
-          .collection('TBL_USUARIOS')
-          .where('empresaId', isEqualTo: empresaId)
-          .get(),
-    ]);
-    final deduped = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    for (final result in results) {
-      for (final doc in result.docs) {
-        if (matchesEmpresaScope(
-          doc.data(),
-          empresaId,
-          allowLegacyWithoutEmpresa: false,
-        )) {
-          deduped[doc.id] = doc;
-        }
-      }
-    }
-    final out = deduped.values.toList();
-    out.sort((a, b) => a.id.compareTo(b.id));
-    return out;
-  }
+  ) => FirestoreUserRepository.instance.loadUsersByEmpresa(empresaId);
 
   Future<void> updateUserApps(
     String userId,
@@ -576,8 +554,9 @@ class AdminRepository {
     final roleKey = normalizeRoleKey(
       (existingRoleKey ?? '').trim().isNotEmpty ? existingRoleKey! : nombre,
     );
-    if (roleKey.isEmpty)
+    if (roleKey.isEmpty) {
       throw ArgumentError('El nombre del rol es obligatorio');
+    }
     final roleId = (existingRoleId ?? '').trim().isNotEmpty
         ? existingRoleId!.trim()
         : '${empresaId}_$roleKey';

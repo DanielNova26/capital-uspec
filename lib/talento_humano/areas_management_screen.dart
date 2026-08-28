@@ -3,6 +3,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../core/hierarchy_order.dart';
+import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 
@@ -37,8 +38,9 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
     if (completo.isNotEmpty) return completo;
     final nombres = (ud['nombres'] as String?)?.trim() ?? '';
     final apellidos = (ud['apellidos'] as String?)?.trim() ?? '';
-    if (nombres.isNotEmpty || apellidos.isNotEmpty)
+    if (nombres.isNotEmpty || apellidos.isNotEmpty) {
       return '$nombres $apellidos'.trim();
+    }
     final p1 = (ud['primerNombre'] as String?)?.trim() ?? '';
     final p2 = (ud['segundoNombre'] as String?)?.trim() ?? '';
     final a1 = (ud['primerApellido'] as String?)?.trim() ?? '';
@@ -46,19 +48,36 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
     return '$p1 $p2 $a1 $a2'.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  Future<String> _resolveNombreArea(String cedula) async {
+  /// Nombre y vinculación de una cédula. El array `cedulas` del área conserva
+  /// a quien ya se retiró, así que el estado laboral se lee del usuario para
+  /// no listar personal inactivo.
+  Future<({String nombre, bool activa})> _resolvePersonaArea(
+    String cedula,
+  ) async {
     final col = _db.collection('TBL_USUARIOS');
     final direct = await col.doc(cedula).get();
-    if (direct.exists && direct.data() != null) {
-      final n = _nombreDeUsuario(direct.data()!);
-      if (n.isNotEmpty) return n;
+    final directData = direct.data();
+    if (direct.exists && directData != null) {
+      final n = _nombreDeUsuario(directData);
+      if (n.isNotEmpty) {
+        return (
+          nombre: n,
+          activa: isPersonaActivaEnEmpresa(directData, widget.empresaId),
+        );
+      }
     }
     final q = await col.where('cedula', isEqualTo: cedula).limit(1).get();
     if (q.docs.isNotEmpty) {
-      final n = _nombreDeUsuario(q.docs.first.data());
-      if (n.isNotEmpty) return n;
+      final data = q.docs.first.data();
+      final n = _nombreDeUsuario(data);
+      if (n.isNotEmpty) {
+        return (
+          nombre: n,
+          activa: isPersonaActivaEnEmpresa(data, widget.empresaId),
+        );
+      }
     }
-    return cedula;
+    return (nombre: cedula, activa: true);
   }
 
   Future<void> _showAreaUsersDialog(
@@ -92,17 +111,25 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
       }
     }
 
-    final asignados = await Future.wait(
+    final resueltos = await Future.wait(
       cedulas.map((ced) async {
         final cargo = cargoByCedula[ced] ?? const <String, dynamic>{};
-        return <String, dynamic>{
-          'cedula': ced,
-          'nombre': await _resolveNombreArea(ced),
-          'cargoId': cargoIdOf(cargo),
-          'cargo': cargoNameOf(cargo),
-        };
+        final persona = await _resolvePersonaArea(ced);
+        return (
+          activa: persona.activa,
+          fila: <String, dynamic>{
+            'cedula': ced,
+            'nombre': persona.nombre,
+            'cargoId': cargoIdOf(cargo),
+            'cargo': cargoNameOf(cargo),
+          },
+        );
       }),
     );
+    final asignados = [
+      for (final r in resueltos)
+        if (r.activa) r.fila,
+    ];
     asignados.sort(hierarchy.comparePersonnel);
 
     if (!mounted) return;
@@ -136,7 +163,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                 : ListView.separated(
                     shrinkWrap: true,
                     itemCount: asignados.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final u = asignados[i];
                       final nombre = u['nombre']!;
@@ -231,7 +258,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: _khPrimary.withOpacity(0.1),
+                    color: _khPrimary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -393,9 +420,9 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                       final id = '${widget.empresaId}_${_slug(nombre)}';
                       await _areasColl.doc(id).set(payload);
                     } else {
-                      await doc!.reference.update(payload);
+                      await doc.reference.update(payload);
                     }
-                    if (mounted) Navigator.of(ctx2).pop();
+                    if (mounted && ctx2.mounted) Navigator.of(ctx2).pop();
                   } catch (e) {
                     if (mounted) {
                       ScaffoldMessenger.of(
@@ -479,7 +506,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
           return ListView.separated(
             padding: const EdgeInsets.all(24),
             itemCount: docs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (ctx, idx) {
               final doc = docs[idx];
               final data = doc.data();
@@ -489,7 +516,7 @@ class _AreasManagementScreenState extends State<AreasManagementScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: _khPrimary.withOpacity(0.1),
+                        color: _khPrimary.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(

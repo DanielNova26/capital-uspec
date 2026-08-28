@@ -5,6 +5,584 @@ Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
+## Política de versiones (leer antes de tocar `version:` en pubspec.yaml)
+
+Las dos plataformas leen la versión de **un solo sitio**: `version: X.Y.Z+N` en
+`pubspec.yaml`.
+
+- Android: `versionName` y `versionCode` salen de `flutter.versionName` /
+  `flutter.versionCode` en `android/app/build.gradle.kts`.
+- iOS: `CFBundleShortVersionString` y `CFBundleVersion` usan
+  `$(FLUTTER_BUILD_NAME)` y `$(FLUTTER_BUILD_NUMBER)` en `ios/Runner/Info.plist`.
+
+Estaban hardcodeadas a `2.3` en el Info.plist, lo que obligaba a editar el
+archivo a mano en cada release. Se corrigió.
+
+### Por qué la versión arranca en 2.4.0 y no en 1.0.0
+
+La app **ya existía en App Store Connect** con bundle ID
+`com.capitaluspec.gestionapp`, bajo el nombre "To-Do", con este historial:
+
+| Versión | Estado | Fecha |
+|---|---|---|
+| 2.1 | Listo para distribución | 21 feb 2026 |
+| 1.1 | Listo para distribución | 11 dic 2025 |
+
+Las versiones de App Store **solo pueden subir**. Un build 1.0.0 sobre un
+linaje que ya llegó a 2.1 lo rechaza Apple automáticamente. Por eso el punto de
+unificación tuvo que quedar por encima de 2.1, no en 1.0.0.
+
+Se eligió 2.4.0 y no 2.2 por margen: el Info.plist tenía 2.3 hardcodeado, lo que
+sugiere que en algún momento se preparó un build con ese número. Si un
+`versión + build` llegó a subirse alguna vez a App Store Connect, ese par queda
+consumido aunque nunca se publicara.
+
+Android no tiene problema con el salto: su `versionName` es texto libre y puede
+pasar de 1.0.0 a 2.4.0 sin más. Lo único que Play exige es que el `versionCode`
+aumente siempre.
+
+### Códigos ya consumidos
+
+- **Play**: 1, 2, 3 y 4. El 3 quedó publicado en prueba cerrada Alpha.
+- **App Store**: versiones 1.1 y 2.1 publicadas.
+
+Ninguno se puede reutilizar en ninguna de las dos tiendas.
+
+### No borrar la app de App Store Connect para "empezar limpio"
+
+Apple **nunca libera un bundle ID** que ya estuvo asociado a una app, aunque se
+borre. `com.capitaluspec.gestionapp` quedaría inutilizable para siempre. Y una
+app ya aprobada no se puede eliminar del todo: se retira de la venta, pero el
+registro, las reseñas y el historial se pierden sin recuperar el identificador.
+
+### Los bundle ID de las dos tiendas son distintos, y está bien
+
+- Android: `com.todogestion.app`
+- iOS: `com.capitaluspec.gestionapp`
+
+Son espacios de nombres independientes. Lo que importa es que cada uno sea
+consistente consigo mismo: en iOS, que coincidan Xcode, `GoogleService-Info.plist`
+y `firebase_options.dart`, que es el caso.
+
+---
+
+## Sesión 2026-08-27 — La barra de scroll horizontal no va en móvil
+
+Reporte con capturas del teléfono: salía una barra gris **atravesada sobre el
+contenido** — encima de las tarjetas de resumen de Requerimientos de personal,
+encima del módulo "Administración" en Home y encima de las pestañas de
+Nutrición.
+
+Corrige el alcance de lo que hizo la sesión del 2026-08-25 (ronda 3), que
+introdujo las barras de scroll. La barra horizontal es una ayuda de puntero:
+avisa que hay más columnas y deja agarrar la fila con el mouse. Con el dedo no
+informa nada, y como se dibuja dentro del área del scroll, en filas bajas queda
+pintada sobre las tarjetas.
+
+### Dos orígenes distintos
+
+**1. `AppScrollBehavior`** forzaba `Scrollbar` en *todo* scroll horizontal, sin
+mirar la plataforma. De ahí salían Home y Requerimientos, que son `ListView`
+horizontales normales. Ahora en móvil delega en `super`, que para el eje
+horizontal devuelve el hijo tal cual: ninguna barra.
+
+**2. `internal_module_layout.dart`** tenía su propio `Scrollbar` con
+`thumbVisibility` para la fila de pestañas — un widget explícito que el
+`ScrollBehavior` no puede interceptar. Se envuelve condicionalmente. Las
+flechas laterales `‹ ›` se conservan en ambas plataformas.
+
+### La regla se decide por plataforma, no por `kIsWeb`
+
+`usaBarraHorizontal(context)` mira `Theme.of(context).platform`. Eso resuelve
+los dos casos de una sola vez: Flutter web en un escritorio reporta
+windows/macOS/linux y lleva barra; en el navegador de un teléfono reporta
+android/iOS y no la lleva, igual que la app nativa. Con `kIsWeb` la web móvil
+habría seguido rota.
+
+### Limpieza de paso
+
+CLAUDE.md ya dice que no hay que envolver tablas en `Scrollbar` a mano, pero
+quedaban 5 sitios que sí lo hacían (3 en `seed_admin_screen`, 2 en
+`interventoria_dashboard_screen`). No forzaban `thumbVisibility`, así que solo
+asomaban al deslizar, pero en móvil incumplían igual. Pasan a `BarraHorizontal`,
+que en escritorio se comporta idéntico y en móvil desaparece.
+
+Los dos `Scrollbar` de `rutas_dashboard_screen` **no se tocaron**: envuelven
+scroll vertical, donde la barra sí corresponde.
+
+### Verificación
+`test/app_scroll_behavior_test.dart`, 7 casos: móvil sin barra, escritorio con
+barra, el eje vertical intacto, y `BarraHorizontal` en ambos sentidos. Suite
+completa en verde (296 tests).
+
+### Archivos
+- `lib/theme/app_scroll_behavior.dart` — `usaBarraHorizontal`, `BarraHorizontal`,
+  gate en `buildScrollbar`
+- `lib/widgets/internal_module_layout.dart` — `_conBarra`
+- `lib/admin/seed_admin_screen.dart`, `lib/interventoria/interventoria_dashboard_screen.dart`
+- `test/app_scroll_behavior_test.dart` (nuevo)
+
+---
+## Sesión 2026-08-27 — `BuildContext` después de un `await`: los 41 avisos que sí eran crashes
+
+De los 222 avisos que dejó la limpieza de lint del commit `9c5d134`, estos 41
+eran los únicos con riesgo real: `use_build_context_synchronously`. El resto es
+cosmético (`withOpacity`, `use_null_aware_elements`, código muerto).
+
+**Por qué importa.** Si la persona toca dos veces "Guardar", sale de la pantalla
+mientras está guardando o cierra la app con una subida en vuelo, el `State` se
+desmonta y el `context` que quedó capturado antes del `await` ya no apunta a
+nada. `Navigator.push`, `ScaffoldMessenger.of` o `EmpresaScope.of` sobre ese
+context lanzan excepción. Se ve como un crash intermitente imposible de
+reproducir a pedido, que es exactamente lo que veníamos arrastrando.
+
+`dart fix` no lo puede automatizar porque el arreglo depende de qué se hace con
+el context, así que fue caso por caso. Nada se silenció con `// ignore:`.
+
+### Los cuatro patrones que se aplicaron
+
+1. **Solo para un SnackBar → capturar el messenger antes del `await`.** Es el
+   patrón que ya usaba `_descargarActaPdf` en Interventoría. El aviso se muestra
+   igual aunque la pantalla se haya ido, y nunca se toca un context muerto.
+2. **Para `Navigator.push`/`pop` sobre el context del `State` → `if (!mounted) return;`**
+   justo después del `await`.
+3. **Para un context que no es el del `State`** (el `ctx` de un diálogo, el
+   parámetro de `build`, el de un `StatefulBuilder`) → `context.mounted` /
+   `ctx.mounted`. Aquí estaba el error más traicionero: había `if (!mounted)`
+   que *parecían* proteger pero comprobaban el `State` mientras el `Navigator.pop`
+   iba contra el context del diálogo. El analizador lo marca como
+   "guarded by an unrelated 'mounted' check" y tiene razón: son dos ciclos de
+   vida distintos.
+4. **En funciones sueltas y servicios** (sin `State`, así que sin `mounted`) →
+   `context.mounted` sobre el propio `BuildContext`.
+
+### Qué se tocó
+
+**`services/notification_service.dart` (9 avisos).** `_handleNotificationTapPayload`
+es estático y saca el context del `navigatorKey`; no hay `mounted` que valga.
+Se agregó `!context.mounted` al resolver el context (cubre las siete
+navegaciones por tipo de notificación) y otra guarda antes de
+`resolveNotificationRoute`, con el messenger capturado antes de ese `await`.
+Es el peor caso de todos: toda la ruta de "tocar una notificación push" pasaba
+por acá sin una sola comprobación.
+
+**`home/home_screen.dart` (13 avisos).** Seis eran las tarjetas de módulo
+(Administración, Talento Humano, Gerencia, Correspondencia, Planillas,
+Nutrición), escritas como `onTap: () async => (await _guard(...)) ? Navigator.push(context, ...) : null`.
+El `?:` no deja meter la guarda, así que pasaron a bloque con
+`if (!permitido || !mounted) return;`. Los módulos nuevos (Compras, Correo,
+Tokens DIAN, Interventoría, Facturación, Rutas) ya usaban helpers `_abrirX()`
+con `context.mounted` — ahora las doce entradas se comportan igual. Los otros
+siete estaban en `_openNotificationTask`: faltaban guardas después del guardián
+de Facturación, antes de `resolveNotificationRoute` y —el más sutil— después
+del `set({'visto': true})` en Firestore, que invalidaba el `if (!mounted)` de
+más arriba y dejaba cuatro `Navigator.push` sin protección.
+
+**`admin/admin_dashboard_screen.dart` (5 avisos).** Los cinco son el caso 3:
+guardar usuario, accesos masivos, bodega, perfil de empresa y alta de app.
+Todos tenían `if (!mounted) return;` seguido de `Navigator.pop(ctx)` /
+`pop(dialogContext)` / `pop(ctx2)`. Ahora comprueban las dos cosas: el `State`
+(porque después llaman `_snack` y `_loadAll`) y el context del diálogo.
+
+**`compras/compras_dashboard_screen.dart` (2).** Subida web de documentos de
+proveedor y de recepción: después de `subirBytes` se abre el diálogo de
+vigencia con un context de `build`/`StatefulBuilder`.
+
+**`core/task_route_guard.dart` (1).** `validateTaskAccess` lee
+`EmpresaScope.of(context)` después de dos consultas a Firestore. No es un
+`State`, así que devuelve una `TaskAccessValidation` no permitida con mensaje
+propio; quien llama ya sabe manejar ese caso.
+
+**`login/` (4).** `change_password_screen` tenía un `// ignore: use_build_context_synchronously`
+tapando el `pushAndRemoveUntil` posterior al diálogo de confirmación: se quitó
+el ignore y se puso la guarda de verdad, más otra antes del `setState` que
+sigue al `signOut()`. Igual en `forgot_password_screen`. En `login_screen`,
+`_selectEmpresaId` devuelve `null` si se desmontó, y la guarda del llamador se
+subió *antes* del `if (selectedEmpresaId == null)` — porque ese bloque hace
+`setState`, que sobre un `State` desmontado también revienta; no alcanzaba con
+proteger el `EmpresaScope.of` de abajo.
+
+**`home/create_task_screen.dart` (2, no contaban en los 41).** El archivo tenía
+`// ignore_for_file: use_build_context_synchronously` en la cabecera, o sea que
+sus avisos ni aparecían en el conteo. Se quitó y salieron dos: el
+`showTimePicker` que va después del `showDatePicker` en `_pickDeadline`, y el
+SnackBar de "no se pudo leer la información del asignado" después de releer al
+asignado. Los dos arreglados.
+
+**El resto (5).** `home/notifications_screen.dart` (función suelta que devuelve
+`bool`), `helpers/nutricion_dashboard_helper.dart` (el aviso de "reporte
+descargado" después de escribir el archivo),
+`talento_humano/areas_management_screen.dart` (`ctx2` del diálogo de área),
+`talento_humano/organizational_structure_screen.dart` (2, el context de
+`build` en Sincronizar jerarquía) y `widgets/hidden_admin_unlocker.dart`
+(messenger capturado antes del diálogo del PIN y de leer `TBL_CONFIG`).
+
+### Verificación
+- `dart analyze`: **222 → 181 avisos**, exactamente −41. `use_build_context_synchronously`
+  queda en **0**, y no se introdujo ningún aviso nuevo (la diferencia total es
+  solo esos 41). **0 errores.**
+- Los 32 `warning` que quedan son previos a esta sesión y de otra naturaleza
+  (`unused_element`, `unused_field`, `undefined_hidden_name`); no se tocaron.
+- `flutter test`: **289/289**, el mismo conteo que antes del cambio.
+- No hay ningún `// ignore:` ni `// ignore_for_file:` de esta regla en `lib/`.
+
+---
+
+## Sesión 2026-08-26 (ronda 2) — Publicación en Google Play y recuperación del árbol
+
+### Lo que se preparó para publicar
+- **R8 abortaba el release.** `google_mlkit_text_recognition` referencia los
+  reconocedores de chino, devanagari, japonés y coreano, cuyos artefactos no se
+  incluyen (la app solo escanea texto latino). Se creó
+  `android/app/proguard-rules.pro` con los `-dontwarn` y se activó
+  `proguardFiles` en el `buildType` de release, que estaba comentado: Flutter
+  activa R8 por defecto, así que sin declararlo las reglas nunca se aplicaban.
+- **Validación de `key.properties`.** `hasReleaseKeystore` solo comprobaba que
+  el archivo existiera, así que uno a medio llenar hacía fallar la firma con un
+  error incomprensible. Ahora exige las cuatro claves y que el `.jks` exista.
+- **Permisos que entraban solos.** El manifiesto fusionado del AAB traía
+  `AD_ID`, `ACCESS_ADSERVICES_AD_ID`, `ACCESS_ADSERVICES_ATTRIBUTION`,
+  `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` y `READ_MEDIA_AUDIO` sin que nadie
+  los declarara. Los inyectan la cadena de medición de `firebase_messaging` y
+  `file_picker`. Se eliminan con `tools:node="remove"`: la app no tiene
+  publicidad, no maneja video ni audio, y las fotos pasan por `image_picker`,
+  que en Android 13+ usa el selector del sistema sin pedir permiso. Los dos
+  `FileType.image` que quedan están dentro de ramas `if (kIsWeb)`.
+  `READ_EXTERNAL_STORAGE` **sí** se conserva: hace falta en Android 12 y
+  anteriores. Verificado leyendo el manifiesto proto dentro del AAB, no el
+  fuente: el fuente nunca los mostró.
+- **Seed demo ampliado.** Pasó de 3 a 8 tareas cubriendo los cuatro estados
+  (`en_progreso`, `por_aprobar`, `devuelta`, `finalizado`) y las tres
+  prioridades, más hojas de vida ficticias para los tres usuarios demo. Sin
+  esto, Talento Humano y los listados salían vacíos en las capturas de la ficha.
+
+### El árbol se revirtió y hubo que recuperarlo
+Una herramienta de cambio de rama dejó el working tree en HEAD y guardó todo en
+un stash (`epitaxy: pre-switch`). Se perdieron de vista ~3.274 líneas sin
+commitear. El stash se había creado con `--include-untracked`, así que también
+traía `proguard-rules.pro`, `MainActivity.kt` y `play-assets/`.
+
+`git stash apply` dejó **11 conflictos en 6 archivos**, porque el stash se basa
+en `59a5da0` y la rama ya tenía tres commits encima. Los conflictos cortaban por
+la mitad de árboles de widgets anidados, así que no se resolvieron eligiendo
+lados sino decidiendo **por archivo** y portando funciones:
+
+| Archivo | Decisión |
+|---|---|
+| `interventoria_tablero_asignacion.dart` | versión del stash + se le devolvió la paginación |
+| `interventoria_hallazgo_panel.dart` | versión del stash (lo único propio era un `setState`) |
+| `interventoria_dashboard_screen.dart` | versión del commit + se portó `_descargarActaPdf` |
+| `personnel_requisition_screen.dart` | versión del commit + se portaron los candidatos |
+| `gd_correspondencia_screen.dart` | versión del commit, sin tocar |
+| `MEJORAS.md` | versión del commit + esta sección |
+
+**`gd_correspondencia_screen.dart` se dejó como estaba a propósito**: la versión
+del stash filtraba con `user.areaId == selectedArea!.id` y caía a mostrar el
+`areaId` crudo como nombre. Las dos cosas que la regla 3 de CLAUDE.md prohíbe.
+La versión commiteada ya usa `contiene()` y `GdArea.desdeResponsables()`.
+
+Resultado: `dart analyze` con 0 errores y 0 warnings, y los mismos 966 `info`
+preexistentes de antes del merge.
+
+### Estado del bundle
+`build/app/outputs/bundle/release/app-release.aab`, 103,6 MB, `versionCode 2`
+(el 1 ya se consumió en la primera subida a prueba cerrada). Firmado con
+`CN=Daniel Felipe Nova Velasco` desde `C:/Desarrollo/keys/todogestion-release.jks`.
+
+Queda pendiente el `strip` de símbolos del NDK, que falla porque el SDK de
+Android está en una ruta con espacios (`C:\Users\SERVICIO TECNICO\...`). El AAB
+se genera igual; solo pesa más de lo necesario.
+
+---
+
+
+## Sesión 2026-08-26 — Clave temporal al agregar personal y empresa elegida en el login
+
+### 1. "Agregar colaborador" no dejaba entrar a la persona
+
+El alta desde Talento Humano › Gestión de personal creaba el usuario **sin
+contraseña**, a propósito ("el acceso lo habilita Admin al asignarla"). Las
+otras dos vías sí la asignan: la contratación desde Requerimientos y la carga
+por Excel ponen `123456` + `needsPasswordChange`. Resultado: la persona quedaba
+registrada pero sin poder ingresar, y sin ninguna señal de por qué.
+
+- El alta ahora usa `personnelAccessCredentials`, igual que la contratación:
+  usuario = cédula, contraseña temporal `123456`, obligada a cambiarla al
+  entrar. Al guardar se muestra un aviso con esos datos para poder dictárselos.
+- A las cuentas ya creadas por esa vía (registradas y sin clave) se les asigna
+  la temporal al editarlas, así se recuperan sin migración.
+
+**Corregido de paso un riesgo que ya existía en la contratación:**
+`personnelAccessCredentials` miraba solo el campo `password`. Pero el backend
+**borra** ese campo en el primer ingreso, cuando migra la clave cifrada a
+`TBL_AUTH_CREDENTIALS` y marca `authVersion: 2`. Así que a alguien que ya
+usaba la app y era recontratado se le volvía a poner `123456` y se le exigía
+cambiar una clave que ya tenía. Ahora `personnelNeedsTemporaryPassword` mira
+`authVersion` y no toca a quien ya ingresó alguna vez.
+
+### 2. Elegir empresa en el login no cambiaba de empresa
+
+Al iniciar sesión con varias empresas, la elegida se pasaba a
+`reconcileForUserData` como `preferredEmpresaId`. Pero `resolveValidEmpresaId`
+da prioridad a `selectedEmpresaId` —la empresa que quedó guardada de la sesión
+anterior— y solo cae en la preferida si aquella ya no es válida. Como la
+anterior casi siempre sigue siendo válida, **la elección del usuario se
+descartaba** y entraba a la empresa donde estaba antes.
+
+- `reconcileForUserData` recibe `eleccionExplicita`. Con eso la empresa
+  elegida manda; sin eso (reanudar sesión guardada) se conserva el
+  comportamiento de antes, que ahí sí es el correcto.
+- El login la pasa en true: elegir empresa es una decisión explícita, no una
+  sugerencia.
+
+---
+
+## Sesión 2026-08-25 (ronda 3) — Área editable en Salud de cargos, paginación de 20 y barras de scroll
+
+### 1. "Salud de cargos" ya deja arreglar el cargo ahí mismo
+
+Los cargos "Sin área" (sin `areaId` **ni** nombre de área) no tienen nada que
+deducir, así que el panel solo decía "revisa el nombre del área o créala en
+Catálogos" y el camino se cortaba ahí.
+
+- Nuevo botón **"Elegir área…"** en cada cargo con problema de área: abre el
+  desplegable con las áreas de la empresa y escribe `areaId`, `areaNombre` y
+  `area` en TBL_CARGOS. Después vuelve a escanear solo.
+- El escaneo ahora guarda el catálogo de áreas (pasado por `areasUnicas`, así
+  que sin repetidas ni ids crudos) para alimentar ese selector.
+- El texto rojo de "no reparable automáticamente" se reemplazó por una
+  indicación útil: elígela arriba, o créala en Catálogos si no existe.
+
+### 2. Listados largos: de a 20
+
+Nuevo `lib/widgets/paged_list.dart` con la regla en un solo lugar:
+`kPageSize = 20`, `pageOf()`, `pageCountOf()`, `PagerBar` ("1-20 de 137" con
+anterior/siguiente) y `PagedListSection` para listas que ya viven dentro de una
+columna con scroll.
+
+Aplicado en: Salud de cargos, Salud usuarios, tablero de asignación de
+Interventoría (por grupo), tabla de hallazgos de Interventoría, tabla de
+vigencias de Compras y Accesos del personal (Talento Humano). El panel de
+Seguridad ya paginaba de a 20 por su cuenta y quedó igual.
+
+**Convertidas todas las tablas de la app (19 en total)** con
+`PagedDataTable`, un envoltorio que recibe la `DataTable` ya construida,
+guarda la página por dentro y la vuelve a emitir con las 20 filas que tocan:
+Admin (5), seed de Admin (3), Rutas (3), Interventoría (2), Gerencia,
+Correspondencia, Planillas desde Excel, Movilidad, Requerimientos de personal
+y Tokens DIAN. En el sitio de uso solo se envuelve la tabla, así que sirve
+igual dentro de un `StatelessWidget`.
+
+La regla quedó escrita en `CLAUDE.md` (Reglas transversales de interfaz) para
+que aplique a cualquier pantalla nueva.
+
+### 3. Barra de scroll en las tablas deslizables (global)
+
+`MaterialScrollBehavior` **nunca** dibuja scrollbar horizontal, así que las
+tablas anchas se deslizaban sin ninguna pista de que había más columnas.
+
+- Nuevo `lib/theme/app_scroll_behavior.dart` + `scrollBehavior` en el
+  `MaterialApp`: barra visible en todo scroll horizontal de la app.
+- Además el mouse queda habilitado como dispositivo de arrastre, así que en web
+  se puede "agarrar" la tabla y moverla, no solo usar la rueda o la barra.
+- El eje vertical conserva el comportamiento de la plataforma (barra en
+  escritorio/web, indicación efímera en móvil) para no llenar de barras fijas
+  cada lista del teléfono.
+- `thumbVisibility` se fuerza solo cuando el scrollable trae su propio
+  controlador: con uno compartido Flutter exige una única posición adjunta y
+  lanza una aserción.
+
+---
+
+## Sesión 2026-08-25 (ronda 2) — Sesión guardada, áreas repetidas y quién aprobó en Compras
+
+Seis puntos que reportó Daniel probando en vivo.
+
+### 1. "Mantener sesión iniciada" no aguantaba (y se apagaba sola)
+
+`AuthGate._resume()` preguntaba por `FirebaseAuth.instance.currentUser` apenas
+arrancaba la app. Firebase Auth **restaura la sesión persistida de forma
+asíncrona** (en web, leyendo IndexedDB), así que en ese instante todavía es
+null. El código lo interpretaba como sesión inválida, llamaba a
+`clearSession()` —que además pone `keepSession = false`— y mandaba al login.
+Resultado: la casilla aparecía apagada al volver a entrar.
+
+- Nuevo `_esperarUsuarioAuth()`: usa el `currentUser` si ya está y, si no,
+  espera el primer `authStateChanges()` no nulo con tope de 8 segundos.
+- Si aun así no hay usuario, **ya no se borra la sesión guardada**: puede ser
+  falta de red. Se va al login y el próximo arranque reintenta.
+- `_goLogin(cerrarSesionFirebase: false)` para los caminos transitorios: cerrar
+  sesión en Firebase ahí destruía una sesión válida.
+
+Solo se limpia la sesión cuando la invalidez es concluyente: claims que no
+corresponden, usuario inexistente, usuario inactivo o sin empresa válida.
+
+### 2 y 3. Áreas repetidas y áreas mostrando su id crudo
+
+Dos síntomas, dos causas, un archivo nuevo: `lib/core/area_directory.dart`.
+
+**"EMPRESA_002_mantenimiento" como nombre.** Los documentos de `TBL_AREAS` se
+crean con id `{empresaId}_{slug(nombre)}`. Media app resolvía el nombre con
+`?? d.id`, así que un documento **sin campo `nombre`** terminaba mostrando su
+id en el desplegable. `areaNombreLegible()` reconstruye "Mantenimiento" a
+partir del id (quita el prefijo de empresa y capitaliza), y ninguna pantalla
+vuelve a mostrar un id crudo.
+
+**"Mantenimiento" dos veces y "Operaciones" tres.** El desplegable de
+Correspondencia arma las áreas a partir de los USUARIOS y deduplicaba por
+`areaId`. Pero el área de un usuario a veces es el id del catálogo y otras el
+nombre suelto —`listarResponsables` hace `areaId.isEmpty ? areaNombre :
+areaId`—, así que la misma área entraba dos y tres veces. Peor: al elegir una
+de ellas, el filtro de responsables (`user.areaId == area.id`) dejaba fuera a
+la gente registrada con la otra variante.
+
+- `areasUnicas()` agrupa por nombre normalizado (sin tildes ni signos) y cada
+  opción conserva **todos** los ids equivalentes.
+- `GdArea` ahora lleva ese conjunto y expone `contiene(areaId)`; el diálogo
+  "Clasificar y asignar" y el panel de colaboración filtran con eso, así que
+  una sola entrada por área muestra a todo su personal.
+- `AreaCatalogo` (mismo archivo) da el mapa para los desplegables y decide si
+  un registro cae en el filtro, sin romper el filtrado existente.
+
+Aplicado en: Correspondencia (diálogo y panel), Tareas asignadas, Historial de
+tareas, Tareas creadas, Vista de equipo, Crear tarea, Gerencia y
+`OrgService.listAreas` (de donde salen los desplegables de Interventoría).
+
+> Nota de datos: esto arregla lo que se **ve**. El origen sigue ahí: hay
+> documentos en `TBL_AREAS` sin `nombre` y usuarios con `areaId` guardado como
+> nombre. Conviene una revisión tipo "Salud de cargos" para repararlos.
+
+### 4. "Crear tarea" tardaba en habilitar el desplegable de Área
+
+No era el catálogo: era la cadena de viajes de red.
+
+- `_queryByEmpresa` lanzaba **cuatro consultas en serie** por catálogo (una por
+  cada forma de declarar la empresa: `empresas`, `empresaId`, `empresa_id`,
+  `empresa`). Ahora salen en paralelo y cuesta lo que la más lenta. Igual en
+  `_loadEstructura` y `_loadCargos`.
+- El desplegable esperaba a `_loadingData`, que solo se apaga **después** de
+  cargar el padrón completo de usuarios de la empresa. Se separó
+  `_loadingCatalogos`: Área y Cargo se habilitan apenas están áreas y cargos,
+  sin esperar a los usuarios.
+
+### 5. Compras: quién aprobó, con historial
+
+El documento solo guardaba al **último** revisor (`revisadoPor` +
+`fechaRevision`): aprobar → revertir → aprobar borraba la pista anterior.
+
+- Nueva colección `TBL_COMPRAS_APROBACIONES`: un registro por decisión de
+  calidad (aprobó, aprobó con requerimientos, rechazó, revirtió, dio por
+  resuelto) con usuario, fecha, documento, producto y nota.
+- Se escribe desde `ComprasService` en recepciones, fichas técnicas,
+  proveedores y marcas. Es auditoría: si la escritura falla, la aprobación
+  igual queda hecha (solo se pierde la línea del historial).
+- `lib/compras/compras_aprobaciones.dart`: `AprobadoPorLinea` ("Aprobado por
+  {nombre} · fecha", con nombre y foto reales) y `HistorialAprobacionesBoton`,
+  que abre el historial completo — diálogo en web, hoja en móvil.
+- Ya visible en la tarjeta de calidad de ficha técnica y en el documento
+  aprobado de una recepción. La línea "Aprobado por" funciona también con lo
+  aprobado antes de existir el historial, porque lee lo que ya trae el
+  documento.
+- La consulta filtra por un solo campo (`entidadId`) y ordena en memoria: no
+  hace falta índice compuesto nuevo.
+
+### 6. Módulos en móvil
+
+La tira horizontal de módulos tenía altura fija de 120 px, mientras la tarjeta
+crece con la escala de letra del sistema (título a dos líneas). Con la letra
+en grande se recortaba. Ahora la altura acompaña `textScaler` y la separación
+entre tarjetas pasó de 4 a 8 px.
+
+---
+
+## Sesión 2026-08-25 — Apagar "Tareas" de verdad + accesos de módulos desde Talento Humano
+
+Daniel: "en admin permisos y roles desactivo tareas y no las esconde"; y en
+Talento Humano, poder decidir al crear/contratar a alguien qué módulos va a
+usar, "menos técnico"; además "todos deben tener habilitado notificaciones y
+calendario".
+
+### 1. Desactivar Tareas ocultaba el menú, pero no el Home
+
+`home_screen.dart` sí calculaba `showTareas` con `_moduleVisible(...,
+'tareasdashboard', ...)`, pero solo se lo pasaba a `HomeShell` → `AppDrawer`.
+El **cuerpo** del Home nunca miró esa bandera: el botón "Nueva Tarea" (Web),
+la sección "Pendientes" con su "Ver todos" (Móvil) y las dos consultas a
+`TBL_TAREAS` seguían ahí para todo el mundo. Quitar el módulo dejaba el menú
+limpio y la pantalla principal igual que antes.
+
+- `showTareas` se calcula ahora **antes** de las consultas, apenas se resuelve
+  `disabledAppIds`. Con el módulo apagado los dos `.snapshots()` de
+  `TBL_TAREAS` se reemplazan por streams vacíos (campos de estado, no
+  `Stream.empty()` en línea, para no re-suscribir en cada build): no se leen
+  tareas, no se pintan marcadores de tareas en el calendario y no hay lecturas
+  de Firestore por un módulo que la persona no tiene.
+- Web: "Nueva Tarea" solo aparece con el módulo activo. Móvil: "Ver todos"
+  (bandeja de tareas) idem.
+- **Notificaciones y calendario no dependen del módulo.** La campana y la
+  tarjeta del calendario siguen igual para todo el personal; la tarjeta del
+  día conserva citas de Nutrición y notificaciones y solo pierde las tareas.
+  Con Tareas apagado el título deja de decir "Pendientes" y pasa a "Agenda
+  del día" / "Agenda del dd/MM", que es lo que realmente queda ahí.
+
+Nota: un usuario **desarrollador** ve todos los módulos por diseño
+(`_moduleVisible` hace bypass con `isDev`), así que apagar Tareas no le cambia
+nada a esa cuenta — hay que probarlo con una cuenta normal.
+
+### 2. Talento Humano ya decide qué módulos usa cada persona
+
+Antes esto solo existía en Admin → "Roles y permisos", una matriz por appId
+pensada para quien conoce la plataforma. Ahora vive también donde Talento
+Humano trabaja, en su propio lenguaje:
+
+- **`lib/core/app_catalog.dart` (nuevo)** — catálogo único de módulos con
+  nombre y "para qué le sirve" en lenguaje de negocio, agrupados (Día a día /
+  Áreas operativas / Gestión y control / Administración). Marca `soloAdmin`
+  (Administración y Tokens DIAN: Talento Humano no los otorga) y la nota de
+  rol interno cuando Admin debe completar la configuración. Aquí también se
+  declaran Notificaciones y Calendario como **servicios transversales**: no
+  son módulos, no se asignan y no se pueden quitar.
+- **`personnel_access_service.dart` (nuevo)** — misma fuente de verdad que
+  Admin (`TBL_USUARIOS`: `empresasDetalle.{empresa}.apps` + `apps` global),
+  filtrando por lo que la empresa tenga apagado en `TBL_APPS`.
+- **`personnel_access_picker.dart` (nuevo)** — selector reutilizable con
+  descripciones, sin appIds a la vista, encabezado fijo "Todo el personal
+  recibe esto: Notificaciones y Calendario".
+- **`personnel_access_screen.dart` (nuevo)** — "Accesos del personal":
+  buscador, filtro por módulo, solo activos, y por persona los módulos que
+  usa. Nueva tarjeta en el tablero de Talento Humano (sección Personas).
+- **Alta/edición de personal** (`organizational_structure_screen.dart`): el
+  formulario "Agregar/Editar colaborador" trae la sección "Qué va a usar en la
+  app", abierta por defecto en los nuevos. Se guarda después del batch porque
+  `saveApps` necesita leer el documento ya creado.
+- **Contrataciones** (`personnel_requisition_*`): el diálogo "Registrar
+  contratación y crear usuario" incluye el mismo selector; `PersonnelHire`
+  lleva ahora `apps` y `registerHireAndCreateUser` los escribe dentro de la
+  transacción. Contratar **solo suma**: a alguien que ya existía no se le
+  quita nada; quitar se hace en Accesos del personal.
+- La carga masiva por Excel ya traía columna `apps` y no se tocó.
+
+Talento Humano concede el **acceso** al módulo; el **rol interno**
+(comprador, firmante, clasificador, conductor…) lo sigue definiendo Admin, y
+así se dice en pantalla.
+
+### 3. Dos arreglos de datos que hacían falta para lo anterior
+
+- **`apps` global pisaba a las otras empresas.** Como `extractUserApps` une la
+  lista global con la de la empresa, escribir `apps` (lo que hace la matriz de
+  Admin desde siempre) le podía quitar módulos a la misma persona en otra
+  empresa que los heredaba de esa lista global. Antes de escribir, ahora se
+  **congela** en cada otra empresa su lista efectiva actual
+  (`empresasDetalle.{otra}.apps`), y solo entonces se pisa la global. Es
+  idempotente: si la empresa ya tenía su propia lista, no se toca.
+- **`kAppIdNormalizationMap`** no tenía `tareas` → `tareasdashboard`. La
+  equivalencia ya funcionaba (`_canonicalAppId` recorta el sufijo), pero las
+  normalizaciones escribían `tareas` como si fuera canónico.
+- `loadUsersByEmpresa` pasó de `AdminRepository` a
+  `FirestoreUserRepository` (Admin delega): Talento Humano y Admin tienen que
+  ver exactamente el mismo padrón por empresa.
+
+---
 
 ## Sesión 2026-08-27 — Compras: Abastecimiento y reversión de fichas técnicas
 

@@ -27,14 +27,23 @@ class EmpresaState extends ChangeNotifier {
     _persistSelection();
   }
 
+  /// Valida la empresa activa contra la membresía real del usuario.
+  ///
+  /// [preferredEmpresaId] normalmente es una sugerencia: si la empresa que ya
+  /// estaba seleccionada sigue siendo válida, se conserva. Con
+  /// [eleccionExplicita] en true la sugerencia MANDA: es el caso de alguien
+  /// que acaba de elegir empresa en el login, donde conservar la anterior
+  /// significaba meterlo a la empresa equivocada.
   Future<String?> reconcileForUserData(
     Map<String, dynamic> userData, {
     String? preferredEmpresaId,
+    bool eleccionExplicita = false,
   }) async {
     final previous = _selectedEmpresaId;
     final resolved = resolveValidEmpresaId(
       data: userData,
-      selectedEmpresaId: _selectedEmpresaId,
+      // Al elegir a mano no se pasa la anterior: si se pasa, gana ella.
+      selectedEmpresaId: eleccionExplicita ? null : _selectedEmpresaId,
       preferredEmpresaId: preferredEmpresaId,
     );
     if (_selectedEmpresaId == resolved) return _selectedEmpresaId;
@@ -73,9 +82,14 @@ class EmpresaScope extends InheritedNotifier<EmpresaState> {
   static EmpresaState of(BuildContext context, {bool listen = true}) {
     final widget = listen
         ? context.dependOnInheritedWidgetOfExactType<EmpresaScope>()
-        : context.getElementForInheritedWidgetOfExactType<EmpresaScope>()?.widget
-    as EmpresaScope?;
-    assert(widget != null, 'EmpresaScope no encontrado en el árbol de widgets.');
+        : context
+                  .getElementForInheritedWidgetOfExactType<EmpresaScope>()
+                  ?.widget
+              as EmpresaScope?;
+    assert(
+      widget != null,
+      'EmpresaScope no encontrado en el árbol de widgets.',
+    );
     return widget!.notifier!;
   }
 }

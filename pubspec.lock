@@ -793,26 +793,26 @@ packages:
     dependency: transitive
     description:
       name: google_mlkit_commons
-      sha256: "9990a65f407a3ef6bae646bf10143faa93fec126683771465bc6c0b43fb0e6e9"
+      sha256: "621e94de22fd0f1e902e593b892746d80ab7542b39c2552aa091d904eb82fc6f"
       url: "https://pub.dev"
     source: hosted
-    version: "0.8.1"
+    version: "0.13.0"
   google_mlkit_document_scanner:
     dependency: "direct main"
     description:
       name: google_mlkit_document_scanner
-      sha256: d60c2b8bd73e7d4fb6c255f82ebcdca68101378a86080d945e7bafb7456af7f0
+      sha256: "8cc17a7f62d4285298f7970867d24c030d42840068d8b680b988655d50b196ec"
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.0"
+    version: "0.6.1"
   google_mlkit_text_recognition:
     dependency: "direct main"
     description:
       name: google_mlkit_text_recognition
-      sha256: "179349417066fa2c275d7a6ed6cbceeb7fa265d73aacdb2d732f1a2991face0a"
+      sha256: e13685af5093c8be009a3555909b72a80e10cfe8f97752bcbdf99fa0ccbda810
       url: "https://pub.dev"
     source: hosted
-    version: "0.13.1"
+    version: "0.17.1"
   gsettings:
     dependency: transitive
     description:
@@ -1070,7 +1070,7 @@ packages:
     source: hosted
     version: "1.18.0"
   mime:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: mime
       sha256: "41a20518f0cb1256669420fdba0cd90d21561e560ac240f26ef8322e45bb7ed6"
@@ -1708,4 +1708,4 @@ packages:
     version: "3.1.3"
 sdks:
   dart: ">=3.12.0 <4.0.0"
-  flutter: ">=3.38.4"
+  flutter: ">=3.44.0"

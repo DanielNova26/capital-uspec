@@ -15,6 +15,7 @@ import '../../widgets/internal_module_layout.dart';
 import 'pp_excel_parser.dart';
 import 'pp_models.dart';
 import 'pp_service.dart';
+import '../../widgets/paged_list.dart';
 
 class PpGenerarDesdeExcelScreen extends StatefulWidget {
   final String userId;
@@ -1036,42 +1037,45 @@ class _PpGenerarDesdeExcelScreenState extends State<PpGenerarDesdeExcelScreen> {
               ),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(
-                  GdPalette.accent.withValues(alpha: 0.06),
-                ),
-                dataRowMinHeight: 38,
-                dataRowMaxHeight: 48,
-                columnSpacing: 14,
-                headingTextStyle: const TextStyle(
-                  fontFamily: kArial,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
-                  color: GdPalette.primary,
-                ),
-                columns: columnas
-                    .map((c) => DataColumn(label: Text(_colLabel(c))))
-                    .toList(),
-                rows: filasPreview.map((fila) {
-                  return DataRow(
-                    cells: columnas.map((c) {
-                      return DataCell(
-                        SizedBox(
-                          width: _cellWidthForColumn(c),
-                          child: Text(
-                            _previewValue(fila, c),
-                            style: const TextStyle(
-                              fontFamily: kArial,
-                              fontSize: 12,
+              child: PagedDataTable(
+                etiqueta: 'filas',
+                tabla: DataTable(
+                  headingRowColor: WidgetStateProperty.all(
+                    GdPalette.accent.withValues(alpha: 0.06),
+                  ),
+                  dataRowMinHeight: 38,
+                  dataRowMaxHeight: 48,
+                  columnSpacing: 14,
+                  headingTextStyle: const TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: GdPalette.primary,
+                  ),
+                  columns: columnas
+                      .map((c) => DataColumn(label: Text(_colLabel(c))))
+                      .toList(),
+                  rows: filasPreview.map((fila) {
+                    return DataRow(
+                      cells: columnas.map((c) {
+                        return DataCell(
+                          SizedBox(
+                            width: _cellWidthForColumn(c),
+                            child: Text(
+                              _previewValue(fila, c),
+                              style: const TextStyle(
+                                fontFamily: kArial,
+                                fontSize: 12,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      );
-                    }).toList(),
-                  );
-                }).toList(),
+                        );
+                      }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
             ),
           ],

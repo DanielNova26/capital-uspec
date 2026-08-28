@@ -7,6 +7,45 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- ===== ID de publicidad: se elimina a proposito =====
+         La cadena de medicion que arrastra firebase_messaging fusiona estos
+         permisos en el manifiesto final aunque nunca los declaremos. La app no
+         tiene publicidad ni atribucion, asi que se quitan para poder declarar
+         "no usa ID de publicidad" en Play Console.
+         Si algun dia se agrega Analytics o Ads, hay que borrar este bloque y
+         actualizar la declaracion en Play. -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
+        tools:node="remove" />
+
+    <!-- ===== Permisos de medios de Android 13+: se eliminan a proposito =====
+         file_picker e image_picker los fusionan en el manifiesto final aunque
+         nunca los declaremos. En Android no hacen falta:
+         - Las fotos se toman o se eligen con image_picker, que en Android 13+
+           usa el selector de fotos del sistema y no requiere permiso.
+         - Los dos FileType.image que quedan estan dentro de ramas if (kIsWeb),
+           asi que en Android no se ejecutan nunca.
+         - La app no maneja video ni archivos de audio en ningun flujo.
+         Dejarlos obligaria a justificar el acceso a fotos y video ante Play sin
+         que la app lo necesite. READ_EXTERNAL_STORAGE SI se conserva: sigue
+         haciendo falta en Android 12 y anteriores, que es hasta donde baja
+         minSdk 24. -->
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_VIDEO"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_AUDIO"
+        tools:node="remove" />
+
     <!-- Ubicación -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
@@ -30,9 +69,6 @@
         android:name="android.permission.POST_NOTIFICATIONS"
         tools:targetApi="33" />
 
-    <!-- Alarmas exactas -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-
     <!-- Recomendado para alarmas/servicios en background -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -49,7 +85,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="ToDo"
+        android:label="To-Do Gestión"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false">
 
@@ -61,7 +97,7 @@
         <!-- ===== Flutter / Lanzador ===== -->
         <!-- OJO: nombre COMPLETO del Activity (ya no .MainActivity) -->
         <activity
-            android:name="com.example.todo.MainActivity"
+            android:name="com.todogestion.app.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""

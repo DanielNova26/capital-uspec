@@ -11,6 +11,7 @@ import 'package:todo/widgets/user_avatar.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/task_route_guard.dart';
+import '../core/area_directory.dart';
 
 const Color kBrand = Color(0xFF1E3A8A);
 const String kArial = 'Arial';
@@ -63,12 +64,14 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_routeValidationDone)
+    if (!_routeValidationDone) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (!_routeAllowed)
+    }
+    if (!_routeAllowed) {
       return Scaffold(
         body: Center(child: Text(_deniedMsg ?? 'Acceso denegado')),
       );
+    }
 
     return DefaultTabController(
       length: 2,
@@ -144,6 +147,7 @@ class _HistoryTab extends StatefulWidget {
 class _HistoryTabState extends State<_HistoryTab> {
   final _searchCtrl = TextEditingController();
   String _areaFilter = 'todas';
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   DateTime? _startDate;
   DateTime? _endDate;
   bool _didAutoOpen = false;
@@ -183,10 +187,14 @@ class _HistoryTabState extends State<_HistoryTab> {
         .get();
     if (mounted) {
       setState(() {
-        _areas = {'todas': 'Todas las áreas'};
-        for (var d in snap.docs) {
-          _areas[d.id] = d.data()['nombre'] ?? d.id;
-        }
+        // Una entrada por área real y sin ids crudos en pantalla.
+        _catalogoAreas = AreaCatalogo.desde(
+          snap.docs.map(
+            (d) => (id: d.id, nombre: d.data()['nombre']?.toString()),
+          ),
+          empresaId: _selectedEmpresaId,
+        );
+        _areas = _catalogoAreas.comoMapa();
       });
     }
   }
@@ -206,8 +214,9 @@ class _HistoryTabState extends State<_HistoryTab> {
       q = q.where('creador_id', isEqualTo: widget.userId);
     }
     q = q.where('estado', isEqualTo: 'finalizado');
-    if (_selectedEmpresaId != null)
+    if (_selectedEmpresaId != null) {
       q = q.where('empresaId', isEqualTo: _selectedEmpresaId);
+    }
 
     return q.snapshots();
   }
@@ -222,14 +231,18 @@ class _HistoryTabState extends State<_HistoryTab> {
       final date = (m['updatedAt'] as Timestamp?)?.toDate();
 
       if (_searchCtrl.text.isNotEmpty &&
-          !title.contains(_searchCtrl.text.toLowerCase()))
+          !title.contains(_searchCtrl.text.toLowerCase())) {
         return false;
-      if (_areaFilter != 'todas' && area != _areaFilter) return false;
+      }
+      if (!_catalogoAreas.coincide(filtro: _areaFilter, valor: area)) {
+        return false;
+      }
       if (_startDate != null && date != null) {
         if (date.isBefore(_startDate!)) return false;
         if (_endDate != null &&
-            date.isAfter(_endDate!.add(const Duration(days: 1))))
+            date.isAfter(_endDate!.add(const Duration(days: 1)))) {
           return false;
+        }
       }
       return true;
     }).toList();
@@ -248,8 +261,9 @@ class _HistoryTabState extends State<_HistoryTab> {
       content: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _taskStream,
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting)
+          if (snap.connectionState == ConnectionState.waiting) {
             return const SkeletonList(items: 5);
+          }
 
           final allDocs = snap.data?.docs ?? [];
 
@@ -457,22 +471,27 @@ class _DateRangePicker extends StatelessWidget {
 IconData _iconForMime(String mime) {
   if (mime.startsWith('image/')) return Icons.image_rounded;
   if (mime.contains('pdf')) return Icons.picture_as_pdf_rounded;
-  if (mime.contains('word') || mime.contains('document'))
+  if (mime.contains('word') || mime.contains('document')) {
     return Icons.description_rounded;
-  if (mime.contains('excel') || mime.contains('sheet'))
+  }
+  if (mime.contains('excel') || mime.contains('sheet')) {
     return Icons.table_chart_rounded;
-  if (mime.contains('zip') || mime.contains('compressed'))
+  }
+  if (mime.contains('zip') || mime.contains('compressed')) {
     return Icons.folder_zip_rounded;
+  }
   return Icons.insert_drive_file_rounded;
 }
 
 Color _colorForMime(String mime) {
   if (mime.startsWith('image/')) return Colors.purple.shade600;
   if (mime.contains('pdf')) return Colors.red.shade600;
-  if (mime.contains('word') || mime.contains('document'))
+  if (mime.contains('word') || mime.contains('document')) {
     return Colors.blue.shade600;
-  if (mime.contains('excel') || mime.contains('sheet'))
+  }
+  if (mime.contains('excel') || mime.contains('sheet')) {
     return Colors.green.shade600;
+  }
   return Colors.grey.shade600;
 }
 
@@ -509,7 +528,7 @@ Widget _attachmentTile(BuildContext context, Map<String, dynamic> adj) {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: _colorForMime(mime).withOpacity(0.1),
+          color: _colorForMime(mime).withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(_iconForMime(mime), color: _colorForMime(mime), size: 22),
@@ -864,7 +883,7 @@ class _ProcesosTabState extends State<_ProcesosTab> {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.teal.shade700.withOpacity(0.07),
+                        color: Colors.teal.shade700.withValues(alpha: 0.07),
                         borderRadius: const BorderRadius.vertical(
                           top: Radius.circular(12),
                         ),
@@ -1038,7 +1057,7 @@ class _ProcesoEntry extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.07),
+              color: accentColor.withValues(alpha: 0.07),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(12),
               ),

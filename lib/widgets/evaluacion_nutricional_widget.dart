@@ -200,7 +200,7 @@ class _EvaluacionNutricionalWidgetState
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: _estado!.color.withOpacity(0.05),
+        color: _estado!.color.withValues(alpha: 0.05),
       ),
       child: Row(
         children: [
@@ -214,7 +214,7 @@ class _EvaluacionNutricionalWidgetState
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: _estado!.color.withOpacity(0.2),
+                  color: _estado!.color.withValues(alpha: 0.2),
                   blurRadius: 10,
                   spreadRadius: 2,
                 )
@@ -238,7 +238,7 @@ class _EvaluacionNutricionalWidgetState
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: _estado!.color.withOpacity(0.7),
+                      color: _estado!.color.withValues(alpha: 0.7),
                       fontFamily: kArial,
                     ),
                   ),

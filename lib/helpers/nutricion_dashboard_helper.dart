@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -144,6 +143,7 @@ class NutricionDashboardHelper {
         await OpenFilex.open(file.path);
       }
 
+      if (!context.mounted) return;
       _showSuccess(context, 'Reporte descargado: $nombreArchivo');
     } catch (e) {
       if (!context.mounted) return;

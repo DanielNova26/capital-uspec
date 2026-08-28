@@ -746,7 +746,7 @@ class _NutricionMenusScreenState extends State<NutricionMenusScreen> {
           padding:
               EdgeInsets.fromLTRB(isWide ? 32 : 16, 16, isWide ? 32 : 16, 100),
           itemCount: menus.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (_, i) => _DietaCard(
             menu: menus[i],
             onEdit: () => _abrirEditorDieta(menus[i]),
@@ -997,7 +997,7 @@ class _DietaCard extends StatelessWidget {
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    color: color.withOpacity(0.08),
+                    color: color.withValues(alpha: 0.08),
                     child: Row(
                       children: [
                         Icon(kIconosTiempo[t], size: 16, color: color),
@@ -1013,7 +1013,7 @@ class _DietaCard extends StatelessWidget {
                             style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: color.withOpacity(0.8))),
+                                color: color.withValues(alpha: 0.8))),
                       ],
                     ),
                   ),
@@ -1182,7 +1182,9 @@ class _CrearDietaDialogState extends State<_CrearDietaDialog>
     _tabCtrl.dispose();
     _nombreCtrl.dispose();
     for (final entries in _items.values) {
-      for (final e in entries) e.dispose();
+      for (final e in entries) {
+        e.dispose();
+      }
     }
     super.dispose();
   }
@@ -1191,7 +1193,9 @@ class _CrearDietaDialogState extends State<_CrearDietaDialog>
     if (template == null) return;
     // Dispose existing
     for (final entries in _items.values) {
-      for (final e in entries) e.dispose();
+      for (final e in entries) {
+        e.dispose();
+      }
     }
     for (final t in kTiemposComida) {
       _items[t] = [];
@@ -1341,7 +1345,7 @@ class _CrearDietaDialogState extends State<_CrearDietaDialog>
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: DropdownButtonFormField<Map<String, dynamic>>(
-              value: _templateSel,
+              initialValue: _templateSel,
               decoration: const InputDecoration(
                 labelText: 'Basarse en plantilla (opcional)',
                 border: OutlineInputBorder(),
@@ -1464,7 +1468,7 @@ class _CrearDietaDialogState extends State<_CrearDietaDialog>
                 style: TextStyle(
                     color: color, fontSize: 12, fontWeight: FontWeight.w700)),
             style: OutlinedButton.styleFrom(
-              side: BorderSide(color: color.withOpacity(0.5)),
+              side: BorderSide(color: color.withValues(alpha: 0.5)),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
           ),
@@ -1603,7 +1607,9 @@ class _EditorDietaDialogState extends State<_EditorDietaDialog>
   void dispose() {
     _tabCtrl.dispose();
     for (final entries in _items.values) {
-      for (final e in entries) e.dispose();
+      for (final e in entries) {
+        e.dispose();
+      }
     }
     super.dispose();
   }
@@ -1783,7 +1789,7 @@ class _EditorDietaDialogState extends State<_EditorDietaDialog>
                 style: TextStyle(
                     color: color, fontSize: 12, fontWeight: FontWeight.w700)),
             style: OutlinedButton.styleFrom(
-              side: BorderSide(color: color.withOpacity(0.5)),
+              side: BorderSide(color: color.withValues(alpha: 0.5)),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
           ),
@@ -1974,7 +1980,7 @@ class _PickIngredienteDialogState extends State<_PickIngredienteDialog> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
               scrollDirection: Axis.horizontal,
               itemCount: kCategorias.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
               itemBuilder: (_, i) {
                 final cat = kCategorias[i];
                 final active = _categoria == cat;
@@ -2060,7 +2066,7 @@ class _PickIngredienteDialogState extends State<_PickIngredienteDialog> {
                             horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           color: sel
-                              ? NutritionPalette.accent.withOpacity(0.08)
+                              ? NutritionPalette.accent.withValues(alpha: 0.08)
                               : NutritionPalette.surface,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
@@ -2285,7 +2291,7 @@ class _NuevoIngredienteQuickDialogState
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _c,
+            initialValue: _c,
             items: kCategorias
                 .where((x) => x != 'Todos')
                 .map((x) => DropdownMenuItem(value: x, child: Text(x)))

@@ -128,7 +128,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
 
     // Premium Color Palette
     final Color baseColor = widget.isHistorical
-        ? scheme.surfaceVariant.withOpacity(0.3)
+        ? scheme.surfaceContainerHighest.withValues(alpha: 0.3)
         : (widget.hasNewActivity ? const Color(0xFFFEFCE8) : scheme.surface);
 
     final Color accentColor = isOverdue
@@ -148,7 +148,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(_isHovered ? 0.08 : 0.04),
+              color: Colors.black.withValues(alpha: _isHovered ? 0.08 : 0.04),
               blurRadius: _isHovered ? 12 : 6,
               offset: const Offset(0, 4),
             ),
@@ -161,11 +161,11 @@ class _TaskModernCardState extends State<TaskModernCard> {
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(
               color: isOverdue
-                  ? Colors.red.withOpacity(0.4)
+                  ? Colors.red.withValues(alpha: 0.4)
                   : (_isHovered
-                        ? accentColor.withOpacity(0.5)
-                        : scheme.outlineVariant.withOpacity(
-                            widget.isHistorical ? 0.2 : 0.5,
+                        ? accentColor.withValues(alpha: 0.5)
+                        : scheme.outlineVariant.withValues(
+                            alpha: widget.isHistorical ? 0.2 : 0.5,
                           )),
               width: _isHovered || widget.hasNewActivity ? 1.5 : 1,
             ),
@@ -225,7 +225,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: scheme.onSurfaceVariant
-                                            .withOpacity(0.7),
+                                            .withValues(alpha: 0.7),
                                         fontSize: 14,
                                         height: 1.4,
                                         fontFamily: kArial,
@@ -268,7 +268,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: scheme.surfaceVariant.withOpacity(0.2),
+                            color: scheme.surfaceContainerHighest.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
@@ -342,7 +342,7 @@ class _TaskModernCardState extends State<TaskModernCard> {
                               Icon(
                                 Icons.arrow_forward_ios_rounded,
                                 size: 14,
-                                color: scheme.onSurfaceVariant.withOpacity(0.4),
+                                color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
                               ),
                             ],
                           ),
@@ -411,9 +411,9 @@ class _StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
       child: Text(
         status.toUpperCase(),
@@ -439,7 +439,7 @@ class _ActivityTag extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFF59E0B).withOpacity(0.3),
+            color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -503,13 +503,13 @@ class _CardChipWidget extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           color: tappable
-              ? scheme.primary.withOpacity(0.08)
-              : scheme.surfaceVariant.withOpacity(0.4),
+              ? scheme.primary.withValues(alpha: 0.08)
+              : scheme.surfaceContainerHighest.withValues(alpha: 0.4),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: tappable
-                ? scheme.primary.withOpacity(0.25)
-                : scheme.outlineVariant.withOpacity(0.3),
+                ? scheme.primary.withValues(alpha: 0.25)
+                : scheme.outlineVariant.withValues(alpha: 0.3),
           ),
         ),
         child: Row(
@@ -535,7 +535,7 @@ class _CardChipWidget extends StatelessWidget {
               Icon(
                 Icons.filter_alt_rounded,
                 size: 10,
-                color: scheme.primary.withOpacity(0.6),
+                color: scheme.primary.withValues(alpha: 0.6),
               ),
             ],
           ],

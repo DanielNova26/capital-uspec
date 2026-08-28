@@ -17,6 +17,7 @@ import 'hoja_de_vida_management_screen.dart';
 import 'hv_dashboard_screen.dart';
 import 'notificaciones_talento_humano_screen.dart';
 import 'organizational_structure_screen.dart';
+import 'personnel_access_screen.dart';
 import 'personnel_import_screen.dart';
 import 'personnel_requisition_screen.dart';
 import 'resume_management_report.dart';
@@ -443,6 +444,23 @@ class _TalentoHumanoDashboardScreenState
               userId: userId,
               empresaId: empresaId,
             ),
+          ),
+        ),
+      ),
+      _HumanTalentAction(
+        section: 'Personas',
+        title: 'Accesos del personal',
+        description:
+            'Define qué módulos usa cada persona dentro de la app. '
+            'Notificaciones y calendario los tiene todo el personal.',
+        icon: Icons.app_registration_rounded,
+        color: const Color(0xFF2563EB),
+        metric: 'Sin lenguaje técnico',
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                PersonnelAccessScreen(userId: userId, empresaId: empresaId),
           ),
         ),
       ),

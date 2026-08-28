@@ -10,13 +10,11 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:todo/state/empresa_scope.dart';
 import 'package:todo/services/notification_service.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
 import 'package:todo/utils/user_company.dart';
-import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/skeleton_loader.dart';
 
 import '../admin/admin_dashboard_screen.dart' hide kArial;
@@ -40,13 +38,11 @@ import '../rutas/rutas_models.dart';
 import '../rutas/rutas_service.dart';
 import '../correo/correo_dashboard_screen.dart';
 import '../tokens_dian/dian_tokens_dashboard_screen.dart';
-import 'app_drawer.dart' hide kArial;
 import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
 import 'notifications_screen.dart';
 import 'task_history_screen.dart' hide kArial;
 import 'create_task_screen.dart' hide kArial;
-import 'team_screen.dart' hide kArial;
 import '../core/access_guard.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
@@ -99,6 +95,14 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _abastecimientoRol;
   String? _lastSyncedActiveCedula;
 
+  // Con el módulo de Tareas apagado no se consulta TBL_TAREAS. Son campos y no
+  // `Stream.empty()` en línea para conservar la misma instancia entre builds y
+  // no re-suscribir el StreamBuilder en cada reconstrucción.
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasAsignadas =
+      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _sinTareasCreadas =
+      Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+
   bool get _isWebShell => kIsWeb && MediaQuery.of(context).size.width >= 900;
 
   // --- Lógica FCM y Notificaciones ---
@@ -112,8 +116,9 @@ class _HomeScreenState extends State<HomeScreen> {
     // Tipos de Nutrición: navegan a NutricionDashboardScreen.
     if (type == 'cita_nutricion_agendada' ||
         type == 'cita_nutricion_recordatorio') {
-      if (taskId.isNotEmpty && mounted)
+      if (taskId.isNotEmpty && mounted) {
         await abrirNutricionDesdeCita(context, userId: cedula, citaId: taskId);
+      }
       return;
     }
     if ((type == 'doc_rechazado' ||
@@ -133,12 +138,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!comprasAllowed) return;
       final proveedorId = taskId.replaceFirst('proveedor:', '').trim();
-      if (proveedorId.isNotEmpty && mounted)
+      if (proveedorId.isNotEmpty && mounted) {
         await abrirDetalleProveedor(
           context,
           userId: cedula,
           proveedorId: proveedorId,
         );
+      }
       return;
     }
     if ((type == 'ficha_rechazada' || type == 'documento_por_vencer') &&
@@ -155,12 +161,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!comprasAllowed) return;
       final fichaId = taskId.replaceFirst('ficha:', '').trim();
-      if (fichaId.isNotEmpty && mounted)
+      if (fichaId.isNotEmpty && mounted) {
         await abrirDetalleFichaRechazada(
           context,
           userId: cedula,
           fichaId: fichaId,
         );
+      }
       return;
     }
     if (await tryOpenFacturacionDocumentTask(
@@ -170,6 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
     if ((type == 'recepcion_doc_rechazado' || type == 'documento_por_vencer') &&
         taskId.startsWith('recepcion:')) {
       final empresaId = normalizeEmpresaId(
@@ -231,6 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       return;
     }
+    if (!mounted) return;
     final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
       context,
       userIdentity: cedula,
@@ -256,6 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .set({'visto': true}, SetOptions(merge: true));
       } catch (_) {}
     }
+    if (!mounted) return;
     if (routeDecision.target == TaskRouteTarget.taskHistory) {
       Navigator.push(
         context,
@@ -353,7 +363,9 @@ class _HomeScreenState extends State<HomeScreen> {
         .snapshots()
         .listen((snap) async {
           if (!_notifsPrimed) {
-            for (final doc in snap.docs) _seenNotifIds.add(doc.id);
+            for (final doc in snap.docs) {
+              _seenNotifIds.add(doc.id);
+            }
             _notifsPrimed = true;
             return;
           }
@@ -594,7 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
           userId,
         ))?.rol;
       } catch (_) {}
-      if (context.mounted)
+      if (context.mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -605,6 +617,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
+      }
     }
   }
 
@@ -687,7 +700,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appId: kFacAppId,
       deniedMessage: 'Sin acceso a Facturación.',
     )) {
-      if (context.mounted)
+      if (context.mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -701,6 +714,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
+      }
     }
   }
 
@@ -768,10 +782,11 @@ class _HomeScreenState extends State<HomeScreen> {
       empresaId: empresaId,
       appId: appId,
     );
-    if (!d.allowed && mounted)
+    if (!d.allowed && mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(d.message ?? deniedMessage)));
+    }
     return d.allowed;
   }
 
@@ -818,8 +833,9 @@ class _HomeScreenState extends State<HomeScreen> {
           .doc(cedula)
           .snapshots(),
       builder: (context, userSnap) {
-        if (!userSnap.hasData)
+        if (!userSnap.hasData) {
           return HomeShell(userId: cedula, body: const SkeletonList());
+        }
 
         final userData = userSnap.data?.data() ?? {};
         final apps = extractUserApps(userData, empresaId: scopeEmpresa);
@@ -847,20 +863,36 @@ class _HomeScreenState extends State<HomeScreen> {
                       .toSet()
                 : <String>{};
 
+            // Acceso al módulo de Tareas. Se resuelve ANTES de consultar
+            // TBL_TAREAS: si está apagado no se leen tareas, no se pintan en
+            // el calendario y no se ofrece crearlas en ninguna vista.
+            // Notificaciones y calendario NO dependen de esto: los conserva
+            // todo el personal.
+            final showTareas = _moduleVisible(
+              apps,
+              isDev,
+              'tareasdashboard',
+              disabledAppIds,
+            );
+
             // Dos queries separadas porque Firestore no admite OR entre campos distintos.
             // assignedSnap: tareas donde soy el destinatario.
             // createdSnap:  tareas donde soy el creador/emisor.
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('TBL_TAREAS')
-                  .where('asignado_uid', isEqualTo: cedula)
-                  .snapshots(),
+              stream: showTareas
+                  ? FirebaseFirestore.instance
+                        .collection('TBL_TAREAS')
+                        .where('asignado_uid', isEqualTo: cedula)
+                        .snapshots()
+                  : _sinTareasAsignadas,
               builder: (context, assignedSnap) {
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .collection('TBL_TAREAS')
-                      .where('creador_id', isEqualTo: cedula)
-                      .snapshots(),
+                  stream: showTareas
+                      ? FirebaseFirestore.instance
+                            .collection('TBL_TAREAS')
+                            .where('creador_id', isEqualTo: cedula)
+                            .snapshots()
+                      : _sinTareasCreadas,
                   builder: (context, createdSnap) {
                     // Fusionar y deduplicar por doc.id
                     final seen = <String>{};
@@ -896,13 +928,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     }
 
-                    final showTareas = _moduleVisible(
-                      apps,
-                      isDev,
-                      'tareasdashboard',
-                      disabledAppIds,
-                    );
-
                     return HomeShell(
                       userId: cedula,
                       showTareas: showTareas,
@@ -935,6 +960,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               theme,
                               scheme,
                               nombreUsuario,
+                              showTareas,
                             )
                           : _buildMobileHome(
                               cedula,
@@ -946,6 +972,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               theme,
                               scheme,
                               nombreUsuario,
+                              showTareas,
                             ),
                     );
                   },
@@ -969,6 +996,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ThemeData theme,
     ColorScheme scheme,
     String nombre,
+    bool showTareas,
   ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(32),
@@ -999,18 +1027,23 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               Row(
                 children: [
+                  // La campana no depende de ningún módulo: las
+                  // notificaciones las recibe todo el personal.
                   _buildNotificationBell(cedula, userData),
-                  const SizedBox(width: 16),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => CreateTaskScreen(currentUserId: cedula),
+                  if (showTareas) ...[
+                    const SizedBox(width: 16),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CreateTaskScreen(currentUserId: cedula),
+                        ),
                       ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Nueva Tarea'),
                     ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Nueva Tarea'),
-                  ),
+                  ],
                 ],
               ),
             ],
@@ -1042,9 +1075,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 12),
                     _buildCalendarCard(scheme),
                     const SizedBox(height: 24),
+                    // Sin el módulo de Tareas la agenda del día sigue viva:
+                    // muestra citas y notificaciones, no tareas.
                     SectionHeader(
-                      title:
-                          'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}',
+                      title: showTareas
+                          ? 'Pendientes para ${DateFormat('dd/MM').format(_selectedDay)}'
+                          : 'Agenda del ${DateFormat('dd/MM').format(_selectedDay)}',
                     ),
                     const SizedBox(height: 12),
                     _buildSelectedDayTasksCard(cedula, empresaId, userData),
@@ -1069,6 +1105,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ThemeData theme,
     ColorScheme scheme,
     String nombre,
+    bool showTareas,
   ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -1102,17 +1139,20 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildCalendarCard(scheme),
 
           const SizedBox(height: 20),
+          // "Ver todos" abre la bandeja de tareas: solo con el módulo activo.
           SectionHeader(
-            title: 'Pendientes de hoy',
-            trailing: TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AssignedTasksScreen(userId: cedula),
-                ),
-              ),
-              child: const Text('Ver todos'),
-            ),
+            title: showTareas ? 'Pendientes de hoy' : 'Agenda del día',
+            trailing: showTareas
+                ? TextButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AssignedTasksScreen(userId: cedula),
+                      ),
+                    ),
+                    child: const Text('Ver todos'),
+                  )
+                : null,
           ),
           const SizedBox(height: 8),
           _buildSelectedDayTasksCard(cedula, empresaId, userData),
@@ -1142,12 +1182,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (modules.isEmpty) return const SizedBox.shrink();
 
+    // La tarjeta mide icono + dos líneas de título. Con la letra del sistema
+    // en grande esas dos líneas crecen y se salían de una altura fija de 120,
+    // así que la altura acompaña la escala de texto del dispositivo.
+    final escala = MediaQuery.textScalerOf(context).scale(11) / 11;
+    final alto = (108 + 26 * (escala - 1) * 2).clamp(108.0, 168.0);
+
     return SizedBox(
-      height: 120,
+      height: alto,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 2),
         itemCount: modules.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) => modules[index],
       ),
     );
@@ -1179,7 +1226,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ? Colors.white
             : (unread > 0
                   ? scheme.primary
-                  : scheme.onSurfaceVariant.withOpacity(0.7));
+                  : scheme.onSurfaceVariant.withValues(alpha: 0.7));
 
         return IconButton(
           tooltip: 'Notificaciones',
@@ -1302,8 +1349,9 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     if (isDev) return true;
     // Si está explícitamente deshabilitado para esta empresa, no mostrar.
-    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId)))
+    if (disabledAppIds.any((id) => appIdsEquivalent(id, fullAppId))) {
       return false;
+    }
     return apps.any((app) => appIdsEquivalent(app, fullAppId));
   }
 
@@ -1346,23 +1394,22 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.admin_panel_settings_rounded,
           color: const Color(0xFF475569),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'admindashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AdminDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'admindashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    AdminDashboardScreen(userId: cedula, empresaId: empresaId),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'talentohumanodashboard', disabledAppIds))
@@ -1372,23 +1419,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.groups_rounded,
           color: const Color(0xFF4F46E5),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'talentohumanodashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => TalentoHumanoDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'talentohumanodashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => TalentoHumanoDashboardScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'gerenciadashboard', disabledAppIds))
@@ -1398,23 +1446,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.query_stats_rounded,
           color: const Color(0xFF7C3AED),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'gerenciadashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => GerenciaDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'gerenciadashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => GerenciaDashboardScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(
@@ -1429,23 +1478,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.auto_stories_rounded,
           color: const Color(0xFF0D9488),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'gestiondocumentaldashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => DocumentManagementScreen(
-                      currentUserId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'gestiondocumentaldashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DocumentManagementScreen(
+                  currentUserId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_planillasVisible(userData, empresaId, apps, isDev, disabledAppIds))
@@ -1455,23 +1505,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.request_quote_rounded,
           color: const Color(0xFFB45309),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: kPlanillasPagoAppId,
-                deniedMessage: 'Sin acceso a Planillas de Pago',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PlanillasPagoModuleScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: kPlanillasPagoAppId,
+              deniedMessage: 'Sin acceso a Planillas de Pago',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PlanillasPagoModuleScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'nutriciondashboard', disabledAppIds))
@@ -1481,23 +1532,24 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: Icons.restaurant_menu_rounded,
           color: const Color(0xFFEA580C),
           compact: !isWeb,
-          onTap: () async =>
-              (await _guardModuleNavigation(
-                userData: userData,
-                empresaId: empresaId,
-                appId: 'nutriciondashboard',
-                deniedMessage: 'Sin acceso',
-              ))
-              ? Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => NutricionDashboardScreen(
-                      userId: cedula,
-                      empresaId: empresaId,
-                    ),
-                  ),
-                )
-              : null,
+          onTap: () async {
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: 'nutriciondashboard',
+              deniedMessage: 'Sin acceso',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => NutricionDashboardScreen(
+                  userId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
         ),
 
       if (_moduleVisible(apps, isDev, 'comprasdashboard', disabledAppIds))
@@ -1580,7 +1632,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }),
         calendarStyle: CalendarStyle(
           todayDecoration: BoxDecoration(
-            color: scheme.primary.withOpacity(0.3),
+            color: scheme.primary.withValues(alpha: 0.3),
             shape: BoxShape.circle,
           ),
           selectedDecoration: BoxDecoration(
@@ -1650,13 +1702,13 @@ class _HomeScreenState extends State<HomeScreen> {
               Icon(
                 Icons.event_available_outlined,
                 size: 40,
-                color: scheme.onSurfaceVariant.withOpacity(0.2),
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.2),
               ),
               const SizedBox(height: 8),
               Text(
                 'Sin pendientes para este día',
                 style: TextStyle(
-                  color: scheme.onSurfaceVariant.withOpacity(0.5),
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1680,10 +1732,10 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: scheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+              border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
+                  color: Colors.black.withValues(alpha: 0.02),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -1697,7 +1749,7 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.teal.withOpacity(0.1),
+                  color: Colors.teal.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -1725,7 +1777,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.teal.withOpacity(0.1),
+                        color: Colors.teal.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1763,10 +1815,10 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: scheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+              border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
+                  color: Colors.black.withValues(alpha: 0.02),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -1780,7 +1832,7 @@ class _HomeScreenState extends State<HomeScreen> {
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: scheme.primary.withOpacity(0.1),
+                  color: scheme.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -1808,7 +1860,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: scheme.primary.withOpacity(0.1),
+                        color: scheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -1828,7 +1880,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 12,
-                          color: scheme.onSurfaceVariant.withOpacity(0.75),
+                          color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
                         ),
                       ),
                     ],
@@ -1935,10 +1987,10 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: scheme.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: scheme.outlineVariant.withOpacity(0.4)),
+            border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.02),
+                color: Colors.black.withValues(alpha: 0.02),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -1956,7 +2008,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     (esFinalizada
                             ? Colors.green
                             : (isRecibida ? Colors.blue : Colors.orange))
-                        .withOpacity(0.1),
+                        .withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -1991,7 +2043,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: (isRecibida ? Colors.blue : Colors.orange)
-                          .withOpacity(0.1),
+                          .withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -2011,7 +2063,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w700,
-                      color: scheme.onSurfaceVariant.withOpacity(0.5),
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                     ),
                   ),
                 ],

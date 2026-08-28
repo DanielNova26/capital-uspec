@@ -19,6 +19,7 @@ import '../../widgets/user_avatar.dart';
 import '../rutas_models.dart';
 import 'movilidad_models.dart';
 import 'movilidad_service.dart';
+import '../../widgets/paged_list.dart';
 
 const Color _kVerde = Color(0xFF15803D);
 const double _kMaxAncho = 1150;
@@ -275,8 +276,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
     return StreamBuilder<MovConfigDoc>(
       stream: _configStream,
       builder: (context, cfgSnap) {
-        final config =
-            cfgSnap.data ?? MovConfigDoc.defaults(widget.empresaId);
+        final config = cfgSnap.data ?? MovConfigDoc.defaults(widget.empresaId);
         return Column(
           children: [
             _barraSuperior(config),
@@ -366,8 +366,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                       ),
                     ],
                     selected: {_vista},
-                    onSelectionChanged: (s) =>
-                        setState(() => _vista = s.first),
+                    onSelectionChanged: (s) => setState(() => _vista = s.first),
                     showSelectedIcon: false,
                   ),
                   const SizedBox(width: 12),
@@ -586,7 +585,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                             '${pv.diferenciaPct.toStringAsFixed(1)} % al '
                             'tiempo de recorrido',
                           ),
-                          backgroundColor: _kVerde.withOpacity(.1),
+                          backgroundColor: _kVerde.withValues(alpha: .1),
                         ),
                       ],
                     ),
@@ -609,8 +608,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                             child: _cardBarras(
                               'Promedio por día',
                               promDia.map(
-                                (w, v) =>
-                                    MapEntry(movWeekdayNombre(w), v),
+                                (w, v) => MapEntry(movWeekdayNombre(w), v),
                               ),
                             ),
                           ),
@@ -620,8 +618,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                             child: _cardBarras(
                               'Promedio por escenario',
                               promEsc.map(
-                                (k, v) =>
-                                    MapEntry(movEscenarioLabel(k), v),
+                                (k, v) => MapEntry(movEscenarioLabel(k), v),
                               ),
                             ),
                           ),
@@ -634,10 +631,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                             ),
                           ),
                         if (porPunto.isNotEmpty)
-                          SizedBox(
-                            width: wCol,
-                            child: _cardTopRutas(porPunto),
-                          ),
+                          SizedBox(width: wCol, child: _cardTopRutas(porPunto)),
                       ],
                     );
                   },
@@ -722,73 +716,79 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
               const SizedBox(height: 10),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(
-                    _kVerde.withValues(alpha: .08),
-                  ),
-                  columnSpacing: 22,
-                  columns: [
-                    const DataColumn(label: Text('Punto')),
-                    DataColumn(label: Text(a), numeric: true),
-                    DataColumn(label: Text(b), numeric: true),
-                    const DataColumn(label: Text('Diferencia'), numeric: true),
-                    const DataColumn(label: Text('Promedio'), numeric: true),
-                  ],
-                  rows: comparativo
-                      .map(
-                        (c) => DataRow(
-                          cells: [
-                            DataCell(
-                              Text(
-                                c.nombre,
-                                style: const TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                '${c.minA.toStringAsFixed(0)} min',
-                                style: const TextStyle(fontSize: 12.5),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                '${c.minB.toStringAsFixed(0)} min',
-                                style: const TextStyle(fontSize: 12.5),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                '${c.diferencia >= 0 ? '+' : '−'}'
-                                '${c.diferenciaAbs.toStringAsFixed(0)} min '
-                                '(${c.diferenciaPct.abs().toStringAsFixed(0)} %)',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: c.diferenciaAbs > 10
-                                      ? kMovColorAlto
-                                      : Colors.black54,
-                                ),
-                              ),
-                            ),
-                            DataCell(
-                              Text(
-                                MovMedicionDoc.formatoMin(c.promedio),
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: movRiesgoColor(
-                                    movClasificarRiesgo(c.promedio),
+                child: PagedDataTable(
+                  etiqueta: 'mediciones',
+                  tabla: DataTable(
+                    headingRowColor: WidgetStateProperty.all(
+                      _kVerde.withValues(alpha: .08),
+                    ),
+                    columnSpacing: 22,
+                    columns: [
+                      const DataColumn(label: Text('Punto')),
+                      DataColumn(label: Text(a), numeric: true),
+                      DataColumn(label: Text(b), numeric: true),
+                      const DataColumn(
+                        label: Text('Diferencia'),
+                        numeric: true,
+                      ),
+                      const DataColumn(label: Text('Promedio'), numeric: true),
+                    ],
+                    rows: comparativo
+                        .map(
+                          (c) => DataRow(
+                            cells: [
+                              DataCell(
+                                Text(
+                                  c.nombre,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      )
-                      .toList(),
+                              DataCell(
+                                Text(
+                                  '${c.minA.toStringAsFixed(0)} min',
+                                  style: const TextStyle(fontSize: 12.5),
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  '${c.minB.toStringAsFixed(0)} min',
+                                  style: const TextStyle(fontSize: 12.5),
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  '${c.diferencia >= 0 ? '+' : '−'}'
+                                  '${c.diferenciaAbs.toStringAsFixed(0)} min '
+                                  '(${c.diferenciaPct.abs().toStringAsFixed(0)} %)',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: c.diferenciaAbs > 10
+                                        ? kMovColorAlto
+                                        : Colors.black54,
+                                  ),
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  MovMedicionDoc.formatoMin(c.promedio),
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: movRiesgoColor(
+                                      movClasificarRiesgo(c.promedio),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                        .toList(),
+                  ),
                 ),
               ),
             ],
@@ -892,10 +892,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              titulo,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
+            Text(titulo, style: const TextStyle(fontWeight: FontWeight.w800)),
             const SizedBox(height: 10),
             ...datos.entries.map(
               (e) => Padding(
@@ -917,9 +914,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                           value: maxVal == 0 ? 0 : e.value / maxVal,
                           minHeight: 10,
                           backgroundColor: Colors.grey.shade200,
-                          color: movRiesgoColor(
-                            movClasificarRiesgo(e.value),
-                          ),
+                          color: movRiesgoColor(movClasificarRiesgo(e.value)),
                         ),
                       ),
                     ),
@@ -955,36 +950,38 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
             style: TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 6),
-          ...porPunto.take(8).map(
-            (r) => ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(
-                radius: 13,
-                backgroundColor: movRiesgoColor(r.riesgoProm),
-                child: Text(
-                  '${porPunto.indexOf(r) + 1}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
+          ...porPunto
+              .take(8)
+              .map(
+                (r) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    radius: 13,
+                    backgroundColor: movRiesgoColor(r.riesgoProm),
+                    child: Text(
+                      '${porPunto.indexOf(r) + 1}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    r.nombre,
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Text(
+                    MovMedicionDoc.formatoMin(r.promMin),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
-              title: Text(
-                r.nombre,
-                style: const TextStyle(fontSize: 13),
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Text(
-                MovMedicionDoc.formatoMin(r.promMin),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     ),
@@ -1051,8 +1048,9 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
   Widget _rutasView(List<MovMedicionDoc> ms, MovConfigDoc config) {
     // Última medición por (ruta, parada) de la fuente principal, para no
     // mezclar proveedores cuando el comparativo está activo.
-    final fuentePrincipal =
-        config.fuente == 'tomtom' ? 'tomtom' : 'google_routes';
+    final fuentePrincipal = config.fuente == 'tomtom'
+        ? 'tomtom'
+        : 'google_routes';
     final delPrincipal = MovStats.okDe(ms)
         .where((m) => m.rutaCodigo.isNotEmpty && m.fuente == fuentePrincipal)
         .toList();
@@ -1168,9 +1166,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                           )
                           .toList();
                       final faltan = kMovRutasEstudio.keys
-                          .where(
-                            (c) => !rutas.any((r) => r.codigo == c),
-                          )
+                          .where((c) => !rutas.any((r) => r.codigo == c))
                           .toList();
                       if (malas.isEmpty && faltan.isEmpty) {
                         return const SizedBox.shrink();
@@ -1355,10 +1351,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                 if (finalMed != null) ...[
                   Text(
                     'Total en ruta: ',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                   ),
                   Text(
                     finalMed.acumuladoTexto,
@@ -1444,10 +1437,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
             Container(
               width: 22,
               height: 22,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
               alignment: Alignment.center,
               child: Text(
                 indice,
@@ -1459,9 +1449,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
               ),
             ),
             if (!esUltimo)
-              Expanded(
-                child: Container(width: 2, color: Colors.grey.shade300),
-              ),
+              Expanded(child: Container(width: 2, color: Colors.grey.shade300)),
           ],
         ),
         const SizedBox(width: 10),
@@ -1538,27 +1526,26 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                 'Punto',
                 _fPunto,
                 puntos.entries
-                    .map((e) => DropdownMenuItem(
-                          value: e.key,
-                          child: Text(
-                            e.value,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ))
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e.key,
+                        child: Text(e.value, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
                     .toList()
-                  ..sort((a, b) => puntos[a.value]!.compareTo(
-                        puntos[b.value]!,
-                      )),
+                  ..sort(
+                    (a, b) => puntos[a.value]!.compareTo(puntos[b.value]!),
+                  ),
                 (v) => setState(() => _fPunto = v),
               ),
               _dropdownFiltro<int>(
                 'Día',
                 _fDia,
                 kMovWeekdayNombres.entries
-                    .map((e) => DropdownMenuItem(
-                          value: e.key,
-                          child: Text(e.value),
-                        ))
+                    .map(
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    )
                     .toList(),
                 (v) => setState(() => _fDia = v),
               ),
@@ -1566,8 +1553,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                 'Hora',
                 _fHora,
                 horasOrd
-                    .map((h) =>
-                        DropdownMenuItem(value: h, child: Text(h)))
+                    .map((h) => DropdownMenuItem(value: h, child: Text(h)))
                     .toList(),
                 (v) => setState(() => _fHora = v),
               ),
@@ -1575,10 +1561,12 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                 'Escenario',
                 _fEscenario,
                 kMovEscenarios
-                    .map((e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(movEscenarioLabel(e)),
-                        ))
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(movEscenarioLabel(e)),
+                      ),
+                    )
                     .toList(),
                 (v) => setState(() => _fEscenario = v),
               ),
@@ -1586,10 +1574,12 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                 'Riesgo',
                 _fRiesgo,
                 kMovRiesgos
-                    .map((r) => DropdownMenuItem(
-                          value: r,
-                          child: Text(movRiesgoLabel(r)),
-                        ))
+                    .map(
+                      (r) => DropdownMenuItem(
+                        value: r,
+                        child: Text(movRiesgoLabel(r)),
+                      ),
+                    )
                     .toList(),
                 (v) => setState(() => _fRiesgo = v),
               ),
@@ -1609,10 +1599,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
               const SizedBox(width: 4),
               Text(
                 '${filtradas.length} de ${ms.length} mediciones',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.black54,
-                ),
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
               ),
               if (_seleccionadas.isNotEmpty) ...[
                 const SizedBox(width: 4),
@@ -1642,9 +1629,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                           ),
                         )
                       : const Icon(Icons.delete_outline, size: 18),
-                  label: Text(
-                    _borrandoSeleccion ? 'Borrando…' : 'Eliminar',
-                  ),
+                  label: Text(_borrandoSeleccion ? 'Borrando…' : 'Eliminar'),
                 ),
               ] else if (filtradas.isNotEmpty)
                 TextButton.icon(
@@ -1652,9 +1637,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                       _source.seleccionarTodas(filtradas.map((m) => m.id)),
                   icon: const Icon(Icons.checklist, size: 18),
                   label: Text(
-                    _hayFiltros
-                        ? 'Seleccionar filtradas'
-                        : 'Seleccionar todas',
+                    _hayFiltros ? 'Seleccionar filtradas' : 'Seleccionar todas',
                   ),
                 ),
               const SizedBox(width: 4),
@@ -1757,10 +1740,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
         items: [
           DropdownMenuItem<T>(
             value: null,
-            child: Text(
-              '$label: todos',
-              style: const TextStyle(fontSize: 13),
-            ),
+            child: Text('$label: todos', style: const TextStyle(fontSize: 13)),
           ),
           ...items,
         ],
@@ -1782,7 +1762,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
               constraints: BoxConstraints(minWidth: constraints.maxWidth),
               child: PaginatedDataTable(
                 headingRowColor: WidgetStateProperty.all(
-                  _kVerde.withOpacity(.08),
+                  _kVerde.withValues(alpha: .08),
                 ),
                 columns: const [
                   DataColumn(label: Text('Fecha')),
@@ -1887,7 +1867,8 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
         .where((m) => _seleccionadas.contains(m.id))
         .take(4)
         .map(
-          (m) => '${m.fecha} ${m.hora} · '
+          (m) =>
+              '${m.fecha} ${m.hora} · '
               '${m.rutaCodigo.isEmpty ? '' : '${m.rutaCodigo} · '}'
               '${m.puntoNombre}',
         )
@@ -1933,9 +1914,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: kMovColorCritico,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: kMovColorCritico),
             child: const Text('Eliminar'),
           ),
         ],
@@ -2016,10 +1995,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                 width: 175,
                 child: Text(
                   label,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
               ),
               Expanded(
@@ -2060,10 +2036,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                       ),
                       child: Text(
                         'MEDICIÓN FALLIDA: ${m.errorMsg}',
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 12,
-                        ),
+                        style: const TextStyle(color: Colors.red, fontSize: 12),
                       ),
                     ),
                   fila('ID medición', m.id),
@@ -2076,16 +2049,13 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                           ? 'Planta → ${m.puntoNombre} (primer tramo)'
                           : m.tramoTexto,
                     ),
-                      fila(
+                    fila(
                       'Tiempo TOTAL en ruta al llegar',
                       m.acumuladoTexto,
                       color: movRiesgoColor(m.riesgo),
                     ),
                     if (m.horarioTramoTexto.isNotEmpty)
-                      fila(
-                        'Sale hacia la parada → llega',
-                        m.horarioTramoTexto,
-                      ),
+                      fila('Sale hacia la parada → llega', m.horarioTramoTexto),
                     fila(
                       'Ventana de entrega',
                       m.ventanaTexto,
@@ -2226,9 +2196,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                                   ? Icons.construction
                                   : Icons.report_problem_outlined,
                               size: 15,
-                              color: i.esObra
-                                  ? kMovColorAlto
-                                  : Colors.blueGrey,
+                              color: i.esObra ? kMovColorAlto : Colors.blueGrey,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -2249,10 +2217,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
                         width: 175,
                         child: Text(
                           'Generado por',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.black54,
-                          ),
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
                         ),
                       ),
                       Expanded(
@@ -2340,9 +2305,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
           actions: [
             TextButton.icon(
               onPressed: () async {
-                await Clipboard.setData(
-                  ClipboardData(text: m.apiRawResponse),
-                );
+                await Clipboard.setData(ClipboardData(text: m.apiRawResponse));
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     const SnackBar(content: Text('JSON copiado.')),
@@ -2381,9 +2344,7 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
       Marker(
         markerId: const MarkerId('origen'),
         position: LatLng(config.origenLat, config.origenLng),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          BitmapDescriptor.hueViolet,
-        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
         infoWindow: InfoWindow(
           title: config.origenNombre,
           snippet: config.origenDireccion,
@@ -2391,7 +2352,9 @@ class _MovilidadEstudioTabState extends State<MovilidadEstudioTab> {
       ),
       for (final m in ultimaPorPunto.values)
         Marker(
-          markerId: MarkerId('p_${m.puntoId.isEmpty ? m.puntoNombre : m.puntoId}'),
+          markerId: MarkerId(
+            'p_${m.puntoId.isEmpty ? m.puntoNombre : m.puntoId}',
+          ),
           position: LatLng(m.puntoLat, m.puntoLng),
           icon: BitmapDescriptor.defaultMarkerWithHue(movRiesgoHue(m.riesgo)),
           infoWindow: InfoWindow(
@@ -2533,7 +2496,7 @@ class _MedicionesSource extends DataTableSource {
     return DataRow.byIndex(
       index: index,
       color: m.alerta
-          ? WidgetStateProperty.all(kMovColorCritico.withOpacity(.07))
+          ? WidgetStateProperty.all(kMovColorCritico.withValues(alpha: .07))
           : null,
       // La casilla selecciona para borrar; el detalle se abre con el ícono
       // de la última columna, para que no se confundan las dos acciones.
@@ -2660,8 +2623,7 @@ class _MedicionesSource extends DataTableSource {
                         [
                           if (m.obrasOficiales.hayAlgo)
                             m.obrasOficiales.resumenCorto,
-                          if (m.incidentes.hayAlgo)
-                            m.incidentes.resumenCorto,
+                          if (m.incidentes.hayAlgo) m.incidentes.resumenCorto,
                         ].join(' · '),
                         color:
                             m.obrasOficiales.hayAlgo || m.incidentes.obras > 0
@@ -2677,7 +2639,7 @@ class _MedicionesSource extends DataTableSource {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
             decoration: BoxDecoration(
-              color: movRiesgoColor(m.riesgo).withOpacity(.14),
+              color: movRiesgoColor(m.riesgo).withValues(alpha: .14),
               borderRadius: BorderRadius.circular(10),
             ),
             child: celda(
@@ -2769,9 +2731,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
     _origenLat = TextEditingController(text: c.origenLat.toString());
     _origenLng = TextEditingController(text: c.origenLng.toString());
     _umbral = TextEditingController(text: c.umbralAlertaMin.toString());
-    _minutosParada = TextEditingController(
-      text: c.minutosPorParada.toString(),
-    );
+    _minutosParada = TextEditingController(text: c.minutosPorParada.toString());
     _cedulaNueva = TextEditingController();
   }
 
@@ -2924,9 +2884,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSt) => AlertDialog(
-          title: Text(
-            existente == null ? 'Nuevo horario' : 'Editar horario',
-          ),
+          title: Text(existente == null ? 'Nuevo horario' : 'Editar horario'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2935,10 +2893,8 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                 decoration: const InputDecoration(labelText: 'Día'),
                 items: kMovWeekdayNombres.entries
                     .map(
-                      (e) => DropdownMenuItem(
-                        value: e.key,
-                        child: Text(e.value),
-                      ),
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
                     )
                     .toList(),
                 onChanged: (v) => setSt(() => weekday = v ?? weekday),
@@ -3071,9 +3027,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
               onPressed: ctrl.text.trim().toUpperCase() == 'BORRAR'
                   ? () => Navigator.pop(ctx, true)
                   : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: kMovColorCritico,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: kMovColorCritico),
               child: const Text('Borrar definitivamente'),
             ),
           ],
@@ -3287,8 +3241,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                           'Duplica el número de mediciones y de llamadas a '
                           'las APIs. Requiere tener la key de ambas.',
                         ),
-                        onChanged: (v) =>
-                            _guardarConfig(compararFuentes: v),
+                        onChanged: (v) => _guardarConfig(compararFuentes: v),
                       ),
                       const SizedBox(height: 10),
                       const Text(
@@ -3490,9 +3443,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                               const Expanded(
                                 child: Text(
                                   'Horarios de medición automática',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                                  style: TextStyle(fontWeight: FontWeight.w800),
                                 ),
                               ),
                               TextButton.icon(
@@ -3507,10 +3458,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                                           strokeWidth: 2,
                                         ),
                                       )
-                                    : const Icon(
-                                        Icons.auto_fix_high,
-                                        size: 18,
-                                      ),
+                                    : const Icon(Icons.auto_fix_high, size: 18),
                                 label: Text(
                                   _creandoHorarios
                                       ? 'Creando…'
@@ -3590,9 +3538,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                                             ),
                                           ),
                                           ...horarios
-                                              .where(
-                                                (h) => h.weekday == dia,
-                                              )
+                                              .where((h) => h.weekday == dia)
                                               .map(
                                                 (h) => ListTile(
                                                   dense: true,
@@ -3602,23 +3548,20 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                                                       _editarHorario(h),
                                                   leading: Switch(
                                                     value: h.activo,
-                                                    activeThumbColor:
-                                                        _kVerde,
-                                                    onChanged: (v) => widget
-                                                        .svc
+                                                    activeThumbColor: _kVerde,
+                                                    onChanged: (v) => widget.svc
                                                         .guardarHorario(
                                                           MovHorarioDoc(
                                                             id: h.id,
-                                                            empresaId: h
-                                                                .empresaId,
-                                                            weekday:
-                                                                h.weekday,
+                                                            empresaId:
+                                                                h.empresaId,
+                                                            weekday: h.weekday,
                                                             hora: h.hora,
-                                                            escenario: h
-                                                                .escenario,
+                                                            escenario:
+                                                                h.escenario,
                                                             activo: v,
-                                                            createdAt: h
-                                                                .createdAt,
+                                                            createdAt:
+                                                                h.createdAt,
                                                           ),
                                                         ),
                                                   ),
@@ -3699,8 +3642,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                snap.connectionState ==
-                                        ConnectionState.waiting
+                                snap.connectionState == ConnectionState.waiting
                                     ? 'Cargando puntos…'
                                     : '$geocodificados de ${puntos.length} '
                                           'establecimientos activos tienen '
@@ -3739,8 +3681,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                                             } finally {
                                               if (mounted) {
                                                 setState(
-                                                  () =>
-                                                      _sincronizando = false,
+                                                  () => _sincronizando = false,
                                                 );
                                               }
                                             }
@@ -3752,11 +3693,10 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                                         ? const SizedBox(
                                             width: 14,
                                             height: 14,
-                                            child:
-                                                CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  color: Colors.white,
-                                                ),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
                                           )
                                         : const Icon(Icons.sync, size: 18),
                                     label: Text(
@@ -3800,7 +3740,9 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                         style: TextStyle(fontSize: 12, color: Colors.black54),
                       ),
                       const SizedBox(height: 10),
-                      FutureBuilder<List<({String codigo, List<String> paradas})>>(
+                      FutureBuilder<
+                        List<({String codigo, List<String> paradas})>
+                      >(
                         future: widget.svc.rutasConfiguradas(widget.empresaId),
                         builder: (context, snap) {
                           final rutas = snap.data ?? const [];
@@ -3858,9 +3800,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
                         onPressed: _sincronizandoRutas
                             ? null
                             : _sincronizarRutas,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _kVerde,
-                        ),
+                        style: FilledButton.styleFrom(backgroundColor: _kVerde),
                         icon: _sincronizandoRutas
                             ? const SizedBox(
                                 width: 14,
@@ -3886,7 +3826,7 @@ class _ProgramacionViewState extends State<_ProgramacionView> {
               const SizedBox(height: 12),
               // ── Cómo funciona ────────────────────────────────────────────
               Card(
-                color: _kVerde.withOpacity(.05),
+                color: _kVerde.withValues(alpha: .05),
                 child: const Padding(
                   padding: EdgeInsets.all(16),
                   child: Column(

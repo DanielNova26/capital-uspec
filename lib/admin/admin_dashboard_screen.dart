@@ -28,6 +28,8 @@ import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../services/session_audit_service.dart';
 
 import 'admin_repository.dart';
+import '../core/area_directory.dart';
+import '../widgets/paged_list.dart';
 import 'admin_access_filter.dart';
 import 'compras_document_control_panel.dart';
 import 'correo_admin_panel.dart';
@@ -255,6 +257,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // áreas del módulo de tareas) y referencias de área inexistentes.
   bool _cargoSaludLoading = false;
   _CargoHealthReport? _cargoSaludReport;
+
+  /// Áreas de la empresa activa, cargadas en el escaneo para poder asignar el
+  /// área a mano a un cargo que el diagnóstico no puede reparar solo.
+  List<AreaOpcion> _cargoSaludAreas = const <AreaOpcion>[];
 
   // Membresía multi-empresa (Etapa 3). Carga global de TBL_USUARIOS bajo
   // demanda para poder agregar/quitar a cualquier usuario de cualquier empresa.
@@ -804,7 +810,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     const SizedBox(height: 12),
 
                     DropdownButtonFormField<CentroCostoItem>(
-                      value: centroSel,
+                      initialValue: centroSel,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Centro de costos',
@@ -826,7 +832,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     const SizedBox(height: 12),
 
                     DropdownButtonFormField<AreaItem>(
-                      value: areaSel,
+                      initialValue: areaSel,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Área / Departamento',
@@ -858,7 +864,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: rolDocumental,
+                      initialValue: rolDocumental,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         // Este rol es del flujo documental (redactar/revisar/
@@ -906,7 +912,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: rolPlanillas,
+                      initialValue: rolPlanillas,
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Rol en Planillas de Pago',
@@ -990,7 +996,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       rolDocumental: rolDocumental,
                       rolPlanillas: rolPlanillas,
                     );
-                    if (!mounted) return;
+                    if (!mounted || !context.mounted) return;
                     Navigator.pop(context);
                     _snack('Usuario actualizado');
                     await _loadAll(forceEmpresaId: _empresaId);
@@ -1177,7 +1183,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           ),
                           child: ListView.separated(
                             itemCount: list.length,
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 Divider(height: 0, color: Colors.grey.shade200),
                             itemBuilder: (_, i) {
                               final u = list[i];
@@ -1272,7 +1278,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
           ),
           content: DropdownButtonFormField<CentroCostoItem>(
-            value: centroCanonical,
+            initialValue: centroCanonical,
             isExpanded: true,
             decoration: const InputDecoration(border: OutlineInputBorder()),
             items: enabledCentros
@@ -2732,8 +2738,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           soloNoLeidas: soloNoLeidas,
         );
       }
-      if (mounted)
+      if (mounted) {
         _snack('✅ $deleted notificaciones eliminadas de "$empresaId".');
+      }
     } catch (e) {
       if (mounted) _snack('Error al borrar: $e');
     } finally {
@@ -3122,7 +3129,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   )
                 else
                   DropdownButtonFormField<String>(
-                    value: _notifCleanUserId,
+                    initialValue: _notifCleanUserId,
                     isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Usuario (cédula)',
@@ -3279,7 +3286,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         border: Border(bottom: BorderSide(color: kAdminBorder)),
       ),
       child: DropdownButtonFormField<int>(
-        value: selectedIndex,
+        initialValue: selectedIndex,
         isExpanded: true,
         decoration: InputDecoration(
           labelText: 'Sección del panel',
@@ -3472,7 +3479,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    selectedTileColor: Colors.white.withOpacity(0.1),
+                    selectedTileColor: Colors.white.withValues(alpha: 0.1),
                     leading: Icon(
                       item['icon'] as IconData,
                       color: isSelected ? kAdminAccent : Colors.white60,
@@ -3649,7 +3656,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           Expanded(
             child: ListView.separated(
               itemCount: filtered.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
               itemBuilder: (_, i) {
                 final uDoc = filtered[i];
                 final d = uDoc.data();
@@ -3693,7 +3700,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               userId: uDoc.id,
                               nameHint: nombre,
                               radius: 22,
-                              backgroundColor: kAdminPrimary.withOpacity(0.05),
+                              backgroundColor: kAdminPrimary.withValues(alpha: 0.05),
                               foregroundColor: kAdminPrimary,
                             ),
                             const SizedBox(width: 16),
@@ -3854,7 +3861,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                       vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: kAdminAccent.withOpacity(0.1),
+                                      color: kAdminAccent.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -3947,7 +3954,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         : SizedBox(
             width: isMobile ? double.infinity : 200,
             child: DropdownButtonFormField<String?>(
-              value: _userAreaFilter,
+              initialValue: _userAreaFilter,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Área',
@@ -4108,8 +4115,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ? _safe(scoped?['areaId'])
           : _safe(d['areaId']);
 
-      if (areaId != null && areaId.isNotEmpty && uAreaId != areaId)
+      if (areaId != null && areaId.isNotEmpty && uAreaId != areaId) {
         return false;
+      }
 
       if (search.isEmpty) return true;
       final q = search.toLowerCase();
@@ -4164,7 +4172,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         : SizedBox(
             width: isMobile ? double.infinity : 220,
             child: DropdownButtonFormField<String?>(
-              value: selectedAreaId,
+              initialValue: selectedAreaId,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Área',
@@ -4349,7 +4357,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     required AccessRoleItem? currentRole,
   }) {
     return DropdownButtonFormField<String>(
-      value: currentRole?.roleId,
+      initialValue: currentRole?.roleId,
       isExpanded: true,
       decoration: const InputDecoration(
         labelText: 'Perfil general',
@@ -4848,7 +4856,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return SizedBox(
       width: isMobile ? double.infinity : 220,
       child: DropdownButtonFormField<AdminAccessFilter>(
-        value: selected,
+        initialValue: selected,
         isExpanded: true,
         decoration: const InputDecoration(
           labelText: 'Estado de acceso',
@@ -5487,7 +5495,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       width: isMobile ? double.infinity : 190,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: visible ? module.color.withOpacity(0.05) : Colors.white,
+          color: visible ? module.color.withValues(alpha: 0.05) : Colors.white,
           border: Border.all(color: kAdminBorder),
           borderRadius: BorderRadius.circular(12),
         ),
@@ -5521,7 +5529,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               if (module.roles.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: currentRole ?? '',
+                  initialValue: currentRole ?? '',
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Rol interno',
@@ -5571,7 +5579,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   currentRole == kRolEstablecimiento) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: currentFacturacionEstId ?? '',
+                  initialValue: currentFacturacionEstId ?? '',
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Establecimiento',
@@ -5612,7 +5620,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               if (module.hasPlanillasRole) ...[
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: currentPlanillas ?? '',
+                  initialValue: currentPlanillas ?? '',
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Rol planillas',
@@ -5897,31 +5905,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(kAdminBg),
-          columns: const [
-            DataColumn(label: Text('Capa / módulo')),
-            DataColumn(label: Text('Se muestra por')),
-            DataColumn(label: Text('Permisos internos')),
-            DataColumn(label: Text('Dónde se edita')),
-          ],
-          rows: rows
-              .map(
-                (row) => DataRow(
-                  cells: [
-                    DataCell(
-                      Text(
-                        row.modulo,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+        child: PagedDataTable(
+          etiqueta: 'registros',
+          tabla: DataTable(
+            headingRowColor: WidgetStateProperty.all(kAdminBg),
+            columns: const [
+              DataColumn(label: Text('Capa / módulo')),
+              DataColumn(label: Text('Se muestra por')),
+              DataColumn(label: Text('Permisos internos')),
+              DataColumn(label: Text('Dónde se edita')),
+            ],
+            rows: rows
+                .map(
+                  (row) => DataRow(
+                    cells: [
+                      DataCell(
+                        Text(
+                          row.modulo,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
                       ),
-                    ),
-                    DataCell(Text(row.visible)),
-                    DataCell(Text(row.permisos)),
-                    DataCell(Text(row.donde)),
-                  ],
-                ),
-              )
-              .toList(),
+                      DataCell(Text(row.visible)),
+                      DataCell(Text(row.permisos)),
+                      DataCell(Text(row.donde)),
+                    ],
+                  ),
+                )
+                .toList(),
+          ),
         ),
       ),
     );
@@ -5957,7 +5968,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             child: ListTile(
               leading: CircleAvatar(
                 backgroundColor: role.enabled
-                    ? kAdminAccent.withOpacity(0.12)
+                    ? kAdminAccent.withValues(alpha: 0.12)
                     : kAdminBorder,
                 child: Icon(
                   isDeveloper ? Icons.code_rounded : Icons.badge_outlined,
@@ -5985,68 +5996,75 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(kAdminBg),
-          columns: const [
-            DataColumn(label: Text('Perfil')),
-            DataColumn(label: Text('Código interno')),
-            DataColumn(label: Text('Estado')),
-            DataColumn(label: Text('Módulos que agrega')),
-            DataColumn(label: Text('Acción')),
-          ],
-          rows: roles.map((role) {
-            return DataRow(
-              cells: [
-                DataCell(
-                  Row(
-                    children: [
-                      Icon(_accessRoleIcon(role), size: 18, color: kAdminMuted),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 180,
-                        child: Text(
-                          role.nombre,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+        child: PagedDataTable(
+          etiqueta: 'registros',
+          tabla: DataTable(
+            headingRowColor: WidgetStateProperty.all(kAdminBg),
+            columns: const [
+              DataColumn(label: Text('Perfil')),
+              DataColumn(label: Text('Código interno')),
+              DataColumn(label: Text('Estado')),
+              DataColumn(label: Text('Módulos que agrega')),
+              DataColumn(label: Text('Acción')),
+            ],
+            rows: roles.map((role) {
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Row(
+                      children: [
+                        Icon(
+                          _accessRoleIcon(role),
+                          size: 18,
+                          color: kAdminMuted,
                         ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 180,
+                          child: Text(
+                            role.nombre,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(Text(role.roleKey)),
+                  DataCell(
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(role.enabled ? 'Activo' : 'Inactivo'),
+                      backgroundColor: role.enabled
+                          ? const Color(0xFFEFFDF5)
+                          : const Color(0xFFFEF2F2),
+                      labelStyle: TextStyle(
+                        color: role.enabled ? kAdminSuccess : kAdminError,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                       ),
-                    ],
-                  ),
-                ),
-                DataCell(Text(role.roleKey)),
-                DataCell(
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    label: Text(role.enabled ? 'Activo' : 'Inactivo'),
-                    backgroundColor: role.enabled
-                        ? const Color(0xFFEFFDF5)
-                        : const Color(0xFFFEF2F2),
-                    labelStyle: TextStyle(
-                      color: role.enabled ? kAdminSuccess : kAdminError,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 260,
-                    child: Text(
-                      _roleAppsSummary(role),
-                      overflow: TextOverflow.ellipsis,
+                  DataCell(
+                    SizedBox(
+                      width: 260,
+                      child: Text(
+                        _roleAppsSummary(role),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                ),
-                DataCell(
-                  OutlinedButton.icon(
-                    onPressed: () => _dialogAccessRole(role: role),
-                    icon: const Icon(Icons.edit_outlined, size: 16),
-                    label: const Text('Editar'),
+                  DataCell(
+                    OutlinedButton.icon(
+                      onPressed: () => _dialogAccessRole(role: role),
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Editar'),
+                    ),
                   ),
-                ),
-              ],
-            );
-          }).toList(),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
@@ -6108,90 +6126,93 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       clipBehavior: Clip.antiAlias,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: DataTable(
-          headingRowColor: WidgetStateProperty.all(kAdminBg),
-          dataRowMinHeight: 64,
-          dataRowMaxHeight: 82,
-          columns: const [
-            DataColumn(label: Text('Usuario')),
-            DataColumn(label: Text('Cargo / área')),
-            DataColumn(label: Text('Módulos visibles')),
-            DataColumn(label: Text('Perfil general')),
-          ],
-          rows: users.map((userDoc) {
-            final data = userDoc.data();
-            final currentRole = _accessRoleForUser(data);
-            return DataRow(
-              cells: [
-                DataCell(
-                  Row(
-                    children: [
-                      UserAvatar(
-                        userId: userDoc.id,
-                        nameHint: _userName(data, userDoc.id),
-                        radius: 16,
-                      ),
-                      const SizedBox(width: 10),
-                      SizedBox(
-                        width: 190,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _userName(data, userDoc.id),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Text(
-                              _safe(data['cedula']).isNotEmpty
-                                  ? _safe(data['cedula'])
-                                  : userDoc.id,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: kAdminMuted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+        child: PagedDataTable(
+          etiqueta: 'registros',
+          tabla: DataTable(
+            headingRowColor: WidgetStateProperty.all(kAdminBg),
+            dataRowMinHeight: 64,
+            dataRowMaxHeight: 82,
+            columns: const [
+              DataColumn(label: Text('Usuario')),
+              DataColumn(label: Text('Cargo / área')),
+              DataColumn(label: Text('Módulos visibles')),
+              DataColumn(label: Text('Perfil general')),
+            ],
+            rows: users.map((userDoc) {
+              final data = userDoc.data();
+              final currentRole = _accessRoleForUser(data);
+              return DataRow(
+                cells: [
+                  DataCell(
+                    Row(
+                      children: [
+                        UserAvatar(
+                          userId: userDoc.id,
+                          nameHint: _userName(data, userDoc.id),
+                          radius: 16,
                         ),
+                        const SizedBox(width: 10),
+                        SizedBox(
+                          width: 190,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _userName(data, userDoc.id),
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Text(
+                                _safe(data['cedula']).isNotEmpty
+                                    ? _safe(data['cedula'])
+                                    : userDoc.id,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: kAdminMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DataCell(
+                    SizedBox(
+                      width: 220,
+                      child: Text(
+                        _userOrgSummary(data, empresaId),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 220,
-                    child: Text(
-                      _userOrgSummary(data, empresaId),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 230,
-                    child: Text(
-                      _visibleAppsSummary(data, empresaId),
-                      overflow: TextOverflow.ellipsis,
+                  DataCell(
+                    SizedBox(
+                      width: 230,
+                      child: Text(
+                        _visibleAppsSummary(data, empresaId),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
-                ),
-                DataCell(
-                  SizedBox(
-                    width: 280,
-                    child: _accessRoleDropdown(
-                      userDoc: userDoc,
-                      empresaId: empresaId,
-                      currentRole: currentRole,
+                  DataCell(
+                    SizedBox(
+                      width: 280,
+                      child: _accessRoleDropdown(
+                        userDoc: userDoc,
+                        empresaId: empresaId,
+                        currentRole: currentRole,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            );
-          }).toList(),
+                ],
+              );
+            }).toList(),
+          ),
         ),
       ),
     );
@@ -7150,10 +7171,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2),
+          color: enabled ? kAdminBorder : kAdminError.withValues(alpha: 0.2),
         ),
       ),
-      color: enabled ? Colors.white : kAdminError.withOpacity(0.02),
+      color: enabled ? Colors.white : kAdminError.withValues(alpha: 0.02),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -7164,8 +7185,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: (enabled ? kAdminAccent : kAdminMuted).withOpacity(
-                      0.1,
+                    color: (enabled ? kAdminAccent : kAdminMuted).withValues(
+                      alpha: 0.1,
                     ),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -7213,9 +7234,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   vertical: 5,
                 ),
                 decoration: BoxDecoration(
-                  color: kAdminAccent.withOpacity(0.07),
+                  color: kAdminAccent.withValues(alpha: 0.07),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: kAdminAccent.withOpacity(0.2)),
+                  border: Border.all(color: kAdminAccent.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -7223,7 +7244,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     Icon(
                       Icons.people_alt_rounded,
                       size: 13,
-                      color: kAdminAccent.withOpacity(0.8),
+                      color: kAdminAccent.withValues(alpha: 0.8),
                     ),
                     const SizedBox(width: 5),
                     Text(
@@ -7232,14 +7253,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         fontFamily: kArial,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: kAdminAccent.withOpacity(0.85),
+                        color: kAdminAccent.withValues(alpha: 0.85),
                       ),
                     ),
                     const SizedBox(width: 4),
                     Icon(
                       Icons.open_in_new_rounded,
                       size: 11,
-                      color: kAdminAccent.withOpacity(0.6),
+                      color: kAdminAccent.withValues(alpha: 0.6),
                     ),
                   ],
                 ),
@@ -7261,7 +7282,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 Switch(
                   value: enabled,
-                  activeColor: kAdminSuccess,
+                  activeThumbColor: kAdminSuccess,
                   onChanged: (v) async {
                     await _repo.setAppEnabled(aDoc.id, v);
                     _snack('App ${v ? "habilitada" : "deshabilitada"}');
@@ -7311,9 +7332,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: kAdminAccent.withOpacity(0.07),
+                color: kAdminAccent.withValues(alpha: 0.07),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: kAdminAccent.withOpacity(0.2)),
+                border: Border.all(color: kAdminAccent.withValues(alpha: 0.2)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -7321,7 +7342,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   Icon(
                     Icons.people_alt_rounded,
                     size: 12,
-                    color: kAdminAccent.withOpacity(0.8),
+                    color: kAdminAccent.withValues(alpha: 0.8),
                   ),
                   const SizedBox(width: 4),
                   Text(
@@ -7330,7 +7351,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       fontFamily: kArial,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: kAdminAccent.withOpacity(0.85),
+                      color: kAdminAccent.withValues(alpha: 0.85),
                     ),
                   ),
                 ],
@@ -7396,11 +7417,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               final nombre = _userName(d).toLowerCase();
               final uAreaId = (d['areaId'] ?? '').toString().trim();
               final uCargoId = (d['cargoId'] ?? '').toString().trim();
-              if (search.isNotEmpty && !nombre.contains(search.toLowerCase()))
+              if (search.isNotEmpty && !nombre.contains(search.toLowerCase())) {
                 return false;
+              }
               if (areaFilter.isNotEmpty && uAreaId != areaFilter) return false;
-              if (cargoFilter.isNotEmpty && uCargoId != cargoFilter)
+              if (cargoFilter.isNotEmpty && uCargoId != cargoFilter) {
                 return false;
+              }
               return true;
             }).toList();
 
@@ -7424,7 +7447,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: kAdminAccent.withOpacity(0.1),
+                          color: kAdminAccent.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(
@@ -7503,7 +7526,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       SizedBox(
                         width: isWeb ? 200 : double.infinity,
                         child: DropdownButtonFormField<String>(
-                          value: areaFilter.isEmpty ? null : areaFilter,
+                          initialValue: areaFilter.isEmpty ? null : areaFilter,
                           isExpanded: true,
                           decoration: InputDecoration(
                             labelText: 'Área',
@@ -7540,7 +7563,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       SizedBox(
                         width: isWeb ? 200 : double.infinity,
                         child: DropdownButtonFormField<String>(
-                          value: cargoFilter.isEmpty ? null : cargoFilter,
+                          initialValue: cargoFilter.isEmpty ? null : cargoFilter,
                           isExpanded: true,
                           decoration: InputDecoration(
                             labelText: 'Cargo',
@@ -7795,7 +7818,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             saved++;
                           }
 
-                          if (!mounted) return;
+                          if (!mounted || !ctx2.mounted) return;
                           Navigator.pop(ctx2);
                           _snack('$saved usuario(s) actualizados');
                           await _loadAll(forceEmpresaId: _empresaId);
@@ -8143,53 +8166,56 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    columns: const [
-                      DataColumn(label: Text('Bodega')),
-                      DataColumn(label: Text('Dirección')),
-                      DataColumn(label: Text('Estado')),
-                      DataColumn(label: Text('Acciones')),
-                    ],
-                    rows: _bodegas
-                        .map(
-                          (bodega) => DataRow(
-                            cells: [
-                              DataCell(
-                                Text(
-                                  bodega.nombre,
-                                  style: const TextStyle(
-                                    fontFamily: kArial,
-                                    fontWeight: FontWeight.w800,
+                  child: PagedDataTable(
+                    etiqueta: 'registros',
+                    tabla: DataTable(
+                      columns: const [
+                        DataColumn(label: Text('Bodega')),
+                        DataColumn(label: Text('Dirección')),
+                        DataColumn(label: Text('Estado')),
+                        DataColumn(label: Text('Acciones')),
+                      ],
+                      rows: _bodegas
+                          .map(
+                            (bodega) => DataRow(
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    bodega.nombre,
+                                    style: const TextStyle(
+                                      fontFamily: kArial,
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              DataCell(
-                                Text(
-                                  bodega.direccion.isEmpty
-                                      ? 'Sin dirección'
-                                      : bodega.direccion,
-                                  style: const TextStyle(fontFamily: kArial),
+                                DataCell(
+                                  Text(
+                                    bodega.direccion.isEmpty
+                                        ? 'Sin dirección'
+                                        : bodega.direccion,
+                                    style: const TextStyle(fontFamily: kArial),
+                                  ),
                                 ),
-                              ),
-                              DataCell(
-                                Switch(
-                                  value: bodega.enabled,
-                                  onChanged: (enabled) =>
-                                      _toggleBodega(bodega, enabled),
+                                DataCell(
+                                  Switch(
+                                    value: bodega.enabled,
+                                    onChanged: (enabled) =>
+                                        _toggleBodega(bodega, enabled),
+                                  ),
                                 ),
-                              ),
-                              DataCell(
-                                IconButton(
-                                  tooltip: 'Editar bodega',
-                                  onPressed: () =>
-                                      _dialogBodega(existing: bodega),
-                                  icon: const Icon(Icons.edit_outlined),
+                                DataCell(
+                                  IconButton(
+                                    tooltip: 'Editar bodega',
+                                    onPressed: () =>
+                                        _dialogBodega(existing: bodega),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        )
-                        .toList(),
+                              ],
+                            ),
+                          )
+                          .toList(),
+                    ),
                   ),
                 ),
               );
@@ -8288,7 +8314,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     direccion: direccion,
                     enabled: enabled,
                   );
-                  if (!mounted) return;
+                  if (!mounted || !dialogContext.mounted) return;
                   Navigator.pop(dialogContext);
                   _snack(
                     existing == null
@@ -8444,9 +8470,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.09),
+        color: color.withValues(alpha: 0.09),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -8489,7 +8515,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           ? Image.network(
               logoUrl,
               fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) =>
+              errorBuilder: (_, _, _) =>
                   const Icon(Icons.business, color: kAdminMuted),
             )
           : const Icon(Icons.business, color: kAdminMuted),
@@ -8792,12 +8818,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           color: kNotificationCompanyColors[notificacionColor]!
-                              .withOpacity(0.09),
+                              .withValues(alpha: 0.09),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color:
                                 kNotificationCompanyColors[notificacionColor]!
-                                    .withOpacity(0.35),
+                                    .withValues(alpha: 0.35),
                           ),
                         ),
                         child: Text(
@@ -8851,7 +8877,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       logoContentType: logoContentType,
                     );
                     CompanyBrandingService.clearLogoCache(empresa.empresaId);
-                    if (!mounted) return;
+                    if (!mounted || !ctx.mounted) return;
                     Navigator.pop(ctx);
                     _snack('Empresa actualizada');
                     await _loadAll(forceEmpresaId: empresa.empresaId);
@@ -8953,7 +8979,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     const SizedBox(height: 12),
                     SwitchListTile(
                       value: enabled,
-                      activeColor: kAdminAccent,
+                      activeThumbColor: kAdminAccent,
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
                         'Habilitada',
@@ -9004,7 +9030,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       enabled: enabled,
                       isNew: isNew,
                     );
-                    if (!mounted) return;
+                    if (!mounted || !ctx.mounted) return;
                     Navigator.pop(ctx);
                     _snack(isNew ? 'App creada' : 'App actualizada');
                     await _loadAll(forceEmpresaId: _empresaId);
@@ -9090,10 +9116,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: enabled ? kAdminBorder : kAdminError.withOpacity(0.2),
+          color: enabled ? kAdminBorder : kAdminError.withValues(alpha: 0.2),
         ),
       ),
-      color: enabled ? Colors.white : kAdminError.withOpacity(0.02),
+      color: enabled ? Colors.white : kAdminError.withValues(alpha: 0.02),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -9102,7 +9128,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: (enabled ? kAdminAccent : kAdminMuted).withOpacity(0.1),
+                color: (enabled ? kAdminAccent : kAdminMuted).withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -9149,7 +9175,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
             Switch(
               value: enabled,
-              activeColor: kAdminSuccess,
+              activeThumbColor: kAdminSuccess,
               inactiveThumbColor: kAdminMuted,
               onChanged: onToggle,
             ),
@@ -9174,10 +9200,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.1),
+        color: (enabled ? kAdminSuccess : kAdminError).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: (enabled ? kAdminSuccess : kAdminError).withOpacity(0.2),
+          color: (enabled ? kAdminSuccess : kAdminError).withValues(alpha: 0.2),
         ),
       ),
       child: Text(
@@ -9530,18 +9556,20 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             AsyncSnapshot<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
             snap,
           ) {
-            if (!snap.hasData)
+            if (!snap.hasData) {
               return const Center(child: CircularProgressIndicator());
+            }
             final docs = snap.data ?? [];
-            if (docs.isEmpty)
+            if (docs.isEmpty) {
               return const Center(
                 child: Text('Sin logs', style: TextStyle(fontFamily: kArial)),
               );
+            }
 
             return ListView.separated(
               padding: const EdgeInsets.all(12),
               itemCount: docs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (_, i) {
                 final d = docs[i].data();
                 final action = (d['action'] ?? '').toString();
@@ -9729,19 +9757,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       child: SingleChildScrollView(
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(kAdminBg),
-            columns: const [
-              DataColumn(label: Text('Usuario')),
-              DataColumn(label: Text('Cargo')),
-              DataColumn(label: Text('Último ingreso')),
-              DataColumn(label: Text('Plataforma')),
-              DataColumn(label: Text('Tipo')),
-            ],
-            rows: [
-              for (final userDoc in users)
-                _sessionUserRow(userDoc, latestByUser, empresaId),
-            ],
+          child: PagedDataTable(
+            etiqueta: 'registros',
+            tabla: DataTable(
+              headingRowColor: WidgetStateProperty.all(kAdminBg),
+              columns: const [
+                DataColumn(label: Text('Usuario')),
+                DataColumn(label: Text('Cargo')),
+                DataColumn(label: Text('Último ingreso')),
+                DataColumn(label: Text('Plataforma')),
+                DataColumn(label: Text('Tipo')),
+              ],
+              rows: [
+                for (final userDoc in users)
+                  _sessionUserRow(userDoc, latestByUser, empresaId),
+              ],
+            ),
           ),
         ),
       ),
@@ -9824,7 +9855,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final empresaId = _empresaId ?? '';
     return ListView.separated(
       itemCount: users.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
         final doc = users[i];
         final data = doc.data();
@@ -9871,7 +9902,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 ? const Center(child: Text('Sin ingresos registrados.'))
                 : ListView.separated(
                     itemCount: recent.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final s = recent[i];
                       return ListTile(
@@ -9970,7 +10001,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const SizedBox(height: 10),
               SwitchListTile(
                 value: enabled,
-                activeColor: kAdminAccent,
+                activeThumbColor: kAdminAccent,
                 onChanged: (v) => setState(() => enabled = v),
                 title: const Text(
                   'Habilitado',
@@ -10063,7 +10094,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const SizedBox(height: 10),
               SwitchListTile(
                 value: enabled,
-                activeColor: kAdminAccent,
+                activeThumbColor: kAdminAccent,
                 onChanged: (v) => setState(() => enabled = v),
                 title: const Text(
                   'Habilitado',
@@ -10168,7 +10199,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const SizedBox(height: 10),
 
               DropdownButtonFormField<CentroCostoItem>(
-                value: centroSel,
+                initialValue: centroSel,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Centro (opcional)',
@@ -10194,7 +10225,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const SizedBox(height: 10),
 
               DropdownButtonFormField<AreaItem>(
-                value: areaSel,
+                initialValue: areaSel,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Área (opcional)',
@@ -10221,7 +10252,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               const SizedBox(height: 10),
               SwitchListTile(
                 value: enabled,
-                activeColor: kAdminAccent,
+                activeThumbColor: kAdminAccent,
                 onChanged: (v) => setState(() => enabled = v),
                 title: const Text(
                   'Habilitado',
@@ -10379,7 +10410,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       userId: r.cedula,
                       nameHint: r.nombre,
                       backgroundColor: (rolesColors[r.rol] ?? kAdminPrimary)
-                          .withOpacity(0.15),
+                          .withValues(alpha: 0.15),
                       foregroundColor: rolesColors[r.rol] ?? kAdminPrimary,
                     ),
                     title: UserNameText(
@@ -10775,7 +10806,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       userId: r.cedula,
                       nameHint: r.nombre,
                       backgroundColor: (rolesColors[r.rol] ?? kAdminPrimary)
-                          .withOpacity(0.15),
+                          .withValues(alpha: 0.15),
                       foregroundColor: rolesColors[r.rol] ?? kAdminPrimary,
                     ),
                     title: UserNameText(
@@ -10961,7 +10992,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           userId: cedula,
                           nameHint: nombre,
                           radius: 14,
-                          backgroundColor: kAdminPrimary.withOpacity(0.08),
+                          backgroundColor: kAdminPrimary.withValues(alpha: 0.08),
                           foregroundColor: kAdminPrimary,
                         ),
                         const SizedBox(width: 8),
@@ -11233,7 +11264,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           userId: cedula,
                           nameHint: nombre,
                           radius: 14,
-                          backgroundColor: kAdminPrimary.withOpacity(0.08),
+                          backgroundColor: kAdminPrimary.withValues(alpha: 0.08),
                           foregroundColor: kAdminPrimary,
                         ),
                         const SizedBox(width: 8),
@@ -11687,7 +11718,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             userId: cedula,
                             nameHint: nombre,
                             radius: 14,
-                            backgroundColor: kAdminPrimary.withOpacity(0.08),
+                            backgroundColor: kAdminPrimary.withValues(alpha: 0.08),
                             foregroundColor: kAdminPrimary,
                           ),
                           const SizedBox(width: 8),
@@ -11800,7 +11831,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   ),
                 ),
               );
-            }).toList(),
+            }),
           ],
         );
       },
@@ -12117,9 +12148,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: c.color.withOpacity(0.10),
+                        color: c.color.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: c.color.withOpacity(0.35)),
+                        border: Border.all(color: c.color.withValues(alpha: 0.35)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -12187,7 +12218,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
           childrenPadding: EdgeInsets.zero,
-          children: entries.map(_saludEntryTile).toList(),
+          // Listado largo: de a 20 con paginador, no todo de golpe.
+          children: [
+            PagedListSection<_UserHealthEntry>(
+              items: entries,
+              etiqueta: 'usuarios',
+              itemBuilder: (_, e, _) => _saludEntryTile(e),
+            ),
+          ],
         ),
       ),
     );
@@ -12244,7 +12282,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: c.color.withOpacity(0.10),
+                  color: c.color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -13443,6 +13481,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
       if (!mounted) return;
       setState(() {
+        _cargoSaludAreas = areasUnicas(
+          areasSnap.docs.map(
+            (a) => (
+              id: _safe(a.data()['areaId']).isNotEmpty
+                  ? _safe(a.data()['areaId'])
+                  : a.id,
+              nombre: a.data()['nombre']?.toString(),
+            ),
+          ),
+          empresaId: empresaId,
+        );
         _cargoSaludReport = _CargoHealthReport(
           total: cargosSnap.docs.length,
           entries: flagged,
@@ -13488,6 +13537,110 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       await _runCargoHealthScan();
     } catch (err) {
       _snack('Error al reparar: $err');
+    }
+  }
+
+  /// Asigna el área a mano cuando el diagnóstico no puede deducirla.
+  ///
+  /// Es el caso de los cargos "Sin área": no tienen `areaId` ni nombre de
+  /// área, así que no hay nada que resolver automáticamente. Antes el panel
+  /// solo decía que fueras a Catálogos; ahora se elige aquí mismo.
+  Future<void> _asignarAreaCargoManual(_CargoHealthEntry e) async {
+    if (_cargoSaludAreas.isEmpty) {
+      _snack(
+        'La empresa no tiene áreas en TBL_AREAS. Créalas en Catálogos › Áreas.',
+      );
+      return;
+    }
+    var seleccion = _cargoSaludAreas
+        .where((a) => a.contiene(e.areaId) || a.contiene(e.areaNombre))
+        .firstOrNull
+        ?.id;
+
+    final elegido = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(
+            'Área de "${e.nombre}"',
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'El cargo se ubicará en esta área y dejará de aparecer en '
+                  'todas las áreas del desplegable de "Crear tarea".',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 12,
+                    color: kAdminMuted,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: seleccion,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Área',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: _cargoSaludAreas
+                      .map(
+                        (a) => DropdownMenuItem(
+                          value: a.id,
+                          child: Text(
+                            a.nombre,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontFamily: kArial),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setDialogState(() => seleccion = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: seleccion == null
+                  ? null
+                  : () => Navigator.pop(ctx, seleccion),
+              child: const Text('Guardar área'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (elegido == null) return;
+
+    final area = _cargoSaludAreas.firstWhere((a) => a.id == elegido);
+    try {
+      await FirebaseFirestore.instance
+          .collection('TBL_CARGOS')
+          .doc(e.docId)
+          .update({
+            'areaId': area.id,
+            'areaNombre': area.nombre,
+            'area': area.nombre,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      _snack('Cargo "${e.nombre}" quedó en el área ${area.nombre}.');
+      await _runCargoHealthScan();
+    } catch (err) {
+      _snack('Error al guardar el área: $err');
     }
   }
 
@@ -13976,9 +14129,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: c.color.withOpacity(0.10),
+                        color: c.color.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: c.color.withOpacity(0.35)),
+                        border: Border.all(color: c.color.withValues(alpha: 0.35)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -14046,7 +14199,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             ),
           ),
           childrenPadding: EdgeInsets.zero,
-          children: entries.map(_cargoSaludEntryTile).toList(),
+          // Listado largo: de a 20 con paginador, no todo de golpe.
+          children: [
+            PagedListSection<_CargoHealthEntry>(
+              items: entries,
+              etiqueta: 'cargos',
+              itemBuilder: (_, e, _) => _cargoSaludEntryTile(e),
+            ),
+          ],
         ),
       ),
     );
@@ -14099,7 +14259,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: c.color.withOpacity(0.10),
+                  color: c.color.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -14145,6 +14305,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     style: const TextStyle(fontFamily: kArial, fontSize: 12),
                   ),
                 ),
+              // Elegir el área a mano: el único camino cuando el cargo no
+              // trae ni id ni nombre de área y no hay nada que deducir.
+              if (e.issues.contains('sin_area') ||
+                  e.issues.contains('area_inexistente') ||
+                  e.issues.contains('sin_area_id'))
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF7C3AED),
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () => _asignarAreaCargoManual(e),
+                  icon: const Icon(Icons.edit_location_alt_outlined, size: 16),
+                  label: const Text(
+                    'Elegir área…',
+                    style: TextStyle(fontFamily: kArial, fontSize: 12),
+                  ),
+                ),
               if (e.issues.contains('duplicado'))
                 TextButton.icon(
                   style: TextButton.styleFrom(
@@ -14168,12 +14347,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             const Padding(
               padding: EdgeInsets.only(top: 2),
               child: Text(
-                'Área no reparable automáticamente: revisa el nombre del área '
-                'o créala en Catálogos.',
+                'No hay un área que deducir: elígela arriba, o créala primero '
+                'en Catálogos › Áreas si todavía no existe.',
                 style: TextStyle(
                   fontFamily: kArial,
                   fontSize: 11,
-                  color: kAdminError,
+                  color: kAdminMuted,
                 ),
               ),
             ),

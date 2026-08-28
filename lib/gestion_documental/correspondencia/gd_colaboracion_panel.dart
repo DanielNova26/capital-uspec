@@ -162,32 +162,17 @@ class _GdColaboracionPanelState extends State<GdColaboracionPanel> {
             LayoutBuilder(
               builder: (context, constraints) {
                 final compact = constraints.maxWidth < 680;
-                final areasById = <String, GdArea>{};
-                for (final user in widget.responsables) {
-                  if (user.areaId.isEmpty || user.id == widget.userId) continue;
-                  areasById.putIfAbsent(
-                    user.areaId,
-                    () => GdArea(
-                      id: user.areaId,
-                      nombre: user.areaNombre.isEmpty
-                          ? user.areaId
-                          : user.areaNombre,
-                    ),
-                  );
-                }
-                final areas = areasById.values.toList()
-                  ..sort(
-                    (a, b) => a.nombre.toLowerCase().compareTo(
-                      b.nombre.toLowerCase(),
-                    ),
-                  );
+                final areas = GdArea.desdeResponsables(
+                  widget.responsables,
+                  excluirUserId: widget.userId,
+                );
                 final recipients = _area == null
                     ? const <GdResponsable>[]
                     : widget.responsables
                           .where(
                             (user) =>
                                 user.id != widget.userId &&
-                                user.areaId == _area!.id,
+                                _area!.contiene(user.areaId),
                           )
                           .toList();
                 final controlWidth = compact ? constraints.maxWidth : 250.0;

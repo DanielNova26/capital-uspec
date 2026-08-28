@@ -3,15 +3,33 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 
+import '../utils/user_company.dart';
 import 'personnel_requisition_models.dart';
 
 const personnelTemporaryPassword = '123456';
 
+/// ¿Hay que darle contraseña temporal a esta persona?
+///
+/// No la necesita quien ya ingresó al menos una vez: en el primer ingreso el
+/// backend migra la clave a `TBL_AUTH_CREDENTIALS` (cifrada), **borra** el
+/// campo `password` del usuario y marca `authVersion: 2`. Sin mirar ese
+/// marcador, "sin password" parecería una cuenta sin acceso y le pediríamos
+/// cambiar una clave que ya tiene.
+bool personnelNeedsTemporaryPassword(Map<String, dynamic> existing) {
+  final migrado = (existing['authVersion'] as num?)?.toInt() == 2;
+  if (migrado) return false;
+  return (existing['password'] ?? '').toString().trim().isEmpty;
+}
+
+/// Credenciales de acceso al crear o vincular a una persona.
+///
+/// Nunca pisa una contraseña existente: solo asigna la temporal cuando la
+/// cuenta todavía no tiene forma de entrar.
 Map<String, dynamic> personnelAccessCredentials(Map<String, dynamic> existing) {
-  final currentPassword = (existing['password'] ?? '').toString().trim();
-  if (currentPassword.isNotEmpty) {
+  if (!personnelNeedsTemporaryPassword(existing)) {
+    final currentPassword = (existing['password'] ?? '').toString().trim();
     return {
-      'password': existing['password'],
+      if (currentPassword.isNotEmpty) 'password': existing['password'],
       'needsPasswordChange': existing['needsPasswordChange'] == true,
     };
   }
@@ -46,9 +64,15 @@ class PersonnelRequisitionCatalogs {
   final List<PersonnelRequisitionCatalogItem> costCenters;
   final List<PersonnelRequisitionCatalogItem> groups;
 
+  /// Cargos del maestro (`TBL_CARGOS`). Se usan para que "Cargo requerido"
+  /// deje de ser texto libre: dos formas de escribir el mismo cargo partían
+  /// el informe en dos filas que nadie podía consolidar.
+  final List<PersonnelRequisitionCatalogItem> positions;
+
   const PersonnelRequisitionCatalogs({
     required this.costCenters,
     required this.groups,
+    this.positions = const [],
   });
 }
 
@@ -69,9 +93,30 @@ class PersonnelRequisitionService {
           final rows = snapshot.docs
               .map((doc) => PersonnelRequisition.fromMap(doc.id, doc.data()))
               .toList();
-          rows.sort((a, b) => b.requestDate.compareTo(a.requestDate));
+          rows.sort(comparePersonnelRequisitions);
           return rows;
         });
+  }
+
+  /// Orden estándar del módulo: **por establecimiento** y, dentro de cada uno,
+  /// lo más reciente primero.
+  ///
+  /// Es un requisito de presentación, no un capricho de la pantalla: el
+  /// informe que recibe la interventoría se lee sede por sede, y el orden
+  /// puramente cronológico obligaba a rastrear un mismo establecimiento por
+  /// toda la hoja. La tabla, el Excel y el PDF comparten este comparador para
+  /// que las tres salidas se lean igual.
+  static int comparePersonnelRequisitions(
+    PersonnelRequisition a,
+    PersonnelRequisition b,
+  ) {
+    final byEstablishment = a.establishment.toLowerCase().compareTo(
+      b.establishment.toLowerCase(),
+    );
+    if (byEstablishment != 0) return byEstablishment;
+    final byDate = b.requestDate.compareTo(a.requestDate);
+    if (byDate != 0) return byDate;
+    return a.position.toLowerCase().compareTo(b.position.toLowerCase());
   }
 
   Future<PersonnelRequisitionAccess> loadAccess({
@@ -161,6 +206,10 @@ class PersonnelRequisitionService {
           .collection('TBL_COMPRAS_GRUPOS')
           .where('empresaId', isEqualTo: empresaId)
           .get(),
+      _db
+          .collection('TBL_CARGOS')
+          .where('empresaId', isEqualTo: empresaId)
+          .get(),
     ]);
     final costCenters =
         snapshots[0].docs
@@ -192,9 +241,27 @@ class PersonnelRequisitionService {
             .where((item) => item.name.isNotEmpty)
             .toList()
           ..sort((a, b) => a.label.compareTo(b.label));
+    // El nombre es la clave, no el doc id: la vacante guarda `cargo` como
+    // texto y así lo consumen el Excel y el resto del módulo. El id se
+    // conserva solo para poder preseleccionar el desplegable.
+    final positions =
+        snapshots[2].docs
+            .where((doc) => doc.data()['enabled'] != false)
+            .map(
+              (doc) => PersonnelRequisitionCatalogItem(
+                id: doc.id,
+                name: _text(doc.data()['nombre']),
+              ),
+            )
+            .where((item) => item.name.isNotEmpty)
+            .toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
     return PersonnelRequisitionCatalogs(
       costCenters: costCenters,
       groups: groups,
+      positions: positions,
     );
   }
 
@@ -272,6 +339,172 @@ class PersonnelRequisitionService {
     });
   }
 
+  // ── Aspirantes: el avance se registra por persona ─────────────────────────
+  //
+  // El estado global de la vacante dejó de ser lo que se mueve a mano: se
+  // deriva del aspirante que va más adelante. Así el informe puede decir
+  // "dos en entrevistas, uno en exámenes" en vez de un único "entrevistas"
+  // que no distingue a nadie.
+
+  Future<void> addCandidate({
+    required PersonnelRequisition requisition,
+    required PersonnelCandidate candidate,
+    required String userId,
+  }) async {
+    final document = _cleanDocument(candidate.document);
+    if (document.isEmpty || candidate.names.trim().isEmpty) {
+      throw ArgumentError('Documento y nombres del aspirante son obligatorios.');
+    }
+    final ref = _db.collection(collection).doc(requisition.id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw StateError('La solicitud ya no existe.');
+      final current = PersonnelRequisition.fromMap(
+        snapshot.id,
+        snapshot.data() ?? const <String, dynamic>{},
+      );
+      if (current.stage == PersonnelRequisitionStage.cancelled) {
+        throw StateError('La solicitud está cancelada.');
+      }
+      if (current.candidates.any((item) => item.document == document)) {
+        throw StateError('Ese aspirante ya está en la solicitud.');
+      }
+      final now = Timestamp.now();
+      final added = PersonnelCandidate(
+        document: document,
+        documentType: candidate.documentType,
+        names: candidate.names.trim(),
+        surnames: candidate.surnames.trim(),
+        email: candidate.email.trim(),
+        phone: candidate.phone.trim(),
+        stage: candidate.stage,
+        note: candidate.note.trim(),
+        createdBy: userId,
+        updatedBy: userId,
+      );
+      final next = [...current.candidates, added];
+      transaction.update(ref, {
+        'candidatos': next
+            .map((item) => item.toMap(timestamp: now))
+            .toList(),
+        'candidatosActivos': next.where((item) => item.isActive).length,
+        ..._derivedStagePatch(current, next),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'actualizadoPor': userId,
+        'historial': FieldValue.arrayUnion([
+          {
+            'etapa': added.stage.requisitionStage.value,
+            'tipoAvance': 'Aspirante agregado',
+            'resultado': 'continua',
+            'nota': '${added.fullName} ($document) · ${added.stage.label}',
+            'usuario': userId,
+            'fecha': now,
+          },
+        ]),
+      });
+    });
+  }
+
+  Future<void> updateCandidateStage({
+    required PersonnelRequisition requisition,
+    required String document,
+    required PersonnelCandidateStage stage,
+    required String note,
+    required String userId,
+  }) async {
+    final target = _cleanDocument(document);
+    final ref = _db.collection(collection).doc(requisition.id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw StateError('La solicitud ya no existe.');
+      final current = PersonnelRequisition.fromMap(
+        snapshot.id,
+        snapshot.data() ?? const <String, dynamic>{},
+      );
+      final index = current.candidates.indexWhere(
+        (item) => item.document == target,
+      );
+      if (index < 0) throw StateError('Ese aspirante ya no está en la lista.');
+      // Contratar no se hace desde aquí: crea usuario en TBL_USUARIOS y cierra
+      // la vacante, así que pasa por registerHireAndCreateUser.
+      if (stage == PersonnelCandidateStage.hired) {
+        throw StateError(
+          'Para contratar usa "Registrar contratación": ahí se crea el usuario.',
+        );
+      }
+      final now = Timestamp.now();
+      final previous = current.candidates[index];
+      final next = [...current.candidates];
+      next[index] = previous.copyWith(
+        stage: stage,
+        note: note.trim(),
+        updatedAt: now.toDate(),
+        updatedBy: userId,
+      );
+      transaction.update(ref, {
+        'candidatos': next
+            .map((item) => item.toMap(timestamp: now))
+            .toList(),
+        'candidatosActivos': next.where((item) => item.isActive).length,
+        ..._derivedStagePatch(current, next),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'actualizadoPor': userId,
+        'historial': FieldValue.arrayUnion([
+          {
+            'etapa': stage.requisitionStage.value,
+            'tipoAvance': '${previous.fullName} · ${stage.label}',
+            'resultado': stage == PersonnelCandidateStage.discarded
+                ? 'no_continua'
+                : 'continua',
+            'nota': note.trim(),
+            'usuario': userId,
+            'fecha': now,
+          },
+        ]),
+      });
+    });
+  }
+
+  /// Etapa de la vacante derivada de sus aspirantes.
+  ///
+  /// Solo avanza: si alguien ya estaba en documentación y el único candidato
+  /// vivo retrocede a entrevistas, la vacante no vuelve atrás — el tiempo
+  /// transcurrido y el semáforo se calculan sobre lo que ya ocurrió. Tampoco
+  /// toca las etapas de cierre: `contratado` lo escribe la contratación y
+  /// `cancelado` la cancelación.
+  Map<String, dynamic> _derivedStagePatch(
+    PersonnelRequisition current,
+    List<PersonnelCandidate> candidates,
+  ) {
+    if (current.isClosed) return const {};
+    final furthest = candidates
+        .where((item) => item.stage != PersonnelCandidateStage.discarded)
+        .fold<PersonnelCandidateStage?>(
+          null,
+          (best, item) =>
+              best == null || item.stage.order > best.order ? item.stage : best,
+        );
+    if (furthest == null) return const {};
+    final derived = furthest.requisitionStage;
+    if (derived.isClosed) return const {};
+    if (_stageOrder(derived) <= _stageOrder(current.stage)) return const {};
+    return {'etapa': derived.value, 'estado': 'abierto'};
+  }
+
+  static int _stageOrder(PersonnelRequisitionStage stage) => switch (stage) {
+    PersonnelRequisitionStage.requested => 0,
+    PersonnelRequisitionStage.recruitment => 1,
+    PersonnelRequisitionStage.preselection => 2,
+    PersonnelRequisitionStage.interview => 3,
+    PersonnelRequisitionStage.exams => 4,
+    PersonnelRequisitionStage.documents => 5,
+    PersonnelRequisitionStage.hired => 6,
+    PersonnelRequisitionStage.cancelled => 6,
+  };
+
+  static String _cleanDocument(String raw) =>
+      raw.replaceAll(RegExp(r'[^0-9A-Za-z]'), '');
+
   Future<bool> registerHireAndCreateUser({
     required PersonnelRequisition requisition,
     required PersonnelHire hire,
@@ -328,6 +561,31 @@ class PersonnelRequisitionService {
         'estadoLaboral': 'activo',
         'fechaIngreso': Timestamp.now(),
       });
+
+      // Accesos a módulos elegidos por Talento Humano al contratar.
+      // Contratar solo SUMA: si la persona ya existía con módulos en esta
+      // empresa, los conserva. Quitar accesos se hace en Accesos del personal.
+      final nextApps = normalizeAppIdList([
+        ...extractUserApps(existing, empresaId: current.empresaId),
+        ...hire.apps,
+      ]).ids..sort();
+      company['apps'] = nextApps;
+
+      // Antes de pisar la lista global se congela lo que cada otra empresa
+      // heredaba de ella, para no quitarle módulos a la persona allá.
+      for (final otra in details.keys.toList()) {
+        if (otra == current.empresaId) continue;
+        final raw = details[otra];
+        final bloque = raw is Map
+            ? raw.map((key, value) => MapEntry(key.toString(), value))
+            : <String, dynamic>{};
+        if (bloque['apps'] is List) continue;
+        bloque['apps'] = normalizeAppIdList(
+          extractUserApps(existing, empresaId: otra),
+        ).ids..sort();
+        details[otra] = bloque;
+      }
+
       details[current.empresaId] = company;
 
       transaction.set(userRef, {
@@ -343,6 +601,7 @@ class PersonnelRequisitionService {
         'empresaId': current.empresaId,
         'empresas': companies,
         'empresasDetalle': details,
+        'apps': nextApps,
         'estado': 'activo',
         'estadoLaboral': 'activo',
         'role': existing['role'] ?? 'usuario',
@@ -363,11 +622,50 @@ class PersonnelRequisitionService {
       );
       final nextHires = [...current.hires, hired];
       final complete = nextHires.length >= current.quantity;
+
+      // El aspirante pasa a "Contratado" en su propia ficha. Si la persona
+      // nunca se registró como candidato (contratación directa) se agrega
+      // ahora, para que el informe por persona no tenga huecos.
+      final stamp = Timestamp.now();
+      final nextCandidates = [...current.candidates];
+      final candidateIndex = nextCandidates.indexWhere(
+        (item) => item.document == document,
+      );
+      if (candidateIndex >= 0) {
+        nextCandidates[candidateIndex] = nextCandidates[candidateIndex]
+            .copyWith(
+              stage: PersonnelCandidateStage.hired,
+              updatedAt: stamp.toDate(),
+              updatedBy: userId,
+            );
+      } else {
+        nextCandidates.add(
+          PersonnelCandidate(
+            document: document,
+            documentType: hired.documentType,
+            names: hired.names,
+            surnames: hired.surnames,
+            email: hired.email,
+            phone: hired.phone,
+            stage: PersonnelCandidateStage.hired,
+            note: 'Contratación registrada directamente',
+            createdBy: userId,
+            updatedBy: userId,
+          ),
+        );
+      }
+
       transaction.update(reqRef, {
         'contratados': nextHires
             .map((item) => item.toMap(hiredAtValue: Timestamp.now()))
             .toList(),
         'cantidadContratada': nextHires.length,
+        'candidatos': nextCandidates
+            .map((item) => item.toMap(timestamp: stamp))
+            .toList(),
+        'candidatosActivos': nextCandidates
+            .where((item) => item.isActive)
+            .length,
         'etapa': complete
             ? PersonnelRequisitionStage.hired.value
             : PersonnelRequisitionStage.documents.value,
@@ -636,6 +934,10 @@ List<RequisitionImportSection> parsePersonnelRequisitionWorkbook(
   return result;
 }
 
+/// Posición de la columna "Salario" en el informe. Se nombra para que el
+/// formato de moneda no dependa de contar cabeceras a mano.
+const int _salaryColumnIndex = 10;
+
 Uint8List buildPersonnelRequisitionReport({
   required List<PersonnelRequisition> rows,
   required String empresaId,
@@ -643,6 +945,10 @@ Uint8List buildPersonnelRequisitionReport({
   DateTime? generatedAt,
 }) {
   final now = generatedAt ?? DateTime.now();
+  // El informe se entrega ordenado por establecimiento aunque quien exporta
+  // tenga la tabla filtrada de otra forma.
+  final ordered = [...rows]
+    ..sort(PersonnelRequisitionService.comparePersonnelRequisitions);
   final excel = xl.Excel.createExcel();
   excel.rename('Sheet1', 'Requerimientos');
   final sheet = excel['Requerimientos'];
@@ -659,6 +965,8 @@ Uint8List buildPersonnelRequisitionReport({
     'Pendientes',
     'Salario',
     'Etapa actual',
+    'Aspirantes en proceso',
+    'Avance por aspirante',
     'Nota del proceso',
     'Observaciones',
     'Historial de avances',
@@ -689,7 +997,8 @@ Uint8List buildPersonnelRequisitionReport({
   final meta = sheet.cell(xl.CellIndex.indexByString('A2'));
   meta.value = xl.TextCellValue(
     'Empresa: ${empresaNombre.trim().isEmpty ? empresaId : empresaNombre.trim()} · '
-    'Registros: ${rows.length} · Generado: ${_dateLabel(now)} · '
+    'Registros: ${ordered.length} · Generado: ${_dateLabel(now)} · '
+    'Ordenado por establecimiento · '
     'Seguimiento: próxima a vencer desde 8 días hábiles; atención prioritaria desde 15.',
   );
   meta.cellStyle = xl.CellStyle(
@@ -715,8 +1024,8 @@ Uint8List buildPersonnelRequisitionReport({
   }
   sheet.setRowHeight(3, 34);
 
-  for (var index = 0; index < rows.length; index++) {
-    final row = rows[index];
+  for (var index = 0; index < ordered.length; index++) {
+    final row = ordered[index];
     final traffic = row.trafficAt(now);
     final values = <xl.CellValue>[
       xl.TextCellValue(_trafficLabel(traffic)),
@@ -733,6 +1042,21 @@ Uint8List buildPersonnelRequisitionReport({
           ? xl.TextCellValue('')
           : xl.DoubleCellValue(row.salary!.toDouble()),
       xl.TextCellValue(row.stage.label),
+      xl.IntCellValue(row.activeCandidates.length),
+      // Una línea por persona: es lo que pidió la interventoría en vez del
+      // estado único de la vacante.
+      xl.TextCellValue(
+        row.candidates
+            .map(
+              (candidate) => [
+                candidate.fullName,
+                candidate.document,
+                candidate.stage.label,
+                if (candidate.note.isNotEmpty) candidate.note,
+              ].join(' | '),
+            )
+            .join('\n'),
+      ),
       xl.TextCellValue(row.processNote),
       xl.TextCellValue(row.observations),
       xl.TextCellValue(
@@ -770,33 +1094,43 @@ Uint8List buildPersonnelRequisitionReport({
         verticalAlign: xl.VerticalAlign.Top,
         textWrapping: xl.TextWrapping.WrapText,
         backgroundColorHex: xl.ExcelColor.fromHexString(background),
+        // El salario sale como número con separador de miles: como texto
+        // plano no se podía sumar ni filtrar en la hoja, y con el formato
+        // general "1423500" era ilegible.
         numberFormat: values[column] is xl.DateTimeCellValue
             ? const xl.CustomDateTimeNumFormat(formatCode: 'dd/mm/yyyy')
+            : column == _salaryColumnIndex
+            ? const xl.CustomNumericNumFormat(formatCode: r'$ #,##0')
             : xl.NumFormat.standard_0,
+        horizontalAlign: column == _salaryColumnIndex
+            ? xl.HorizontalAlign.Right
+            : xl.HorizontalAlign.Left,
         bold: column == 0,
       );
     }
   }
 
   const widths = <double>[
-    14,
-    13,
-    17,
-    10,
-    23,
-    10,
-    31,
-    11,
-    12,
-    11,
-    17,
-    22,
-    34,
-    48,
-    34,
-    34,
-    24,
-    17,
+    14, // Nivel de atención
+    13, // Días hábiles
+    17, // Fecha solicitud
+    10, // Grupo
+    23, // Establecimiento
+    10, // Anexo
+    31, // Cargo
+    11, // Cantidad
+    12, // Contratados
+    11, // Pendientes
+    17, // Salario
+    22, // Etapa actual
+    13, // Aspirantes en proceso
+    46, // Avance por aspirante
+    34, // Nota del proceso
+    48, // Observaciones
+    34, // Historial de avances
+    34, // Personas contratadas
+    24, // Documentos
+    17, // Fecha cierre
   ];
   for (var column = 0; column < widths.length; column++) {
     sheet.setColumnWidth(column, widths[column]);

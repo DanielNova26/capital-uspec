@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../core/area_directory.dart';
 import 'gd_correspondencia_text.dart';
 
 DateTime? _gdDate(dynamic value) {
@@ -379,7 +380,37 @@ class GdArea {
   final String id;
   final String nombre;
 
-  const GdArea({required this.id, required this.nombre});
+  /// Todos los ids con los que esta área aparece en los datos.
+  ///
+  /// El área de un usuario a veces quedó guardada con el id del catálogo y
+  /// otras con el nombre, así que filtrar por un solo id dejaba gente fuera y
+  /// mostraba la misma área repetida en el desplegable.
+  final Set<String> ids;
+
+  GdArea({required this.id, required this.nombre, Set<String>? ids})
+    : ids = ids ?? {id};
+
+  bool contiene(String? areaIdONombre) =>
+      AreaOpcion(id: id, nombre: nombre, ids: ids).contiene(areaIdONombre);
+
+  /// Lista de áreas sin repetidos a partir de los responsables.
+  /// [excluirUserId] saca a quien está mirando (no se autoasigna).
+  static List<GdArea> desdeResponsables(
+    Iterable<GdResponsable> responsables, {
+    String? excluirUserId,
+    String? empresaId,
+  }) {
+    final crudas = <({String id, String? nombre})>[];
+    for (final user in responsables) {
+      if (user.areaId.trim().isEmpty) continue;
+      if (excluirUserId != null && user.id == excluirUserId) continue;
+      crudas.add((id: user.areaId.trim(), nombre: user.areaNombre));
+    }
+    return areasUnicas(
+      crudas,
+      empresaId: empresaId,
+    ).map((a) => GdArea(id: a.id, nombre: a.nombre, ids: a.ids)).toList();
+  }
 }
 
 /// Tipo documental del maestro `TBL_GD_TIPOS_DOCUMENTALES`.

@@ -12,6 +12,13 @@ import 'package:excel/excel.dart';
 import 'package:file_saver/file_saver.dart';
 import '../core/hierarchy_order.dart';
 import '../widgets/internal_module_layout.dart';
+import 'personnel_access_picker.dart';
+import 'personnel_requisition_service.dart'
+    show
+        personnelAccessCredentials,
+        personnelNeedsTemporaryPassword,
+        personnelTemporaryPassword;
+import 'personnel_access_service.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/user_company.dart';
 import 'disciplinary_management_screen.dart';
@@ -108,6 +115,9 @@ class _OrganizationalStructureScreenState
   String? _filterArea;
   String? _filterCargo;
   String _statusFilter = PersonnelStatusService.active;
+
+  /// Accesos a módulos: misma fuente de verdad que la matriz de Admin.
+  final PersonnelAccessService _accessService = PersonnelAccessService();
 
   /// Caché de datos de TBL_USUARIOS, keyed por cédula.
   Map<String, _UserInfo> _userCache = {};
@@ -233,9 +243,9 @@ class _OrganizationalStructureScreenState
 
       // Nivel educativo más alto registrado en la hoja de vida
       String nivelEd = '';
-      if (data['hasMaestria'] == true)
+      if (data['hasMaestria'] == true) {
         nivelEd = 'Maestría';
-      else if (data['hasEspecializacion'] == true)
+      } else if (data['hasEspecializacion'] == true)
         nivelEd = 'Especialización';
       else if (data['hasUniversity'] == true)
         nivelEd = 'Universitario';
@@ -509,7 +519,9 @@ class _OrganizationalStructureScreenState
 
   void _collectNodes(_OrgChartNode n, List<_OrgChartNode> list) {
     list.add(n);
-    for (final c in n.children) _collectNodes(c, list);
+    for (final c in n.children) {
+      _collectNodes(c, list);
+    }
   }
 
   // ---- colores por área (determinístico) -----------------------------------
@@ -1545,6 +1557,45 @@ class _OrganizationalStructureScreenState
         ? null
         : initialCentroCode;
 
+    // ── Accesos a módulos ──────────────────────────────────────────────────
+    // Se resuelve antes de abrir el formulario para que Talento Humano decida
+    // en el mismo acto qué va a usar la persona. Los módulos apagados para la
+    // empresa y los de Admin no se ofrecen aquí (ver PersonnelAccessService).
+    final modulosDisponibles = _accessService.modulosDisponibles(
+      await _accessService.disabledAppIds(widget.empresaId),
+    );
+    var appsActuales = isNew
+        ? <String>{}
+        : await _accessService.loadApps(
+            userId: initialId,
+            empresaId: widget.empresaId,
+          );
+    var appsNoAdministradas = PersonnelAccessService.noAdministrados(
+      actuales: appsActuales,
+      administrables: modulosDisponibles,
+    );
+    // Cédula cuyos accesos reales están cargados en el selector. Si al guardar
+    // no coincide con la que quedó escrita (alguien la digitó a mano y ya
+    // existía), no se pisa lo que la persona tenía: solo se suma.
+    var appsCargadasPara = isNew ? '' : initialId;
+    var appsSeleccionadas = isNew
+        ? modulosDisponibles
+              .where(
+                (m) => kDefaultPersonnelApps.any(
+                  (id) => appIdsEquivalent(id, m.appId),
+                ),
+              )
+              .map((m) => m.appId)
+              .toSet()
+        : appsActuales
+              .where(
+                (app) => modulosDisponibles.any(
+                  (m) => appIdsEquivalent(m.appId, app),
+                ),
+              )
+              .toSet();
+    if (!mounted) return;
+
     await showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -1580,6 +1631,44 @@ class _OrganizationalStructureScreenState
                         ctrName.text = m['nombre']!;
                         ctrMail.text = m['correo']!;
                       });
+                      // La persona puede existir ya en TBL_USUARIOS: se
+                      // muestran sus accesos reales para no reemplazarlos a
+                      // ciegas con los de una persona nueva.
+                      final cedulaElegida = m['cedula']!;
+                      _accessService
+                          .loadApps(
+                            userId: cedulaElegida,
+                            empresaId: widget.empresaId,
+                          )
+                          .then((reales) {
+                            // Pudo cerrarse el diálogo o elegirse a otra
+                            // persona mientras se resolvía la consulta.
+                            if (!ctx.mounted || ctrId.text != cedulaElegida) {
+                              return;
+                            }
+                            setStateDialog(() {
+                              appsActuales = reales;
+                              appsCargadasPara = cedulaElegida;
+                              appsNoAdministradas =
+                                  PersonnelAccessService.noAdministrados(
+                                    actuales: reales,
+                                    administrables: modulosDisponibles,
+                                  );
+                              // Si la persona aún no existe se conserva la
+                              // preselección por defecto.
+                              if (reales.isNotEmpty) {
+                                appsSeleccionadas = reales
+                                    .where(
+                                      (app) => modulosDisponibles.any(
+                                        (mod) =>
+                                            appIdsEquivalent(mod.appId, app),
+                                      ),
+                                    )
+                                    .toSet();
+                              }
+                            });
+                          })
+                          .catchError((_) {});
                     },
                     minCharsForSuggestions: 0,
                     noItemsFoundBuilder: (_) =>
@@ -1775,6 +1864,46 @@ class _OrganizationalStructureScreenState
                   },
                   minCharsForSuggestions: 0,
                 ),
+                const SizedBox(height: 16),
+                const Divider(),
+                Theme(
+                  data: Theme.of(
+                    ctx,
+                  ).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    initiallyExpanded: isNew,
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(bottom: 8),
+                    leading: const Icon(
+                      Icons.apps_rounded,
+                      color: _kPrimaryColor,
+                    ),
+                    title: const Text(
+                      'Qué va a usar en la app',
+                      style: TextStyle(
+                        fontFamily: _kFontFamily,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      appsSeleccionadas.isEmpty
+                          ? 'Notificaciones y calendario'
+                          : '${appsSeleccionadas.length} módulo(s) + '
+                                'notificaciones y calendario',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    children: [
+                      PersonnelAccessPicker(
+                        densa: true,
+                        seleccion: appsSeleccionadas,
+                        modulos: modulosDisponibles,
+                        gestionadosPorAdmin: appsNoAdministradas,
+                        onChanged: (next) =>
+                            setStateDialog(() => appsSeleccionadas = next),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -1863,6 +1992,9 @@ class _OrganizationalStructureScreenState
                   'estadoLaboral',
                 ];
                 final userData = userSnap.data() ?? const <String, dynamic>{};
+                final asignaClaveTemporal =
+                    !userSnap.exists ||
+                    personnelNeedsTemporaryPassword(userData);
                 final detalle = <String, dynamic>{
                   for (final key in scopedKeys)
                     key: payload[key == 'estadoLaboral' ? 'estado' : key] ?? '',
@@ -1887,6 +2019,14 @@ class _OrganizationalStructureScreenState
                       userUpdate[key] = value;
                     }
                   });
+                  // Cuentas creadas antes, que quedaron sin forma de entrar:
+                  // se les asigna la temporal. A quien ya ingresó alguna vez
+                  // no se le toca la clave (ver personnelNeedsTemporaryPassword).
+                  if (personnelNeedsTemporaryPassword(userData)) {
+                    userUpdate.addAll(
+                      personnelAccessCredentials(const <String, dynamic>{}),
+                    );
+                  }
                   batch.update(userRef, userUpdate);
                 } else {
                   // set() NO interpreta los puntos, así que va anidado.
@@ -1903,12 +2043,14 @@ class _OrganizationalStructureScreenState
                     'empresasDetalle': {widget.empresaId: detalle},
                     for (final entry in detalle.entries)
                       if (entry.key != 'estadoLaboral') entry.key: entry.value,
-                    // `estado` global controla el login. Se crea activo pero
-                    // SIN password: el acceso lo habilita Admin al asignarla.
+                    // `estado` global controla el login.
                     'estado': 'activo',
-                    'needsPasswordChange': true,
                     'createdAt': FieldValue.serverTimestamp(),
                     'updatedAt': FieldValue.serverTimestamp(),
+                    // Contraseña temporal para que la persona pueda entrar
+                    // el mismo día, igual que al registrar una contratación.
+                    // La cambia en su primer ingreso.
+                    ...personnelAccessCredentials(const <String, dynamic>{}),
                   }, SetOptions(merge: true));
                 }
                 batch.set(
@@ -1934,7 +2076,56 @@ class _OrganizationalStructureScreenState
                   SetOptions(merge: true),
                 );
                 await batch.commit();
-                if (mounted) Navigator.pop(context);
+
+                // Los accesos se escriben después del batch porque
+                // `saveApps` necesita leer el documento ya creado para no
+                // pisar los módulos de la persona en otras empresas.
+                try {
+                  final enBd = await _accessService.loadApps(
+                    userId: id,
+                    empresaId: widget.empresaId,
+                  );
+                  final apps = appsCargadasPara == id
+                      ? PersonnelAccessService.combinarConNoAdministrados(
+                          actuales: enBd.isEmpty ? appsActuales : enBd,
+                          seleccion: appsSeleccionadas,
+                          administrables: modulosDisponibles,
+                        )
+                      // Nunca se mostraron los accesos de esta cédula, así
+                      // que marcar aquí no puede quitarle nada.
+                      : {...enBd, ...appsSeleccionadas};
+                  await _accessService.saveApps(
+                    userId: id,
+                    empresaId: widget.empresaId,
+                    apps: apps,
+                    actorId: widget.userId,
+                  );
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'La persona se guardó, pero no se pudieron '
+                          'actualizar sus accesos: $e',
+                        ),
+                      ),
+                    );
+                  }
+                }
+                if (!mounted) return;
+                if (asignaClaveTemporal) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      duration: const Duration(seconds: 8),
+                      content: Text(
+                        'Colaborador guardado. Usuario: $id · '
+                        'Contraseña temporal: $personnelTemporaryPassword. '
+                        'Debe cambiarla al ingresar.',
+                      ),
+                    ),
+                  );
+                }
+                Navigator.pop(context);
               },
               child: Text(
                 isNew ? 'Crear' : 'Guardar',
@@ -2092,7 +2283,7 @@ class _OrganizationalStructureScreenState
                     return ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: events.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
                       itemBuilder: (_, index) {
                         final event = events[index].data();
                         final active =
@@ -2197,7 +2388,7 @@ class _OrganizationalStructureScreenState
                   try {
                     final n = await _syncAllTH();
                     await _loadUserCache();
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -2210,7 +2401,7 @@ class _OrganizationalStructureScreenState
                       );
                     }
                   } catch (e) {
-                    if (mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Error al sincronizar: $e'),
@@ -2410,10 +2601,12 @@ class _OrganizationalStructureScreenState
                             _statusOf(m) != _statusFilter) {
                           return false;
                         }
-                        if (_filterArea != null && m['area'] != _filterArea)
+                        if (_filterArea != null && m['area'] != _filterArea) {
                           return false;
-                        if (_filterCargo != null && m['cargo'] != _filterCargo)
+                        }
+                        if (_filterCargo != null && m['cargo'] != _filterCargo) {
                           return false;
+                        }
                         if (term.isNotEmpty) {
                           final cedula = _orgCedula(d).toLowerCase();
                           final n =
@@ -2447,7 +2640,7 @@ class _OrganizationalStructureScreenState
 
                   return ListView.separated(
                     itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (c, i) => _buildCard(docs[i]),
                   );
                 },

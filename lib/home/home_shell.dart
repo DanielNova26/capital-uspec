@@ -116,7 +116,7 @@ class _WebShell extends StatelessWidget {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(20),
-                    color: scheme.primaryContainer.withOpacity(0.3),
+                    color: scheme.primaryContainer.withValues(alpha: 0.3),
                     child: SafeArea(
                       bottom: false,
                       child: Row(

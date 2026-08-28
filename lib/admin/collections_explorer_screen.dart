@@ -22,7 +22,7 @@ class CollectionsExplorerScreen extends StatelessWidget {
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _knownCollections.length,
-        separatorBuilder: (_, __) => const Divider(),
+        separatorBuilder: (_, _) => const Divider(),
         itemBuilder: (context, i) {
           final name = _knownCollections[i];
           return ListTile(
@@ -67,7 +67,7 @@ class DocumentListScreen extends StatelessWidget {
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
-            separatorBuilder: (_, __) => const Divider(),
+            separatorBuilder: (_, _) => const Divider(),
             itemBuilder: (context, i) {
               final d = docs[i];
               final data = d.data();

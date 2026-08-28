@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import '../core/festivos_colombia.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
+import '../utils/user_company.dart';
 import 'interventoria_models.dart';
 import 'interventoria_numerales_catalogo.dart';
 
@@ -1289,6 +1290,56 @@ class InterventoriaService {
   Future<List<Area>> getAreas(String empresaId) =>
       OrgService(db: _db).listAreas(empresaId: empresaId);
 
+  /// nombre de cargo normalizado → areaId, leído de `TBL_CARGOS`.
+  ///
+  /// La mayoría de usuarios NO tiene `areaId` propio en TBL_USUARIOS: el área
+  /// vive en el cargo. Sin este puente, agrupar personal por área da vacío.
+  /// Lo que el maestro de cargos aporta al listado de personal: el área (para
+  /// el desplegable) y si ese cargo recibe trabajo operativo (para no ofrecer
+  /// a Talento Humano ni a quien no usa computador).
+  ///
+  /// Se lee de una sola pasada porque son el mismo documento: separar los dos
+  /// datos costaba dos lecturas completas de `TBL_CARGOS` por cada apertura
+  /// del tablero.
+  Future<Map<String, ({String areaId, bool recibeAsignaciones})>> _perfilPorCargo(
+    String empresaId,
+  ) async {
+    final snap = await _db
+        .collection('TBL_CARGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final out = <String, ({String areaId, bool recibeAsignaciones})>{};
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final nombre = (data['nombre'] ?? data['cargoId'] ?? doc.id).toString();
+      final clave = _claveCargo(nombre);
+      if (clave.isEmpty) continue;
+      out[clave] = (
+        areaId: (data['areaId'] ?? '').toString().trim(),
+        recibeAsignaciones: cargoRecibeAsignaciones(data),
+      );
+    }
+    return out;
+  }
+
+  /// Normaliza un nombre de cargo para emparejarlo entre colecciones: los
+  /// mismos cargos vienen escritos con tildes, mayúsculas y espacios
+  /// distintos en TBL_USUARIOS y en TBL_CARGOS.
+  static String _claveCargo(String cargo) {
+    var s = cargo.toLowerCase().trim();
+    const acentos = {
+      'á': 'a',
+      'é': 'e',
+      'í': 'i',
+      'ó': 'o',
+      'ú': 'u',
+      'ü': 'u',
+      'ñ': 'n',
+    };
+    acentos.forEach((k, v) => s = s.replaceAll(k, v));
+    return s.replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+  }
+
   // ── Asignación automática por numeral del acta ───────────────────────────
 
   /// Días hábiles por defecto para subsanar un hallazgo cuando la empresa no
@@ -1313,12 +1364,20 @@ class InterventoriaService {
     String empresaId,
   ) async {
     final snap = await _db.collection('TBL_USUARIOS').get();
+    // El área del cargo es un respaldo, no la fuente: si el usuario ya trae
+    // areaId propio ese manda. Si TBL_CARGOS falla, se sigue sin áreas en
+    // vez de quedarse sin lista de personal.
+    var perfilPorCargo = <String, ({String areaId, bool recibeAsignaciones})>{};
+    try {
+      perfilPorCargo = await _perfilPorCargo(empresaId);
+    } catch (_) {}
     final rows = <InterventoriaUsuario>[];
     for (final doc in snap.docs) {
       final data = doc.data();
-      if (data['activo'] == false || data['estado']?.toString() == 'inactivo') {
-        continue;
-      }
+      // El retiro de Talento Humano se guarda por empresa
+      // (`empresasDetalle.{empresaId}.estadoLaboral`); el `estado` global solo
+      // bloquea el login, así que por sí solo dejaba pasar a los retirados.
+      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
       Map<String, dynamic>? scoped;
       final detalle = data['empresasDetalle'];
       if (detalle is Map && detalle[empresaId] is Map) {
@@ -1342,12 +1401,28 @@ class InterventoriaService {
               .toString()
               .trim();
       if (cargo.isEmpty) continue;
+
+      // Fuera de los desplegables de asignación quien esté marcado como no
+      // operativo (Talento Humano, administrativos sin computador). Sigue
+      // vinculado y con acceso: solo deja de ser candidato a recibir tareas.
+      final perfilCargo = perfilPorCargo[_claveCargo(cargo)];
+      if (!recibeAsignacionesEnEmpresa(
+        data,
+        empresaId,
+        marcaDelCargo: perfilCargo?.recibeAsignaciones,
+      )) {
+        continue;
+      }
+
       final centroId = (scoped?['centroId'] ?? data['centroId'] ?? '')
           .toString()
           .trim();
-      final areaId = (scoped?['areaId'] ?? data['areaId'] ?? '')
+      var areaId = (scoped?['areaId'] ?? data['areaId'] ?? '')
           .toString()
           .trim();
+      if (areaId.isEmpty) {
+        areaId = perfilCargo?.areaId ?? '';
+      }
       rows.add(
         InterventoriaUsuario(
           id: doc.id,

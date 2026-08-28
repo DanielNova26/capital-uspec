@@ -127,6 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (ids.length == 1) return ids.first;
 
     final nombres = await _loadEmpresaNames(uniqueIds);
+    if (!mounted) return null;
 
     return showModalBottomSheet<String>(
       context: context,
@@ -167,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: ids.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, index) {
                       final id = ids[index];
                       final nombre = nombres[id];
@@ -388,7 +389,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Usuario o Cédula',
                           labelStyle: TextStyle(
-                            color: scheme.primary.withOpacity(0.8),
+                            color: scheme.primary.withValues(alpha: 0.8),
                             fontFamily: kArial,
                           ),
                           border: const OutlineInputBorder(),
@@ -414,7 +415,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         decoration: InputDecoration(
                           labelText: 'Contraseña',
                           labelStyle: TextStyle(
-                            color: scheme.primary.withOpacity(0.8),
+                            color: scheme.primary.withValues(alpha: 0.8),
                             fontFamily: kArial,
                           ),
                           border: const OutlineInputBorder(),
@@ -780,6 +781,9 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
+      // El selector puede devolver null porque la pantalla ya se cerró; sin
+      // esta guarda el setState de abajo dispara sobre un State desmontado.
+      if (!mounted) return;
       if (selectedEmpresaId == null || selectedEmpresaId.isEmpty) {
         setState(() {
           _errorMessage = 'Selecciona la empresa para continuar';
@@ -793,6 +797,9 @@ class _LoginScreenState extends State<LoginScreen> {
       final resolvedEmpresaId = await empresaState.reconcileForUserData(
         data,
         preferredEmpresaId: selectedEmpresaId,
+        // La empresa que se acaba de elegir manda sobre la que quedó guardada
+        // de la sesión anterior.
+        eleccionExplicita: true,
       );
       if (resolvedEmpresaId == null || resolvedEmpresaId.isEmpty) {
         setState(() {

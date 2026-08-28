@@ -222,7 +222,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                   Expanded(
                     child: ListView.separated(
                       itemCount: rows.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, index) {
                         final row = rows[index];
                         final id = row.key;
@@ -240,7 +240,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                             dense: true,
                             leading: CircleAvatar(
                               radius: 15,
-                              backgroundColor: _kPrimaryColor.withOpacity(0.12),
+                              backgroundColor: _kPrimaryColor.withValues(alpha: 0.12),
                               child: Text(
                                 '${depth + 1}',
                                 style: const TextStyle(
@@ -594,6 +594,10 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
     String selectedParentCode = data['parent_cargo'] as String? ?? '';
     // Para nuevos: el código se auto-genera; para existentes: es el doc.id
     String generatedCode = doc?.id ?? '';
+    // Por defecto todos los cargos reciben trabajo operativo: activar la
+    // marca es una decisión explícita, nunca un efecto secundario de crear
+    // un cargo nuevo.
+    bool recibeAsignaciones = cargoRecibeAsignaciones(data);
 
     const border = OutlineInputBorder(
       borderRadius: BorderRadius.all(Radius.circular(10)),
@@ -624,7 +628,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: _kPrimaryColor.withOpacity(0.1),
+                    color: _kPrimaryColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(
@@ -735,7 +739,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                             ),
                           ),
                           isExpanded: true,
-                          value: validArea,
+                          initialValue: validArea,
                           hint: const Text(
                             'Selecciona un área',
                             style: TextStyle(fontFamily: _kFontFamily),
@@ -843,6 +847,55 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 16),
+
+                    // ── ¿Recibe tareas operativas? ─────────────────────────
+                    // Saca al cargo de los desplegables de asignación
+                    // (Crear tarea, hallazgos de Interventoría) sin retirar a
+                    // nadie: la persona sigue vinculada y entrando a la app.
+                    Container(
+                      decoration: BoxDecoration(
+                        color: recibeAsignaciones
+                            ? const Color(0xFFF8FAFC)
+                            : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: recibeAsignaciones
+                              ? const Color(0xFFCBD5E1)
+                              : const Color(0xFFF59E0B),
+                        ),
+                      ),
+                      child: SwitchListTile(
+                        value: recibeAsignaciones,
+                        onChanged: (val) =>
+                            setStateDialog(() => recibeAsignaciones = val),
+                        activeThumbColor: _kPrimaryColor,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 2,
+                        ),
+                        title: const Text(
+                          'Recibe tareas operativas',
+                          style: TextStyle(
+                            fontFamily: _kFontFamily,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          recibeAsignaciones
+                              ? 'Aparece en "Crear tarea" y en la asignación de hallazgos.'
+                              : 'No aparece como candidato en los módulos operativos. '
+                                    'Conserva su acceso y su lugar en el organigrama.',
+                          style: const TextStyle(
+                            fontFamily: _kFontFamily,
+                            fontSize: 11,
+                            color: Color(0xFF64748B),
+                            height: 1.3,
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -937,6 +990,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                         ? null
                         : ctrParentDesc.text.trim(),
                     'ordenJerarquico': hierarchyOrder,
+                    kCampoRecibeAsignaciones: recibeAsignaciones,
                   };
                   final col = FirebaseFirestore.instance.collection(
                     _cargosCollection,
@@ -1060,7 +1114,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                 return ListView.separated(
                   padding: const EdgeInsets.all(24),
                   itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (c, i) {
                     final d = docs[i];
                     final m = d.data();
@@ -1076,7 +1130,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: _kPrimaryColor.withOpacity(0.1),
+                              color: _kPrimaryColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: const Icon(
@@ -1133,6 +1187,35 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                                       fontFamily: _kFontFamily,
                                       fontSize: 11,
                                       color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                // Solo se muestra la excepción: marcar el 99%
+                                // de los cargos con "sí recibe tareas" sería
+                                // ruido en la lista.
+                                if (!cargoRecibeAsignaciones(m))
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFEF3C7),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: const Color(0xFFF59E0B),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        'No recibe tareas operativas',
+                                        style: TextStyle(
+                                          fontFamily: _kFontFamily,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF92400E),
+                                        ),
+                                      ),
                                     ),
                                   ),
                               ],
@@ -1205,8 +1288,9 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
     if (completo.isNotEmpty) return completo;
     final nombres = (ud['nombres'] as String?)?.trim() ?? '';
     final apellidos = (ud['apellidos'] as String?)?.trim() ?? '';
-    if (nombres.isNotEmpty || apellidos.isNotEmpty)
+    if (nombres.isNotEmpty || apellidos.isNotEmpty) {
       return '$nombres $apellidos'.trim();
+    }
     final p1 = (ud['primerNombre'] as String?)?.trim() ?? '';
     final p2 = (ud['segundoNombre'] as String?)?.trim() ?? '';
     final a1 = (ud['primerApellido'] as String?)?.trim() ?? '';
@@ -1214,20 +1298,35 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
     return '$p1 $p2 $a1 $a2'.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// Resuelve el nombre de una cédula buscando en TBL_USUARIOS (directo + query).
-  Future<String> _resolveNombre(String cedula) async {
+  /// Resuelve el nombre de una cédula buscando en TBL_USUARIOS (directo + query)
+  /// junto con su vinculación: el array `cedulas` del cargo conserva a quien ya
+  /// se retiró, así que el estado laboral se lee del usuario.
+  Future<({String nombre, bool activa})> _resolvePersona(String cedula) async {
     final col = FirebaseFirestore.instance.collection('TBL_USUARIOS');
     final direct = await col.doc(cedula).get();
-    if (direct.exists && direct.data() != null) {
-      final n = _nombreDeUsuario(direct.data()!);
-      if (n.isNotEmpty) return n;
+    final directData = direct.data();
+    if (direct.exists && directData != null) {
+      final n = _nombreDeUsuario(directData);
+      if (n.isNotEmpty) {
+        return (
+          nombre: n,
+          activa: isPersonaActivaEnEmpresa(directData, widget.empresaId),
+        );
+      }
     }
     final q = await col.where('cedula', isEqualTo: cedula).limit(1).get();
     if (q.docs.isNotEmpty) {
-      final n = _nombreDeUsuario(q.docs.first.data());
-      if (n.isNotEmpty) return n;
+      final data = q.docs.first.data();
+      final n = _nombreDeUsuario(data);
+      if (n.isNotEmpty) {
+        return (
+          nombre: n,
+          activa: isPersonaActivaEnEmpresa(data, widget.empresaId),
+        );
+      }
     }
-    return cedula; // fallback: muestra la cédula si no hay nombre
+    // fallback: muestra la cédula si no hay nombre
+    return (nombre: cedula, activa: true);
   }
 
   /// Muestra los ocupantes del cargo leyendo el array `cedulas` del doc de TBL_CARGOS.
@@ -1246,11 +1345,12 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
         .where((s) => s.isNotEmpty)
         .toList();
 
-    // Resolver nombre de cada cédula
+    // Resolver nombre de cada cédula, omitiendo a los ya retirados
     final List<Map<String, String>> asignados = [];
     for (final ced in cedulas) {
-      final nombre = await _resolveNombre(ced);
-      asignados.add({'cedula': ced, 'nombre': nombre});
+      final persona = await _resolvePersona(ced);
+      if (!persona.activa) continue;
+      asignados.add({'cedula': ced, 'nombre': persona.nombre});
     }
 
     if (!mounted) return;
@@ -1284,7 +1384,7 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                 : ListView.separated(
                     shrinkWrap: true,
                     itemCount: asignados.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final u = asignados[i];
                       final nombre = u['nombre']!;

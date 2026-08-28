@@ -220,7 +220,7 @@ class _NutricionIngredientesScreenState
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: kCategorias.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (_, i) {
                 final cat = kCategorias[i];
                 final active = _categoriaFiltro == cat;
@@ -345,13 +345,13 @@ class _IngredienteItem extends StatelessWidget {
         decoration: BoxDecoration(
           color: NutritionPalette.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: NutritionPalette.border.withOpacity(0.8)),
+          border: Border.all(color: NutritionPalette.border.withValues(alpha: 0.8)),
         ),
         child: Row(
           children: [
             Container(
               width: 40, height: 40,
-              decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)),
               child: Icon(icon, size: 20, color: color),
             ),
             const SizedBox(width: 12),
@@ -429,7 +429,7 @@ class _IngredienteDialogState extends State<_IngredienteDialog> {
         children: [
           TextField(controller: _n, decoration: const InputDecoration(labelText: 'Nombre')),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(value: _c, items: kCategorias.where((x)=>x!='Todos').map((x)=>DropdownMenuItem(value:x, child: Text(x))).toList(), onChanged: (v)=>setState(()=>_c=v!), decoration: const InputDecoration(labelText: 'Categoría')),
+          DropdownButtonFormField<String>(initialValue: _c, items: kCategorias.where((x)=>x!='Todos').map((x)=>DropdownMenuItem(value:x, child: Text(x))).toList(), onChanged: (v)=>setState(()=>_c=v!), decoration: const InputDecoration(labelText: 'Categoría')),
           const SizedBox(height: 12),
           Row(children: [Expanded(child: TextField(controller: _g, decoration: const InputDecoration(labelText: 'Cant. Std'))), const SizedBox(width: 12), Expanded(child: TextField(controller: _u, decoration: const InputDecoration(labelText: 'Unidad')))]),
         ],

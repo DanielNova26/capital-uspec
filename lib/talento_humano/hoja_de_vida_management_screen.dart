@@ -7,6 +7,7 @@ import 'hoja_de_vida_service.dart';
 import 'hoja_de_vida_pdf.dart';
 import '../services/task_service.dart';
 import '../utils/doc_preview.dart';
+import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
 
 const Color _thPrimary = Color(0xFFC28942);
@@ -206,9 +207,14 @@ class _HojaDeVidaManagementScreenState
                 }
                 var docs = snap.data?.docs ?? [];
 
-                // Solo docs con nombre (excluye credenciales de login)
+                // Solo docs con nombre (excluye credenciales de login) y de
+                // personal vigente: el retirado conserva su hoja de vida, pero
+                // no se le siguen pidiendo correcciones.
                 docs = docs.where((d) {
                   final data = d.data();
+                  if (!isPersonaActivaEnEmpresa(data, widget.empresaId)) {
+                    return false;
+                  }
                   return (data['primerNombre'] as String?)?.isNotEmpty ?? false;
                 }).toList();
 

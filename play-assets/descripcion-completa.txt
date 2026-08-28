@@ -1,0 +1,37 @@
+To-Do Gestión es una herramienta de uso corporativo. Reúne en una sola aplicación la operación diaria de una organización: asignar tareas, hacerles seguimiento con evidencia, administrar el personal y llevar el control documental.
+
+IMPORTANTE: esta aplicación no permite crear cuentas. El acceso lo otorga el administrador de tu organización, que te entrega tu usuario y contraseña. Si tu empresa no la utiliza, no podrás iniciar sesión.
+
+QUÉ PUEDES HACER
+
+Tareas y seguimiento
+Crea tareas, asígnalas por área o por persona y define fechas límite. Quien las ejecuta registra avances y novedades desde el celular, con fotos y ubicación, de modo que el cierre de cada tarea queda respaldado.
+
+Talento humano
+Hojas de vida con sus soportes, estructura de cargos, áreas y centros de costo, requisiciones de personal y procesos disciplinarios. La información del empleado queda en un solo expediente consultable.
+
+Gestión documental
+Radicación de correspondencia de entrada y salida, expedientes con código interno, planillas de reparto y control de estados. Cada documento conserva su trazabilidad.
+
+Compras y facturación
+Catálogo de productos, proveedores, recepciones y control de facturación, con la documentación de respaldo asociada a cada movimiento.
+
+Interventoría
+Registro de hallazgos por establecimiento, asignación por numeral, actas y seguimiento de compromisos hasta su cierre.
+
+Rutas
+Planeación de rutas, registro de la ejecución en campo y evidencia georreferenciada de cada entrega o visita.
+
+Nutrición
+Módulo de atención nutricional para instituciones: historia del paciente, evaluación con índice de masa corporal, diagnósticos, minutas y programación de reevaluaciones. Su uso está restringido al personal profesional autorizado por la organización.
+
+VARIAS EMPRESAS, UNA SOLA APLICACIÓN
+Si trabajas para más de una organización, cambias de empresa dentro de la misma aplicación. Cada una mantiene su información, sus permisos y sus módulos por separado.
+
+PERMISOS QUE SOLICITA
+Cámara y galería, para adjuntar evidencia fotográfica.
+Ubicación, para georreferenciar la evidencia de campo cuando la tarea lo requiere.
+Micrófono, únicamente para dictar texto por voz. La aplicación no guarda grabaciones.
+Notificaciones, para avisarte cuando te asignan una tarea o cambia su estado.
+
+Todos son opcionales salvo donde la función concreta los necesite, y puedes revocarlos desde los ajustes de Android.

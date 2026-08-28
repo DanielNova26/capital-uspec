@@ -158,7 +158,7 @@ class _NutricionFirmasScreenState extends State<NutricionFirmasScreen> {
           decoration: BoxDecoration(
             color: NutritionPalette.background,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: NutritionPalette.border.withOpacity(0.5)),
+            border: Border.all(color: NutritionPalette.border.withValues(alpha: 0.5)),
           ),
           child: url == null || url.isEmpty
               ? Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(icon, color: NutritionPalette.textMuted, size: 24), const SizedBox(height: 8), const Text('Sin registro', style: TextStyle(fontSize: 11, color: NutritionPalette.textMuted))]))

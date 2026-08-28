@@ -160,6 +160,7 @@ Future<bool> _openNotificationTask(
     return true;
   }
 
+  if (!context.mounted) return false;
   final routeDecision = await TaskRouteGuard().resolveNotificationRoute(
     context,
     userIdentity: cedula,
@@ -248,8 +249,8 @@ class NotificationsScreen extends StatelessWidget {
       length: 2,
       child: Scaffold(
         backgroundColor: isWeb
-            ? scheme.surfaceVariant.withOpacity(0.2)
-            : scheme.background,
+            ? scheme.surfaceContainerHighest.withValues(alpha: 0.2)
+            : scheme.surface,
         appBar: AppBar(
           backgroundColor: scheme.surface,
           foregroundColor: scheme.onSurface,
@@ -289,7 +290,7 @@ class NotificationsScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: scheme.outlineVariant.withOpacity(0.5),
+                    color: scheme.outlineVariant.withValues(alpha: 0.5),
                   ),
                 ),
               ),
@@ -441,8 +442,9 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('assigned')) return 'Asignado por';
     if (t.contains('avance') || t.contains('progress')) return 'Reportado por';
     if (t.contains('novedad') || t.contains('news')) return 'Reportado por';
-    if (t.contains('finaliz') || t.contains('aprobad') || t.contains('devuelt'))
+    if (t.contains('finaliz') || t.contains('aprobad') || t.contains('devuelt')) {
       return 'Gestionado por';
+    }
     return 'De';
   }
 
@@ -478,16 +480,21 @@ class _NotificationList extends StatelessWidget {
       return Icons.local_shipping_outlined;
     }
     if (t.startsWith('gestion_documental')) return Icons.description_outlined;
-    if (t.contains('assigned') || t.contains('reasign'))
+    if (t.contains('assigned') || t.contains('reasign')) {
       return Icons.assignment_ind_rounded;
-    if (t.contains('avance') || t.contains('progress'))
+    }
+    if (t.contains('avance') || t.contains('progress')) {
       return Icons.trending_up_rounded;
-    if (t.contains('novedad') || t.contains('news'))
+    }
+    if (t.contains('novedad') || t.contains('news')) {
       return Icons.error_outline_rounded;
-    if (t.contains('rechazado') || t.contains('correccion'))
+    }
+    if (t.contains('rechazado') || t.contains('correccion')) {
       return Icons.description_outlined;
-    if (t.contains('finaliz') || t.contains('complet') || t.contains('aprobad'))
+    }
+    if (t.contains('finaliz') || t.contains('complet') || t.contains('aprobad')) {
       return Icons.check_circle_outline_rounded;
+    }
     if (t.contains('devuelt')) return Icons.undo_rounded;
     // Tipos TH
     if (t == 'cumpleanos') return Icons.cake_outlined;
@@ -599,9 +606,9 @@ class _NotificationList extends StatelessWidget {
           String dateKey = 'Anteriores';
           if (dt != null) {
             final date = DateTime(dt.year, dt.month, dt.day);
-            if (date == today)
+            if (date == today) {
               dateKey = 'Hoy';
-            else if (date == yesterday)
+            } else if (date == yesterday)
               dateKey = 'Ayer';
             else
               dateKey = DateFormat('MMMM dd, yyyy', 'es_CO').format(date);
@@ -634,15 +641,15 @@ class _NotificationList extends StatelessWidget {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          scheme.primary.withOpacity(0.10),
-                          scheme.surfaceVariant.withOpacity(0.55),
+                          scheme.primary.withValues(alpha: 0.10),
+                          scheme.surfaceContainerHighest.withValues(alpha: 0.55),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
-                        color: scheme.primary.withOpacity(0.10),
+                        color: scheme.primary.withValues(alpha: 0.10),
                       ),
                     ),
                     child: Row(
@@ -651,7 +658,7 @@ class _NotificationList extends StatelessWidget {
                           width: 52,
                           height: 52,
                           decoration: BoxDecoration(
-                            color: scheme.primary.withOpacity(0.12),
+                            color: scheme.primary.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Icon(
@@ -707,7 +714,7 @@ class _NotificationList extends StatelessWidget {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: scheme.surfaceVariant.withOpacity(0.5),
+                          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -761,15 +768,15 @@ class _NotificationList extends StatelessWidget {
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: isRead
-                                ? scheme.outlineVariant.withOpacity(0.3)
-                                : scheme.primary.withOpacity(0.15),
+                                ? scheme.outlineVariant.withValues(alpha: 0.3)
+                                : scheme.primary.withValues(alpha: 0.15),
                             width: 1,
                           ),
                           boxShadow: [
                             BoxShadow(
                               color: isRead
-                                  ? Colors.black.withOpacity(0.02)
-                                  : scheme.primary.withOpacity(0.04),
+                                  ? Colors.black.withValues(alpha: 0.02)
+                                  : scheme.primary.withValues(alpha: 0.04),
                               blurRadius: 12,
                               offset: const Offset(0, 4),
                             ),
@@ -783,7 +790,7 @@ class _NotificationList extends StatelessWidget {
                               Material(
                                 color: isRead
                                     ? Colors.transparent
-                                    : scheme.primary.withOpacity(0.02),
+                                    : scheme.primary.withValues(alpha: 0.02),
                                 child: InkWell(
                                   onTap: () async {
                                     // Hoja de vida: corrección → abre el formulario
@@ -874,10 +881,10 @@ class _NotificationList extends StatelessWidget {
                                               height: 48,
                                               decoration: BoxDecoration(
                                                 color: isRead
-                                                    ? scheme.surfaceVariant
-                                                          .withOpacity(0.3)
-                                                    : typeColor.withOpacity(
-                                                        0.12,
+                                                    ? scheme.surfaceContainerHighest
+                                                          .withValues(alpha: 0.3)
+                                                    : typeColor.withValues(
+                                                        alpha: 0.12,
                                                       ),
                                                 borderRadius:
                                                     BorderRadius.circular(14),
@@ -886,7 +893,7 @@ class _NotificationList extends StatelessWidget {
                                                 typeIcon,
                                                 color: isRead
                                                     ? scheme.onSurfaceVariant
-                                                          .withOpacity(0.7)
+                                                          .withValues(alpha: 0.7)
                                                     : typeColor,
                                                 size: 24,
                                               ),
@@ -929,8 +936,8 @@ class _NotificationList extends StatelessWidget {
                                                         fontSize: 15,
                                                         color: isRead
                                                             ? scheme.onSurface
-                                                                  .withOpacity(
-                                                                    0.8,
+                                                                  .withValues(
+                                                                    alpha: 0.8,
                                                                   )
                                                             : scheme.onSurface,
                                                         letterSpacing: -0.2,
@@ -946,7 +953,7 @@ class _NotificationList extends StatelessWidget {
                                                           FontWeight.w600,
                                                       color: scheme
                                                           .onSurfaceVariant
-                                                          .withOpacity(0.6),
+                                                          .withValues(alpha: 0.6),
                                                     ),
                                                   ),
                                                 ],
@@ -964,7 +971,7 @@ class _NotificationList extends StatelessWidget {
                                                         ),
                                                     decoration: BoxDecoration(
                                                       color: typeColor
-                                                          .withOpacity(0.10),
+                                                          .withValues(alpha: 0.10),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             999,
@@ -990,8 +997,8 @@ class _NotificationList extends StatelessWidget {
                                                           ),
                                                       decoration: BoxDecoration(
                                                         color: scheme
-                                                            .surfaceVariant
-                                                            .withOpacity(0.55),
+                                                            .surfaceContainerHighest
+                                                            .withValues(alpha: 0.55),
                                                         borderRadius:
                                                             BorderRadius.circular(
                                                               999,
@@ -1035,14 +1042,14 @@ class _NotificationList extends StatelessWidget {
                                                       ),
                                                   decoration: BoxDecoration(
                                                     color: typeColor
-                                                        .withOpacity(0.08),
+                                                        .withValues(alpha: 0.08),
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           10,
                                                         ),
                                                     border: Border.all(
                                                       color: typeColor
-                                                          .withOpacity(0.18),
+                                                          .withValues(alpha: 0.18),
                                                     ),
                                                   ),
                                                   child: Row(
@@ -1092,8 +1099,8 @@ class _NotificationList extends StatelessWidget {
                                                         vertical: 4,
                                                       ),
                                                   decoration: BoxDecoration(
-                                                    color: scheme.surfaceVariant
-                                                        .withOpacity(0.3),
+                                                    color: scheme.surfaceContainerHighest
+                                                        .withValues(alpha: 0.3),
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           8,
@@ -1109,7 +1116,7 @@ class _NotificationList extends StatelessWidget {
                                                         size: 12,
                                                         color: scheme
                                                             .onSurfaceVariant
-                                                            .withOpacity(0.7),
+                                                            .withValues(alpha: 0.7),
                                                       ),
                                                       const SizedBox(width: 6),
                                                       UserNameText(
@@ -1123,7 +1130,7 @@ class _NotificationList extends StatelessWidget {
                                                               FontWeight.w700,
                                                           color: scheme
                                                               .onSurfaceVariant
-                                                              .withOpacity(0.8),
+                                                              .withValues(alpha: 0.8),
                                                         ),
                                                       ),
                                                     ],
@@ -1143,7 +1150,7 @@ class _NotificationList extends StatelessWidget {
                                               Icons.arrow_forward_ios_rounded,
                                               size: 14,
                                               color: scheme.onSurfaceVariant
-                                                  .withOpacity(0.3),
+                                                  .withValues(alpha: 0.3),
                                             ),
                                           ),
                                         ],
@@ -1156,7 +1163,7 @@ class _NotificationList extends StatelessWidget {
                               if (hasBanner) ...[
                                 Divider(
                                   height: 1,
-                                  color: scheme.outlineVariant.withOpacity(0.4),
+                                  color: scheme.outlineVariant.withValues(alpha: 0.4),
                                 ),
                                 _ReactionBar(
                                   bannerId: bannerId,
@@ -1165,7 +1172,7 @@ class _NotificationList extends StatelessWidget {
                                 ),
                                 Divider(
                                   height: 1,
-                                  color: scheme.outlineVariant.withOpacity(0.3),
+                                  color: scheme.outlineVariant.withValues(alpha: 0.3),
                                 ),
                                 _CommentsSection(
                                   bannerId: bannerId,
@@ -1177,7 +1184,7 @@ class _NotificationList extends StatelessWidget {
                           ),
                         ),
                       );
-                    }).toList(),
+                    }),
                     const SizedBox(height: 16),
                   ],
                 );
@@ -1263,16 +1270,16 @@ class _ReactionBarState extends State<_ReactionBar> {
                   ),
                   decoration: BoxDecoration(
                     color: isMe
-                        ? scheme.primary.withOpacity(0.12)
+                        ? scheme.primary.withValues(alpha: 0.12)
                         : (count > 0
-                              ? scheme.surfaceVariant.withOpacity(0.5)
+                              ? scheme.surfaceContainerHighest.withValues(alpha: 0.5)
                               : Colors.transparent),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: isMe
-                          ? scheme.primary.withOpacity(0.4)
+                          ? scheme.primary.withValues(alpha: 0.4)
                           : (count > 0
-                                ? scheme.outlineVariant.withOpacity(0.5)
+                                ? scheme.outlineVariant.withValues(alpha: 0.5)
                                 : Colors.transparent),
                     ),
                   ),
@@ -1353,10 +1360,11 @@ class _CommentsSectionState extends State<_CommentsSection> {
             (d['nombreCompleto'] as String?)?.trim() ??
             '${(d['nombres'] as String?) ?? ''} ${(d['apellidos'] as String?) ?? ''}'
                 .trim();
-        if (mounted)
+        if (mounted) {
           setState(
             () => _userName = nombre.isNotEmpty ? nombre : widget.userId,
           );
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _userName = widget.userId);
@@ -1403,7 +1411,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                 Icon(
                   Icons.chat_bubble_outline_rounded,
                   size: 14,
-                  color: scheme.onSurfaceVariant.withOpacity(0.6),
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.6),
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -1412,21 +1420,21 @@ class _CommentsSectionState extends State<_CommentsSection> {
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     fontFamily: kArial,
-                    color: scheme.onSurfaceVariant.withOpacity(0.7),
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
                   ),
                 ),
                 const Spacer(),
                 Icon(
                   _expanded ? Icons.expand_less : Icons.expand_more,
                   size: 16,
-                  color: scheme.onSurfaceVariant.withOpacity(0.5),
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                 ),
               ],
             ),
           ),
         ),
         if (_expanded) ...[
-          Divider(height: 1, color: scheme.outlineVariant.withOpacity(0.3)),
+          Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.3)),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _comentColl
                 .orderBy('createdAt', descending: false)
@@ -1444,7 +1452,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                     style: TextStyle(
                       fontSize: 12,
                       fontFamily: kArial,
-                      color: scheme.onSurfaceVariant.withOpacity(0.5),
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                     ),
                   ),
                 );
@@ -1475,7 +1483,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                           userId: userId,
                           nameHint: name,
                           radius: 14,
-                          backgroundColor: scheme.primary.withOpacity(0.15),
+                          backgroundColor: scheme.primary.withValues(alpha: 0.15),
                           foregroundColor: scheme.primary,
                         ),
                         const SizedBox(width: 8),
@@ -1486,7 +1494,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                               vertical: 7,
                             ),
                             decoration: BoxDecoration(
-                              color: scheme.surfaceVariant.withOpacity(0.4),
+                              color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(
@@ -1512,7 +1520,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                                       style: TextStyle(
                                         fontSize: 10,
                                         color: scheme.onSurfaceVariant
-                                            .withOpacity(0.5),
+                                            .withValues(alpha: 0.5),
                                       ),
                                     ),
                                   ],
@@ -1550,7 +1558,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                       hintStyle: TextStyle(
                         fontSize: 13,
                         fontFamily: kArial,
-                        color: scheme.onSurfaceVariant.withOpacity(0.5),
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 14,
@@ -1559,13 +1567,13 @@ class _CommentsSectionState extends State<_CommentsSection> {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide(
-                          color: scheme.outlineVariant.withOpacity(0.6),
+                          color: scheme.outlineVariant.withValues(alpha: 0.6),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide(
-                          color: scheme.outlineVariant.withOpacity(0.4),
+                          color: scheme.outlineVariant.withValues(alpha: 0.4),
                         ),
                       ),
                       isDense: true,
@@ -1582,7 +1590,7 @@ class _CommentsSectionState extends State<_CommentsSection> {
                     padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
                       color: _sending
-                          ? scheme.primary.withOpacity(0.5)
+                          ? scheme.primary.withValues(alpha: 0.5)
                           : scheme.primary,
                       shape: BoxShape.circle,
                     ),
@@ -1637,11 +1645,12 @@ class _StorageImageState extends State<_StorageImage> {
       final downloadUrl = await ref.getDownloadURL();
       final response = await http.get(Uri.parse(downloadUrl));
       if (response.statusCode == 200) {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _bytes = response.bodyBytes;
             _loading = false;
           });
+        }
       } else {
         if (mounted) setState(() => _loading = false);
       }
@@ -1656,7 +1665,7 @@ class _StorageImageState extends State<_StorageImage> {
       return Container(
         height: 120,
         decoration: BoxDecoration(
-          color: widget.scheme.surfaceVariant.withOpacity(0.3),
+          color: widget.scheme.surfaceContainerHighest.withValues(alpha: 0.3),
           borderRadius: BorderRadius.circular(12),
         ),
         child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),

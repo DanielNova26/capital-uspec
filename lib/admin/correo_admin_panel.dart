@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../correo/correo_models.dart';
 import '../correo/correo_service.dart';
 import '../gestion_documental/correspondencia/gd_roles_screen.dart';
+import '../gestion_documental/correspondencia/gd_tipos_documentales_screen.dart';
 
 const _primary = Color(0xFF0F172A);
 const _accent = Color(0xFF0F766E);
@@ -191,6 +192,8 @@ class _AdminCorreoPanelState extends State<AdminCorreoPanel> {
           const SizedBox(height: 18),
           _rolesCard(),
           const SizedBox(height: 14),
+          _tiposDocumentalesCard(),
+          const SizedBox(height: 14),
           _integrationCard(),
           const SizedBox(height: 14),
           _accountsCard(),
@@ -223,6 +226,35 @@ class _AdminCorreoPanelState extends State<AdminCorreoPanel> {
         ),
         icon: const Icon(Icons.manage_accounts_outlined, size: 18),
         label: const Text('Administrar roles'),
+      ),
+    ),
+  );
+
+  /// Acceso al maestro de tipos documentales de Correspondencia.
+  ///
+  /// El mismo maestro (`TBL_GD_TIPOS_DOCUMENTALES`) también se administra
+  /// desde Admin > Catálogos; se expone aquí también porque el flujo diario
+  /// de Correo/Correspondencia entra por este panel y no por Catálogos.
+  Widget _tiposDocumentalesCard() => _card(
+    title: 'Tipos documentales',
+    subtitle:
+        'Códigos, nombres y alias con los que se clasifica la '
+        'correspondencia (da origen al código interno del expediente).',
+    icon: Icons.sell_outlined,
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton.icon(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GdTiposDocumentalesScreen(
+              userId: widget.userId,
+              empresaId: widget.empresaId,
+            ),
+          ),
+        ),
+        icon: const Icon(Icons.open_in_new, size: 18),
+        label: const Text('Administrar tipos documentales'),
       ),
     ),
   );

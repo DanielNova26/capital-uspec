@@ -23,6 +23,7 @@ import '../gestion_documental/correspondencia/gd_correspondencia_screen.dart';
 import 'complete_task_screen.dart' hide kArial;
 import 'notify_avances_screen.dart' hide kArial;
 import 'notify_novedades_screen.dart' hide kArial;
+import '../core/area_directory.dart';
 
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kTaskArial = 'Arial';
@@ -46,6 +47,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
   final _searchCtrl = TextEditingController();
   String _statusFilter = 'todas';
   String _areaFilter = 'todas';
+  AreaCatalogo _catalogoAreas = const AreaCatalogo.vacio();
   bool _groupByArea = false;
   bool _didAutoOpen = false;
   bool _showAllTasks = false;
@@ -208,7 +210,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   String _areaLabelFor(String areaKey) {
     if (areaKey == '__sin_area__') return 'Sin área';
-    return _areas[areaKey] ?? areaKey;
+    return _catalogoAreas.nombreDe(areaKey);
   }
 
   Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -395,8 +397,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
           )) {
             return null;
           }
-          final estado = (m['estado'] ?? '').toString().trim().toLowerCase();
-          if (estado.isNotEmpty && estado != 'activo') return null;
+          // No se puede pedir reasignación hacia alguien ya retirado en
+          // Talento Humano: el estado laboral vive por empresa.
+          if (!isPersonaActivaEnEmpresa(m, empresaId)) return null;
           final nombre = [
             (m['nombres'] ?? m['primerNombre'] ?? '').toString(),
             (m['apellidos'] ?? m['primerApellido'] ?? '').toString(),
@@ -501,7 +504,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: selectedCargoId,
+                      initialValue: selectedCargoId,
                       decoration: const InputDecoration(
                         labelText: 'Cargo',
                         border: OutlineInputBorder(),
@@ -689,8 +692,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final actorName = _currentUserName();
       final toName = pickedUser!['nombre'] ?? '';
       final recipients = <String>{};
-      if (creadorId.isNotEmpty && creadorId != widget.userId)
+      if (creadorId.isNotEmpty && creadorId != widget.userId) {
         recipients.add(creadorId);
+      }
       if (jefeId.isNotEmpty && jefeId != widget.userId) recipients.add(jefeId);
       if (recipients.isNotEmpty) {
         try {
@@ -789,19 +793,25 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
       final filteredEmpresas = resolvedEmpresaId == null
           ? <String>{}
           : <String>{resolvedEmpresaId};
-      final areas = <String, String>{'todas': 'Todas las áreas'};
+      var catalogo = const AreaCatalogo.vacio();
       if (resolvedEmpresaId != null) {
         final snap = await FirebaseFirestore.instance
             .collection('TBL_AREAS')
             .where('empresaId', isEqualTo: resolvedEmpresaId)
             .get();
-        for (var d in snap.docs) {
-          areas[d.id] = d.data()['nombre'] ?? d.id;
-        }
+        // Una entrada por área real y sin ids crudos en pantalla.
+        catalogo = AreaCatalogo.desde(
+          snap.docs.map(
+            (d) => (id: d.id, nombre: d.data()['nombre']?.toString()),
+          ),
+          empresaId: resolvedEmpresaId,
+        );
       }
+      final areas = catalogo.comoMapa();
       if (!mounted) return;
       setState(() {
         _empresaIds = filteredEmpresas;
+        _catalogoAreas = catalogo;
         _areas = areas;
         _userData = data;
       });
@@ -815,8 +825,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
     Query<Map<String, dynamic>> query = FirebaseFirestore.instance
         .collection('TBL_TAREAS')
         .where('asignado_uid', isEqualTo: widget.userId);
-    if (scopedEmpresaId != null)
+    if (scopedEmpresaId != null) {
       query = query.where('empresaId', isEqualTo: scopedEmpresaId);
+    }
     return query.snapshots();
   }
 
@@ -851,7 +862,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return false;
       }
       if (_statusFilter != 'todas' && status != _statusFilter) return false;
-      if (_areaFilter != 'todas' && areaId != _areaFilter) return false;
+      if (!_catalogoAreas.coincide(filtro: _areaFilter, valor: areaId)) {
+        return false;
+      }
       return true;
     }).toList();
     filtered.sort(_compareByDueDate);
@@ -1206,12 +1219,14 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_routeValidationDone)
+    if (!_routeValidationDone) {
       return const Scaffold(body: SkeletonList(items: 5));
-    if (!_routeAllowed)
+    }
+    if (!_routeAllowed) {
       return Scaffold(
         body: Center(child: Text(_routeDeniedMessage ?? 'Sin acceso')),
       );
+    }
 
     return FutureBuilder<void>(
       future: _bootstrapFuture,
@@ -1219,8 +1234,9 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _streamAssignedToMe(),
           builder: (_, snap) {
-            if (snap.connectionState == ConnectionState.waiting)
+            if (snap.connectionState == ConnectionState.waiting) {
               return const Scaffold(body: SkeletonList(items: 5));
+            }
             final allDocs = snap.data?.docs ?? [];
 
             if (!_didAutoOpen && widget.highlightTaskId != null) {
@@ -1498,7 +1514,7 @@ class _ActionTile extends StatelessWidget {
         width: 44,
         height: 44,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(icon, color: color),

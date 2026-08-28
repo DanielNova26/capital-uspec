@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_scroll_behavior.dart' show usaBarraHorizontal;
 import '../theme/app_typography.dart';
 import '../home/home_screen.dart';
 
@@ -73,7 +74,7 @@ class InternalModuleLayout extends StatelessWidget {
                 fontFamily: kArial,
                 fontSize: 11,
                 fontWeight: FontWeight.w400,
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withValues(alpha: 0.8),
               ),
             ),
         ],
@@ -189,9 +190,9 @@ class InternalModuleLayout extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: accentColor.withOpacity(0.1),
+        color: accentColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: accentColor.withOpacity(0.3)),
+        border: Border.all(color: accentColor.withValues(alpha: 0.3)),
       ),
       child: Text(
         badge!.toUpperCase(),
@@ -361,12 +362,12 @@ class _InternalModuleTabsState extends State<InternalModuleTabs> {
       margin: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
         color: enabled
-            ? widget.accentColor.withOpacity(0.08)
+            ? widget.accentColor.withValues(alpha: 0.08)
             : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: enabled
-              ? widget.accentColor.withOpacity(0.24)
+              ? widget.accentColor.withValues(alpha: 0.24)
               : const Color(0xFFE2E8F0),
         ),
       ),
@@ -379,6 +380,19 @@ class _InternalModuleTabsState extends State<InternalModuleTabs> {
         color: widget.accentColor,
         disabledColor: const Color(0xFFCBD5E1),
       ),
+    );
+  }
+
+  /// La barra solo aporta donde hay puntero: avisa que quedan pestañas y se
+  /// puede arrastrar con el mouse. En un teléfono quedaba dibujada encima de
+  /// las propias pestañas. Las flechas laterales siguen en ambos casos.
+  Widget _conBarra({required Widget child}) {
+    if (!usaBarraHorizontal(context)) return child;
+    return Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: _canScrollBack || _canScrollForward,
+      interactive: true,
+      child: child,
     );
   }
 
@@ -398,10 +412,7 @@ class _InternalModuleTabsState extends State<InternalModuleTabs> {
             tooltip: 'Ver opciones anteriores',
           ),
           Expanded(
-            child: Scrollbar(
-              controller: _scrollController,
-              thumbVisibility: _canScrollBack || _canScrollForward,
-              interactive: true,
+            child: _conBarra(
               child: SingleChildScrollView(
                 controller: _scrollController,
                 scrollDirection: Axis.horizontal,
@@ -431,12 +442,12 @@ class _InternalModuleTabsState extends State<InternalModuleTabs> {
                             ),
                             decoration: BoxDecoration(
                               color: selected
-                                  ? widget.accentColor.withOpacity(0.12)
+                                  ? widget.accentColor.withValues(alpha: 0.12)
                                   : const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: selected
-                                    ? widget.accentColor.withOpacity(0.35)
+                                    ? widget.accentColor.withValues(alpha: 0.35)
                                     : const Color(0xFFE2E8F0),
                               ),
                             ),
@@ -515,7 +526,7 @@ class ModuleCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE2E8F0)), // Slate 200
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),

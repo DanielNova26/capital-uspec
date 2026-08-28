@@ -4,7 +4,6 @@
 // Ejecuta el matching automático y presenta los resultados al usuario
 // antes de confirmar la creación del lote.
 
-import 'dart:typed_data';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
@@ -552,7 +551,7 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     final sinMatch = _matches.where((m) => m.matchEstado == PpMatchEstado.sin_coincidencia).length;
 
     return ModuleCard(
-      color: GdPalette.accent.withOpacity(0.04),
+      color: GdPalette.accent.withValues(alpha: 0.04),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -593,9 +592,9 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
   Widget _matchChip(String label, Color color) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withOpacity(0.3)),
+      border: Border.all(color: color.withValues(alpha: 0.3)),
     ),
     child: Text(label, style: TextStyle(fontFamily: kArial, fontSize: 12, color: color, fontWeight: FontWeight.w700)),
   );

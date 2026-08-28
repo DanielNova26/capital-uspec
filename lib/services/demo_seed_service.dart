@@ -602,6 +602,144 @@ class DemoSeedService {
       SetOptions(merge: true),
     );
 
+    // ===================== MÁS TAREAS (capturas de la ficha) =====================
+    // El seed original creaba 3 tareas y los listados salían casi vacíos en las
+    // capturas de Play. Estas cubren los cuatro estados que maneja la app y las
+    // tres prioridades, repartidas entre los tres usuarios demo para que el
+    // tablero de equipo también tenga contenido real que mostrar.
+    final dueInFiveDays = Timestamp.fromDate(now.add(const Duration(days: 5)));
+    final createdThreeDaysAgo = Timestamp.fromDate(
+      now.subtract(const Duration(days: 3)),
+    );
+
+    final tareasExtra = <String, Map<String, dynamic>>{
+      'demo_task_visita_campo': {
+        'titulo': 'Visita de verificación en sede norte',
+        'descripcion':
+            'Levantar el acta de la visita y registrar los hallazgos con evidencia fotográfica.',
+        'estado': 'en_progreso',
+        'prioridad': 'alta',
+        'asignado_uid': coordinadorCedula,
+        'asignado_nombre': coordinadorNombreCompleto,
+        'fecha_limite': dueTomorrow,
+      },
+      'demo_task_inventario': {
+        'titulo': 'Conciliar inventario de insumos',
+        'descripcion':
+            'Cruzar las recepciones del mes contra el consumo reportado por cada centro de costo.',
+        'estado': 'en_progreso',
+        'prioridad': 'media',
+        'asignado_uid': analistaCedula,
+        'asignado_nombre': analistaNombreCompleto,
+        'fecha_limite': dueInThreeDays,
+      },
+      'demo_task_correspondencia': {
+        'titulo': 'Radicar respuesta a oficio 0421',
+        'descripcion':
+            'Preparar la respuesta, adjuntar los soportes y radicarla antes del vencimiento.',
+        'estado': 'por_aprobar',
+        'prioridad': 'alta',
+        'asignado_uid': analistaCedula,
+        'asignado_nombre': analistaNombreCompleto,
+        'fecha_limite': dueTomorrow,
+      },
+      'demo_task_ruta': {
+        'titulo': 'Programar ruta de entrega semanal',
+        'descripcion':
+            'Definir el orden de visitas y asignar el conductor de cada tramo.',
+        'estado': 'devuelta',
+        'prioridad': 'media',
+        'asignado_uid': coordinadorCedula,
+        'asignado_nombre': coordinadorNombreCompleto,
+        'fecha_limite': dueInFiveDays,
+      },
+      'demo_task_nomina': {
+        'titulo': 'Revisar novedades de nómina del período',
+        'descripcion':
+            'Verificar incapacidades, horas extra y descuentos antes del cierre.',
+        'estado': 'finalizado',
+        'prioridad': 'baja',
+        'asignado_uid': reviewerCedula,
+        'asignado_nombre': '$reviewerNombres $reviewerApellidos',
+        'fecha_limite': createdYesterday,
+      },
+    };
+
+    tareasExtra.forEach((docId, tarea) {
+      batch.set(_db.collection('TBL_TAREAS').doc(docId), {
+        ...tarea,
+        'jefe_uid': reviewerCedula,
+        'jefe_nombre': '$reviewerNombres $reviewerApellidos',
+        'centroId': centroId,
+        'areaId': areaId,
+        'empresaId': empresaId,
+        'creador_id': reviewerCedula,
+        'creador_nombre': '$reviewerNombres $reviewerApellidos',
+        'fecha_creacion': createdThreeDaysAgo,
+        'notify': false,
+        if (tarea['estado'] == 'finalizado') 'fecha_cierre': createdYesterday,
+      }, SetOptions(merge: true));
+    });
+
+    // ===================== HOJAS DE VIDA DEMO =====================
+    // La hoja de vida vive dentro del propio documento de TBL_USUARIOS, así que
+    // basta con enriquecer los tres usuarios que ya creamos arriba. Sin esto el
+    // módulo de Talento Humano sale en blanco en las capturas.
+    // Son personas ficticias: ninguna captura debe hacerse con datos reales.
+    final hojasDeVida = <String, Map<String, dynamic>>{
+      reviewerCedula: {
+        'telefono': '3105550101',
+        'direccion': 'Calle 45 # 12-30',
+        'barrio': 'Chicó Norte',
+        'fechaNacimiento': '12/04/1988',
+        'lugarNacimiento': 'Bogotá D.C.',
+        'genero': 'Masculino',
+        'estadoCivil': 'Casado(a)',
+        'numeroHijos': '2',
+        'tipoSangre': 'O+',
+        'eps': 'Compensar EPS',
+      },
+      coordinadorCedula: {
+        'telefono': '3105550202',
+        'direccion': 'Carrera 68 # 24-15',
+        'barrio': 'Salitre',
+        'fechaNacimiento': '30/09/1991',
+        'lugarNacimiento': 'Medellín',
+        'genero': 'Femenino',
+        'estadoCivil': 'Soltero(a)',
+        'numeroHijos': '0',
+        'tipoSangre': 'A+',
+        'eps': 'Sura EPS',
+      },
+      analistaCedula: {
+        'telefono': '3105550303',
+        'direccion': 'Diagonal 27 # 8-40',
+        'barrio': 'Teusaquillo',
+        'fechaNacimiento': '05/02/1995',
+        'lugarNacimiento': 'Cali',
+        'genero': 'Masculino',
+        'estadoCivil': 'Unión libre',
+        'numeroHijos': '1',
+        'tipoSangre': 'B+',
+        'eps': 'Sanitas EPS',
+      },
+    };
+
+    hojasDeVida.forEach((cedula, hv) {
+      batch.set(_db.collection('TBL_USUARIOS').doc(cedula), {
+        ...hv,
+        'ciudad': 'Bogotá D.C.',
+        'lugarExpedicion': 'Bogotá D.C.',
+        'fondoPensiones': 'Porvenir',
+        'fondoCesantias': 'Protección',
+        'banco': 'Bancolombia',
+        'estrato': '3',
+        'personasCargo': '0',
+        'estadoHojaDeVida': 'completa',
+        'empresaId': empresaId,
+      }, SetOptions(merge: true));
+    });
+
     await batch.commit();
 
     return DemoSeedResult(

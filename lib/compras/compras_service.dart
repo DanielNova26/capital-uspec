@@ -5,8 +5,10 @@
 
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'compras_aprobaciones.dart';
 import 'compras_catalog_logic.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_recepcion_sync.dart';
@@ -747,6 +749,48 @@ class ComprasService {
     });
   }
 
+  // ── Historial de aprobaciones ──────────────────────────────────────────
+  //
+  // El documento solo conserva al último revisor (`revisadoPor`), así que
+  // aprobar → revertir → aprobar borraba la pista anterior. Cada decisión de
+  // calidad queda además como un registro propio, y así se puede responder
+  // quién aprobó qué y cuándo.
+  //
+  // Es auditoría: nunca puede tumbar la operación. Si la escritura falla, la
+  // aprobación ya quedó hecha y solo se pierde la línea del historial.
+  Future<void> _registrarAprobacion({
+    required String empresaId,
+    required String tipo,
+    required String entidadId,
+    required String accion,
+    required String usuarioId,
+    String productoId = '',
+    String productoNombre = '',
+    String docKey = '',
+    String docLabel = '',
+    String nota = '',
+  }) async {
+    try {
+      await _db.collection(kComprasAprobacionesColl).add({
+        'empresaId': empresaId,
+        'tipo': tipo,
+        'entidadId': entidadId,
+        'productoId': productoId,
+        'productoNombre': productoNombre,
+        'docKey': docKey,
+        'docLabel': docLabel,
+        'accion': accion,
+        'usuarioId': usuarioId,
+        'nota': nota.trim(),
+        // Hora del cliente a propósito: el historial se lee ordenado y
+        // `serverTimestamp` llega null en la primera emisión del stream.
+        'fecha': Timestamp.now(),
+      });
+    } catch (e) {
+      debugPrint('[ComprasService] historial de aprobación no guardado: $e');
+    }
+  }
+
   /// Aprueba un documento específico en una recepción.
   /// Actualiza el estadoCalidad del doc a 'aprobado'.
   Future<void> aprobarDocRecepcion({
@@ -796,6 +840,19 @@ class ComprasService {
       docKey: docKey,
       revisadoPor: revisadoPor,
     );
+    await _registrarAprobacion(
+      empresaId: recepcion.empresaId,
+      tipo: 'recepcion',
+      entidadId: recepcion.id,
+      accion: docActual.aprobadoConRequerimientos
+          ? ComprasAprobacionAccion.requerimientoResuelto
+          : ComprasAprobacionAccion.aprobado,
+      usuarioId: revisadoPor,
+      productoId: rp.productoId,
+      productoNombre: rp.nombre,
+      docKey: docKey,
+      docLabel: kDocRecepcionLabels[docKey] ?? docKey,
+    );
   }
 
   Future<void> aprobarConRequerimientosDocRecepcion({
@@ -828,6 +885,18 @@ class ComprasService {
       'productos': productos.map((item) => item.toMap()).toList(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+    await _registrarAprobacion(
+      empresaId: recepcion.empresaId,
+      tipo: 'recepcion',
+      entidadId: recepcion.id,
+      accion: ComprasAprobacionAccion.aprobadoConRequerimientos,
+      usuarioId: revisadoPor,
+      productoId: producto.productoId,
+      productoNombre: producto.nombre,
+      docKey: docKey,
+      docLabel: kDocRecepcionLabels[docKey] ?? docKey,
+      nota: nota,
+    );
     await _notificarYTareaRequerimiento(
       empresaId: recepcion.empresaId,
       responsableId: actual.subidoPor ?? recepcion.creadoPor,
@@ -908,6 +977,19 @@ class ComprasService {
     });
 
     if (!rechazar) return;
+
+    await _registrarAprobacion(
+      empresaId: recepcion.empresaId,
+      tipo: 'recepcion',
+      entidadId: recepcion.id,
+      accion: ComprasAprobacionAccion.reversion,
+      usuarioId: revertidoPor,
+      productoId: rp.productoId,
+      productoNombre: rp.nombre,
+      docKey: docKey,
+      docLabel: kDocRecepcionLabels[docKey] ?? docKey,
+      nota: rechazar ? 'Revertida y rechazada. $motivoLimpio' : motivoLimpio,
+    );
 
     // Rechazo: mismo camino que rechazarDocRecepcion para que el subidor reciba
     // la notificación y la tarea con el plazo configurado por la empresa.
@@ -997,6 +1079,19 @@ class ComprasService {
     await _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcion.id).update({
       'productos': productos.map((p) => p.toMap()).toList(),
     });
+
+    await _registrarAprobacion(
+      empresaId: recepcion.empresaId,
+      tipo: 'recepcion',
+      entidadId: recepcion.id,
+      accion: ComprasAprobacionAccion.rechazado,
+      usuarioId: revisadoPor,
+      productoId: rp.productoId,
+      productoNombre: rp.nombre,
+      docKey: docKey,
+      docLabel: kDocRecepcionLabels[docKey] ?? docKey,
+      nota: motivo,
+    );
 
     // Notificar (subidor + todo Calidad) y crear la tarea de corrección.
     // El destinatario "subidor" es quien cargó el doc; si no consta, se usa el
@@ -1163,6 +1258,18 @@ class ComprasService {
       docKey: docKey,
       revisadoPor: revisadoPor,
     );
+    await _registrarAprobacion(
+      empresaId: marca.empresaId,
+      tipo: 'marca',
+      entidadId: marcaId,
+      accion: actual.aprobadoConRequerimientos
+          ? ComprasAprobacionAccion.requerimientoResuelto
+          : ComprasAprobacionAccion.aprobado,
+      usuarioId: revisadoPor,
+      productoNombre: marca.descripcion,
+      docKey: docKey,
+      docLabel: kDocumentosAsociadosLabels[docKey] ?? docKey,
+    );
   }
 
   Future<void> aprobarConRequerimientosDocMarca({
@@ -1232,6 +1339,17 @@ class ComprasService {
     );
 
     final label = kDocumentosAsociadosLabels[docKey] ?? docKey;
+    await _registrarAprobacion(
+      empresaId: marca.empresaId,
+      tipo: 'marca',
+      entidadId: marcaId,
+      accion: ComprasAprobacionAccion.rechazado,
+      usuarioId: revisadoPor,
+      productoNombre: marca.descripcion,
+      docKey: docKey,
+      docLabel: label,
+      nota: motivo.trim(),
+    );
     await _notificarYTareaRechazo(
       empresaId: marca.empresaId,
       subidoPor: actual.subidoPor ?? '',
@@ -2606,6 +2724,19 @@ class ComprasService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
+    await _registrarAprobacion(
+      empresaId: ficha.empresaId,
+      tipo: 'ficha',
+      entidadId: fichaId,
+      accion: ficha.documentoActual!.aprobadoConRequerimientos
+          ? ComprasAprobacionAccion.requerimientoResuelto
+          : ComprasAprobacionAccion.aprobado,
+      usuarioId: revisadoPor,
+      productoNombre: ficha.productoNombre,
+      docKey: 'fichaTecnica',
+      docLabel: 'Ficha técnica',
+    );
+
     await _finalizarTareasCorreccionAprobadas(
       empresaId: ficha.empresaId,
       tipo: 'ficha',
@@ -2711,6 +2842,18 @@ class ComprasService {
       docKey: docKey,
       revisadoPor: revisadoPor,
     );
+
+    await _registrarAprobacion(
+      empresaId: prov.empresaId,
+      tipo: 'proveedor',
+      entidadId: proveedorId,
+      accion: docActual.aprobadoConRequerimientos
+          ? ComprasAprobacionAccion.requerimientoResuelto
+          : ComprasAprobacionAccion.aprobado,
+      usuarioId: revisadoPor,
+      docKey: docKey,
+      docLabel: kDocProveedorLabels[docKey] ?? docKey,
+    );
   }
 
   Future<void> aprobarConRequerimientosDocProveedor({
@@ -2785,6 +2928,18 @@ class ComprasService {
 
     // Notificar (subidor + todo Calidad) y crear la tarea de corrección.
     final subidoPor = docActual.subidoPor ?? '';
+
+    await _registrarAprobacion(
+      empresaId: prov.empresaId,
+      tipo: 'proveedor',
+      entidadId: proveedorId,
+      accion: ComprasAprobacionAccion.rechazado,
+      usuarioId: revisadoPor,
+      productoNombre: prov.razonSocial,
+      docKey: docKey,
+      docLabel: kDocProveedorLabels[docKey] ?? docKey,
+      nota: motivo,
+    );
     final label = kDocProveedorLabels[docKey] ?? docKey;
     await _notificarYTareaRechazo(
       empresaId: prov.empresaId,
@@ -2851,6 +3006,18 @@ class ComprasService {
     });
 
     if (!rechazar) return;
+
+    await _registrarAprobacion(
+      empresaId: prov.empresaId,
+      tipo: 'proveedor',
+      entidadId: proveedorId,
+      accion: ComprasAprobacionAccion.reversion,
+      usuarioId: revertidoPor,
+      productoNombre: prov.razonSocial,
+      docKey: docKey,
+      docLabel: kDocProveedorLabels[docKey] ?? docKey,
+      nota: rechazar ? 'Revertida y rechazada. $motivoLimpio' : motivoLimpio,
+    );
 
     final subidoPor = docActual.subidoPor ?? '';
     final label = kDocProveedorLabels[docKey] ?? docKey;
@@ -2973,6 +3140,18 @@ class ComprasService {
           .toMap(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+
+    await _registrarAprobacion(
+      empresaId: empresaId,
+      tipo: 'ficha',
+      entidadId: fichaId,
+      accion: ComprasAprobacionAccion.rechazado,
+      usuarioId: revisadoPor,
+      productoNombre: productoNombre,
+      docKey: 'fichaTecnica',
+      docLabel: 'Ficha técnica',
+      nota: motivo,
+    );
 
     // Notificar (subidor + todo Calidad) y crear la tarea de corrección.
     // Preferimos subidoPor del documento; si no consta, el creadoPor recibido.

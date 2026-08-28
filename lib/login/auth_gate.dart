@@ -63,14 +63,38 @@ class _AuthGateState extends State<AuthGate> {
     }
   }
 
-  Future<void> _goLogin() async {
-    try {
-      await FirebaseAuth.instance.signOut();
-    } catch (_) {}
+  Future<void> _goLogin({bool cerrarSesionFirebase = true}) async {
+    // Cuando la causa es transitoria (aún no se restauró la sesión, no hay
+    // red) NO se cierra la sesión de Firebase: hacerlo destruiría una sesión
+    // válida y el próximo arranque tampoco podría reanudar.
+    if (cerrarSesionFirebase) {
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+    }
     if (!mounted) return;
     Navigator.of(
       context,
     ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
+  }
+
+  /// Espera a que Firebase Auth termine de restaurar la sesión persistida.
+  ///
+  /// `currentUser` es null durante los primeros milisegundos del arranque
+  /// (en web hasta que lee IndexedDB). Preguntar de una sola vez hacía que
+  /// "mantener sesión iniciada" mandara al login **y borrara la sesión
+  /// guardada**, así que la opción parecía apagarse sola.
+  Future<User?> _esperarUsuarioAuth() async {
+    final actual = FirebaseAuth.instance.currentUser;
+    if (actual != null) return actual;
+    try {
+      return await FirebaseAuth.instance
+          .authStateChanges()
+          .firstWhere((user) => user != null)
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      return FirebaseAuth.instance.currentUser;
+    }
   }
 
   Future<void> _runBiometric() async {
@@ -100,10 +124,12 @@ class _AuthGateState extends State<AuthGate> {
       return;
     }
     try {
-      final authUser = FirebaseAuth.instance.currentUser;
+      final authUser = await _esperarUsuarioAuth();
       if (authUser == null) {
-        await AuthPrefs.instance.clearSession();
-        await _goLogin();
+        // Puede ser que la sesión de Firebase sí caducara, pero también que
+        // el dispositivo esté sin red al arrancar. La sesión guardada se
+        // conserva para reintentar en el próximo arranque.
+        await _goLogin(cerrarSesionFirebase: false);
         return;
       }
       final token = await authUser.getIdTokenResult(true);
@@ -176,10 +202,11 @@ class _AuthGateState extends State<AuthGate> {
         ),
       );
     } catch (e) {
-      // Error transitorio (p. ej. sin red): NO borramos la sesión; dejamos
-      // que el usuario inicie sesión manualmente y reintente en otro arranque.
+      // Error transitorio (p. ej. sin red): NO borramos la sesión ni cerramos
+      // la de Firebase; dejamos que el usuario inicie sesión manualmente y
+      // reintente en otro arranque.
       debugPrint('[AuthGate] _resume error: $e');
-      await _goLogin();
+      await _goLogin(cerrarSesionFirebase: false);
     }
   }
 

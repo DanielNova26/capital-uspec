@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 import 'package:excel/excel.dart';
-import 'package:todo/nutricion/atencion/diagnostico_models.dart';
 
 /// Parser para Excel de diagnósticos.
 ///

@@ -53,7 +53,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCZna3nMuCU8BxpaJbfjFKyT4A0hM4fya4',
-    appId: '1:379551786878:android:5ff74c61ef72e7ad84352f',
+    appId: '1:379551786878:android:93d642e32b31231284352f',
     messagingSenderId: '379551786878',
     projectId: 'integra360-94704',
     databaseURL: 'https://integra360-94704-default-rtdb.firebaseio.com',
@@ -62,12 +62,12 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAn_VXHlHj_bCZaOaJ2tkK4Lr4s970vI-8',
-    appId: '1:379551786878:ios:b2f6d4777de370c884352f',
+    appId: '1:379551786878:ios:1cc01e3191fe96af84352f',
     messagingSenderId: '379551786878',
     projectId: 'integra360-94704',
     databaseURL: 'https://integra360-94704-default-rtdb.firebaseio.com',
     storageBucket: 'integra360-94704.firebasestorage.app',
-    iosBundleId: 'com.example.capitalUspec',
+    iosBundleId: 'com.capitaluspec.gestionapp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(

@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import '../../core/org_context_resolver.dart';
 import '../../utils/user_company.dart';
 import 'gd_correspondencia_models.dart';
+import '../../core/area_directory.dart';
 
 /// Error de validación del maestro de tipos documentales, con el mensaje ya
 /// redactado para mostrarlo al usuario.
@@ -257,10 +258,13 @@ class GdCorrespondenciaService {
       if ((data['empresaId'] ?? '').toString().trim() != empresaId) continue;
       if (data['enabled'] == false || data['activo'] == false) continue;
       final id = (data['areaId'] ?? doc.id).toString().trim();
-      final name = (data['nombre'] ?? data['areaNombre'] ?? id)
-          .toString()
-          .trim();
-      if (id.isNotEmpty) areaNames[id] = name.isEmpty ? id : name;
+      if (id.isEmpty) continue;
+      // Sin `nombre` el desplegable terminaba mostrando el id del documento.
+      areaNames[id] = areaNombreLegible(
+        id: id,
+        nombre: (data['nombre'] ?? data['areaNombre'])?.toString(),
+        empresaId: empresaId,
+      );
     }
     final rows = <GdResponsable>[];
     for (final doc in snap.docs) {
@@ -272,9 +276,9 @@ class GdCorrespondenciaService {
       )) {
         continue;
       }
-      if (data['activo'] == false || data['estado']?.toString() == 'inactivo') {
-        continue;
-      }
+      // Retirado en Talento Humano para esta empresa: no puede quedar como
+      // responsable, revisor ni clasificador de correspondencia.
+      if (!isPersonaActivaEnEmpresa(data, empresaId)) continue;
       final nombre = _userName(data, doc.id);
       final org = const OrgContextResolver().resolve(
         userData: data,

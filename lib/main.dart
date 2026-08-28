@@ -12,6 +12,7 @@ import 'firebase_options.dart';
 import 'state/empresa_scope.dart';
 import 'login/auth_gate.dart';
 import 'services/notification_service.dart';
+import 'theme/app_scroll_behavior.dart';
 
 /// Clave global de navegación para deep-linking desde notificaciones.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -38,8 +39,9 @@ Future<void> _initFirebaseAndPushCore() async {
   // En web se omite App Check (requiere reCAPTCHA site key en producción).
   if (!kIsWeb) {
     await FirebaseAppCheck.instance.activate(
-      androidProvider:
-          kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+      androidProvider: kReleaseMode
+          ? AndroidProvider.playIntegrity
+          : AndroidProvider.debug,
       appleProvider: kReleaseMode
           ? AppleProvider.appAttestWithDeviceCheckFallback
           : AppleProvider.debug,
@@ -58,24 +60,20 @@ Future<void> main() async {
   await _initFirebaseAndPushCore();
   final empresaState = EmpresaState();
   await empresaState.hydrate();
-  runApp(EmpresaScope(
-    notifier: empresaState,
-    child: const ToDoApp(),
-  ));
+  runApp(EmpresaScope(notifier: empresaState, child: const ToDoApp()));
 }
-
 
 class _FadePageTransitionsBuilder extends PageTransitionsBuilder {
   const _FadePageTransitionsBuilder();
 
   @override
   Widget buildTransitions<T>(
-      PageRoute<T> route,
-      BuildContext context,
-      Animation<double> animation,
-      Animation<double> secondaryAnimation,
-      Widget child,
-      ) {
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
     return FadeTransition(
       opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
       child: child,
@@ -93,18 +91,22 @@ class ToDoApp extends StatelessWidget {
       title: 'To-Do',
       debugShowCheckedModeBanner: false,
 
+      // Barra de scroll en las tablas horizontales y arrastre con el mouse.
+      scrollBehavior: const AppScrollBehavior(),
+
       // 👇 Localización en español
       locale: const Locale('es', 'CO'), // o solo: const Locale('es')
       supportedLocales: const [
         Locale('es', 'CO'),
-        Locale('es'),     // fallback
-        Locale('en'),     // opcional
+        Locale('es'), // fallback
+        Locale('en'), // opcional
       ],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
 
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
+        scrollbarTheme: kAppScrollbarTheme,
         colorSchemeSeed: const Color(0xFF0078D7), // azul del logo
         scaffoldBackgroundColor: const Color(0xFFFFFFFF), // fondo blanco
         appBarTheme: const AppBarTheme(
@@ -113,48 +115,50 @@ class ToDoApp extends StatelessWidget {
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ButtonStyle(
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
-            shape: MaterialStatePropertyAll(
+            shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            textStyle: const MaterialStatePropertyAll(
+            textStyle: const WidgetStatePropertyAll(
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
-            elevation: const MaterialStatePropertyAll(4),
-            shadowColor: MaterialStatePropertyAll(Colors.black.withOpacity(0.25)),
+            elevation: const WidgetStatePropertyAll(4),
+            shadowColor: WidgetStatePropertyAll(
+              Colors.black.withValues(alpha: 0.25),
+            ),
           ),
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: ButtonStyle(
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
-            shape: MaterialStatePropertyAll(
+            shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            textStyle: const MaterialStatePropertyAll(
+            textStyle: const WidgetStatePropertyAll(
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
           ),
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: ButtonStyle(
-            padding: const MaterialStatePropertyAll(
+            padding: const WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             ),
-            shape: MaterialStatePropertyAll(
+            shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            side: MaterialStateProperty.resolveWith(
-                  (states) => BorderSide(
-                color: states.contains(MaterialState.pressed)
+            side: WidgetStateProperty.resolveWith(
+              (states) => BorderSide(
+                color: states.contains(WidgetState.pressed)
                     ? const Color(0xFF005A9E)
                     : const Color(0xFF0078D7),
               ),
             ),
-            textStyle: const MaterialStatePropertyAll(
+            textStyle: const WidgetStatePropertyAll(
               TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
             ),
           ),
@@ -170,7 +174,6 @@ class ToDoApp extends StatelessWidget {
         ),
       ),
 
-
       // (Opcional) darkTheme si quieres que se adapte al sistema
 
       // darkTheme: ThemeData(
@@ -178,7 +181,6 @@ class ToDoApp extends StatelessWidget {
       //   brightness: Brightness.dark,
       //   colorSchemeSeed: const Color(0xFF0078D7),
       // ),
-
       home: const AuthGate(),
     );
   }

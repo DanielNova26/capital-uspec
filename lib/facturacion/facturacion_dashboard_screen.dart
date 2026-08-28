@@ -322,11 +322,16 @@ class _FacturacionViewState extends State<_FacturacionView>
   List<FacEstablecimiento> _ests = [];
   List<FacObligacion> _obligaciones = [];
 
-  // Meses disponibles (derivados de los establecimientos)
+  // Meses ofrecidos en el filtro. Son la unión de dos fuentes: el catálogo que
+  // Facturación va asignando (histórico, no se pierde al reasignar) y el mes
+  // vigente de cada establecimiento (respaldo para empresas sin catálogo aún).
   List<String> _meses = [];
+  List<String> _mesesCatalogo = [];
+  List<String> _mesesEst = [];
 
   StreamSubscription<List<FacEstablecimiento>>? _estSub;
   StreamSubscription<List<FacObligacion>>? _obligacionSub;
+  StreamSubscription<List<String>>? _mesesSub;
 
   List<String> get _documentos => _obligaciones
       .where((item) => item.enabled)
@@ -336,7 +341,7 @@ class _FacturacionViewState extends State<_FacturacionView>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: widget.canManage ? 4 : 2, vsync: this);
+    _tab = TabController(length: widget.canManage ? 5 : 2, vsync: this);
     _obligacionSub = widget.svc.streamObligaciones(widget.empresaId).listen((
       items,
     ) {
@@ -353,6 +358,13 @@ class _FacturacionViewState extends State<_FacturacionView>
     _estSub = widget.svc
         .streamEstablecimientos(widget.empresaId)
         .listen(_onEstsChanged);
+    _mesesSub = widget.svc.streamMesesAsignados(widget.empresaId).listen((
+      meses,
+    ) {
+      if (!mounted) return;
+      _mesesCatalogo = meses;
+      _recomputarMeses();
+    });
   }
 
   @override
@@ -361,6 +373,7 @@ class _FacturacionViewState extends State<_FacturacionView>
     _buscarEstCtrl.dispose();
     _estSub?.cancel();
     _obligacionSub?.cancel();
+    _mesesSub?.cancel();
     super.dispose();
   }
 
@@ -371,9 +384,18 @@ class _FacturacionViewState extends State<_FacturacionView>
         mesesSet.add(normalizeFacMesKey(e.mes));
       }
     }
-    final meses = mesesSet.toList()..sort(compareFacMesDesc);
+    _ests = ests;
+    _mesesEst = mesesSet.toList()..sort(compareFacMesDesc);
+    _recomputarMeses();
+    _sembrarCatalogoMeses();
+  }
+
+  /// Une catálogo y meses vigentes, y reencuadra el filtro si el mes elegido
+  /// dejó de existir. No dispara escrituras: solo recalcula la lista visible.
+  void _recomputarMeses() {
+    final meses = normalizeFacMesKeys([..._mesesCatalogo, ..._mesesEst]);
+    if (!mounted) return;
     setState(() {
-      _ests = ests;
       _meses = meses;
       if (meses.isEmpty) {
         _filtroMes = null;
@@ -382,6 +404,20 @@ class _FacturacionViewState extends State<_FacturacionView>
       }
     });
     _recargarProgreso();
+  }
+
+  /// Empresas que ya venían operando no tienen catálogo todavía. La primera
+  /// carga lo siembra con los meses vigentes para no arrancar con la lista
+  /// vacía; después el catálogo manda y sobrevive a las reasignaciones.
+  void _sembrarCatalogoMeses() {
+    if (!widget.canManage) return;
+    final faltantes = _mesesEst
+        .where((m) => !_mesesCatalogo.contains(m))
+        .toList();
+    if (faltantes.isEmpty) return;
+    widget.svc
+        .registrarMesesAsignados(widget.empresaId, faltantes)
+        .catchError((_) {});
   }
 
   Future<void> _recargarProgreso() async {
@@ -441,6 +477,11 @@ class _FacturacionViewState extends State<_FacturacionView>
         label: 'Establecimientos',
         icon: Icons.apartment_rounded,
       ),
+      if (widget.canManage)
+        const InternalModuleTabItem(
+          label: 'Cargar',
+          icon: Icons.cloud_upload_outlined,
+        ),
       const InternalModuleTabItem(
         label: 'Autorizaciones',
         icon: Icons.check_circle_outline_rounded,
@@ -492,6 +533,14 @@ class _FacturacionViewState extends State<_FacturacionView>
               controller: _tab,
               children: [
                 _buildDashboardTab(),
+                if (widget.canManage)
+                  _CargaTab(
+                    userId: widget.userId,
+                    empresaId: widget.empresaId,
+                    ests: _ests,
+                    meses: _meses,
+                    svc: widget.svc,
+                  ),
                 _AutorizacionesTab(
                   empresaId: widget.empresaId,
                   svc: widget.svc,
@@ -595,7 +644,7 @@ class _FacturacionViewState extends State<_FacturacionView>
           SizedBox(
             width: 180,
             child: DropdownButtonFormField<String>(
-              value: _filtroMes,
+              initialValue: _filtroMes,
               isExpanded: true,
               decoration: _inputDeco('Mes'),
               items: _meses
@@ -622,7 +671,7 @@ class _FacturacionViewState extends State<_FacturacionView>
           SizedBox(
             width: 200,
             child: DropdownButtonFormField<String>(
-              value: _filtroDoc,
+              initialValue: _filtroDoc,
               isExpanded: true,
               decoration: _inputDeco('Documento'),
               items: [
@@ -653,7 +702,7 @@ class _FacturacionViewState extends State<_FacturacionView>
           SizedBox(
             width: 140,
             child: DropdownButtonFormField<String>(
-              value: _filtroEstado,
+              initialValue: _filtroEstado,
               isExpanded: true,
               decoration: _inputDeco('Estado'),
               items: const [
@@ -880,9 +929,9 @@ class _FacSummaryChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.08),
+      color: color.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(999),
-      border: Border.all(color: color.withOpacity(0.22)),
+      border: Border.all(color: color.withValues(alpha: 0.22)),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
@@ -924,7 +973,7 @@ class _EstCard extends StatelessWidget {
       elevation: 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: color.withOpacity(0.3)),
+        side: BorderSide(color: color.withValues(alpha: 0.3)),
       ),
       child: InkWell(
         onTap: onTap,
@@ -1014,9 +1063,9 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withOpacity(0.4)),
+      border: Border.all(color: color.withValues(alpha: 0.4)),
     ),
     child: Text(
       '$pct%',
@@ -1424,14 +1473,14 @@ class _GestionTabState extends State<_GestionTab> {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: color.withOpacity(0.25)),
+        side: BorderSide(color: color.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
+              color: color.withValues(alpha: 0.08),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(14),
               ),
@@ -1442,7 +1491,7 @@ class _GestionTabState extends State<_GestionTab> {
                 Container(
                   padding: const EdgeInsets.all(7),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.15),
+                    color: color.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(icon, size: 18, color: color),
@@ -1492,7 +1541,7 @@ class _GestionTabState extends State<_GestionTab> {
     return Column(
       children: [
         DropdownButtonFormField<String>(
-          value: _mesEstId,
+          initialValue: _mesEstId,
           decoration: _inputDeco('Establecimiento'),
           items: _estItemsTodos,
           onChanged: (v) => setState(() => _mesEstId = v),
@@ -1503,7 +1552,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _mesSel,
+                  initialValue: _mesSel,
                   decoration: _inputDeco('Mes'),
                   items: kMeses
                       .map(
@@ -1525,7 +1574,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _anioSel,
+                  initialValue: _anioSel,
                   decoration: _inputDeco('Año'),
                   items: anos
                       .map(
@@ -1548,7 +1597,7 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
-            value: _mesSel,
+            initialValue: _mesSel,
             decoration: _inputDeco('Mes'),
             items: kMeses
                 .map(
@@ -1565,7 +1614,7 @@ class _GestionTabState extends State<_GestionTab> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: _anioSel,
+            initialValue: _anioSel,
             decoration: _inputDeco('Año'),
             items: anos
                 .map(
@@ -1620,7 +1669,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _fechaEstId,
+                  initialValue: _fechaEstId,
                   decoration: _inputDeco('Establecimiento'),
                   items: _estItemsTodos,
                   onChanged: (v) => setState(() => _fechaEstId = v),
@@ -1629,7 +1678,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _fechaDocTipo,
+                  initialValue: _fechaDocTipo,
                   decoration: _inputDeco('Documento'),
                   items: _docItems,
                   onChanged: (v) => setState(() => _fechaDocTipo = v),
@@ -1639,14 +1688,14 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
-            value: _fechaEstId,
+            initialValue: _fechaEstId,
             decoration: _inputDeco('Establecimiento'),
             items: _estItemsTodos,
             onChanged: (v) => setState(() => _fechaEstId = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
-            value: _fechaDocTipo,
+            initialValue: _fechaDocTipo,
             decoration: _inputDeco('Documento'),
             items: _docItems,
             onChanged: (v) => setState(() => _fechaDocTipo = v),
@@ -1783,7 +1832,7 @@ class _GestionTabState extends State<_GestionTab> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<String>(
-                  value: _obsEstId,
+                  initialValue: _obsEstId,
                   decoration: _inputDeco('Establecimiento'),
                   items: _estItemsSolo,
                   onChanged: (v) => setState(() => _obsEstId = v),
@@ -1792,7 +1841,7 @@ class _GestionTabState extends State<_GestionTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: DropdownButtonFormField<String?>(
-                  value: _obsDocTipo,
+                  initialValue: _obsDocTipo,
                   decoration: _inputDeco('Documento'),
                   items: _docItems,
                   onChanged: (v) => setState(() => _obsDocTipo = v),
@@ -1802,14 +1851,14 @@ class _GestionTabState extends State<_GestionTab> {
           )
         else ...[
           DropdownButtonFormField<String>(
-            value: _obsEstId,
+            initialValue: _obsEstId,
             decoration: _inputDeco('Establecimiento'),
             items: _estItemsSolo,
             onChanged: (v) => setState(() => _obsEstId = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
-            value: _obsDocTipo,
+            initialValue: _obsDocTipo,
             decoration: _inputDeco('Documento'),
             items: _docItems,
             onChanged: (v) => setState(() => _obsDocTipo = v),
@@ -1823,9 +1872,9 @@ class _GestionTabState extends State<_GestionTab> {
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: _kGreen.withOpacity(0.08),
+              color: _kGreen.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: _kGreen.withOpacity(0.3)),
+              border: Border.all(color: _kGreen.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
@@ -2045,7 +2094,7 @@ class _GestionTabState extends State<_GestionTab> {
       ),
       style: FilledButton.styleFrom(
         backgroundColor: color,
-        disabledBackgroundColor: color.withOpacity(0.5),
+        disabledBackgroundColor: color.withValues(alpha: 0.5),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
@@ -2054,6 +2103,199 @@ class _GestionTabState extends State<_GestionTab> {
   void _snackError(String msg) => ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: _kRed));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab: Cargar documentos (perfil Facturación)
+// Reutiliza la vista del establecimiento en modo embebido para no duplicar la
+// lógica de subida, que ya está probada por el rol establecimiento.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CargaTab extends StatefulWidget {
+  final String userId;
+  final String empresaId;
+  final List<FacEstablecimiento> ests;
+  final List<String> meses;
+  final FacturacionService svc;
+
+  const _CargaTab({
+    required this.userId,
+    required this.empresaId,
+    required this.ests,
+    required this.meses,
+    required this.svc,
+  });
+
+  @override
+  State<_CargaTab> createState() => _CargaTabState();
+}
+
+class _CargaTabState extends State<_CargaTab> {
+  String? _estId;
+  String? _mes;
+
+  /// Los docs de establecimiento vienen con el id compuesto `empresa_centro`,
+  /// pero Storage y el servicio trabajan con el id pelado.
+  String _plainId(String id) => id.startsWith('${widget.empresaId}_')
+      ? id.substring(widget.empresaId.length + 1)
+      : id;
+
+  @override
+  void didUpdateWidget(covariant _CargaTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Si lo elegido desaparece del catálogo, se limpia: un DropdownButton con
+    // un value que no está entre sus items revienta en tiempo de ejecución.
+    if (_estId != null && !widget.ests.any((e) => _plainId(e.id) == _estId)) {
+      _estId = null;
+    }
+    if (_mes != null && !widget.meses.contains(_mes)) _mes = null;
+  }
+
+  void _elegirEst(String? id) {
+    if (id == null) return;
+    setState(() {
+      _estId = id;
+      // Arranca en el mes vigente del establecimiento cuando está en el
+      // catálogo; si no, deja que el usuario lo escoja.
+      final est = widget.ests.firstWhere(
+        (e) => _plainId(e.id) == id,
+        orElse: () => widget.ests.first,
+      );
+      final propio = normalizeFacMesKey(est.mes);
+      if (_mes == null && widget.meses.contains(propio)) _mes = propio;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isWide = MediaQuery.of(context).size.width >= 900;
+    return Column(
+      children: [
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: isWide ? 320 : double.infinity,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _estId,
+                  isExpanded: true,
+                  decoration: _inputDeco('Establecimiento'),
+                  items: widget.ests
+                      .map(
+                        (e) => DropdownMenuItem(
+                          value: _plainId(e.id),
+                          child: Text(
+                            e.nombre,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _elegirEst,
+                ),
+              ),
+              SizedBox(
+                width: isWide ? 200 : double.infinity,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _mes,
+                  isExpanded: true,
+                  decoration: _inputDeco('Mes'),
+                  items: widget.meses
+                      .map(
+                        (m) => DropdownMenuItem(
+                          value: m,
+                          child: Text(
+                            facMesLabel(m),
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _mes = v),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(child: _buildCuerpo()),
+      ],
+    );
+  }
+
+  Widget _buildCuerpo() {
+    if (widget.meses.isEmpty) {
+      return _aviso(
+        Icons.event_busy_outlined,
+        'Todavía no hay meses asignados',
+        'Asigna un mes desde la pestaña Gestión para poder cargar documentos.',
+      );
+    }
+    if (_estId == null || _mes == null) {
+      return _aviso(
+        Icons.cloud_upload_outlined,
+        'Elige establecimiento y mes',
+        'Al seleccionarlos aparecerán los documentos del período para cargarlos.',
+      );
+    }
+    return _EstablecimientoView(
+      // Remonta la vista al cambiar de establecimiento o de mes: su estado
+      // (archivos, revisiones, observaciones) se carga en initState.
+      key: ValueKey('$_estId|$_mes'),
+      userId: widget.userId,
+      empresaId: widget.empresaId,
+      estId: _estId!,
+      svc: widget.svc,
+      targetMes: _mes,
+      embedded: true,
+      asFacturacion: true,
+    );
+  }
+
+  Widget _aviso(IconData icon, String titulo, String detalle) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 46, color: Colors.black26),
+          const SizedBox(height: 12),
+          Text(
+            titulo,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            detalle,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 13,
+              height: 1.4,
+              color: Colors.black54,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2227,11 +2469,12 @@ class _DetalleEstablecimientoScreenState
       normalizedMes,
       documentos: widget.documentos,
     );
-    if (mounted)
+    if (mounted) {
       setState(() {
         _archivos = archivos;
         _loading = false;
       });
+    }
   }
 
   bool get _todoCompleto => widget.documentos.every((doc) {
@@ -2491,7 +2734,7 @@ class _DetalleEstablecimientoScreenState
           if (_mesesDisponibles.length > 1) ...[
             Expanded(
               child: DropdownButtonFormField<String>(
-                value: _mesesDisponibles.contains(mesActual) ? mesActual : null,
+                initialValue: _mesesDisponibles.contains(mesActual) ? mesActual : null,
                 isDense: true,
                 decoration: _inputDeco('Mes'),
                 items: _mesesDisponibles
@@ -2634,7 +2877,17 @@ class _EstablecimientoView extends StatefulWidget {
   final String? linkedTaskId;
   final DateTime? linkedDeadline;
 
+  /// Se monta dentro de otra pantalla (la pestaña Cargar de Facturación), así
+  /// que no debe dibujar su propio InternalModuleLayout: quedarían dos.
+  final bool embedded;
+
+  /// Lo opera Facturación en nombre del establecimiento. Oculta "Solicitar
+  /// siguiente mes", que es un trámite del establecimiento hacia Facturación
+  /// y no tiene sentido cuando ese mismo perfil asigna el mes en Gestión.
+  final bool asFacturacion;
+
   const _EstablecimientoView({
+    super.key,
     required this.userId,
     required this.empresaId,
     required this.estId,
@@ -2643,6 +2896,8 @@ class _EstablecimientoView extends StatefulWidget {
     this.targetMes,
     this.linkedTaskId,
     this.linkedDeadline,
+    this.embedded = false,
+    this.asFacturacion = false,
   });
 
   @override
@@ -2725,7 +2980,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       estId: widget.estId,
       establecimientoNombre: _est?.nombre ?? widget.estId,
       texto: texto,
-      mes: _est?.mes ?? '',
+      mes: _activeMes,
       autorId: widget.userId,
       autorNombre: _autorNombre.isNotEmpty ? _autorNombre : widget.userId,
       destinatarioId:
@@ -2790,6 +3045,23 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   Widget build(BuildContext context) {
     final isWeb = MediaQuery.of(context).size.width >= 900;
 
+    final contenido = _loading
+        ? const Center(child: CircularProgressIndicator(color: _kPrimary))
+        : Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _cargar,
+                  child: isWeb ? _buildWebGrid() : _buildMobileGrid(),
+                ),
+              ),
+              _buildBottomBar(),
+            ],
+          );
+
+    if (widget.embedded) return contenido;
+
     return InternalModuleLayout(
       title: 'Facturación — ${_est?.nombre ?? widget.estId}',
       subtitle: _isTaskFlow
@@ -2798,20 +3070,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       accentColor: _kPrimary,
       userId: widget.userId,
       empresaId: widget.empresaId,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator(color: _kPrimary))
-          : Column(
-              children: [
-                _buildHeader(),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _cargar,
-                    child: isWeb ? _buildWebGrid() : _buildMobileGrid(),
-                  ),
-                ),
-                _buildBottomBar(),
-              ],
-            ),
+      child: contenido,
     );
   }
 
@@ -3031,6 +3290,16 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
                 fontSize: 12,
               ),
             )
+          else if (_todoCompleto && widget.asFacturacion)
+            const Text(
+              'Mes completo',
+              style: TextStyle(
+                fontFamily: _kFont,
+                color: _kPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            )
           else if (_todoCompleto)
             FilledButton.icon(
               onPressed: _solicitando ? null : _solicitarSiguienteMes,
@@ -3165,8 +3434,9 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
           .collection('TBL_USUARIOS')
           .doc(widget.userId)
           .get();
-      if (snap.exists)
+      if (snap.exists) {
         nombre = (snap.data()!['nombre'] ?? widget.userId).toString();
+      }
     } catch (_) {}
     await widget.svc.solicitarSiguienteMes(
       empresaId: widget.empresaId,
@@ -3287,15 +3557,15 @@ class _DocCardState extends State<_DocCard> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       decoration: BoxDecoration(
-        color: _isDragging ? _kPrimary.withOpacity(0.04) : Colors.white,
+        color: _isDragging ? _kPrimary.withValues(alpha: 0.04) : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: _isDragging ? _kPrimary : color.withOpacity(0.3),
+          color: _isDragging ? _kPrimary : color.withValues(alpha: 0.3),
           width: _isDragging ? 2 : 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -3343,7 +3613,7 @@ class _DocCardState extends State<_DocCard> {
   Widget _buildHeader(Color color) => Container(
     padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.08),
+      color: color.withValues(alpha: 0.08),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
     ),
     child: Column(
@@ -3415,7 +3685,7 @@ class _DocCardState extends State<_DocCard> {
                   color: _kPrimary,
                 ),
               ),
-        errorBuilder: (_, __, ___) => _fileIcon(ext),
+        errorBuilder: (_, _, _) => _fileIcon(ext),
       );
       onTap = () => previewImage(context, archivo.downloadUrl);
     } else if (isPdf) {
@@ -3447,7 +3717,7 @@ class _DocCardState extends State<_DocCard> {
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  colors: [Colors.black.withOpacity(0.45), Colors.transparent],
+                  colors: [Colors.black.withValues(alpha: 0.45), Colors.transparent],
                 ),
               ),
               child: const Row(
@@ -3553,7 +3823,7 @@ class _DocCardState extends State<_DocCard> {
   }
 
   Widget _buildDragOverlay() => Container(
-    color: _kPrimary.withOpacity(0.06),
+    color: _kPrimary.withValues(alpha: 0.06),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -3577,7 +3847,7 @@ class _DocCardState extends State<_DocCard> {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.block_rounded, size: 28, color: _kGrey.withOpacity(0.4)),
+        Icon(Icons.block_rounded, size: 28, color: _kGrey.withValues(alpha: 0.4)),
         const SizedBox(height: 6),
         Text(
           'No requerido',
@@ -3605,14 +3875,14 @@ class _DocCardState extends State<_DocCard> {
   );
 
   Widget _buildEmptyBody() => Container(
-    color: Colors.red.shade50.withOpacity(0.5),
+    color: Colors.red.shade50.withValues(alpha: 0.5),
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Icon(
           Icons.cloud_upload_outlined,
           size: 30,
-          color: _kRed.withOpacity(0.4),
+          color: _kRed.withValues(alpha: 0.4),
         ),
         const SizedBox(height: 6),
         Text(
@@ -3620,7 +3890,7 @@ class _DocCardState extends State<_DocCard> {
           style: TextStyle(
             fontFamily: _kFont,
             fontSize: 10,
-            color: _kRed.withOpacity(0.55),
+            color: _kRed.withValues(alpha: 0.55),
           ),
         ),
       ],
@@ -3807,7 +4077,7 @@ class _DocCardState extends State<_DocCard> {
         style: TextStyle(fontFamily: _kFont, fontSize: 10),
       ),
       style: FilledButton.styleFrom(
-        backgroundColor: _kRed.withOpacity(0.85),
+        backgroundColor: _kRed.withValues(alpha: 0.85),
         padding: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
       ),
@@ -3821,11 +4091,11 @@ class _DocCardState extends State<_DocCard> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
         decoration: BoxDecoration(
-          color: count > 0 ? _kPrimary.withOpacity(0.1) : Colors.grey.shade100,
+          color: count > 0 ? _kPrimary.withValues(alpha: 0.1) : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(7),
           border: Border.all(
             color: count > 0
-                ? _kPrimary.withOpacity(0.3)
+                ? _kPrimary.withValues(alpha: 0.3)
                 : Colors.grey.shade300,
           ),
         ),
@@ -3869,7 +4139,7 @@ class _DocCardState extends State<_DocCard> {
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
-        side: BorderSide(color: color.withOpacity(0.4)),
+        side: BorderSide(color: color.withValues(alpha: 0.4)),
         padding: const EdgeInsets.symmetric(horizontal: 4),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         textStyle: const TextStyle(fontFamily: _kFont, fontSize: 10),
@@ -3922,7 +4192,7 @@ class _DocCardState extends State<_DocCard> {
               leading: Container(
                 padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: _kPrimary.withOpacity(0.08),
+                  color: _kPrimary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: const Icon(
@@ -4146,7 +4416,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     Container(
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: _kPrimary.withOpacity(0.1),
+                        color: _kPrimary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(
@@ -4218,7 +4488,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     controller: widget.scrollController,
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     itemCount: widget.observaciones.length,
-                    separatorBuilder: (_, __) => const Divider(height: 12),
+                    separatorBuilder: (_, _) => const Divider(height: 12),
                     itemBuilder: (_, i) {
                       final o = widget.observaciones[i];
                       return Row(
@@ -4228,7 +4498,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                             userId: o.autorId,
                             nameHint: _displayName(o.autorNombre),
                             radius: 16,
-                            backgroundColor: _kPrimary.withOpacity(0.12),
+                            backgroundColor: _kPrimary.withValues(alpha: 0.12),
                             foregroundColor: _kPrimary,
                           ),
                           const SizedBox(width: 10),
@@ -4329,12 +4599,12 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                           vertical: 9,
                         ),
                         decoration: BoxDecoration(
-                          color: _kPrimary.withOpacity(0.06),
+                          color: _kPrimary.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: _fechaLimite == null
                                 ? Colors.grey.shade300
-                                : _kPrimary.withOpacity(0.5),
+                                : _kPrimary.withValues(alpha: 0.5),
                           ),
                         ),
                         child: Row(
@@ -4573,10 +4843,10 @@ class _ObservacionesScreen extends StatelessWidget {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: _kPrimary.withOpacity(0.08),
+                          color: _kPrimary.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                            color: _kPrimary.withOpacity(0.25),
+                            color: _kPrimary.withValues(alpha: 0.25),
                           ),
                         ),
                         child: Row(

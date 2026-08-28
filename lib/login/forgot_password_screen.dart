@@ -105,6 +105,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         newPassword: nuevaClave,
       );
 
+      if (!mounted) return;
       setState(() => _isLoading = false);
 
       await showDialog(

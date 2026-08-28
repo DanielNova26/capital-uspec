@@ -176,12 +176,12 @@ class TaskResponsiveLayout extends StatelessWidget {
                             color: scheme.surface,
                             border: Border(
                               left: BorderSide(
-                                color: scheme.outlineVariant.withOpacity(0.5),
+                                color: scheme.outlineVariant.withValues(alpha: 0.5),
                               ),
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
+                                color: Colors.black.withValues(alpha: 0.05),
                                 blurRadius: 20,
                                 offset: const Offset(-4, 0),
                               ),
@@ -237,7 +237,7 @@ class TaskResponsiveLayout extends StatelessWidget {
                 fontFamily: kArial,
                 fontSize: 11,
                 fontWeight: FontWeight.w400,
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withValues(alpha: 0.8),
               ),
             ),
         ],
