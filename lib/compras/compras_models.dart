@@ -1137,6 +1137,8 @@ class RecepcionDoc {
   final String grupoNombre;
   final List<RecepcionProducto> productos;
   final List<String> productoIds; // para consultas con array-contains
+  /// Programaciones de Abastecimiento que originaron esta recepción.
+  final List<String> abastecimientoIds;
   final String creadoPor; // userId de quien creó la recepción
   final Timestamp createdAt;
 
@@ -1153,6 +1155,7 @@ class RecepcionDoc {
     this.grupoNombre = '',
     required this.productos,
     this.productoIds = const [],
+    this.abastecimientoIds = const [],
     this.creadoPor = '',
     required this.createdAt,
   });
@@ -1174,6 +1177,9 @@ class RecepcionDoc {
             .map(RecepcionProducto.fromMap)
             .toList(),
         productoIds: List<String>.from(m['productoIds'] as List? ?? []),
+        abastecimientoIds: List<String>.from(
+          m['abastecimientoIds'] as List? ?? const [],
+        ),
         creadoPor: m['creadoPor'] as String? ?? '',
         createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
       );
@@ -1190,6 +1196,7 @@ class RecepcionDoc {
     'grupoNombre': grupoNombre,
     'productos': productos.map((p) => p.toMap()).toList(),
     'productoIds': productoIds,
+    'abastecimientoIds': abastecimientoIds,
     'creadoPor': creadoPor,
     'createdAt': FieldValue.serverTimestamp(),
   };

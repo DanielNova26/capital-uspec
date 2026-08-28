@@ -18,6 +18,8 @@ class AbastecimientoScreen extends StatefulWidget {
   final String userId;
   final String? rolCompras;
   final DateTime? initialDate;
+  final Future<bool?> Function(AbastecimientoDoc entrega)? onRegistrarRecepcion;
+  final Future<void> Function(String recepcionId)? onAbrirRecepcion;
 
   const AbastecimientoScreen({
     super.key,
@@ -25,6 +27,8 @@ class AbastecimientoScreen extends StatefulWidget {
     required this.userId,
     this.rolCompras,
     this.initialDate,
+    this.onRegistrarRecepcion,
+    this.onAbrirRecepcion,
   });
 
   @override
@@ -44,6 +48,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   bool _soloAtrasadas = false;
   String? _selectedId;
   bool _importando = false;
+  bool _sincronizando = false;
 
   String? get _rol => normalizeComprasRol(widget.rolCompras);
   bool get _canImport =>
@@ -77,6 +82,21 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         backgroundColor: _abBlue,
         foregroundColor: Colors.white,
         actions: [
+          if (_canOperate)
+            IconButton(
+              onPressed: _sincronizando ? null : _sincronizarRecepciones,
+              tooltip: 'Sincronizar con Recepción',
+              icon: _sincronizando
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.sync_rounded),
+            ),
           if (_canImport)
             IconButton(
               onPressed: _importando ? null : _importarExcel,
@@ -748,9 +768,33 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                             tooltip: 'Acciones',
                             onSelected: (action) {
                               if (action == 'estado') _cambiarEstado(row);
+                              if (action == 'recibir') {
+                                _registrarRecepcion(row);
+                              }
+                              if (action == 'ver_recepcion') {
+                                _abrirRecepcion(row);
+                              }
                               if (action == 'eliminar') _eliminar(row);
                             },
                             itemBuilder: (_) => [
+                              if (_canOperate && row.recepcionId.isEmpty)
+                                const PopupMenuItem(
+                                  value: 'recibir',
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: Icon(Icons.inventory_outlined),
+                                    title: Text('Registrar recepción'),
+                                  ),
+                                ),
+                              if (row.recepcionId.isNotEmpty)
+                                const PopupMenuItem(
+                                  value: 'ver_recepcion',
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: Icon(Icons.open_in_new_rounded),
+                                    title: Text('Ver recepción'),
+                                  ),
+                                ),
                               if (_canOperate)
                                 const PopupMenuItem(
                                   value: 'estado',
@@ -900,15 +944,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: FilledButton.icon(
-                          onPressed: () => _cambiarEstado(
-                            row,
-                            preset: AbastecimientoEstado.recibido,
-                          ),
+                          onPressed: () => _registrarRecepcion(row),
                           icon: const Icon(
                             Icons.check_circle_outline,
                             size: 17,
                           ),
-                          label: const Text('Recibido'),
+                          label: const Text('Recibir'),
                           style: FilledButton.styleFrom(
                             backgroundColor: _abGreen,
                           ),
@@ -980,6 +1021,20 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           _detail('Observaciones', row.observaciones),
           _detail('Última novedad', row.novedadEstado),
           if (_canOperate) ...[
+            const SizedBox(height: 8),
+            if (row.recepcionId.isEmpty)
+              FilledButton.icon(
+                onPressed: () => _registrarRecepcion(row),
+                icon: const Icon(Icons.inventory_outlined),
+                label: const Text('Registrar recepción'),
+                style: FilledButton.styleFrom(backgroundColor: _abGreen),
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: () => _abrirRecepcion(row),
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Ver recepción vinculada'),
+              ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
               onPressed: () => _editarObservaciones(row),
@@ -1578,6 +1633,11 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       reasonController.dispose();
       return;
     }
+    if (status == AbastecimientoEstado.recibido && row.recepcionId.isEmpty) {
+      reasonController.dispose();
+      await _registrarRecepcion(row);
+      return;
+    }
     try {
       await _service.actualizarEstado(
         id: row.id,
@@ -1598,6 +1658,58 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     } finally {
       reasonController.dispose();
     }
+  }
+
+  Future<void> _registrarRecepcion(AbastecimientoDoc row) async {
+    if (row.recepcionId.isNotEmpty) {
+      await _abrirRecepcion(row);
+      return;
+    }
+    final open = widget.onRegistrarRecepcion;
+    if (open == null) {
+      _message(
+        'Abre Abastecimiento desde Compras para registrar la recepción completa.',
+        error: true,
+      );
+      return;
+    }
+    final created = await open(row);
+    if (created == true && mounted) {
+      _message('Recepción creada y entrega marcada como recibida.');
+    }
+  }
+
+  Future<void> _sincronizarRecepciones() async {
+    setState(() => _sincronizando = true);
+    try {
+      final count = await _service.sincronizarConRecepciones(
+        empresaId: widget.empresaId,
+        usuarioId: widget.userId,
+      );
+      if (mounted) {
+        _message(
+          count == 0
+              ? 'Abastecimiento y Recepción ya están sincronizados.'
+              : '$count entrega${count == 1 ? '' : 's'} vinculada${count == 1 ? '' : 's'} con Recepción.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        _message('No se pudo sincronizar: $error', error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _sincronizando = false);
+    }
+  }
+
+  Future<void> _abrirRecepcion(AbastecimientoDoc row) async {
+    if (row.recepcionId.isEmpty) return;
+    final open = widget.onAbrirRecepcion;
+    if (open == null) {
+      _message('Recepción vinculada: ${row.recepcionId}');
+      return;
+    }
+    await open(row.recepcionId);
   }
 
   Future<void> _crearManual() async {

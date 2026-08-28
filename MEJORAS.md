@@ -58,6 +58,24 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 - La importación también enlaza `productoId` y `grupoId`. Productos o grupos no
   encontrados quedan fuera y se muestran como pendientes de catálogo.
 
+### Coordinación Abastecimiento ↔ Recepción
+- Desde una entrega programada se abre la **Recepción completa** con proveedor,
+  OC, grupo, producto y destino precargados; se mantienen las validaciones de
+  marca, ficha técnica, lotes y documentos.
+- Guardar una recepción enlaza ambos registros en una sola operación, marca la
+  programación como recibida y deja el cambio en el historial con origen
+  `recepcion`.
+- Las recepciones creadas directamente también buscan su programación por
+  empresa, OC, proveedor, grupo y producto, evitando cruces por una OC similar.
+- El botón **Sincronizar con Recepción** repara vínculos históricos y actualiza
+  ambos documentos. Las importaciones de Excel reconocen recepciones existentes
+  con los mismos criterios.
+- Si se elimina una recepción, la entrega vinculada se reabre en su estado
+  anterior y conserva la trazabilidad de la reversión.
+- Verificación funcional de Compras actualizada: **80/80 pruebas aprobadas**.
+- Compilación web de producción correcta y publicación verificada con HTTP 200
+  en `to-do-gestion.web.app` y `to-do-gestion.com`.
+
 ### Estado de artefactos móviles
 - Existe un AAB anterior de compilación 4 (`com.todogestion.app`), firmado con
   el certificado de carga de To-Do. No contiene esta sesión de Abastecimiento.

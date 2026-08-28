@@ -27,6 +27,7 @@ import 'compras_recepcion_logic.dart';
 import 'compras_service.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
+import 'abastecimiento_models.dart';
 import 'abastecimiento_screen.dart';
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
@@ -542,6 +543,25 @@ Future<void> abrirDetalleRecepcionCompras(
   );
 }
 
+/// Abre el flujo completo de Recepción precargado desde una entrega programada.
+/// La recepción conserva sus validaciones de marca, lotes y documentos.
+Future<bool?> abrirNuevaRecepcionDesdeAbastecimiento(
+  BuildContext context, {
+  required String empresaId,
+  required String userId,
+  required AbastecimientoDoc entrega,
+}) => Navigator.push<bool>(
+  context,
+  MaterialPageRoute(
+    builder: (_) => _NuevaRecepcionScreen(
+      empresaId: empresaId,
+      svc: ComprasService(),
+      userId: userId,
+      abastecimientoInicial: entrega,
+    ),
+  ),
+);
+
 /// Lleva una tarea de corrección al punto exacto de Compras donde se reemplaza
 /// su documento. La carga persiste el documento y deja la tarea en revisión de
 /// Calidad; por eso no se usa la pantalla genérica de evidencias.
@@ -983,6 +1003,18 @@ class ComprasDashboardScreen extends StatelessWidget {
               empresaId: empresaId,
               userId: userId,
               rolCompras: _rolNormalizado,
+              onRegistrarRecepcion: (entrega) =>
+                  abrirNuevaRecepcionDesdeAbastecimiento(
+                    context,
+                    empresaId: empresaId,
+                    userId: userId,
+                    entrega: entrega,
+                  ),
+              onAbrirRecepcion: (recepcionId) => abrirDetalleRecepcionCompras(
+                context,
+                userId: userId,
+                recepcionId: recepcionId,
+              ),
             ),
           ),
         ),
@@ -9354,7 +9386,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
     );
     if (ok == true && mounted) {
       try {
-        await widget.svc.eliminarRecepcion(r.id);
+        await widget.svc.eliminarRecepcion(r.id, usuarioId: widget.userId);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -9717,6 +9749,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
   final String? correccionTaskId;
   final String? correccionDocKey;
   final String? correccionProductoId;
+  final AbastecimientoDoc? abastecimientoInicial;
 
   const _NuevaRecepcionScreen({
     required this.empresaId,
@@ -9726,6 +9759,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
     this.correccionTaskId,
     this.correccionDocKey,
     this.correccionProductoId,
+    this.abastecimientoInicial,
   });
 
   @override
@@ -9908,6 +9942,16 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         return e;
       }).toList();
       _documentosCorregibles.addAll(documentosRechazadosRecepcion(r).keys);
+    } else if (widget.abastecimientoInicial != null) {
+      final entrega = widget.abastecimientoInicial!;
+      _ordenCtrl.text = entrega.ordenCompra;
+      _bodegaSeleccionada = entrega.destino.trim().isEmpty
+          ? null
+          : entrega.destino.trim();
+      _grupoSeleccionado = entrega.grupoId.trim().isEmpty
+          ? null
+          : entrega.grupoId.trim();
+      _entries = [_RecepcionEntry()..expandido = true];
     }
     _cargarDatos();
   }
@@ -9976,8 +10020,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                       gruposAsignados.contains(grupo.nombre),
                 )
                 .toList();
-      if (!isNew &&
-          _grupoSeleccionado != null &&
+      if (_grupoSeleccionado != null &&
           grupos.every((grupo) => grupo.id != _grupoSeleccionado)) {
         final existente = todosLosGrupos.where(
           (grupo) => grupo.id == _grupoSeleccionado,
@@ -9992,7 +10035,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         _fichasTecnicas = fichas;
         _bodegas = bodegas;
         _grupos = grupos;
-        if (isNew && _grupos.length == 1) {
+        if (isNew && _grupoSeleccionado == null && _grupos.length == 1) {
           _grupoSeleccionado = _grupos.first.id;
         }
         _loadingBodegas = false;
@@ -10022,6 +10065,22 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
               } catch (_) {}
             }
           }
+        } else if (widget.abastecimientoInicial != null) {
+          final entrega = widget.abastecimientoInicial!;
+          try {
+            _proveedor = _proveedores.firstWhere(
+              (provider) => provider.id == entrega.proveedorId,
+            );
+            _provCtrl.text = _proveedor!.razonSocial;
+          } catch (_) {
+            _provCtrl.text = entrega.proveedor;
+          }
+          if (_entries.isEmpty) _entries = [_RecepcionEntry()];
+          try {
+            _entries.first.producto = _productos.firstWhere(
+              (product) => product.id == entrega.productoId,
+            );
+          } catch (_) {}
         }
       });
     } catch (e) {
@@ -10257,6 +10316,12 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             : (widget.existing?.grupoNombre ?? ''),
         productos: productos,
         productoIds: productos.map((p) => p.productoId).toList(),
+        abastecimientoIds:
+            widget.existing?.abastecimientoIds ??
+            [
+              if (widget.abastecimientoInicial != null)
+                widget.abastecimientoInicial!.id,
+            ],
         creadoPor: widget.existing?.creadoPor ?? widget.userId,
         createdAt: widget.existing?.createdAt ?? Timestamp.now(),
       );
@@ -17295,6 +17360,7 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
         grupoNombre: _r.grupoNombre,
         productos: nuevosProductos,
         productoIds: _r.productoIds,
+        abastecimientoIds: _r.abastecimientoIds,
         creadoPor: _r.creadoPor,
         createdAt: _r.createdAt,
       );
@@ -17431,6 +17497,10 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                         '${r.productos.length} producto${r.productos.length == 1 ? '' : 's'}',
                         kComprasPrimary,
                       ),
+                      if (r.abastecimientoIds.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        _Chip('Abastecimiento', kComprasGreen),
+                      ],
                       const Spacer(),
                       // Indicador de docs del highlight
                       if (hl != null) ...[
@@ -17669,6 +17739,8 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                                           grupoNombre: _r.grupoNombre,
                                           productos: nuevosProductos,
                                           productoIds: _r.productoIds,
+                                          abastecimientoIds:
+                                              _r.abastecimientoIds,
                                           creadoPor: _r.creadoPor,
                                           createdAt: _r.createdAt,
                                         );
@@ -17718,6 +17790,8 @@ class _RecepcionResumenCardState extends State<_RecepcionResumenCard> {
                                                     grupoNombre: _r.grupoNombre,
                                                     productos: nuevosProductos,
                                                     productoIds: _r.productoIds,
+                                                    abastecimientoIds:
+                                                        _r.abastecimientoIds,
                                                     creadoPor: _r.creadoPor,
                                                     createdAt: _r.createdAt,
                                                   );

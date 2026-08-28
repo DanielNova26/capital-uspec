@@ -72,6 +72,7 @@ class AbastecimientoImportRow {
     String? grupoId,
     String? grupo,
     String? recepcionId,
+    DateTime? fechaRecibido,
   }) => AbastecimientoImportRow(
     hoja: hoja,
     fila: fila,
@@ -91,7 +92,7 @@ class AbastecimientoImportRow {
     fechaSegundaEntrega: fechaSegundaEntrega,
     ordenCompra: ordenCompra,
     recepcionId: recepcionId ?? this.recepcionId,
-    fechaRecibido: fechaRecibido,
+    fechaRecibido: fechaRecibido ?? this.fechaRecibido,
     estadoExplicito: estadoExplicito,
     observaciones: observaciones,
   );

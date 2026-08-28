@@ -1899,6 +1899,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     userId: cedula,
                     rolCompras: _abastecimientoRol,
                     initialDate: _selectedDay,
+                    onRegistrarRecepcion: (entrega) =>
+                        abrirNuevaRecepcionDesdeAbastecimiento(
+                          context,
+                          empresaId: scopeEmpresa,
+                          userId: cedula,
+                          entrega: entrega,
+                        ),
+                    onAbrirRecepcion: (recepcionId) =>
+                        abrirDetalleRecepcionCompras(
+                          context,
+                          userId: cedula,
+                          recepcionId: recepcionId,
+                        ),
                   ),
                 ),
               ),

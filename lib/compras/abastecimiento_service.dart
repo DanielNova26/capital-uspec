@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 
 import '../services/compras_abastecimiento_excel_parser.dart';
 import 'abastecimiento_models.dart';
+import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
 
 class AbastecimientoImportResult {
@@ -66,6 +67,112 @@ class AbastecimientoService {
         });
         return rows;
       });
+
+  /// Repara vínculos históricos y deja ambos documentos enlazados. Las nuevas
+  /// recepciones se sincronizan en tiempo real desde [ComprasService].
+  Future<int> sincronizarConRecepciones({
+    required String empresaId,
+    required String usuarioId,
+  }) async {
+    final empresa = empresaId.trim();
+    final snapshots = await Future.wait([
+      _db
+          .collection(kAbastecimientoCollection)
+          .where('empresaId', isEqualTo: empresa)
+          .get(),
+      _db
+          .collection('TBL_COMPRAS_RECEPCIONES')
+          .where('empresaId', isEqualTo: empresa)
+          .get(),
+    ]);
+    final entregas = snapshots[0].docs;
+    final recepciones =
+        snapshots[1].docs
+            .map(
+              (doc) => (
+                snapshot: doc,
+                recepcion: RecepcionDoc.fromMap(doc.id, doc.data()),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.recepcion.fecha.compareTo(a.recepcion.fecha));
+
+    var actualizados = 0;
+    var operations = 0;
+    var batch = _db.batch();
+    Future<void> flush() async {
+      if (operations == 0) return;
+      await batch.commit();
+      batch = _db.batch();
+      operations = 0;
+    }
+
+    for (final snapshot in entregas) {
+      final entrega = AbastecimientoDoc.fromMap(snapshot.id, snapshot.data());
+      if (entrega.eliminado ||
+          (entrega.recepcionId.isNotEmpty &&
+              entrega.estado == AbastecimientoEstado.recibido)) {
+        continue;
+      }
+      ({
+        QueryDocumentSnapshot<Map<String, dynamic>> snapshot,
+        RecepcionDoc recepcion,
+      })?
+      match;
+      for (final candidate in recepciones) {
+        if (abastecimientoCoincideConRecepcion(entrega, candidate.recepcion)) {
+          match = candidate;
+          break;
+        }
+      }
+      if (match == null) continue;
+
+      final now = Timestamp.now();
+      final history = [
+        ...entrega.historial,
+        if (entrega.estado != AbastecimientoEstado.recibido)
+          AbastecimientoCambio(
+            campo: 'estado',
+            anterior: entrega.estado.value,
+            nuevo: AbastecimientoEstado.recibido.value,
+            origen: 'recepcion',
+            usuarioId: usuarioId,
+            fecha: now,
+          ),
+        AbastecimientoCambio(
+          campo: 'recepcionId',
+          anterior: entrega.recepcionId,
+          nuevo: match.recepcion.id,
+          origen: 'recepcion',
+          usuarioId: usuarioId,
+          fecha: now,
+        ),
+      ];
+      batch.update(snapshot.reference, {
+        'estado': AbastecimientoEstado.recibido.value,
+        if (entrega.estado != AbastecimientoEstado.recibido)
+          'estadoAntesRecepcion': entrega.estado.value,
+        'recepcionId': match.recepcion.id,
+        'fechaRecibido': match.recepcion.fecha,
+        'novedadEstado':
+            'Vinculada con recepción ${match.recepcion.id} durante sincronización.',
+        'actualizadoPor': usuarioId,
+        'updatedAt': now,
+        'historial': history
+            .skip(history.length > 100 ? history.length - 100 : 0)
+            .map((item) => item.toMap())
+            .toList(),
+      });
+      batch.update(match.snapshot.reference, {
+        'abastecimientoIds': FieldValue.arrayUnion([entrega.id]),
+      });
+      actualizados++;
+      operations += 2;
+      if (operations >= 400) await flush();
+    }
+    await flush();
+    return actualizados;
+  }
 
   Future<List<ProveedorDoc>> getProveedoresActivos(String empresaId) async {
     final snapshot = await _db
@@ -145,10 +252,13 @@ class AbastecimientoService {
         products[_catalogKey(product.nombre)] = product;
       }
     }
-    final receptions = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    final receptions = <String, List<RecepcionDoc>>{};
     for (final doc in receptionSnapshot.docs) {
-      final order = (doc.data()['ordenCompra'] ?? '').toString();
-      if (order.trim().isNotEmpty) receptions[_catalogKey(order)] = doc;
+      final reception = RecepcionDoc.fromMap(doc.id, doc.data());
+      final order = reception.ordenCompra;
+      if (order.trim().isNotEmpty) {
+        receptions.putIfAbsent(_catalogKey(order), () => []).add(reception);
+      }
     }
     final groups = <String, ComprasGrupoDoc>{};
     for (final doc in groupSnapshot.docs) {
@@ -267,7 +377,26 @@ class AbastecimientoService {
         );
         continue;
       }
-      final reception = receptions[_catalogKey(row.ordenCompra)];
+      RecepcionDoc? reception;
+      for (final candidate
+          in receptions[_catalogKey(row.ordenCompra)] ??
+              const <RecepcionDoc>[]) {
+        final sameProvider = candidate.proveedorId.isNotEmpty
+            ? candidate.proveedorId == provider.id
+            : _catalogKey(candidate.razonSocial) ==
+                  _catalogKey(provider.razonSocial);
+        final sameGroup =
+            candidate.grupoId.isEmpty || candidate.grupoId == group.id;
+        final sameProduct =
+            candidate.productoIds.contains(product.id) ||
+            candidate.productos.any(
+              (item) => _catalogKey(item.nombre) == _catalogKey(product.nombre),
+            );
+        if (sameProvider && sameGroup && sameProduct) {
+          reception = candidate;
+          break;
+        }
+      }
       valid.add(
         row.copyWith(
           proveedorId: provider.id,
@@ -278,6 +407,7 @@ class AbastecimientoService {
           grupoId: group.id,
           grupo: group.nombre,
           recepcionId: reception?.id ?? '',
+          fechaRecibido: reception?.fecha.toDate() ?? row.fechaRecibido,
         ),
       );
     }
@@ -365,7 +495,7 @@ class AbastecimientoService {
       if (existing == null) {
         final estado =
             row.estadoExplicito ??
-            (row.fechaRecibido != null
+            (row.fechaRecibido != null || row.recepcionId.isNotEmpty
                 ? AbastecimientoEstado.recibido
                 : AbastecimientoEstado.programado);
         final initial = AbastecimientoCambio(
@@ -501,6 +631,21 @@ class AbastecimientoService {
               usuarioId,
               now,
               'excel',
+            ),
+          );
+        }
+        if (row.estadoExplicito == null &&
+            row.recepcionId.isNotEmpty &&
+            current.estado != AbastecimientoEstado.recibido) {
+          data['estado'] = AbastecimientoEstado.recibido.value;
+          changes.add(
+            _change(
+              'estado',
+              current.estado.value,
+              AbastecimientoEstado.recibido.value,
+              usuarioId,
+              now,
+              'recepcion',
             ),
           );
         }

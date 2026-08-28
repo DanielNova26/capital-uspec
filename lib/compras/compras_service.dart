@@ -8,6 +8,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'compras_catalog_logic.dart';
+import 'abastecimiento_models.dart';
+import 'abastecimiento_recepcion_sync.dart';
 import 'compras_models.dart';
 import 'compras_recepcion_logic.dart';
 import 'compras_req_engine.dart';
@@ -440,8 +442,56 @@ class ComprasService {
         return list;
       });
 
-  Future<void> eliminarRecepcion(String id) =>
-      _db.collection('TBL_COMPRAS_RECEPCIONES').doc(id).delete();
+  Future<void> eliminarRecepcion(String id, {String usuarioId = ''}) async {
+    final recepcionRef = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(id);
+    final vinculadas = await _db
+        .collection(kAbastecimientoCollection)
+        .where('recepcionId', isEqualTo: id)
+        .get();
+    final now = Timestamp.now();
+    final batch = _db.batch()..delete(recepcionRef);
+    for (final snapshot in vinculadas.docs) {
+      final actual = AbastecimientoDoc.fromMap(snapshot.id, snapshot.data());
+      final rawAnterior = (snapshot.data()['estadoAntesRecepcion'] ?? '')
+          .toString();
+      final restaurado = rawAnterior.isEmpty
+          ? AbastecimientoEstado.programado
+          : parseAbastecimientoEstado(rawAnterior);
+      final history = [
+        ...actual.historial,
+        AbastecimientoCambio(
+          campo: 'recepcionId',
+          anterior: id,
+          nuevo: 'Recepción eliminada; entrega reabierta',
+          origen: 'recepcion',
+          usuarioId: usuarioId,
+          fecha: now,
+        ),
+        AbastecimientoCambio(
+          campo: 'estado',
+          anterior: actual.estado.value,
+          nuevo: restaurado.value,
+          origen: 'recepcion',
+          usuarioId: usuarioId,
+          fecha: now,
+        ),
+      ];
+      batch.update(snapshot.reference, {
+        'estado': restaurado.value,
+        'recepcionId': FieldValue.delete(),
+        'fechaRecibido': FieldValue.delete(),
+        'estadoAntesRecepcion': FieldValue.delete(),
+        'novedadEstado': 'La recepción $id fue eliminada; entrega reabierta.',
+        'actualizadoPor': usuarioId,
+        'updatedAt': now,
+        'historial': history
+            .skip(history.length > 100 ? history.length - 100 : 0)
+            .map((item) => item.toMap())
+            .toList(),
+      });
+    }
+    await batch.commit();
+  }
 
   /// Stream de recepciones con al menos un documento por revisar en calidad.
   /// Incluye documentos con estado 'pendiente' y documentos históricos con
@@ -475,7 +525,73 @@ class ComprasService {
     final ref = r.id.isEmpty
         ? _db.collection('TBL_COMPRAS_RECEPCIONES').doc()
         : _db.collection('TBL_COMPRAS_RECEPCIONES').doc(r.id);
-    await ref.set(r.toMap(), SetOptions(merge: true));
+    if (r.id.isNotEmpty) {
+      await ref.set(r.toMap(), SetOptions(merge: true));
+      return ref.id;
+    }
+
+    final abastecimientoSnapshot = await _db
+        .collection(kAbastecimientoCollection)
+        .where('empresaId', isEqualTo: r.empresaId.trim())
+        .get();
+    final matches = abastecimientoSnapshot.docs
+        .map(
+          (snapshot) => (
+            snapshot: snapshot,
+            entrega: AbastecimientoDoc.fromMap(snapshot.id, snapshot.data()),
+          ),
+        )
+        .where((item) => abastecimientoCoincideConRecepcion(item.entrega, r))
+        .take(400)
+        .toList();
+    final ids = <String>{...r.abastecimientoIds};
+    ids.addAll(matches.map((item) => item.entrega.id));
+
+    final now = Timestamp.now();
+    final batch = _db.batch();
+    batch.set(ref, {
+      ...r.toMap(),
+      'abastecimientoIds': ids.toList(),
+    }, SetOptions(merge: true));
+    for (final item in matches) {
+      final actual = item.entrega;
+      final history = [
+        ...actual.historial,
+        if (actual.estado != AbastecimientoEstado.recibido)
+          AbastecimientoCambio(
+            campo: 'estado',
+            anterior: actual.estado.value,
+            nuevo: AbastecimientoEstado.recibido.value,
+            origen: 'recepcion',
+            usuarioId: r.creadoPor,
+            fecha: now,
+          ),
+        if (actual.recepcionId != ref.id)
+          AbastecimientoCambio(
+            campo: 'recepcionId',
+            anterior: actual.recepcionId,
+            nuevo: ref.id,
+            origen: 'recepcion',
+            usuarioId: r.creadoPor,
+            fecha: now,
+          ),
+      ];
+      batch.update(item.snapshot.reference, {
+        'estado': AbastecimientoEstado.recibido.value,
+        if (actual.estado != AbastecimientoEstado.recibido)
+          'estadoAntesRecepcion': actual.estado.value,
+        'recepcionId': ref.id,
+        'fechaRecibido': r.fecha,
+        'novedadEstado': 'Recepción ${ref.id} registrada desde Compras.',
+        'actualizadoPor': r.creadoPor,
+        'updatedAt': now,
+        'historial': history
+            .skip(history.length > 100 ? history.length - 100 : 0)
+            .map((item) => item.toMap())
+            .toList(),
+      });
+    }
+    await batch.commit();
     return ref.id;
   }
 
@@ -524,6 +640,7 @@ class ComprasService {
         grupoNombre: actual.grupoNombre,
         productos: productos,
         productoIds: actual.productoIds,
+        abastecimientoIds: actual.abastecimientoIds,
         creadoPor: actual.creadoPor,
         createdAt: actual.createdAt,
       );
