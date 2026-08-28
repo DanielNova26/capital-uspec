@@ -543,6 +543,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final events = <String, List<Map<String, dynamic>>>{};
           for (final doc in snapshot.docs) {
             final delivery = AbastecimientoDoc.fromMap(doc.id, doc.data());
+            if (delivery.eliminado) continue;
             if (!delivery.estado.visibleEnCalendario) continue;
             final date = delivery.fechaProgramada;
             if (date == null) continue;

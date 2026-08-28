@@ -161,4 +161,26 @@ void main() {
     ]);
     expect(detectarPendenciasAbastecimiento('ENTREGA COMPLETA'), isEmpty);
   });
+
+  test('un abastecimiento eliminado conserva su auditoría al leerse', () {
+    final doc = AbastecimientoDoc.fromMap('entrega-1', {
+      'empresaId': 'empresa-1',
+      'importKey': 'oc-1',
+      'proveedorId': 'proveedor-1',
+      'proveedor': 'Proveedor Uno',
+      'categoria': 'Proteína',
+      'productoId': 'producto-1',
+      'producto': 'Cerdo',
+      'grupoId': 'grupo-1',
+      'grupo': 'Grupo 1',
+      'eliminado': true,
+      'eliminadoPor': 'usuario-1',
+      'motivoEliminacion': 'OC anulada',
+    });
+
+    expect(doc.eliminado, isTrue);
+    expect(doc.grupoId, 'grupo-1');
+    expect(doc.eliminadoPor, 'usuario-1');
+    expect(doc.motivoEliminacion, 'OC anulada');
+  });
 }

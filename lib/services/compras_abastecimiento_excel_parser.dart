@@ -14,6 +14,7 @@ class AbastecimientoImportRow {
   final String categoria;
   final String productoId;
   final String producto;
+  final String grupoId;
   final String grupo;
   final String destino;
   final String condicion;
@@ -36,6 +37,7 @@ class AbastecimientoImportRow {
     required this.categoria,
     this.productoId = '',
     required this.producto,
+    this.grupoId = '',
     required this.grupo,
     required this.destino,
     required this.condicion,
@@ -67,6 +69,8 @@ class AbastecimientoImportRow {
     String? categoria,
     String? productoId,
     String? producto,
+    String? grupoId,
+    String? grupo,
     String? recepcionId,
   }) => AbastecimientoImportRow(
     hoja: hoja,
@@ -76,7 +80,8 @@ class AbastecimientoImportRow {
     categoria: categoria ?? this.categoria,
     productoId: productoId ?? this.productoId,
     producto: producto ?? this.producto,
-    grupo: grupo,
+    grupoId: grupoId ?? this.grupoId,
+    grupo: grupo ?? this.grupo,
     destino: destino,
     condicion: condicion,
     cantidad: cantidad,

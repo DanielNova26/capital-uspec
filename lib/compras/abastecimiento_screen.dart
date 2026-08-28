@@ -37,6 +37,11 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   final _searchController = TextEditingController();
   AbastecimientoEstado? _estado;
   DateTime? _fecha;
+  String? _proveedor;
+  String? _producto;
+  String? _grupo;
+  bool _soloPendientes = false;
+  bool _soloAtrasadas = false;
   String? _selectedId;
   bool _importando = false;
 
@@ -44,6 +49,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   bool get _canImport =>
       _rol == null || _rol == kRolAdmin || _rol == kRolCompras;
   bool get _canOperate => _canImport || _rol == kRolBodega;
+  bool get _canDelete => _canImport;
 
   @override
   void initState() {
@@ -121,7 +127,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
             child: Column(
               children: [
                 _buildSummary(all, desktop),
-                _buildToolbar(visible.length, desktop),
+                _buildToolbar(all, visible.length, desktop),
                 Expanded(
                   child: visible.isEmpty
                       ? _EmptyAbastecimiento(canImport: _canImport)
@@ -150,6 +156,20 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final query = _searchController.text.trim().toLowerCase();
     final filtered = rows.where((row) {
       if (_estado != null && row.estado != _estado) return false;
+      if (_proveedor != null && row.proveedor != _proveedor) return false;
+      if (_producto != null && row.producto != _producto) return false;
+      if (_grupo != null && row.grupo != _grupo) return false;
+      if (_soloPendientes && row.pendencias.isEmpty) return false;
+      if (_soloAtrasadas) {
+        final date = row.fechaProgramada;
+        final today = DateUtils.dateOnly(DateTime.now());
+        if (date == null ||
+            !DateUtils.dateOnly(date).isBefore(today) ||
+            row.estado.finalizado ||
+            row.estado == AbastecimientoEstado.noEntrega) {
+          return false;
+        }
+      }
       if (_fecha != null) {
         final date = row.fechaProgramada;
         if (date == null || !DateUtils.isSameDay(date, _fecha)) return false;
@@ -223,7 +243,12 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           ? Row(
               children: [
                 for (var i = 0; i < metrics.length; i++) ...[
-                  Expanded(child: _MetricCard(data: metrics[i])),
+                  Expanded(
+                    child: _MetricCard(
+                      data: metrics[i],
+                      onTap: () => _applyMetricFilter(metrics[i].$1),
+                    ),
+                  ),
                   if (i < metrics.length - 1) const SizedBox(width: 12),
                 ],
               ],
@@ -236,60 +261,327 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 separatorBuilder: (_, _) => const SizedBox(width: 8),
                 itemBuilder: (_, index) => SizedBox(
                   width: 138,
-                  child: _MetricCard(data: metrics[index]),
+                  child: _MetricCard(
+                    data: metrics[index],
+                    onTap: () => _applyMetricFilter(metrics[index].$1),
+                  ),
                 ),
               ),
             ),
     );
   }
 
-  Widget _buildToolbar(int count, bool desktop) {
+  void _applyMetricFilter(String label) => setState(() {
+    _fecha = null;
+    _soloPendientes = false;
+    _soloAtrasadas = false;
+    switch (label) {
+      case 'Hoy':
+        _estado = null;
+        _fecha = DateUtils.dateOnly(DateTime.now());
+        break;
+      case 'No entregan':
+        _estado = AbastecimientoEstado.noEntrega;
+        break;
+      case 'Pendientes':
+        _estado = null;
+        _soloPendientes = true;
+        break;
+      case 'Recibidas':
+        _estado = AbastecimientoEstado.recibido;
+        break;
+      case 'Atrasadas':
+        _estado = null;
+        _soloAtrasadas = true;
+        break;
+    }
+  });
+
+  Widget _buildToolbar(List<AbastecimientoDoc> rows, int count, bool desktop) {
+    final providers = _options(rows.map((row) => row.proveedor));
+    final products = _options(rows.map((row) => row.producto));
+    final groups = _options(rows.map((row) => row.grupo));
     return Container(
       color: Colors.white,
       padding: EdgeInsets.fromLTRB(desktop ? 24 : 12, 4, desktop ? 24 : 12, 14),
-      child: desktop
-          ? Row(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(child: _searchField()),
+              const SizedBox(width: 12),
+              Text(
+                '$count registros',
+                style: const TextStyle(
+                  fontFamily: _abFont,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (_canImport && desktop) ...[
+                const SizedBox(width: 14),
+                FilledButton.icon(
+                  onPressed: _importando ? null : _importarExcel,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text('Cargar Excel'),
+                  style: FilledButton.styleFrom(backgroundColor: _abBlue),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (desktop)
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Expanded(child: _searchField()),
-                const SizedBox(width: 10),
-                _statusFilter(),
-                const SizedBox(width: 10),
-                _dateFilter(),
-                const SizedBox(width: 12),
-                Text(
-                  '$count registros',
-                  style: const TextStyle(
-                    fontFamily: _abFont,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w700,
+                SizedBox(width: 170, child: _statusFilter()),
+                SizedBox(
+                  width: 220,
+                  child: _textFilter(
+                    label: 'Proveedor',
+                    value: _proveedor,
+                    options: providers,
+                    onChanged: (value) => setState(() => _proveedor = value),
                   ),
                 ),
-                if (_canImport) ...[
-                  const SizedBox(width: 14),
-                  FilledButton.icon(
-                    onPressed: _importando ? null : _importarExcel,
-                    icon: const Icon(Icons.upload_file_outlined),
-                    label: const Text('Cargar Excel'),
-                    style: FilledButton.styleFrom(backgroundColor: _abBlue),
+                SizedBox(
+                  width: 190,
+                  child: _textFilter(
+                    label: 'Producto',
+                    value: _producto,
+                    options: products,
+                    onChanged: (value) => setState(() => _producto = value),
                   ),
-                ],
+                ),
+                SizedBox(
+                  width: 160,
+                  child: _textFilter(
+                    label: 'Grupo',
+                    value: _grupo,
+                    options: groups,
+                    onChanged: (value) => setState(() => _grupo = value),
+                  ),
+                ),
+                _dateFilter(),
+                FilterChip(
+                  selected: _soloPendientes,
+                  onSelected: (selected) =>
+                      setState(() => _soloPendientes = selected),
+                  avatar: const Icon(Icons.pending_actions_outlined, size: 18),
+                  label: const Text('Con pendientes'),
+                ),
+                if (_filtersActive)
+                  TextButton.icon(
+                    onPressed: _clearFilters,
+                    icon: const Icon(Icons.filter_alt_off_outlined),
+                    label: const Text('Limpiar filtros'),
+                  ),
               ],
             )
-          : Column(
+          else ...[
+            Row(
               children: [
-                _searchField(),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(child: _statusFilter()),
-                    const SizedBox(width: 8),
-                    Expanded(child: _dateFilter()),
-                  ],
-                ),
+                Expanded(child: _statusFilter()),
+                const SizedBox(width: 8),
+                Expanded(child: _dateFilter()),
               ],
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 42,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  FilterChip(
+                    selected: _estado == AbastecimientoEstado.noEntrega,
+                    onSelected: (selected) => setState(
+                      () => _estado = selected
+                          ? AbastecimientoEstado.noEntrega
+                          : null,
+                    ),
+                    label: const Text('No entregan'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    selected: _soloPendientes,
+                    onSelected: (selected) =>
+                        setState(() => _soloPendientes = selected),
+                    label: const Text('Con pendientes'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    onPressed: () =>
+                        _showMobileFilters(providers, products, groups),
+                    avatar: const Icon(Icons.tune, size: 17),
+                    label: const Text('Proveedor, producto y grupo'),
+                  ),
+                  if (_filtersActive) ...[
+                    const SizedBox(width: 8),
+                    ActionChip(
+                      onPressed: _clearFilters,
+                      avatar: const Icon(Icons.filter_alt_off, size: 17),
+                      label: const Text('Limpiar'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
+
+  Future<void> _showMobileFilters(
+    List<String> providers,
+    List<String> products,
+    List<String> groups,
+  ) async {
+    var provider = _proveedor;
+    var product = _producto;
+    var group = _grupo;
+    final accepted = await showModalBottomSheet<bool>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setLocal) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            18,
+            18,
+            18 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Más filtros',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 16),
+              _mobileTextFilter(
+                label: 'Proveedor',
+                value: provider,
+                options: providers,
+                onChanged: (value) => setLocal(() => provider = value),
+              ),
+              const SizedBox(height: 10),
+              _mobileTextFilter(
+                label: 'Producto',
+                value: product,
+                options: products,
+                onChanged: (value) => setLocal(() => product = value),
+              ),
+              const SizedBox(height: 10),
+              _mobileTextFilter(
+                label: 'Grupo',
+                value: group,
+                options: groups,
+                onChanged: (value) => setLocal(() => group = value),
+              ),
+              const SizedBox(height: 18),
+              FilledButton(
+                onPressed: () => Navigator.pop(sheetContext, true),
+                style: FilledButton.styleFrom(backgroundColor: _abBlue),
+                child: const Text('Aplicar filtros'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (accepted == true && mounted) {
+      setState(() {
+        _proveedor = provider;
+        _producto = product;
+        _grupo = group;
+      });
+    }
+  }
+
+  Widget _mobileTextFilter({
+    required String label,
+    required String? value,
+    required List<String> options,
+    required ValueChanged<String?> onChanged,
+  }) => DropdownButtonFormField<String?>(
+    initialValue: value,
+    isExpanded: true,
+    decoration: InputDecoration(
+      labelText: label,
+      border: const OutlineInputBorder(),
+    ),
+    items: [
+      const DropdownMenuItem(value: null, child: Text('Todos')),
+      ...options.map(
+        (option) => DropdownMenuItem(
+          value: option,
+          child: Text(option, overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    ],
+    onChanged: onChanged,
+  );
+
+  List<String> _options(Iterable<String> values) {
+    final unique = <String, String>{};
+    for (final value in values) {
+      final text = value.trim();
+      if (text.isNotEmpty) unique.putIfAbsent(text.toLowerCase(), () => text);
+    }
+    return unique.values.toList()..sort((a, b) => a.compareTo(b));
+  }
+
+  Widget _textFilter({
+    required String label,
+    required String? value,
+    required List<String> options,
+    required ValueChanged<String?> onChanged,
+  }) => DropdownButtonFormField<String?>(
+    key: ValueKey('$label|$value|${options.length}'),
+    initialValue: value,
+    isExpanded: true,
+    decoration: InputDecoration(
+      labelText: label,
+      isDense: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    items: [
+      const DropdownMenuItem(value: null, child: Text('Todos')),
+      ...options.map(
+        (option) => DropdownMenuItem(
+          value: option,
+          child: Text(option, overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    ],
+    onChanged: onChanged,
+  );
+
+  bool get _filtersActive =>
+      _estado != null ||
+      _fecha != null ||
+      _proveedor != null ||
+      _producto != null ||
+      _grupo != null ||
+      _soloPendientes ||
+      _soloAtrasadas ||
+      _searchController.text.trim().isNotEmpty;
+
+  void _clearFilters() => setState(() {
+    _estado = null;
+    _fecha = null;
+    _proveedor = null;
+    _producto = null;
+    _grupo = null;
+    _soloPendientes = false;
+    _soloAtrasadas = false;
+    _searchController.clear();
+  });
 
   Widget _searchField() => TextField(
     controller: _searchController,
@@ -318,6 +610,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   );
 
   Widget _statusFilter() => DropdownButtonFormField<AbastecimientoEstado?>(
+    key: ValueKey('estado|${_estado?.value}'),
     initialValue: _estado,
     isExpanded: true,
     decoration: InputDecoration(
@@ -334,7 +627,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         ),
       ),
     ],
-    onChanged: (value) => setState(() => _estado = value),
+    onChanged: (value) => setState(() {
+      _estado = value;
+      _soloAtrasadas = false;
+    }),
   );
 
   Widget _dateFilter() => OutlinedButton.icon(
@@ -447,14 +743,39 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                         ),
                         DataCell(_StatusBadge(status: row.estado)),
                         DataCell(
-                          IconButton(
-                            onPressed: _canOperate
-                                ? () => _cambiarEstado(row)
-                                : null,
-                            tooltip: _canOperate
-                                ? 'Cambiar estado'
-                                : 'Solo lectura',
-                            icon: const Icon(Icons.sync_alt_rounded, size: 19),
+                          PopupMenuButton<String>(
+                            enabled: _canOperate || _canDelete,
+                            tooltip: 'Acciones',
+                            onSelected: (action) {
+                              if (action == 'estado') _cambiarEstado(row);
+                              if (action == 'eliminar') _eliminar(row);
+                            },
+                            itemBuilder: (_) => [
+                              if (_canOperate)
+                                const PopupMenuItem(
+                                  value: 'estado',
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: Icon(Icons.sync_alt_rounded),
+                                    title: Text('Cambiar estado'),
+                                  ),
+                                ),
+                              if (_canDelete)
+                                const PopupMenuItem(
+                                  value: 'eliminar',
+                                  child: ListTile(
+                                    dense: true,
+                                    leading: Icon(
+                                      Icons.delete_outline,
+                                      color: _abRed,
+                                    ),
+                                    title: Text(
+                                      'Eliminar',
+                                      style: TextStyle(color: _abRed),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ],
@@ -672,6 +993,15 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               label: const Text('Cambiar estado'),
               style: FilledButton.styleFrom(backgroundColor: _abBlue),
             ),
+            if (_canDelete) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () => _eliminar(row),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Eliminar entrega'),
+                style: TextButton.styleFrom(foregroundColor: _abRed),
+              ),
+            ],
           ],
           const Divider(height: 30),
           const Text(
@@ -794,6 +1124,75 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         .toList(),
   );
 
+  Future<void> _eliminar(AbastecimientoDoc row) async {
+    final reasonController = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar entrega'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${row.producto} · ${row.proveedor}\nOC ${row.ordenCompra}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'La entrega desaparecerá del tablero y del calendario. Se conservará internamente para auditoría.',
+                style: TextStyle(color: Colors.black54),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Motivo de eliminación *',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) return;
+              Navigator.pop(dialogContext, true);
+            },
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Eliminar'),
+            style: FilledButton.styleFrom(backgroundColor: _abRed),
+          ),
+        ],
+      ),
+    );
+    if (accepted == true && mounted) {
+      try {
+        await _service.eliminar(
+          id: row.id,
+          usuarioId: widget.userId,
+          motivo: reasonController.text,
+        );
+        if (mounted) {
+          setState(() => _selectedId = null);
+          _message('Entrega eliminada del tablero.');
+        }
+      } catch (error) {
+        if (mounted) _message('No se pudo eliminar: $error', error: true);
+      }
+    }
+    reasonController.dispose();
+  }
+
   Future<void> _editarObservaciones(AbastecimientoDoc row) async {
     final controller = TextEditingController(text: row.observaciones);
     final accepted = await showDialog<bool>(
@@ -898,6 +1297,16 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               icon: const Icon(Icons.edit_note_outlined),
               label: const Text('Editar observaciones'),
             ),
+          if (_canDelete)
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _eliminar(row);
+              },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Eliminar entrega'),
+              style: TextButton.styleFrom(foregroundColor: _abRed),
+            ),
           const Divider(height: 28),
           const Text('Cambios', style: TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 10),
@@ -1000,6 +1409,28 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   'Estas filas quedan por fuera hasta crear el proveedor y asociarle sus categorías.',
                   style: TextStyle(color: _abOrange),
                 ),
+              ],
+              if (catalog.productosPendientes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Productos pendientes de creación:',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                ...catalog.productosPendientes
+                    .take(10)
+                    .map((product) => Text('• $product')),
+              ],
+              if (catalog.gruposPendientes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Grupos pendientes de catálogo:',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                ...catalog.gruposPendientes
+                    .take(10)
+                    .map((group) => Text('• $group')),
               ],
               if (result.incidencias.isNotEmpty ||
                   catalog.incidencias.isNotEmpty) ...[
@@ -1170,19 +1601,24 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   }
 
   Future<void> _crearManual() async {
-    final providers = await _service.getProveedoresActivos(widget.empresaId);
+    final providersFuture = _service.getProveedoresActivos(widget.empresaId);
+    final productsFuture = _service.getProductos(widget.empresaId);
+    final groupsFuture = _service.getGrupos(widget.empresaId);
+    final providers = await providersFuture;
+    final products = await productsFuture;
+    final groups = await groupsFuture;
     if (!mounted) return;
-    if (providers.isEmpty) {
+    if (providers.isEmpty || products.isEmpty || groups.isEmpty) {
       _message(
-        'Primero debes crear al menos un proveedor activo en Compras.',
+        'Primero debes tener proveedores, productos y grupos activos en los catálogos de Compras.',
         error: true,
       );
       return;
     }
     ProveedorDoc? selectedProvider;
     String? selectedCategory;
-    final product = TextEditingController();
-    final group = TextEditingController();
+    ProductoDoc? selectedProduct;
+    ComprasGrupoDoc? selectedGroup;
     final destination = TextEditingController();
     final condition = TextEditingController();
     final oc = TextEditingController();
@@ -1221,10 +1657,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                       selectedCategory = provider?.categorias.length == 1
                           ? provider!.categorias.first
                           : null;
+                      selectedProduct = null;
                     }),
                   ),
                   const SizedBox(height: 10),
-                  _input(product, 'Producto *'),
                   Row(
                     children: [
                       Expanded(
@@ -1251,14 +1687,74 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                               .toList(),
                           onChanged: selectedProvider == null
                               ? null
-                              : (category) =>
-                                    setLocal(() => selectedCategory = category),
+                              : (category) => setLocal(() {
+                                  selectedCategory = category;
+                                  selectedProduct = null;
+                                }),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Expanded(child: _input(group, 'Grupo')),
+                      Expanded(
+                        child: DropdownButtonFormField<ComprasGrupoDoc>(
+                          initialValue: selectedGroup,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Grupo de Compras *',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: groups
+                              .map(
+                                (group) => DropdownMenuItem(
+                                  value: group,
+                                  child: Text(
+                                    group.nombre,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (group) =>
+                              setLocal(() => selectedGroup = group),
+                        ),
+                      ),
                     ],
                   ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<ProductoDoc>(
+                    key: ValueKey(
+                      '${selectedCategory ?? ''}|${selectedProduct?.id ?? ''}',
+                    ),
+                    initialValue: selectedProduct,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Producto del catálogo *',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: products
+                        .where(
+                          (product) =>
+                              selectedCategory != null &&
+                              _sameCatalogText(
+                                product.categoria,
+                                selectedCategory!,
+                              ),
+                        )
+                        .map(
+                          (product) => DropdownMenuItem(
+                            value: product,
+                            child: Text(
+                              product.nombre,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: selectedCategory == null
+                        ? null
+                        : (product) =>
+                              setLocal(() => selectedProduct = product),
+                  ),
+                  const SizedBox(height: 10),
                   _input(destination, 'Ciudad / bodega / establecimiento'),
                   Row(
                     children: [
@@ -1296,7 +1792,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               onPressed: () {
                 if (selectedProvider == null ||
                     selectedCategory == null ||
-                    product.text.trim().isEmpty ||
+                    selectedProduct == null ||
+                    selectedGroup == null ||
                     oc.text.trim().isEmpty) {
                   return;
                 }
@@ -1317,8 +1814,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           proveedorId: selectedProvider!.id,
           proveedor: selectedProvider!.razonSocial,
           categoria: selectedCategory!,
-          producto: product.text,
-          grupo: group.text,
+          productoId: selectedProduct!.id,
+          producto: selectedProduct!.nombre,
+          grupoId: selectedGroup!.id,
+          grupo: selectedGroup!.nombre,
           destino: destination.text,
           condicion: condition.text,
           fechaProgramada: date,
@@ -1330,14 +1829,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         if (mounted) _message('No se pudo crear: $error', error: true);
       }
     }
-    for (final controller in [
-      product,
-      group,
-      destination,
-      condition,
-      oc,
-      observations,
-    ]) {
+    for (final controller in [destination, condition, oc, observations]) {
       controller.dispose();
     }
   }
@@ -1367,43 +1859,51 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
 class _MetricCard extends StatelessWidget {
   final (String, int, IconData, Color) data;
-  const _MetricCard({required this.data});
+  final VoidCallback? onTap;
+  const _MetricCard({required this.data, this.onTap});
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-    decoration: BoxDecoration(
-      color: data.$4.withValues(alpha: 0.07),
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: data.$4.withValues(alpha: 0.2)),
-    ),
-    child: Row(
-      children: [
-        Icon(data.$3, color: data.$4, size: 22),
-        const SizedBox(width: 10),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: data.$4.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: data.$4.withValues(alpha: 0.2)),
+        ),
+        child: Row(
           children: [
-            Text(
-              '${data.$2}',
-              style: TextStyle(
-                fontFamily: _abFont,
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: data.$4,
-              ),
-            ),
-            Text(
-              data.$1,
-              style: const TextStyle(
-                fontFamily: _abFont,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
+            Icon(data.$3, color: data.$4, size: 22),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${data.$2}',
+                  style: TextStyle(
+                    fontFamily: _abFont,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: data.$4,
+                  ),
+                ),
+                Text(
+                  data.$1,
+                  style: const TextStyle(
+                    fontFamily: _abFont,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-      ],
+      ),
     ),
   );
 }
@@ -1513,6 +2013,23 @@ String _number(double value) => value == value.roundToDouble()
     ? value.toInt().toString()
     : value.toStringAsFixed(2);
 
+bool _sameCatalogText(String left, String right) =>
+    _catalogText(left) == _catalogText(right);
+
+String _catalogText(String value) => value
+    .trim()
+    .toLowerCase()
+    .replaceAll('á', 'a')
+    .replaceAll('é', 'e')
+    .replaceAll('í', 'i')
+    .replaceAll('ó', 'o')
+    .replaceAll('ú', 'u')
+    .replaceAll('ü', 'u')
+    .replaceAll('ñ', 'n')
+    .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
 String _fieldLabel(String field) => switch (field) {
   'registro' => 'Registro',
   'fechaProgramada' => 'Fecha programada',
@@ -1524,6 +2041,7 @@ String _fieldLabel(String field) => switch (field) {
   'pendencias' => 'Pendientes operativos',
   'proveedorId' => 'Proveedor relacionado',
   'productoId' => 'Producto relacionado',
+  'grupoId' => 'Grupo relacionado',
   'recepcionId' => 'Recepción relacionada',
   'estado' => 'Estado',
   _ =>

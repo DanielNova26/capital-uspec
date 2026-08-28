@@ -34,13 +34,29 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
   ficha vuelve a revisión.
 
 ### Verificación y publicación
-- `flutter test test/compras`: **76/76**.
+- `flutter test test/compras`: **77/77**.
 - Analizador de los componentes nuevos de Abastecimiento: sin hallazgos.
 - El consolidado real se procesó correctamente: 6 hojas operativas, 76 filas
   estructuradas y 22 filas incompletas reportadas para corrección.
 - `flutter build web --release --no-tree-shake-icons --no-wasm-dry-run`: correcto.
 - `firebase deploy --only hosting`: desplegado en
   <https://to-do-gestion.web.app> y verificado con HTTP 200 sobre el bundle.
+
+### Ajuste posterior: filtros, eliminación y catálogos
+- Los cinco KPI del tablero ahora son accionables. En particular, **No
+  entregan** aplica directamente el estado `no_entrega`; Atrasadas, Hoy,
+  Pendientes y Recibidas también filtran su conjunto correspondiente.
+- Web incorpora filtros visibles por estado, proveedor, producto, grupo y
+  fecha. Móvil conserva estado/fecha en primer nivel y reúne proveedor,
+  producto y grupo en una hoja compacta de filtros.
+- Compras/Admin puede eliminar una entrega indicando motivo. La eliminación es
+  lógica y auditable: se retira del tablero y calendario, pero conserva quién,
+  cuándo y por qué la eliminó.
+- La creación manual dejó de aceptar texto libre para producto y grupo: ambos
+  se seleccionan de `TBL_COMPRAS_PRODUCTOS` y `TBL_COMPRAS_GRUPOS`; los
+  productos se filtran por la categoría elegida del proveedor.
+- La importación también enlaza `productoId` y `grupoId`. Productos o grupos no
+  encontrados quedan fuera y se muestran como pendientes de catálogo.
 
 ### Estado de artefactos móviles
 - Existe un AAB anterior de compilación 4 (`com.todogestion.app`), firmado con

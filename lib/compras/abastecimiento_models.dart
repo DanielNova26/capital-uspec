@@ -169,6 +169,7 @@ class AbastecimientoDoc {
   final String categoria;
   final String productoId;
   final String producto;
+  final String grupoId;
   final String grupo;
   final String destino;
   final String condicion;
@@ -191,6 +192,10 @@ class AbastecimientoDoc {
   final Timestamp createdAt;
   final Timestamp updatedAt;
   final List<AbastecimientoCambio> historial;
+  final bool eliminado;
+  final String eliminadoPor;
+  final Timestamp? eliminadoAt;
+  final String motivoEliminacion;
 
   const AbastecimientoDoc({
     this.id = '',
@@ -203,6 +208,7 @@ class AbastecimientoDoc {
     required this.categoria,
     this.productoId = '',
     required this.producto,
+    this.grupoId = '',
     this.grupo = '',
     this.destino = '',
     this.condicion = '',
@@ -225,6 +231,10 @@ class AbastecimientoDoc {
     required this.createdAt,
     required this.updatedAt,
     this.historial = const [],
+    this.eliminado = false,
+    this.eliminadoPor = '',
+    this.eliminadoAt,
+    this.motivoEliminacion = '',
   });
 
   factory AbastecimientoDoc.fromMap(String id, Map<String, dynamic> map) {
@@ -246,6 +256,7 @@ class AbastecimientoDoc {
       categoria: (map['categoria'] ?? '').toString(),
       productoId: (map['productoId'] ?? '').toString(),
       producto: (map['producto'] ?? '').toString(),
+      grupoId: (map['grupoId'] ?? '').toString(),
       grupo: (map['grupo'] ?? '').toString(),
       destino: (map['destino'] ?? '').toString(),
       condicion: (map['condicion'] ?? '').toString(),
@@ -294,6 +305,12 @@ class AbastecimientoDoc {
                 )
                 .toList()
           : const [],
+      eliminado: map['eliminado'] == true,
+      eliminadoPor: (map['eliminadoPor'] ?? '').toString(),
+      eliminadoAt: map['eliminadoAt'] is Timestamp
+          ? map['eliminadoAt'] as Timestamp
+          : null,
+      motivoEliminacion: (map['motivoEliminacion'] ?? '').toString(),
     );
   }
 
@@ -310,6 +327,7 @@ class AbastecimientoDoc {
     'categoria': categoria,
     'productoId': productoId,
     'producto': producto,
+    'grupoId': grupoId,
     'grupo': grupo,
     'destino': destino,
     'condicion': condicion,
@@ -338,5 +356,9 @@ class AbastecimientoDoc {
     'createdAt': createdAt,
     'updatedAt': updatedAt,
     'historial': historial.map((item) => item.toMap()).toList(),
+    'eliminado': eliminado,
+    if (eliminadoPor.isNotEmpty) 'eliminadoPor': eliminadoPor,
+    if (eliminadoAt != null) 'eliminadoAt': eliminadoAt,
+    if (motivoEliminacion.isNotEmpty) 'motivoEliminacion': motivoEliminacion,
   };
 }

@@ -27,11 +27,15 @@ class AbastecimientoCatalogValidation {
   final List<AbastecimientoImportRow> filas;
   final List<AbastecimientoExcelIssue> incidencias;
   final List<String> proveedoresPendientes;
+  final List<String> productosPendientes;
+  final List<String> gruposPendientes;
 
   const AbastecimientoCatalogValidation({
     required this.filas,
     required this.incidencias,
     required this.proveedoresPendientes,
+    required this.productosPendientes,
+    required this.gruposPendientes,
   });
 }
 
@@ -48,6 +52,7 @@ class AbastecimientoService {
       .map((snapshot) {
         final rows = snapshot.docs
             .map((doc) => AbastecimientoDoc.fromMap(doc.id, doc.data()))
+            .where((row) => !row.eliminado)
             .toList();
         rows.sort((a, b) {
           final left = a.fechaProgramada;
@@ -75,6 +80,31 @@ class AbastecimientoService {
     return result;
   }
 
+  Future<List<ProductoDoc>> getProductos(String empresaId) async {
+    final snapshot = await _db
+        .collection('TBL_COMPRAS_PRODUCTOS')
+        .where('empresaId', isEqualTo: empresaId.trim())
+        .get();
+    final result = snapshot.docs
+        .map((doc) => ProductoDoc.fromMap(doc.id, doc.data()))
+        .toList();
+    result.sort((a, b) => a.nombre.compareTo(b.nombre));
+    return result;
+  }
+
+  Future<List<ComprasGrupoDoc>> getGrupos(String empresaId) async {
+    final snapshot = await _db
+        .collection('TBL_COMPRAS_GRUPOS')
+        .where('empresaId', isEqualTo: empresaId.trim())
+        .get();
+    final result = snapshot.docs
+        .map((doc) => ComprasGrupoDoc.fromMap(doc.id, doc.data()))
+        .where((group) => group.activo)
+        .toList();
+    result.sort((a, b) => a.nombre.compareTo(b.nombre));
+    return result;
+  }
+
   Future<AbastecimientoCatalogValidation> validarCatalogo({
     required String empresaId,
     required List<AbastecimientoImportRow> filas,
@@ -93,30 +123,46 @@ class AbastecimientoService {
           .collection('TBL_COMPRAS_RECEPCIONES')
           .where('empresaId', isEqualTo: empresa)
           .get(),
+      _db
+          .collection('TBL_COMPRAS_GRUPOS')
+          .where('empresaId', isEqualTo: empresa)
+          .get(),
     ]);
     final providerSnapshot = results[0];
     final productSnapshot = results[1];
     final receptionSnapshot = results[2];
+    final groupSnapshot = results[3];
 
     final providers = <String, ProveedorDoc>{};
     for (final doc in providerSnapshot.docs) {
       final provider = ProveedorDoc.fromMap(doc.id, doc.data());
       providers[_catalogKey(provider.razonSocial)] = provider;
     }
-    final products = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    final products = <String, ProductoDoc>{};
     for (final doc in productSnapshot.docs) {
-      final name = (doc.data()['nombre'] ?? '').toString();
-      if (name.trim().isNotEmpty) products[_catalogKey(name)] = doc;
+      final product = ProductoDoc.fromMap(doc.id, doc.data());
+      if (product.nombre.trim().isNotEmpty) {
+        products[_catalogKey(product.nombre)] = product;
+      }
     }
     final receptions = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
     for (final doc in receptionSnapshot.docs) {
       final order = (doc.data()['ordenCompra'] ?? '').toString();
       if (order.trim().isNotEmpty) receptions[_catalogKey(order)] = doc;
     }
+    final groups = <String, ComprasGrupoDoc>{};
+    for (final doc in groupSnapshot.docs) {
+      final group = ComprasGrupoDoc.fromMap(doc.id, doc.data());
+      if (!group.activo) continue;
+      groups[_groupKey(group.nombre)] = group;
+      groups[_groupKey(group.id)] = group;
+    }
 
     final valid = <AbastecimientoImportRow>[];
     final issues = <AbastecimientoExcelIssue>[];
     final missingProviders = <String, String>{};
+    final missingProducts = <String, String>{};
+    final missingGroups = <String, String>{};
     for (final row in filas) {
       if (row.ordenCompra.trim().isEmpty) {
         issues.add(
@@ -180,16 +226,57 @@ class AbastecimientoService {
       }
 
       final product = products[_catalogKey(row.producto)];
+      if (product == null) {
+        missingProducts.putIfAbsent(
+          _catalogKey(row.producto),
+          () => row.producto,
+        );
+        issues.add(
+          AbastecimientoExcelIssue(
+            hoja: row.hoja,
+            fila: row.fila,
+            mensaje:
+                'Producto "${row.producto}" no existe; debe crearse en Productos.',
+          ),
+        );
+        continue;
+      }
+      if (_catalogKey(product.categoria) != _catalogKey(category)) {
+        issues.add(
+          AbastecimientoExcelIssue(
+            hoja: row.hoja,
+            fila: row.fila,
+            mensaje:
+                'El producto "${product.nombre}" pertenece a ${product.categoria}, no a $category.',
+          ),
+        );
+        continue;
+      }
+
+      final group = groups[_groupKey(row.grupo)];
+      if (group == null) {
+        missingGroups.putIfAbsent(_groupKey(row.grupo), () => row.grupo);
+        issues.add(
+          AbastecimientoExcelIssue(
+            hoja: row.hoja,
+            fila: row.fila,
+            mensaje: row.grupo.trim().isEmpty
+                ? 'Falta el grupo de Compras.'
+                : 'Grupo "${row.grupo}" no existe en el catálogo de Compras.',
+          ),
+        );
+        continue;
+      }
       final reception = receptions[_catalogKey(row.ordenCompra)];
       valid.add(
         row.copyWith(
           proveedorId: provider.id,
           proveedor: provider.razonSocial,
           categoria: category,
-          productoId: product?.id ?? '',
-          producto: product == null
-              ? row.producto
-              : (product.data()['nombre'] ?? row.producto).toString(),
+          productoId: product.id,
+          producto: product.nombre,
+          grupoId: group.id,
+          grupo: group.nombre,
           recepcionId: reception?.id ?? '',
         ),
       );
@@ -197,10 +284,17 @@ class AbastecimientoService {
 
     final pending = missingProviders.values.toList()
       ..sort((a, b) => a.compareTo(b));
+    final pendingProducts = missingProducts.values.toList()
+      ..sort((a, b) => a.compareTo(b));
+    final pendingGroups =
+        missingGroups.values.where((value) => value.trim().isNotEmpty).toList()
+          ..sort((a, b) => a.compareTo(b));
     return AbastecimientoCatalogValidation(
       filas: valid,
       incidencias: issues,
       proveedoresPendientes: pending,
+      productosPendientes: pendingProducts,
+      gruposPendientes: pendingGroups,
     );
   }
 
@@ -292,6 +386,7 @@ class AbastecimientoService {
           categoria: row.categoria,
           productoId: row.productoId,
           producto: row.producto,
+          grupoId: row.grupoId,
           grupo: row.grupo,
           destino: row.destino,
           condicion: row.condicion,
@@ -363,6 +458,7 @@ class AbastecimientoService {
         changeText('categoria', row.categoria);
         changeText('productoId', row.productoId);
         changeText('producto', row.producto);
+        changeText('grupoId', row.grupoId);
         changeText('grupo', row.grupo);
         changeText('destino', row.destino);
         changeText('condicion', row.condicion);
@@ -449,7 +545,9 @@ class AbastecimientoService {
     required String proveedorId,
     required String proveedor,
     required String categoria,
+    required String productoId,
     required String producto,
+    required String grupoId,
     required String grupo,
     required String destino,
     required String condicion,
@@ -462,6 +560,9 @@ class AbastecimientoService {
     }
     if (ordenCompra.trim().isEmpty) {
       throw StateError('La orden de compra es obligatoria.');
+    }
+    if (productoId.trim().isEmpty || grupoId.trim().isEmpty) {
+      throw StateError('Debes seleccionar un producto y un grupo registrados.');
     }
     final now = Timestamp.now();
     final rawKey =
@@ -484,7 +585,9 @@ class AbastecimientoService {
       proveedorId: proveedorId.trim(),
       proveedor: proveedor.trim(),
       categoria: categoria.trim(),
+      productoId: productoId.trim(),
       producto: producto.trim(),
+      grupoId: grupoId.trim(),
       grupo: grupo.trim(),
       destino: destino.trim(),
       condicion: condicion.trim(),
@@ -659,6 +762,43 @@ class AbastecimientoService {
     });
   }
 
+  Future<void> eliminar({
+    required String id,
+    required String usuarioId,
+    required String motivo,
+  }) async {
+    final reason = motivo.trim();
+    if (reason.isEmpty) {
+      throw StateError('Debes indicar el motivo de la eliminación.');
+    }
+    final ref = _db.collection(kAbastecimientoCollection).doc(id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists || snapshot.data() == null) {
+        throw StateError('La entrega ya no existe.');
+      }
+      final current = AbastecimientoDoc.fromMap(id, snapshot.data()!);
+      if (current.eliminado) return;
+      final now = Timestamp.now();
+      final history = [
+        ...current.historial,
+        _change('eliminado', 'false', reason, usuarioId, now, 'entorno'),
+      ];
+      transaction.update(ref, {
+        'eliminado': true,
+        'eliminadoPor': usuarioId,
+        'eliminadoAt': now,
+        'motivoEliminacion': reason,
+        'actualizadoPor': usuarioId,
+        'updatedAt': now,
+        'historial': history
+            .skip(history.length > 100 ? history.length - 100 : 0)
+            .map((item) => item.toMap())
+            .toList(),
+      });
+    });
+  }
+
   static String _documentId(String empresaId, String importKey) =>
       sha256.convert(utf8.encode('$empresaId|$importKey')).toString();
 
@@ -689,6 +829,11 @@ class AbastecimientoService {
       .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+
+  static String _groupKey(String value) {
+    final key = _catalogKey(value);
+    return key.startsWith('grupo ') ? key.substring(6).trim() : key;
+  }
 
   static AbastecimientoCambio _change(
     String field,
