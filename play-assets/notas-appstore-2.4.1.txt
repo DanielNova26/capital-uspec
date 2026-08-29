@@ -1,0 +1,12 @@
+Corrección importante
+
+• Se solucionó un problema que impedía que la aplicación abriera en algunos dispositivos: la pantalla quedaba en blanco al iniciar. Ahora la aplicación abre siempre, aunque falle la conexión inicial con el servicio de notificaciones.
+
+Novedades incluidas en esta versión
+
+• Compras: nuevo módulo de abastecimiento, con carga desde Excel, selector de bodegas, acuerdos, filtros ampliados y sincronización con recepción.
+• Interventoría: asignación masiva de hallazgos sugeridos, selector de responsable filtrado por establecimiento y descarga del acta en PDF con nombre reconocible.
+• Talento humano: gestión de candidatos dentro de las requisiciones de personal, con seguimiento por etapas.
+• Correspondencia: el filtro por área agrupa las variantes de un mismo departamento y ya no muestra identificadores internos.
+• Listados extensos paginados de a 20, para que las pantallas con muchos registros abran más rápido.
+• Correcciones de estabilidad al guardar información y cambiar de pantalla.
