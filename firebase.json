@@ -48,6 +48,10 @@
           "destination": "/privacidad.html"
         },
         {
+          "source": "/soporte",
+          "destination": "/soporte.html"
+        },
+        {
           "source": "/terminos",
           "destination": "/terminos.html"
         },
