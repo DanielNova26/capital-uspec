@@ -305,6 +305,17 @@ int? _facMesOrdinal(String value) {
   return anio * 12 + mes;
 }
 
+bool facMesEsValido(String value) => _facMesOrdinal(value) != null;
+
+/// Se valida al elegir y de nuevo al guardar, por si pasó el plazo entretanto.
+void validarFacFechaLimite(DateTime fecha, {DateTime? ahora}) {
+  if (!fecha.isAfter(ahora ?? DateTime.now())) {
+    throw ArgumentError(
+      'La fecha y hora límite deben ser posteriores a la hora actual.',
+    );
+  }
+}
+
 int compareFacMesDesc(String a, String b) {
   final ordinalA = _facMesOrdinal(a);
   final ordinalB = _facMesOrdinal(b);
@@ -377,6 +388,8 @@ class FacEstablecimiento {
     this.ignoredDocs = const {},
     this.deadlines = const {},
   });
+
+  DateTime? fechaLimiteDocumento(String doc) => deadlines[doc] ?? fechaLimite;
 
   factory FacEstablecimiento.fromMap(String docId, Map<String, dynamic> d) {
     final rawIgnored = d['ignoredDocs'] as Map<String, dynamic>? ?? {};

@@ -1765,10 +1765,13 @@ class _GestionTabState extends State<_GestionTab> {
 
   Future<void> _pickFechaHora() async {
     final now = DateTime.now();
+    final initial = _fechaSel != null && _fechaSel!.isAfter(now)
+        ? _fechaSel!
+        : now.add(const Duration(hours: 1));
     final date = await showDatePicker(
       context: context,
-      initialDate: _fechaSel ?? now,
-      firstDate: now.subtract(const Duration(days: 1)),
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
       lastDate: DateTime(now.year + 5),
       builder: (ctx, child) => Theme(
         data: ThemeData(
@@ -1780,23 +1783,36 @@ class _GestionTabState extends State<_GestionTab> {
     if (date == null || !mounted) return;
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_fechaSel ?? now),
+      initialTime: TimeOfDay.fromDateTime(initial),
     );
     if (time == null || !mounted) return;
-    setState(() {
-      _fechaSel = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      );
-    });
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    try {
+      validarFacFechaLimite(selected);
+    } on ArgumentError catch (error) {
+      _snackError(error.message.toString());
+      return;
+    }
+    setState(() => _fechaSel = selected);
   }
 
   Future<void> _onAsignarFecha() async {
     if (_fechaSel == null) {
       _snackError('Selecciona fecha y hora.');
+      return;
+    }
+    final fecha = _fechaSel!;
+    final docTipo = _fechaDocTipo;
+    try {
+      validarFacFechaLimite(fecha);
+    } on ArgumentError catch (error) {
+      _snackError(error.message.toString());
       return;
     }
     setState(() => _guardandoFecha = true);
@@ -1808,34 +1824,46 @@ class _GestionTabState extends State<_GestionTab> {
       return;
     }
 
-    if (_fechaDocTipo == null) {
-      // Fecha límite general del establecimiento
-      await widget.svc.setFechaLimite(widget.empresaId, ids, _fechaSel!);
-    } else {
-      // Fecha límite por documento específico
-      for (final estId in ids) {
-        await widget.svc.setDeadlineDoc(
-          widget.empresaId,
-          estId,
-          _fechaDocTipo!,
-          _fechaSel,
+    try {
+      if (docTipo == null) {
+        // Fecha límite general del establecimiento
+        await widget.svc.setFechaLimite(widget.empresaId, ids, fecha);
+      } else {
+        // Fecha límite por documento específico
+        for (final estId in ids) {
+          await widget.svc.setDeadlineDoc(
+            widget.empresaId,
+            estId,
+            docTipo,
+            fecha,
+          );
+        }
+      }
+
+      if (mounted) {
+        setState(() => _guardandoFecha = false);
+        final docLabel = docTipo == null
+            ? 'todos los documentos'
+            : '"$docTipo"';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Fecha límite para $docLabel: ${DateFormat('dd/MM/yyyy HH:mm', 'es').format(fecha)}',
+            ),
+            backgroundColor: _kGreen,
+          ),
         );
       }
-    }
-
-    if (mounted) {
-      setState(() => _guardandoFecha = false);
-      final docLabel = _fechaDocTipo == null
-          ? 'establecimiento'
-          : '"$_fechaDocTipo"';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Fecha límite para $docLabel: ${DateFormat('dd/MM/yyyy HH:mm', 'es').format(_fechaSel!)}',
-          ),
-          backgroundColor: _kGreen,
-        ),
-      );
+    } catch (error) {
+      if (mounted) {
+        _snackError(
+          error is ArgumentError
+              ? error.message.toString()
+              : 'No se pudo guardar la fecha límite. Intenta nuevamente.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _guardandoFecha = false);
     }
   }
 
@@ -2348,6 +2376,7 @@ class _DetalleEstablecimientoScreen extends StatefulWidget {
 
 class _DetalleEstablecimientoScreenState
     extends State<_DetalleEstablecimientoScreen> {
+  StreamSubscription<FacEstablecimiento?>? _estSub;
   Map<String, List<FacArchivo>> _archivos = {};
   FacEstablecimiento? _est;
   bool _loading = true;
@@ -2364,6 +2393,16 @@ class _DetalleEstablecimientoScreenState
     super.initState();
     _selectedMes = widget.mes;
     _cargar();
+    _estSub = widget.svc
+        .streamEstablecimiento(widget.empresaId, widget.estId)
+        .listen(
+          (est) {
+            if (mounted) setState(() => _est = est);
+          },
+          onError: (Object error) {
+            // La recarga manual sigue disponible si se interrumpe la suscripción.
+          },
+        );
     _listenRevisiones();
     _obsSub = widget.svc
         .streamObservaciones(widget.empresaId, widget.estId)
@@ -2391,6 +2430,7 @@ class _DetalleEstablecimientoScreenState
 
   @override
   void dispose() {
+    _estSub?.cancel();
     _obsSub?.cancel();
     _revisionSub?.cancel();
     super.dispose();
@@ -2652,7 +2692,7 @@ class _DetalleEstablecimientoScreenState
     doc: doc,
     archivos: _archivos[doc] ?? [],
     isIgnored: _est?.ignoredDocs[doc] ?? false,
-    deadline: _est?.deadlines[doc],
+    deadline: _est?.fechaLimiteDocumento(doc),
     canUpload: false,
     canDelete: widget.canEdit,
     onToggleIgnore: widget.canEdit ? () => _toggleIgnore(doc) : null,
@@ -2751,7 +2791,9 @@ class _DetalleEstablecimientoScreenState
           if (_mesesDisponibles.length > 1) ...[
             Expanded(
               child: DropdownButtonFormField<String>(
-                initialValue: _mesesDisponibles.contains(mesActual) ? mesActual : null,
+                initialValue: _mesesDisponibles.contains(mesActual)
+                    ? mesActual
+                    : null,
                 isDense: true,
                 decoration: _inputDeco('Mes'),
                 items: _mesesDisponibles
@@ -2928,12 +2970,29 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   FacEstablecimiento? _est;
   bool _loading = true;
   bool _solicitando = false;
+  bool _uploading = false;
+  String? _selectedMes;
+  List<String> _mesesCatalogo = [];
+  List<String> _mesesStorage = [];
+  String? _loadError;
+  int _loadGeneration = 0;
+  int _configurationGeneration = 0;
+  StreamSubscription<List<String>>? _mesesSub;
+  StreamSubscription<FacEstablecimiento?>? _estSub;
   List<FacObservacion> _observaciones = [];
   StreamSubscription<List<FacObservacion>>? _obsSub;
   StreamSubscription<Map<String, FacRevision>>? _revisionSub;
   String _autorNombre = '';
 
   bool get _isTaskFlow => (widget.linkedTaskId ?? '').trim().isNotEmpty;
+  bool get _canSelectMonth => !widget.embedded && !_isTaskFlow;
+
+  List<String> get _mesesDisponibles => normalizeFacMesKeys([
+    ..._mesesCatalogo,
+    ..._mesesStorage,
+    if (_est != null) _est!.mes,
+    _activeMes,
+  ]).where(facMesEsValido).toList();
 
   List<String> get _visibleDocs {
     final focus = (widget.initialDocTipo ?? '').trim();
@@ -2941,7 +3000,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   }
 
   String get _activeMes {
-    final requested = (widget.targetMes ?? '').trim();
+    final requested = (_selectedMes ?? widget.targetMes ?? '').trim();
     return normalizeFacMesKey(
       requested.isNotEmpty ? requested : _est?.mes ?? '',
     );
@@ -2951,6 +3010,42 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   void initState() {
     super.initState();
     _cargar();
+    _estSub = widget.svc
+        .streamEstablecimiento(widget.empresaId, widget.estId)
+        .listen(
+          (est) {
+            if (!mounted) return;
+            _configurationGeneration++;
+            final previousMes = _activeMes;
+            setState(() => _est = est);
+            if (!_loading && !_uploading && previousMes != _activeMes) {
+              _cargar();
+            }
+          },
+          onError: (Object error) {
+            if (mounted) {
+              _showError(
+                'No se pudo actualizar la configuración. Reintenta la carga.',
+              );
+            }
+          },
+        );
+    if (_canSelectMonth) {
+      _mesesSub = widget.svc
+          .streamMesesAsignados(widget.empresaId)
+          .listen(
+            (meses) {
+              if (mounted) setState(() => _mesesCatalogo = meses);
+            },
+            onError: (Object error) {
+              if (mounted) {
+                _showError(
+                  'No se pudieron consultar los meses habilitados. Reintenta la carga.',
+                );
+              }
+            },
+          );
+    }
     _obsSub = widget.svc
         .streamObservaciones(widget.empresaId, widget.estId)
         .listen((obs) {
@@ -2977,6 +3072,8 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
 
   @override
   void dispose() {
+    _mesesSub?.cancel();
+    _estSub?.cancel();
     _obsSub?.cancel();
     _revisionSub?.cancel();
     super.dispose();
@@ -2987,7 +3084,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     _revisionSub = widget.svc
         .streamRevisiones(widget.empresaId, widget.estId, mes)
         .listen((items) {
-          if (mounted) setState(() => _revisiones = items);
+          if (mounted && mes == _activeMes) setState(() => _revisiones = items);
         });
   }
 
@@ -3006,52 +3103,119 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     );
   }
 
-  Future<void> _cargar() async {
-    setState(() => _loading = true);
-    final est = await widget.svc.getEstablecimiento(
-      widget.empresaId,
-      widget.estId,
-    );
-    final requestedMes = (widget.targetMes ?? '').trim();
-    final mes = normalizeFacMesKey(
-      requestedMes.isNotEmpty ? requestedMes : est?.mes ?? '',
-    );
-    List<String> documentos;
+  Future<void> _cargar({String? mesSeleccionado}) async {
+    if (!mounted) return;
+    final generation = ++_loadGeneration;
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
-      documentos = (await widget.svc.getObligacionesActivas(
+      final configurationGeneration = _configurationGeneration;
+      final loadedEst = await widget.svc.getEstablecimiento(
         widget.empresaId,
-      )).map((item) => item.nombre).toList();
+        widget.estId,
+      );
+      // La suscripción conserva cualquier configuración más reciente que esta lectura.
+      if (!mounted || generation != _loadGeneration) return;
+      final est = configurationGeneration == _configurationGeneration
+          ? loadedEst
+          : _est;
+      _est = est;
+      final requestedMes =
+          (mesSeleccionado ?? _selectedMes ?? widget.targetMes ?? '').trim();
+      final mes = normalizeFacMesKey(
+        requestedMes.isNotEmpty ? requestedMes : est?.mes ?? '',
+      );
+      List<String> documentos;
+      try {
+        documentos = (await widget.svc.getObligacionesActivas(
+          widget.empresaId,
+        )).map((item) => item.nombre).toList();
+      } catch (_) {
+        documentos = List<String>.from(kFacDocumentos);
+      }
+      final mesesStorage = _canSelectMonth
+          ? await widget.svc.listMesesDisponibles(
+              widget.empresaId,
+              widget.estId,
+            )
+          : <String>[];
+      final archivos = facMesEsValido(mes)
+          ? await widget.svc.listArchivos(
+              widget.empresaId,
+              widget.estId,
+              mes,
+              documentos: [
+                ...documentos,
+                if ((widget.initialDocTipo ?? '').trim().isNotEmpty &&
+                    !documentos.contains(widget.initialDocTipo!.trim()))
+                  widget.initialDocTipo!.trim(),
+              ],
+            )
+          : {};
+      if (mounted && generation == _loadGeneration) {
+        setState(() {
+          _est ??= est;
+          _selectedMes = facMesEsValido(mes) ? mes : null;
+          _mesesStorage = mesesStorage;
+          _documentos = documentos;
+          _archivos = Map<String, List<FacArchivo>>.from(archivos);
+          _revisiones = {};
+          _loading = false;
+        });
+        if (facMesEsValido(mes)) _listenRevisiones(mes);
+      }
     } catch (_) {
-      documentos = List<String>.from(kFacDocumentos);
-    }
-    final archivos = mes.isNotEmpty
-        ? await widget.svc.listArchivos(
-            widget.empresaId,
-            widget.estId,
-            mes,
-            documentos: [
-              ...documentos,
-              if ((widget.initialDocTipo ?? '').trim().isNotEmpty &&
-                  !documentos.contains(widget.initialDocTipo!.trim()))
-                widget.initialDocTipo!.trim(),
-            ],
-          )
-        : {};
-    if (mounted) {
-      setState(() {
-        _est = est;
-        _documentos = documentos;
-        _archivos = Map<String, List<FacArchivo>>.from(archivos);
-        _loading = false;
-      });
-      if (mes.isNotEmpty) _listenRevisiones(mes);
+      if (mounted && generation == _loadGeneration) {
+        setState(() {
+          _loading = false;
+          _loadError =
+              'No fue posible cargar los documentos. Intenta nuevamente.';
+        });
+      }
     }
   }
 
-  bool get _todoCompleto => _visibleDocs.every((doc) {
-    if (_est?.ignoredDocs[doc] == true) return true;
-    return _archivos[doc]?.isNotEmpty ?? false;
-  });
+  Future<void> _cambiarMes(String? mes) async {
+    if (!_canSelectMonth ||
+        _uploading ||
+        mes == null ||
+        mes == _activeMes ||
+        !_mesesDisponibles.contains(mes)) {
+      return;
+    }
+    await _cargar(mesSeleccionado: mes);
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: _kRed));
+  }
+
+  Future<void> _ejecutarCarga(Future<void> Function() action) async {
+    if (_uploading || !facMesEsValido(_activeMes)) return;
+    setState(() => _uploading = true);
+    try {
+      await action();
+    } catch (_) {
+      if (mounted) {
+        _showError(
+          'No se pudo completar la carga. Revisa los archivos e intenta nuevamente.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  bool get _todoCompleto =>
+      _visibleDocs.isNotEmpty &&
+      _visibleDocs.every((doc) {
+        if (_est?.ignoredDocs[doc] == true) return true;
+        return _archivos[doc]?.isNotEmpty ?? false;
+      });
 
   int get _completados => _visibleDocs.where((doc) {
     if (_est?.ignoredDocs[doc] == true) return true;
@@ -3064,6 +3228,20 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
 
     final contenido = _loading
         ? const Center(child: CircularProgressIndicator(color: _kPrimary))
+        : _loadError != null
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_loadError!),
+                TextButton.icon(
+                  onPressed: _cargar,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          )
         : Column(
             children: [
               _buildHeader(),
@@ -3083,7 +3261,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       title: 'Facturación — ${_est?.nombre ?? widget.estId}',
       subtitle: _isTaskFlow
           ? 'Requerimiento: ${widget.initialDocTipo} · Mes: ${facMesLabel(_activeMes)}'
-          : 'Mes: ${facMesLabel(_est?.mes ?? '…')}',
+          : 'Mes: ${facMesLabel(_activeMes)}',
       accentColor: _kPrimary,
       userId: widget.userId,
       empresaId: widget.empresaId,
@@ -3170,9 +3348,11 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     doc: doc,
     archivos: _archivos[doc] ?? [],
     isIgnored: _est?.ignoredDocs[doc] ?? false,
-    deadline: _isTaskFlow ? widget.linkedDeadline : _est?.deadlines[doc],
-    canUpload: true,
-    canDelete: true,
+    deadline: _isTaskFlow
+        ? widget.linkedDeadline
+        : _est?.fechaLimiteDocumento(doc),
+    canUpload: facMesEsValido(_activeMes) && !_uploading,
+    canDelete: !_uploading,
     onToggleIgnore: null,
     onView: _viewFile,
     onDelete: _deleteFile,
@@ -3184,6 +3364,11 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   );
 
   Future<void> _subirArchivosDropped(String doc, List<XFile> files) async {
+    await _ejecutarCarga(() => _guardarArchivosDropped(doc, files));
+  }
+
+  Future<void> _guardarArchivosDropped(String doc, List<XFile> files) async {
+    final mesDeCarga = _activeMes;
     const allowed = {'pdf', 'jpg', 'jpeg', 'png', 'xls', 'xlsx', 'doc', 'docx'};
     final valid = files
         .where((f) => allowed.contains(f.name.split('.').last.toLowerCase()))
@@ -3196,7 +3381,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       final uploaded = await widget.svc.uploadArchivo(
         empresaId: widget.empresaId,
         estId: widget.estId,
-        mes: _activeMes,
+        mes: mesDeCarga,
         doc: doc,
         bytes: bytes,
         extension: ext,
@@ -3233,71 +3418,115 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
+      width: double.infinity,
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        runSpacing: 8,
         children: [
-          // Botón de observaciones con badge
-          StreamBuilder<List<FacObservacion>>(
-            stream: widget.svc.streamObservaciones(
-              widget.empresaId,
-              widget.estId,
-            ),
-            builder: (ctx, snap) {
-              final count = snap.data?.length ?? 0;
-              return Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.message_outlined, color: _kPrimary),
-                    tooltip: 'Observaciones',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _ObservacionesScreen(
-                          userId: widget.userId,
-                          empresaId: widget.empresaId,
-                          estId: widget.estId,
-                          estNombre: _est?.nombre ?? widget.estId,
-                          svc: widget.svc,
+          SizedBox(
+            width: MediaQuery.sizeOf(context).width < 600
+                ? MediaQuery.sizeOf(context).width - 24
+                : 320,
+            child: Row(
+              children: [
+                // Botón de observaciones con badge
+                StreamBuilder<List<FacObservacion>>(
+                  stream: widget.svc.streamObservaciones(
+                    widget.empresaId,
+                    widget.estId,
+                  ),
+                  builder: (ctx, snap) {
+                    final count = snap.data?.length ?? 0;
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.message_outlined,
+                            color: _kPrimary,
+                          ),
+                          tooltip: 'Observaciones',
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => _ObservacionesScreen(
+                                userId: widget.userId,
+                                empresaId: widget.empresaId,
+                                estId: widget.estId,
+                                estNombre: _est?.nombre ?? widget.estId,
+                                svc: widget.svc,
+                              ),
+                            ),
+                          ),
                         ),
+                        if (count > 0)
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.all(3),
+                              decoration: const BoxDecoration(
+                                color: _kRed,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                count > 9 ? '9+' : '$count',
+                                style: const TextStyle(
+                                  fontFamily: _kFont,
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(width: 4),
+                if (_canSelectMonth)
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      key: ValueKey('fac-mes-carga-$_activeMes'),
+                      initialValue: _mesesDisponibles.contains(_activeMes)
+                          ? _activeMes
+                          : null,
+                      isExpanded: true,
+                      decoration: _inputDeco('Mes de carga'),
+                      hint: const Text('Selecciona un mes'),
+                      items: _mesesDisponibles
+                          .map(
+                            (mes) => DropdownMenuItem(
+                              value: mes,
+                              child: Text(facMesLabel(mes)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _uploading ? null : _cambiarMes,
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: Text(
+                      'Mes: ${facMesLabel(_activeMes)}',
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
                       ),
                     ),
                   ),
-                  if (count > 0)
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: const BoxDecoration(
-                          color: _kRed,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          count > 9 ? '9+' : '$count',
-                          style: const TextStyle(
-                            fontFamily: _kFont,
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(width: 4),
-          Text(
-            'Mes: ${facMesLabel(_activeMes)}',
-            style: const TextStyle(
-              fontFamily: _kFont,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+              ],
             ),
           ),
-          const Spacer(),
-          if (_isTaskFlow)
+          if (_uploading)
+            const Text('Subiendo archivos…')
+          else if (!facMesEsValido(_activeMes))
+            const Text('Selecciona un mes habilitado para subir documentos.')
+          else if (_isTaskFlow)
             const Text(
               'La carga enviará la tarea a revisión',
               style: TextStyle(
@@ -3307,7 +3536,9 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
                 fontSize: 12,
               ),
             )
-          else if (_todoCompleto && widget.asFacturacion)
+          else if (_todoCompleto &&
+              (widget.asFacturacion ||
+                  _activeMes != normalizeFacMesKey(_est?.mes ?? '')))
             const Text(
               'Mes completo',
               style: TextStyle(
@@ -3343,6 +3574,11 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   }
 
   Future<void> _subirArchivo(String doc) async {
+    await _ejecutarCarga(() => _seleccionarYSubirArchivo(doc));
+  }
+
+  Future<void> _seleccionarYSubirArchivo(String doc) async {
+    final mesDeCarga = _activeMes;
     FilePickerResult? result;
     if (kIsWeb) {
       result = await FilePicker.platform.pickFiles(
@@ -3358,6 +3594,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
           'docx',
         ],
         allowMultiple: true,
+        withData: true,
       );
     } else {
       result = await FilePicker.platform.pickFiles(allowMultiple: true);
@@ -3374,15 +3611,17 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     for (final file in files) {
       final ext = file.extension?.toLowerCase() ?? 'pdf';
       Uint8List bytes;
-      if (kIsWeb) {
+      if (file.bytes != null) {
         bytes = file.bytes!;
-      } else {
+      } else if (!kIsWeb && file.path != null) {
         bytes = await File(file.path!).readAsBytes();
+      } else {
+        throw StateError('No se pudo leer el archivo seleccionado.');
       }
       final uploaded = await widget.svc.uploadArchivo(
         empresaId: widget.empresaId,
         estId: widget.estId,
-        mes: _activeMes,
+        mes: mesDeCarga,
         doc: doc,
         bytes: bytes,
         extension: ext,
@@ -3734,7 +3973,10 @@ class _DocCardState extends State<_DocCard> {
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  colors: [Colors.black.withValues(alpha: 0.45), Colors.transparent],
+                  colors: [
+                    Colors.black.withValues(alpha: 0.45),
+                    Colors.transparent,
+                  ],
                 ),
               ),
               child: const Row(
@@ -3864,7 +4106,11 @@ class _DocCardState extends State<_DocCard> {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.block_rounded, size: 28, color: _kGrey.withValues(alpha: 0.4)),
+        Icon(
+          Icons.block_rounded,
+          size: 28,
+          color: _kGrey.withValues(alpha: 0.4),
+        ),
         const SizedBox(height: 6),
         Text(
           'No requerido',
@@ -4108,7 +4354,9 @@ class _DocCardState extends State<_DocCard> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
         decoration: BoxDecoration(
-          color: count > 0 ? _kPrimary.withValues(alpha: 0.1) : Colors.grey.shade100,
+          color: count > 0
+              ? _kPrimary.withValues(alpha: 0.1)
+              : Colors.grey.shade100,
           borderRadius: BorderRadius.circular(7),
           border: Border.all(
             color: count > 0

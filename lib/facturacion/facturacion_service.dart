@@ -411,6 +411,16 @@ class FacturacionService {
     );
   }
 
+  /// Escucha únicamente la configuración del establecimiento solicitado.
+  Stream<FacEstablecimiento?> streamEstablecimiento(
+    String empresaId,
+    String estId,
+  ) => _db
+      .collection(_colEst)
+      .doc(_estDocId(empresaId, estId))
+      .snapshots()
+      .asyncMap((_) => getEstablecimiento(empresaId, estId));
+
   /// Asigna el mes a uno o varios establecimientos. Usa merge para crear el doc
   /// FAC automáticamente si aún no existe.
   Future<void> setMes(String empresaId, List<String> estIds, String mes) async {
@@ -464,13 +474,16 @@ class FacturacionService {
     List<String> estIds,
     DateTime fecha,
   ) async {
+    validarFacFechaLimite(fecha);
     final batch = _db.batch();
     for (final estId in estIds) {
       final ref = _db.collection(_colEst).doc(_estDocId(empresaId, estId));
       batch.set(ref, {
         'empresaId': empresaId,
         'fechaLimite': Timestamp.fromDate(fecha),
-      }, SetOptions(merge: true));
+        // Reemplaza las excepciones anteriores; cada documento hereda la nueva.
+        'deadlines': <String, dynamic>{},
+      }, SetOptions(mergeFields: ['empresaId', 'fechaLimite', 'deadlines']));
     }
     await batch.commit();
   }
@@ -493,6 +506,7 @@ class FacturacionService {
     String doc,
     DateTime? fecha,
   ) async {
+    if (fecha != null) validarFacFechaLimite(fecha);
     final ref = _db.collection(_colEst).doc(_estDocId(empresaId, estId));
     if (fecha == null) {
       // Intentar borrar el campo; si el doc no existe, ignorar el error.
