@@ -74,6 +74,7 @@ class FacturacionDocumentUploadScreen extends StatelessWidget {
   final String mes;
   final String taskId;
   final DateTime? fechaLimite;
+  final FacturacionService? service;
 
   const FacturacionDocumentUploadScreen({
     super.key,
@@ -84,6 +85,7 @@ class FacturacionDocumentUploadScreen extends StatelessWidget {
     required this.mes,
     required this.taskId,
     this.fechaLimite,
+    this.service,
   });
 
   @override
@@ -91,7 +93,7 @@ class FacturacionDocumentUploadScreen extends StatelessWidget {
     userId: userId,
     empresaId: empresaId,
     estId: establecimientoId,
-    svc: FacturacionService(),
+    svc: service ?? FacturacionService(),
     initialDocTipo: docTipo,
     targetMes: mes,
     linkedTaskId: taskId,
@@ -1088,27 +1090,42 @@ class _CountdownBadge extends StatefulWidget {
 }
 
 class _CountdownBadgeState extends State<_CountdownBadge> {
-  late Timer _timer;
+  Timer? _timer;
   String _texto = '';
   Color _color = _kGreen;
 
   @override
   void initState() {
     super.initState();
+    _restartTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CountdownBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fechaLimite != widget.fechaLimite) _restartTimer();
+  }
+
+  void _restartTimer() {
+    _timer?.cancel();
+    _timer = null;
+    // Una fecha vencida debe mostrar el aviso sin impedir cargar documentos.
     _update();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) _update();
-    });
+    if (widget.fechaLimite.isAfter(DateTime.now())) {
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) _update();
+      });
+    }
   }
 
   void _update() {
     final diff = widget.fechaLimite.difference(DateTime.now());
-    if (diff.isNegative) {
+    if (diff <= Duration.zero) {
       setState(() {
         _texto = 'Vencido';
         _color = _kRed;
       });
-      _timer.cancel();
+      _timer?.cancel();
       return;
     }
     final d = diff.inDays;
@@ -1124,7 +1141,7 @@ class _CountdownBadgeState extends State<_CountdownBadge> {
 
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
