@@ -1,0 +1,7 @@
+To-Do Gestión is a corporate correspondence management system. An administrator connects the organization's own institutional mailbox; the app never accesses the personal mailboxes of end users.
+
+Each incoming message is turned into an official correspondence record: internal filing code, sender, subject, date, body and attachments. The record is then routed to the responsible area and tracked until it is answered and closed. Colombian public-sector record-keeping requires the full content and its attachments to be archived, not just headers.
+
+A narrower scope is insufficient: gmail.metadata returns headers only, so we could not read the message body used for classification, nor download the attachments, which are the actual documents being filed.
+
+Access is read-only. The app never sends, modifies or deletes mail. Data stays inside the organization's own workspace, is never sold or shared with third parties, and is never used for advertising or to train models.
