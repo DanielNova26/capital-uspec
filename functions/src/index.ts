@@ -399,7 +399,13 @@ async function sendPushTo(
     notification: notif,
     data: { click_action: "FLUTTER_NOTIFICATION_CLICK", ...data },
     android: { priority: "high", notification: { channelId: "tasks_high", sound: "default" } },
-    apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default", contentAvailable: true } } },
+    // Sin contentAvailable: en APNs, `content-available: 1` marca el push como
+    // actualizacion en segundo plano. Mezclarlo con una alerta hace que iOS lo
+    // procese a veces como push silencioso: la notificacion llega pero no suena.
+    // Apple ademas espera prioridad 5 para content-available, no 10, que es la
+    // que necesitamos aqui por ser una alerta al usuario.
+    // Android ignora este bloque, por eso alli el sonido nunca fallo.
+    apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default" } } },
   };
 
   const resp = await fcm.sendEachForMulticast(msg);
