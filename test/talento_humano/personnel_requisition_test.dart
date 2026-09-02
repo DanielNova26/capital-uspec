@@ -110,6 +110,7 @@ void main() {
       expect(access.canCreate, isFalse);
       expect(access.canUpdateStage, isFalse);
       expect(access.canRegisterHire, isFalse);
+      expect(access.canDelete, isFalse);
       expect(access.canExport, isTrue);
     });
 
@@ -123,6 +124,17 @@ void main() {
       expect(access.canUpdateStage, isTrue);
       expect(access.canRegisterHire, isTrue);
       expect(access.canCancel, isFalse);
+      expect(access.canDelete, isFalse);
+    });
+
+    test('solo el gestor puede eliminar requerimientos', () {
+      final access = PersonnelRequisitionAccess.fromUserData({
+        'empresasDetalle': {
+          'EMPRESA_003': {'rolTalentoHumano': 'gestor'},
+        },
+      }, 'EMPRESA_003');
+
+      expect(access.canDelete, isTrue);
     });
   });
 

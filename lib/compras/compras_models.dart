@@ -251,6 +251,10 @@ String labelComprasRol(String? raw) {
   }
 }
 
+/// Abastecimiento es un flujo operativo, no una vista de solo lectura.
+bool comprasRolPuedeVerAbastecimiento(String? raw) =>
+    normalizeComprasRol(raw) != kRolConsultas;
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1521,3 +1525,9 @@ class FichaTecnicaDoc {
     updatedAt: updatedAt ?? this.updatedAt,
   );
 }
+
+/// La consulta pública de fichas solo expone el documento vigente que ya
+/// recibió aprobación de Calidad. `aprobado` también contempla la aprobación
+/// con requerimientos, que sigue siendo un estado aprobado en el modelo.
+bool fichaTecnicaVisibleEnConsultas(FichaTecnicaDoc ficha) =>
+    ficha.documentoActual?.aprobado == true;

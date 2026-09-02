@@ -10,6 +10,7 @@ import 'package:table_calendar/table_calendar.dart';
 
 import '../utils/user_company.dart';
 import '../widgets/user_avatar.dart';
+import 'birthday_logic.dart';
 
 const Color _kPrimary = Color(0xFFC28942);
 const Color _kBg = Color(0xFFF9F3EA);
@@ -215,20 +216,19 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
                   }
 
                   // Cumpleaños
-                  final fechaStr = (hd['fechaNacimiento'] as String? ?? '')
-                      .trim();
-                  if (fechaStr.isNotEmpty && nombre.isNotEmpty) {
-                    final dt = _parseFecha(fechaStr);
-                    if (dt != null) {
-                      cumpleanos.add(
-                        _CumpleData(
-                          nombre: nombre,
-                          cedula: doc.id,
-                          fechaNacimiento: dt,
-                          area: (d['areaNombre'] ?? d['area'] ?? '').toString(),
-                        ),
-                      );
-                    }
+                  final dt =
+                      parseFechaNacimiento(hd['fechaNacimiento']) ??
+                      parseFechaNacimiento(d['fechaNacimiento']) ??
+                      parseFechaNacimiento(d['fecha_nacimiento']);
+                  if (dt != null && nombre.isNotEmpty) {
+                    cumpleanos.add(
+                      _CumpleData(
+                        nombre: nombre,
+                        cedula: doc.id,
+                        fechaNacimiento: dt,
+                        area: (d['areaNombre'] ?? d['area'] ?? '').toString(),
+                      ),
+                    );
                   }
                 })
                 .catchError((_) {}),
@@ -257,9 +257,9 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
         _peopleByTransporte = _sortPeopleMap(peopleByTransp);
         _cumpleanos = cumpleanos
           ..sort(
-            (a, b) => _nextBirthday(
+            (a, b) => proximoCumpleanos(
               a.fechaNacimiento,
-            ).compareTo(_nextBirthday(b.fechaNacimiento)),
+            ).compareTo(proximoCumpleanos(b.fechaNacimiento)),
           );
         _loading = false;
       });
@@ -1056,7 +1056,7 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
   Widget _buildCalendario() {
     final eventDays = <DateTime, List<_CumpleData>>{};
     for (final c in _cumpleanos) {
-      final next = _nextBirthday(c.fechaNacimiento);
+      final next = proximoCumpleanos(c.fechaNacimiento);
       final key = DateTime(next.year, next.month, next.day);
       eventDays[key] = (eventDays[key] ?? [])..add(c);
     }
@@ -1111,7 +1111,8 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
                 )] ??
                 [])
             .map((c) {
-              final age = _calcAge(c.fechaNacimiento);
+              final birthday = proximoCumpleanos(c.fechaNacimiento);
+              final age = edadAlProximoCumpleanos(c.fechaNacimiento);
               return ListTile(
                 dense: true,
                 leading: UserAvatar(
@@ -1130,7 +1131,9 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
                   ),
                 ),
                 subtitle: Text(
-                  '${c.area} · $age años',
+                  '${c.area} · cumple $age años el '
+                  '${birthday.day.toString().padLeft(2, '0')}/'
+                  '${birthday.month.toString().padLeft(2, '0')}',
                   style: const TextStyle(fontFamily: _kFont, fontSize: 11),
                 ),
               );
@@ -1147,9 +1150,9 @@ class _HvDashboardScreenState extends State<HvDashboardScreen>
 
     return Column(
       children: proximos.map((c) {
-        final next = _nextBirthday(c.fechaNacimiento);
-        final days = next.difference(DateTime.now()).inDays;
-        final age = _calcAge(c.fechaNacimiento) + 1; // próximo cumpleaños
+        final next = proximoCumpleanos(c.fechaNacimiento);
+        final days = diasParaCumpleanos(c.fechaNacimiento);
+        final age = edadAlProximoCumpleanos(c.fechaNacimiento);
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(
@@ -1623,39 +1626,6 @@ class _CumpleData {
     required this.fechaNacimiento,
     this.cedula = '',
   });
-}
-
-// ── Utilidades de fecha ───────────────────────────────────────────────────────
-DateTime? _parseFecha(String s) {
-  // Formatos: DD/MM/YYYY o YYYY-MM-DD
-  try {
-    if (s.contains('/')) {
-      final p = s.split('/');
-      return DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-    }
-    return DateTime.parse(s);
-  } catch (_) {
-    return null;
-  }
-}
-
-DateTime _nextBirthday(DateTime birth) {
-  final now = DateTime.now();
-  var next = DateTime(now.year, birth.month, birth.day);
-  if (next.isBefore(DateTime(now.year, now.month, now.day))) {
-    next = DateTime(now.year + 1, birth.month, birth.day);
-  }
-  return next;
-}
-
-int _calcAge(DateTime birth) {
-  final now = DateTime.now();
-  int age = now.year - birth.year;
-  if (now.month < birth.month ||
-      (now.month == birth.month && now.day < birth.day)) {
-    age--;
-  }
-  return age;
 }
 
 String _mesCorto(int m) => const [

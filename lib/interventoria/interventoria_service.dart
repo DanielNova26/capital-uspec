@@ -121,10 +121,9 @@ class InterventoriaService {
             .where((d) => (d.data()['enabled'] as bool?) ?? true)
             .map((d) => CentroCostoRef.fromMap(d.id, d.data()))
             .toList();
-        list.sort((a, b) {
-          final byCode = a.codigo.compareTo(b.codigo);
-          return byCode != 0 ? byCode : a.nombre.compareTo(b.nombre);
-        });
+        list.sort(
+          (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+        );
         return list;
       });
 
@@ -516,7 +515,15 @@ class InterventoriaService {
     }
   }
 
+  String nuevoVisitaId() =>
+      _db.collection('TBL_INTERVENTORIA_VISITAS').doc().id;
+
   Future<String> guardarVisita(InterventoriaVisita visita) async {
+    if (!contieneActaPdf(visita.adjuntos)) {
+      throw ArgumentError(
+        'El acta en PDF es obligatoria para registrar la visita.',
+      );
+    }
     final ref = visita.id.isEmpty
         ? _db.collection('TBL_INTERVENTORIA_VISITAS').doc()
         : _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
@@ -1301,9 +1308,8 @@ class InterventoriaService {
   /// Se lee de una sola pasada porque son el mismo documento: separar los dos
   /// datos costaba dos lecturas completas de `TBL_CARGOS` por cada apertura
   /// del tablero.
-  Future<Map<String, ({String areaId, bool recibeAsignaciones})>> _perfilPorCargo(
-    String empresaId,
-  ) async {
+  Future<Map<String, ({String areaId, bool recibeAsignaciones})>>
+  _perfilPorCargo(String empresaId) async {
     final snap = await _db
         .collection('TBL_CARGOS')
         .where('empresaId', isEqualTo: empresaId)

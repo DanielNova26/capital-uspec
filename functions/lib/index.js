@@ -373,7 +373,13 @@ async function sendPushTo(tokens, notif, data) {
         notification: notif,
         data: { click_action: "FLUTTER_NOTIFICATION_CLICK", ...data },
         android: { priority: "high", notification: { channelId: "tasks_high", sound: "default" } },
-        apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default", contentAvailable: true } } },
+        // Sin contentAvailable: en APNs, `content-available: 1` marca el push como
+        // actualizacion en segundo plano. Mezclarlo con una alerta hace que iOS lo
+        // procese a veces como push silencioso: la notificacion llega pero no suena.
+        // Apple ademas espera prioridad 5 para content-available, no 10, que es la
+        // que necesitamos aqui por ser una alerta al usuario.
+        // Android ignora este bloque, por eso alli el sonido nunca fallo.
+        apns: { headers: { "apns-priority": "10" }, payload: { aps: { sound: "default" } } },
     };
     const resp = await fcm.sendEachForMulticast(msg);
     // limpiar tokens inválidos
@@ -619,6 +625,12 @@ exports.onTaskUpdated = functions
     .onUpdate(async (change, ctx) => {
     const before = change.before.data();
     const after = change.after.data();
+    // El cierre masivo del Admin ya deja auditoría y marca como leídas las
+    // notificaciones del módulo. No generar avisos nuevos por ese mismo cierre.
+    const isAdminModuleCloseout = ((after === null || after === void 0 ? void 0 : after.lastEventType) ?? "").toString() === "admin_module_closeout" &&
+        ((before === null || before === void 0 ? void 0 : before.lastEventType) ?? "").toString() !== "admin_module_closeout";
+    if (isAdminModuleCloseout)
+        return;
     const prevAssigned = getAssignedId(before || null);
     const newAssigned = getAssignedId(after || null);
     const taskId = ctx.params.taskId;

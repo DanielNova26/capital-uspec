@@ -14,6 +14,42 @@ String normalizarClaveAbastecimiento(String value) => value
     .replaceAll(RegExp(r'[^a-z0-9]+'), '')
     .trim();
 
+/// Determina qué programaciones pertenecen a la misma recepción operativa.
+/// Una recepción puede contener varios productos, pero nunca mezcla empresa,
+/// orden de compra, proveedor, grupo ni destino.
+bool abastecimientoComparteRecepcion(
+  AbastecimientoDoc base,
+  AbastecimientoDoc candidate,
+) {
+  if (candidate.eliminado ||
+      candidate.estado.finalizado ||
+      candidate.recepcionId.trim().isNotEmpty ||
+      base.empresaId.trim() != candidate.empresaId.trim()) {
+    return false;
+  }
+
+  final ocBase = normalizarClaveAbastecimiento(base.ordenCompra);
+  final ocCandidate = normalizarClaveAbastecimiento(candidate.ordenCompra);
+  if (ocBase.isEmpty || ocBase != ocCandidate) return false;
+
+  if (base.proveedorId.isNotEmpty && candidate.proveedorId.isNotEmpty) {
+    if (base.proveedorId != candidate.proveedorId) return false;
+  } else if (normalizarClaveAbastecimiento(base.proveedor) !=
+      normalizarClaveAbastecimiento(candidate.proveedor)) {
+    return false;
+  }
+
+  if (base.grupoId.isNotEmpty && candidate.grupoId.isNotEmpty) {
+    if (base.grupoId != candidate.grupoId) return false;
+  } else if (normalizarClaveAbastecimiento(base.grupo) !=
+      normalizarClaveAbastecimiento(candidate.grupo)) {
+    return false;
+  }
+
+  return normalizarClaveAbastecimiento(base.destino) ==
+      normalizarClaveAbastecimiento(candidate.destino);
+}
+
 /// Relaciona una programación con una recepción usando primero el vínculo
 /// explícito y, para recepciones creadas directamente, OC + proveedor + grupo
 /// + producto. La OC nunca se omite porque es el identificador operativo.

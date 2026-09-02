@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 
+import '../utils/text_input_formatters.dart';
 import '../utils/user_company.dart';
 import 'personnel_requisition_models.dart';
 
@@ -196,6 +197,16 @@ class PersonnelRequisitionService {
     });
   }
 
+  Future<void> delete({required String requisitionId}) async {
+    final id = requisitionId.trim();
+    if (id.isEmpty) {
+      throw ArgumentError(
+        'El requerimiento que se va a eliminar no es válido.',
+      );
+    }
+    await _db.collection(collection).doc(id).delete();
+  }
+
   Future<PersonnelRequisitionCatalogs> loadCatalogs(String empresaId) async {
     final snapshots = await Future.wait([
       _db
@@ -373,8 +384,8 @@ class PersonnelRequisitionService {
       final added = PersonnelCandidate(
         document: document,
         documentType: candidate.documentType,
-        names: candidate.names.trim(),
-        surnames: candidate.surnames.trim(),
+        names: capitalizarPalabras(candidate.names.trim()),
+        surnames: capitalizarPalabras(candidate.surnames.trim()),
         email: candidate.email.trim(),
         phone: candidate.phone.trim(),
         stage: candidate.stage,
@@ -593,9 +604,9 @@ class PersonnelRequisitionService {
         'usuario': document,
         'cedula': document,
         'tipoDocumento': hire.documentType,
-        'nombres': hire.names.trim(),
-        'apellidos': hire.surnames.trim(),
-        'nombreCompleto': hire.fullName,
+        'nombres': capitalizarPalabras(hire.names.trim()),
+        'apellidos': capitalizarPalabras(hire.surnames.trim()),
+        'nombreCompleto': capitalizarPalabras(hire.fullName),
         if (hire.email.trim().isNotEmpty) 'correo': hire.email.trim(),
         if (hire.phone.trim().isNotEmpty) 'telefono': hire.phone.trim(),
         'empresaId': current.empresaId,
@@ -613,8 +624,8 @@ class PersonnelRequisitionService {
       final hired = PersonnelHire(
         document: document,
         documentType: hire.documentType,
-        names: hire.names.trim(),
-        surnames: hire.surnames.trim(),
+        names: capitalizarPalabras(hire.names.trim()),
+        surnames: capitalizarPalabras(hire.surnames.trim()),
         email: hire.email.trim(),
         phone: hire.phone.trim(),
         hiredAt: DateTime.now(),

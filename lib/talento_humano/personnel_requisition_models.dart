@@ -161,8 +161,7 @@ extension PersonnelCandidateStageX on PersonnelCandidateStage {
     PersonnelCandidateStage.exams => PersonnelRequisitionStage.exams,
     PersonnelCandidateStage.documents => PersonnelRequisitionStage.documents,
     PersonnelCandidateStage.hired => PersonnelRequisitionStage.hired,
-    PersonnelCandidateStage.discarded =>
-      PersonnelRequisitionStage.recruitment,
+    PersonnelCandidateStage.discarded => PersonnelRequisitionStage.recruitment,
   };
 
   static PersonnelCandidateStage parse(Object? raw) {
@@ -583,6 +582,7 @@ class PersonnelRequisitionAccess {
       role == PersonnelRequisitionRole.recruiter;
   bool get canRegisterHire => canUpdateStage;
   bool get canCancel => role == PersonnelRequisitionRole.manager;
+  bool get canDelete => role == PersonnelRequisitionRole.manager;
   bool get canExport => true;
 
   static PersonnelRequisitionAccess fromUserData(

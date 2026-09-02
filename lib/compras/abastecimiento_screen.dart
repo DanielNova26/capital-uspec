@@ -41,7 +41,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   final _parser = ComprasAbastecimientoExcelParser();
   final _searchController = TextEditingController();
   AbastecimientoEstado? _estado;
-  DateTime? _fecha;
+  DateTime? _fechaDesde;
+  DateTime? _fechaHasta;
   DateTime? _consumoDesde;
   String? _proveedor;
   String? _producto;
@@ -70,9 +71,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   @override
   void initState() {
     super.initState();
-    _fecha = widget.initialDate == null
-        ? null
-        : DateUtils.dateOnly(widget.initialDate!);
+    if (widget.initialDate != null) {
+      _fechaDesde = DateUtils.dateOnly(widget.initialDate!);
+      _fechaHasta = _fechaDesde;
+    }
   }
 
   @override
@@ -211,9 +213,16 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           return false;
         }
       }
-      if (_fecha != null) {
+      if (_fechaDesde != null || _fechaHasta != null) {
         final date = row.fechaProgramada;
-        if (date == null || !DateUtils.isSameDay(date, _fecha)) return false;
+        if (date == null) return false;
+        final deliveryDate = DateUtils.dateOnly(date);
+        if (_fechaDesde != null && deliveryDate.isBefore(_fechaDesde!)) {
+          return false;
+        }
+        if (_fechaHasta != null && deliveryDate.isAfter(_fechaHasta!)) {
+          return false;
+        }
       }
       if (query.isEmpty) return true;
       return row.proveedor.toLowerCase().contains(query) ||
@@ -312,13 +321,15 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
   }
 
   void _applyMetricFilter(String label) => setState(() {
-    _fecha = null;
+    _fechaDesde = null;
+    _fechaHasta = null;
     _soloPendientes = false;
     _soloAtrasadas = false;
     switch (label) {
       case 'Hoy':
         _estado = null;
-        _fecha = DateUtils.dateOnly(DateTime.now());
+        _fechaDesde = DateUtils.dateOnly(DateTime.now());
+        _fechaHasta = _fechaDesde;
         break;
       case 'Cancelados':
         _estado = AbastecimientoEstado.cancelado;
@@ -384,6 +395,11 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
               runSpacing: 10,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
+                SizedBox(
+                  width: 260,
+                  child: _consumptionFilter(consumptionPeriods),
+                ),
+                _dateFilter(),
                 SizedBox(width: 170, child: _statusFilter()),
                 SizedBox(
                   width: 220,
@@ -412,11 +428,6 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     onChanged: (value) => setState(() => _grupo = value),
                   ),
                 ),
-                _dateFilter(),
-                SizedBox(
-                  width: 225,
-                  child: _consumptionFilter(consumptionPeriods),
-                ),
                 FilterChip(
                   selected: _soloPendientes,
                   onSelected: (selected) =>
@@ -435,7 +446,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           else ...[
             Row(
               children: [
-                Expanded(child: _statusFilter()),
+                Expanded(child: _consumptionFilter(consumptionPeriods)),
                 const SizedBox(width: 8),
                 Expanded(child: _dateFilter()),
               ],
@@ -464,14 +475,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   ),
                   const SizedBox(width: 8),
                   ActionChip(
-                    onPressed: () => _showMobileFilters(
-                      providers,
-                      products,
-                      groups,
-                      consumptionPeriods,
-                    ),
+                    onPressed: () =>
+                        _showMobileFilters(providers, products, groups),
                     avatar: const Icon(Icons.tune, size: 17),
-                    label: const Text('Proveedor, producto y grupo'),
+                    label: const Text('Estado, proveedor, producto y grupo'),
                   ),
                   if (_filtersActive) ...[
                     const SizedBox(width: 8),
@@ -494,12 +501,11 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     List<String> providers,
     List<String> products,
     List<String> groups,
-    List<DateTime> consumptionPeriods,
   ) async {
+    var status = _estado;
     var provider = _proveedor;
     var product = _producto;
     var group = _grupo;
-    var consumption = _consumoDesde;
     final accepted = await showModalBottomSheet<bool>(
       context: context,
       useSafeArea: true,
@@ -521,30 +527,28 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                 style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 16),
+              DropdownButtonFormField<AbastecimientoEstado?>(
+                initialValue: status,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Estado',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Todos')),
+                  ...AbastecimientoEstado.values.map(
+                    (item) =>
+                        DropdownMenuItem(value: item, child: Text(item.label)),
+                  ),
+                ],
+                onChanged: (value) => setLocal(() => status = value),
+              ),
+              const SizedBox(height: 10),
               _mobileTextFilter(
                 label: 'Proveedor',
                 value: provider,
                 options: providers,
                 onChanged: (value) => setLocal(() => provider = value),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<DateTime?>(
-                initialValue: consumption,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Período de consumo',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem(value: null, child: Text('Todos')),
-                  ...consumptionPeriods.map(
-                    (date) => DropdownMenuItem(
-                      value: date,
-                      child: Text(_periodLabel(date)),
-                    ),
-                  ),
-                ],
-                onChanged: (value) => setLocal(() => consumption = value),
               ),
               const SizedBox(height: 10),
               _mobileTextFilter(
@@ -573,10 +577,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     );
     if (accepted == true && mounted) {
       setState(() {
+        _estado = status;
         _proveedor = provider;
         _producto = product;
         _grupo = group;
-        _consumoDesde = consumption;
       });
     }
   }
@@ -642,7 +646,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
   bool get _filtersActive =>
       _estado != null ||
-      _fecha != null ||
+      _fechaDesde != null ||
+      _fechaHasta != null ||
       _proveedor != null ||
       _producto != null ||
       _grupo != null ||
@@ -653,7 +658,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
 
   void _clearFilters() => setState(() {
     _estado = null;
-    _fecha = null;
+    _fechaDesde = null;
+    _fechaHasta = null;
     _proveedor = null;
     _producto = null;
     _grupo = null;
@@ -719,7 +725,8 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
         initialValue: _consumoDesde,
         isExpanded: true,
         decoration: InputDecoration(
-          labelText: 'Período de consumo',
+          labelText: 'Consumo principal · vie–jue',
+          prefixIcon: const Icon(Icons.event_repeat_outlined, size: 20),
           isDense: true,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
         ),
@@ -736,34 +743,51 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
       );
 
   Widget _dateFilter() => OutlinedButton.icon(
-    onPressed: _pickFilterDate,
-    icon: Icon(_fecha == null ? Icons.date_range : Icons.event_busy, size: 18),
+    onPressed: _pickFilterDateRange,
+    icon: Icon(
+      _fechaDesde == null && _fechaHasta == null
+          ? Icons.date_range
+          : Icons.event_busy,
+      size: 18,
+    ),
     label: Text(
-      _fecha == null
-          ? 'Cualquier fecha'
-          : DateFormat('dd MMM', 'es').format(_fecha!),
+      _fechaDesde == null && _fechaHasta == null
+          ? 'Entrega desde–hasta'
+          : '${DateFormat('dd MMM', 'es').format(_fechaDesde!)} – '
+                '${DateFormat('dd MMM', 'es').format(_fechaHasta!)}',
       overflow: TextOverflow.ellipsis,
     ),
     style: OutlinedButton.styleFrom(
-      minimumSize: const Size(150, 48),
+      minimumSize: const Size(205, 48),
       foregroundColor: _abBlue,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ),
   );
 
-  Future<void> _pickFilterDate() async {
-    if (_fecha != null) {
-      setState(() => _fecha = null);
+  Future<void> _pickFilterDateRange() async {
+    if (_fechaDesde != null || _fechaHasta != null) {
+      setState(() {
+        _fechaDesde = null;
+        _fechaHasta = null;
+      });
       return;
     }
-    final date = await showDatePicker(
+    final range = await showDateRangePicker(
       context: context,
-      initialDate: DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
+      initialDateRange: DateTimeRange(
+        start: DateUtils.dateOnly(DateTime.now()),
+        end: DateUtils.dateOnly(DateTime.now()),
+      ),
+      helpText: 'FILTRAR ENTREGAS DESDE–HASTA',
+      saveText: 'APLICAR',
     );
-    if (date != null) {
-      setState(() => _fecha = DateUtils.dateOnly(date));
+    if (range != null) {
+      setState(() {
+        _fechaDesde = DateUtils.dateOnly(range.start);
+        _fechaHasta = DateUtils.dateOnly(range.end);
+      });
     }
   }
 
@@ -2093,47 +2117,60 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
     final observations = TextEditingController();
     DateTime? date;
     DateTime consumptionStart = inicioPeriodoConsumo(DateTime.now());
-    final consumptionPeriods = List.generate(
-      21,
-      (index) => inicioPeriodoConsumo(
-        DateTime.now().add(Duration(days: (index - 4) * 7)),
-      ),
-    );
+    DateTime consumptionEnd = finPeriodoConsumo(consumptionStart);
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setLocal) => AlertDialog(
-          title: const Text('Nueva entrega programada'),
+          title: const Text('Nueva entrega por fecha'),
           content: SizedBox(
             width: 600,
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  DropdownButtonFormField<ProveedorDoc>(
-                    initialValue: selectedProvider,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Proveedor registrado *',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: providers
-                        .map(
-                          (provider) => DropdownMenuItem(
-                            value: provider,
-                            child: Text(
-                              provider.razonSocial,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                  LayoutBuilder(
+                    builder: (context, constraints) =>
+                        DropdownMenu<ProveedorDoc>(
+                          width: constraints.maxWidth,
+                          enableFilter: true,
+                          enableSearch: true,
+                          requestFocusOnTap: true,
+                          menuHeight: 300,
+                          label: const Text('Buscar proveedor registrado *'),
+                          leadingIcon: const Icon(Icons.person_search_outlined),
+                          inputDecorationTheme: const InputDecorationTheme(
+                            border: OutlineInputBorder(),
                           ),
-                        )
-                        .toList(),
-                    onChanged: (provider) => setLocal(() {
-                      selectedProvider = provider;
-                      selectedCategory = provider?.categorias.length == 1
-                          ? provider!.categorias.first
-                          : null;
-                    }),
+                          dropdownMenuEntries: providers
+                              .map(
+                                (provider) => DropdownMenuEntry(
+                                  value: provider,
+                                  label: provider.razonSocial,
+                                  trailingIcon: provider.nit.trim().isEmpty
+                                      ? null
+                                      : Text(provider.nit),
+                                ),
+                              )
+                              .toList(),
+                          onSelected: (provider) => setLocal(() {
+                            selectedProvider = provider;
+                            selectedCategory = provider?.categorias.length == 1
+                                ? provider!.categorias.first
+                                : null;
+                          }),
+                        ),
                   ),
+                  if (attempted && selectedProvider == null)
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Busca y selecciona un proveedor',
+                          style: TextStyle(color: _abRed, fontSize: 12),
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -2268,7 +2305,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Fecha programada'),
+                    title: const Text('Fecha programada de entrega *'),
                     subtitle: Text(_dateLabel(date)),
                     trailing: const Icon(Icons.event),
                     onTap: () async {
@@ -2282,37 +2319,96 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                         setLocal(() {
                           date = chosen;
                           consumptionStart = inicioPeriodoConsumo(chosen);
+                          consumptionEnd = finPeriodoConsumo(consumptionStart);
                         });
                       }
                     },
                   ),
-                  DropdownButtonFormField<DateTime>(
-                    key: ValueKey(consumptionStart.toIso8601String()),
-                    initialValue: consumptionStart,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Período de consumo (viernes a jueves) *',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.date_range_outlined),
+                  if (attempted && date == null)
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Selecciona la fecha programada de entrega',
+                          style: TextStyle(color: _abRed, fontSize: 12),
+                        ),
+                      ),
                     ),
-                    items:
-                        (<DateTime>{
-                              ...consumptionPeriods,
-                              consumptionStart,
-                            }.toList()..sort((a, b) => a.compareTo(b)))
-                            .map(
-                              (period) => DropdownMenuItem(
-                                value: period,
-                                child: Text(_periodLabel(period)),
-                              ),
-                            )
-                            .toList(),
-                    onChanged: (period) {
-                      if (period != null) {
-                        setLocal(() => consumptionStart = period);
-                      }
-                    },
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Consumo manual (viernes a jueves) *',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final chosen = await showDatePicker(
+                              context: context,
+                              initialDate: consumptionStart,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                              selectableDayPredicate: (value) =>
+                                  value.weekday == DateTime.friday,
+                              helpText: 'CONSUMO DESDE (VIERNES)',
+                            );
+                            if (chosen != null) {
+                              setLocal(() {
+                                consumptionStart = DateUtils.dateOnly(chosen);
+                                consumptionEnd = finPeriodoConsumo(
+                                  consumptionStart,
+                                );
+                              });
+                            }
+                          },
+                          icon: const Icon(Icons.event_available_outlined),
+                          label: Text(
+                            'Desde ${DateFormat('dd/MM/yyyy').format(consumptionStart)}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final chosen = await showDatePicker(
+                              context: context,
+                              initialDate: consumptionEnd,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                              selectableDayPredicate: (value) =>
+                                  value.weekday == DateTime.thursday,
+                              helpText: 'CONSUMO HASTA (JUEVES)',
+                            );
+                            if (chosen != null) {
+                              setLocal(
+                                () =>
+                                    consumptionEnd = DateUtils.dateOnly(chosen),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.event_available_outlined),
+                          label: Text(
+                            'Hasta ${DateFormat('dd/MM/yyyy').format(consumptionEnd)}',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (attempted &&
+                      consumptionEnd.difference(consumptionStart).inDays != 6)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 6),
+                      child: Text(
+                        'El consumo debe terminar el jueves siguiente al viernes seleccionado.',
+                        style: TextStyle(color: _abRed, fontSize: 12),
+                      ),
+                    ),
                   const SizedBox(height: 10),
                   _input(observations, 'Observaciones', maxLines: 3),
                 ],
@@ -2335,6 +2431,10 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
                     product.text.trim().isEmpty ||
                     selectedGroup == null ||
                     resolvedDestination.isEmpty ||
+                    date == null ||
+                    consumptionStart.weekday != DateTime.friday ||
+                    consumptionEnd.weekday != DateTime.thursday ||
+                    consumptionEnd.difference(consumptionStart).inDays != 6 ||
                     oc.text.trim().isEmpty) {
                   setLocal(() => attempted = true);
                   return;
@@ -2365,6 +2465,7 @@ class _AbastecimientoScreenState extends State<AbastecimientoScreen> {
           condicion: condition.text,
           fechaProgramada: date,
           consumoDesde: consumptionStart,
+          consumoHasta: consumptionEnd,
           ordenCompra: oc.text,
           observaciones: observations.text,
         );

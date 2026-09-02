@@ -253,6 +253,10 @@ function userBelongsToEmpresa(
  * Vinculación laboral vigente en la empresa. Talento Humano inhabilita por
  * empresa (`empresasDetalle.{empresaId}.estadoLaboral`), no en el `estado`
  * global, que solo controla el inicio de sesión.
+ *
+ * @param {admin.firestore.DocumentData} data Datos del usuario.
+ * @param {string} empresaId Empresa activa que se debe validar.
+ * @return {boolean} true cuando el usuario sigue activo en la empresa.
  */
 function userIsActiveInEmpresa(
   data: admin.firestore.DocumentData,

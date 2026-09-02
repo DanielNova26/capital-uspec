@@ -305,6 +305,26 @@ class AbastecimientoDoc {
         : DateTime.tryParse((value ?? '').toString());
 
     final rawHistory = map['historial'];
+    final fechaProgramada = date(map['fechaProgramada']);
+    final consumoDesdeRaw = date(map['consumoDesde']);
+    final consumoHastaRaw = date(map['consumoHasta']);
+    // La regla operativa es siempre viernes-jueves. La variante histórica
+    // jueves-viernes se corrige moviendo ambos límites hacia adentro.
+    final esRangoLegadoJuevesViernes =
+        consumoDesdeRaw?.weekday == DateTime.thursday &&
+        consumoHastaRaw?.weekday == DateTime.friday &&
+        consumoHastaRaw!.difference(consumoDesdeRaw!).inDays == 8;
+    final consumoBase = consumoDesdeRaw ?? fechaProgramada;
+    final consumoDesde = esRangoLegadoJuevesViernes
+        ? consumoDesdeRaw.add(const Duration(days: 1))
+        : consumoBase == null
+        ? null
+        : inicioPeriodoConsumo(consumoBase);
+    final consumoHasta = esRangoLegadoJuevesViernes
+        ? consumoHastaRaw.subtract(const Duration(days: 1))
+        : consumoDesde == null
+        ? null
+        : finPeriodoConsumo(consumoDesde);
     return AbastecimientoDoc(
       id: id,
       empresaId: (map['empresaId'] ?? '').toString(),
@@ -323,7 +343,7 @@ class AbastecimientoDoc {
       cantidad: (map['cantidad'] as num?)?.toDouble(),
       unidad: (map['unidad'] ?? '').toString(),
       precio: (map['precio'] as num?)?.toDouble(),
-      fechaProgramada: date(map['fechaProgramada']),
+      fechaProgramada: fechaProgramada,
       fechaSegundaEntrega: date(map['fechaSegundaEntrega']),
       ordenCompra: (map['ordenCompra'] ?? '').toString(),
       recepcionId: (map['recepcionId'] ?? '').toString(),
@@ -333,18 +353,8 @@ class AbastecimientoDoc {
       entradaRegistradaAt: map['entradaRegistradaAt'] is Timestamp
           ? map['entradaRegistradaAt'] as Timestamp
           : null,
-      consumoDesde:
-          date(map['consumoDesde']) ??
-          (date(map['fechaProgramada']) == null
-              ? null
-              : inicioPeriodoConsumo(date(map['fechaProgramada'])!)),
-      consumoHasta:
-          date(map['consumoHasta']) ??
-          (date(map['fechaProgramada']) == null
-              ? null
-              : finPeriodoConsumo(
-                  inicioPeriodoConsumo(date(map['fechaProgramada'])!),
-                )),
+      consumoDesde: consumoDesde,
+      consumoHasta: consumoHasta,
       estado: parseAbastecimientoEstado(map['estado']),
       observaciones: (map['observaciones'] ?? '').toString(),
       novedadEstado: (map['novedadEstado'] ?? '').toString(),

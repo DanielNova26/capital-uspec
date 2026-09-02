@@ -3,6 +3,29 @@ import 'package:todo/interventoria/interventoria_models.dart';
 import 'package:todo/interventoria/interventoria_numerales_catalogo.dart';
 
 void main() {
+  group('acceso al maestro de subsanaciones', () {
+    test('solo lo concede al administrador del módulo', () {
+      expect(
+        puedeConsultarMaestroSubsanaciones(kRolInterventoriaAdmin),
+        isTrue,
+      );
+      for (final rol in [
+        kRolInterventoriaRegistrador,
+        kRolInterventoriaRevisor,
+        kRolInterventoriaGerente,
+        kRolInterventoriaDirectivo,
+        kRolInterventoriaConsulta,
+        '',
+      ]) {
+        expect(
+          puedeConsultarMaestroSubsanaciones(rol),
+          isFalse,
+          reason: '$rol no debe acceder al maestro',
+        );
+      }
+    });
+  });
+
   group('el formulario del acta cubre la matriz', () {
     test('ninguna categoría queda sin numerales', () {
       for (final categoria in kInterventoriaCategorias) {
@@ -115,6 +138,36 @@ void main() {
         kInterventoriaResponsabilidadPorNumeral['11.8']!.responsable,
         'Supervisor de Hse',
       );
+    });
+  });
+
+  group('maestro de subsanaciones', () {
+    test('publica los 141 numerales como una biblioteca completa', () {
+      final maestro = construirMaestroSubsanaciones();
+
+      expect(maestro, hasLength(141));
+      expect(maestro.map((e) => e.numeral).toSet(), hasLength(141));
+      expect(maestro.first.numeral, '1.1');
+      expect(maestro.last.numeral, '11.8');
+      expect(
+        maestro.every(
+          (e) =>
+              e.descripcion.isNotEmpty &&
+              e.responsable.isNotEmpty &&
+              e.aprobador.isNotEmpty,
+        ),
+        isTrue,
+      );
+    });
+
+    test('explica a quién asigna y quién aprueba cada numeral', () {
+      final maestro = construirMaestroSubsanaciones();
+      final numeral23 = maestro.singleWhere((e) => e.numeral == '2.3');
+
+      expect(numeral23.seccion, 2);
+      expect(numeral23.descripcion, startsWith('El contratista'));
+      expect(numeral23.responsable, 'Coordinador de mantenimiento');
+      expect(numeral23.aprobador, 'Gerencia');
     });
   });
 

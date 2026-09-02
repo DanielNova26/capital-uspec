@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import 'birthday_logic.dart';
+
 /// Estado de revisión de la hoja de vida desde Talento Humano.
 enum EstadoRevision { sinEnviar, enRevision, aprobado, requiereCambios }
 
@@ -344,17 +346,10 @@ class HojaDeVidaService {
   }
 
   String _formatDateLike(dynamic value) {
-    if (value == null) return '';
-    if (value is Timestamp) {
-      final d = value.toDate();
-      return '${d.day.toString().padLeft(2, '0')}/'
-          '${d.month.toString().padLeft(2, '0')}/${d.year}';
-    }
-    if (value is DateTime) {
-      return '${value.day.toString().padLeft(2, '0')}/'
-          '${value.month.toString().padLeft(2, '0')}/${value.year}';
-    }
-    return value.toString().trim();
+    final date = parseFechaNacimiento(value);
+    if (date == null) return value?.toString().trim() ?? '';
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
   // ── Guardar hoja de vida (empleado) ─────────────────────────────────────

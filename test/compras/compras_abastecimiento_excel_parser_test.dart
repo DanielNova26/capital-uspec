@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/compras/abastecimiento_models.dart';
@@ -153,6 +154,21 @@ void main() {
     expect(inicioPeriodoConsumo(DateTime(2026, 8, 27)), DateTime(2026, 8, 21));
     expect(inicioPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 8, 28));
     expect(finPeriodoConsumo(DateTime(2026, 8, 28)), DateTime(2026, 9, 3));
+  });
+
+  test('corrige al leer un período histórico guardado desde jueves', () {
+    final doc = AbastecimientoDoc.fromMap('ab-legacy', {
+      'empresaId': 'empresa-1',
+      'importKey': 'legacy',
+      'proveedor': 'Proveedor',
+      'categoria': 'Abarrotes',
+      'producto': 'Arroz',
+      'consumoDesde': Timestamp.fromDate(DateTime(2026, 8, 27)),
+      'consumoHasta': Timestamp.fromDate(DateTime(2026, 9, 4)),
+    });
+
+    expect(doc.consumoDesde, DateTime(2026, 8, 28));
+    expect(doc.consumoHasta, DateTime(2026, 9, 3));
   });
 
   test('clasifica las observaciones operativas del consolidado', () {

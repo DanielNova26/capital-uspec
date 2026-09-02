@@ -222,6 +222,32 @@ void main() {
     });
   });
 
+  group('nombres de aspirantes y contratados', () {
+    const formatter = CapitalizedWordsTextFormatter();
+
+    TextEditingValue escribir(String texto) => formatter.formatEditUpdate(
+      const TextEditingValue(),
+      TextEditingValue(
+        text: texto,
+        selection: TextSelection.collapsed(offset: texto.length),
+      ),
+    );
+
+    test('fuerza inicial mayúscula en cada palabra', () {
+      expect(
+        capitalizarPalabras('mARÍA fernanda de la cruz'),
+        'María Fernanda De La Cruz',
+      );
+      expect(capitalizarPalabras("juan-pablo o'connor"), "Juan-Pablo O'Connor");
+    });
+
+    test('también normaliza texto pegado en el formulario', () {
+      final value = escribir('ana maría gómez');
+      expect(value.text, 'Ana María Gómez');
+      expect(value.selection.baseOffset, value.text.length);
+    });
+  });
+
   group('el salario se ve como moneda mientras se escribe', () {
     const fmt = MonedaInputFormatter();
 

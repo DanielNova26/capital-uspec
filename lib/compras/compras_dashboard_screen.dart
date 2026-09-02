@@ -30,6 +30,7 @@ import 'compras_service.dart';
 import 'compras_req_engine.dart';
 import 'compras_validation.dart';
 import 'abastecimiento_models.dart';
+import 'abastecimiento_service.dart';
 import 'abastecimiento_screen.dart';
 import '../core/guarded_module_page.dart';
 import '../home/widgets/home_shared_widgets.dart' show CompanyNameWidget;
@@ -537,17 +538,30 @@ Future<bool?> abrirNuevaRecepcionDesdeAbastecimiento(
   required String empresaId,
   required String userId,
   required AbastecimientoDoc entrega,
-}) => Navigator.push<bool>(
-  context,
-  MaterialPageRoute(
-    builder: (_) => _NuevaRecepcionScreen(
-      empresaId: empresaId,
-      svc: ComprasService(),
-      userId: userId,
-      abastecimientoInicial: entrega,
+}) async {
+  var entregas = <AbastecimientoDoc>[entrega];
+  try {
+    final relacionadas = await AbastecimientoService().getEntregasParaRecepcion(
+      entrega,
+    );
+    if (relacionadas.isNotEmpty) entregas = relacionadas;
+  } catch (_) {
+    // La recepción puede continuar con la entrega elegida si falla el
+    // agrupamiento; el guardado volverá a sincronizar por OC y producto.
+  }
+  if (!context.mounted) return null;
+  return Navigator.push<bool>(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _NuevaRecepcionScreen(
+        empresaId: empresaId,
+        svc: ComprasService(),
+        userId: userId,
+        abastecimientosIniciales: entregas,
+      ),
     ),
-  ),
-);
+  );
+}
 
 /// Lleva una tarea de corrección al punto exacto de Compras donde se reemplaza
 /// su documento. La carga persiste el documento y deja la tarea en revisión de
@@ -976,36 +990,37 @@ class ComprasDashboardScreen extends StatelessWidget {
             ),
           ),
         ),
-      card(
-        icon: Icons.route_outlined,
-        titulo: 'Abastecimiento',
-        subtitulo: _esBodega
-            ? 'Entregas programadas y recepción del día'
-            : 'Programación, novedades y seguimiento de entregas',
-        color: const Color(0xFF0F4C81),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AbastecimientoScreen(
-              empresaId: empresaId,
-              userId: userId,
-              rolCompras: _rolNormalizado,
-              onRegistrarRecepcion: (entrega) =>
-                  abrirNuevaRecepcionDesdeAbastecimiento(
-                    context,
-                    empresaId: empresaId,
-                    userId: userId,
-                    entrega: entrega,
-                  ),
-              onAbrirRecepcion: (recepcionId) => abrirDetalleRecepcionCompras(
-                context,
+      if (comprasRolPuedeVerAbastecimiento(_rolNormalizado))
+        card(
+          icon: Icons.route_outlined,
+          titulo: 'Abastecimiento',
+          subtitulo: _esBodega
+              ? 'Entregas programadas y recepción del día'
+              : 'Programación, novedades y seguimiento de entregas',
+          color: const Color(0xFF0F4C81),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AbastecimientoScreen(
+                empresaId: empresaId,
                 userId: userId,
-                recepcionId: recepcionId,
+                rolCompras: _rolNormalizado,
+                onRegistrarRecepcion: (entrega) =>
+                    abrirNuevaRecepcionDesdeAbastecimiento(
+                      context,
+                      empresaId: empresaId,
+                      userId: userId,
+                      entrega: entrega,
+                    ),
+                onAbrirRecepcion: (recepcionId) => abrirDetalleRecepcionCompras(
+                  context,
+                  userId: userId,
+                  recepcionId: recepcionId,
+                ),
               ),
             ),
           ),
         ),
-      ),
       card(
         icon: Icons.manage_search,
         titulo: 'Consultas',
@@ -1557,7 +1572,9 @@ class _VencimientosScreenState extends State<_VencimientosScreen> {
                           decoration: BoxDecoration(
                             color: color.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: color.withValues(alpha: 0.35)),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.35),
+                            ),
                           ),
                           child: Text(
                             estadoTxt,
@@ -9759,7 +9776,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
   final String? correccionTaskId;
   final String? correccionDocKey;
   final String? correccionProductoId;
-  final AbastecimientoDoc? abastecimientoInicial;
+  final List<AbastecimientoDoc> abastecimientosIniciales;
 
   const _NuevaRecepcionScreen({
     required this.empresaId,
@@ -9769,7 +9786,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
     this.correccionTaskId,
     this.correccionDocKey,
     this.correccionProductoId,
-    this.abastecimientoInicial,
+    this.abastecimientosIniciales = const [],
   });
 
   @override
@@ -9797,6 +9814,21 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   final Set<String> _documentosCorregibles = {};
 
   bool get isNew => widget.existing == null;
+  AbastecimientoDoc? get _abastecimientoInicial =>
+      widget.abastecimientosIniciales.isEmpty
+      ? null
+      : widget.abastecimientosIniciales.first;
+  List<AbastecimientoDoc> get _productosAbastecimientoIniciales {
+    final unique = <String, AbastecimientoDoc>{};
+    for (final entrega in widget.abastecimientosIniciales) {
+      final key = entrega.productoId.trim().isNotEmpty
+          ? 'id:${entrega.productoId.trim()}'
+          : 'nombre:${normalizarClaveCatalogoCompras(entrega.producto)}';
+      unique.putIfAbsent(key, () => entrega);
+    }
+    return unique.values.toList();
+  }
+
   bool get _esCorreccionDirigida =>
       (widget.correccionTaskId ?? '').trim().isNotEmpty &&
       (widget.correccionDocKey ?? '').trim().isNotEmpty;
@@ -9952,8 +9984,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         return e;
       }).toList();
       _documentosCorregibles.addAll(documentosRechazadosRecepcion(r).keys);
-    } else if (widget.abastecimientoInicial != null) {
-      final entrega = widget.abastecimientoInicial!;
+    } else if (_abastecimientoInicial != null) {
+      final entrega = _abastecimientoInicial!;
       _ordenCtrl.text = entrega.ordenCompra;
       _bodegaSeleccionada = entrega.destino.trim().isEmpty
           ? null
@@ -9961,7 +9993,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       _grupoSeleccionado = entrega.grupoId.trim().isEmpty
           ? null
           : entrega.grupoId.trim();
-      _entries = [_RecepcionEntry()..expandido = true];
+      _entries = _productosAbastecimientoIniciales
+          .map((_) => _RecepcionEntry()..expandido = true)
+          .toList();
     }
     _cargarDatos();
   }
@@ -10075,8 +10109,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
               } catch (_) {}
             }
           }
-        } else if (widget.abastecimientoInicial != null) {
-          final entrega = widget.abastecimientoInicial!;
+        } else if (_abastecimientoInicial != null) {
+          final entrega = _abastecimientoInicial!;
           try {
             _proveedor = _proveedores.firstWhere(
               (provider) => provider.id == entrega.proveedorId,
@@ -10086,15 +10120,19 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             _provCtrl.text = entrega.proveedor;
           }
           if (_entries.isEmpty) _entries = [_RecepcionEntry()];
-          try {
-            _entries.first.producto = _productos.firstWhere(
-              (product) =>
-                  (entrega.productoId.isNotEmpty &&
-                      product.id == entrega.productoId) ||
-                  normalizarClaveCatalogoCompras(product.nombre) ==
-                      normalizarClaveCatalogoCompras(entrega.producto),
-            );
-          } catch (_) {}
+          final programados = _productosAbastecimientoIniciales;
+          for (var i = 0; i < _entries.length && i < programados.length; i++) {
+            final programado = programados[i];
+            try {
+              _entries[i].producto = _productos.firstWhere(
+                (product) =>
+                    (programado.productoId.isNotEmpty &&
+                        product.id == programado.productoId) ||
+                    normalizarClaveCatalogoCompras(product.nombre) ==
+                        normalizarClaveCatalogoCompras(programado.producto),
+              );
+            } catch (_) {}
+          }
         }
       });
     } catch (e) {
@@ -10332,10 +10370,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         productoIds: productos.map((p) => p.productoId).toList(),
         abastecimientoIds:
             widget.existing?.abastecimientoIds ??
-            [
-              if (widget.abastecimientoInicial != null)
-                widget.abastecimientoInicial!.id,
-            ],
+            widget.abastecimientosIniciales.map((item) => item.id).toList(),
         creadoPor: widget.existing?.creadoPor ?? widget.userId,
         createdAt: widget.existing?.createdAt ?? Timestamp.now(),
       );
@@ -10718,6 +10753,41 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     );
   }
 
+  Widget _buildAbastecimientoVinculado() {
+    final entregas = widget.abastecimientosIniciales;
+    if (!isNew || entregas.isEmpty) return const SizedBox.shrink();
+    final productos = _productosAbastecimientoIniciales.length;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: kComprasGreen.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: kComprasGreen.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.link_rounded, color: kComprasGreen),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${entregas.length} ${entregas.length == 1 ? 'entrega programada' : 'entregas programadas'} '
+              'de la OC ${entregas.first.ordenCompra} quedaron vinculadas. '
+              'Se precargaron $productos ${productos == 1 ? 'producto' : 'productos'}; '
+              'completa marca, lotes y documentos antes de guardar.',
+              style: const TextStyle(
+                fontFamily: _kFont,
+                color: Color(0xFF14532D),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final fechaDisplay = widget.existing != null
@@ -10775,6 +10845,10 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildEstadoFlujoRecepcion(),
+                  if (isNew && widget.abastecimientosIniciales.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _buildAbastecimientoVinculado(),
+                  ],
                   const SizedBox(height: 16),
                   // ── Encabezado ──────────────────────────
                   _SectionHeader(
@@ -11642,7 +11716,9 @@ class _ProductoEntryCard extends StatelessWidget {
                                                 ? kComprasGreen.withValues(
                                                     alpha: 0.08,
                                                   )
-                                                : kComprasRed.withValues(alpha: 0.08),
+                                                : kComprasRed.withValues(
+                                                    alpha: 0.08,
+                                                  ),
                                             borderRadius: BorderRadius.circular(
                                               5,
                                             ),
@@ -13188,7 +13264,10 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
       productos: products.docs.length,
       marcas: brands.docs.length,
       recepciones: receipts.docs.length,
-      fichas: technicalSheets.docs.length,
+      fichas: technicalSheets.docs
+          .map((doc) => FichaTecnicaDoc.fromMap(doc.id, doc.data()))
+          .where(fichaTecnicaVisibleEnConsultas)
+          .length,
     );
   }
 
@@ -13243,7 +13322,9 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                 decoration: BoxDecoration(
                   color: _accentColor.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _accentColor.withValues(alpha: 0.18)),
+                  border: Border.all(
+                    color: _accentColor.withValues(alpha: 0.18),
+                  ),
                 ),
                 child: const Text(
                   'Centro de consultas',
@@ -13315,7 +13396,9 @@ class _ConsultasScreenState extends State<_ConsultasScreen>
                     decoration: BoxDecoration(
                       color: _accentColor.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: _accentColor.withValues(alpha: 0.14)),
+                      border: Border.all(
+                        color: _accentColor.withValues(alpha: 0.14),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -16331,8 +16414,12 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
   List<FichaTecnicaDoc>? _todos;
   bool _loading = false;
   bool _exportando = false;
-  DateTime? _desde;
-  DateTime? _hasta;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _buscar());
+  }
 
   @override
   void dispose() {
@@ -16392,41 +16479,21 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
   }
 
   Future<void> _buscar() async {
-    final rangoError = validarRangoFechasCompras(_desde, _hasta);
-    if (rangoError != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(rangoError)));
-      return;
-    }
     setState(() {
       _loading = true;
       _todos = null;
     });
     try {
       final lista = await widget.svc.getFichasTecnicas(widget.empresaId);
-      final desde = DateTime(_desde!.year, _desde!.month, _desde!.day);
-      final hasta = DateTime(
-        _hasta!.year,
-        _hasta!.month,
-        _hasta!.day,
-        23,
-        59,
-        59,
-      );
-      final filtradas =
-          lista.where((f) {
-            final fecha = f.documentoActual?.fechaSubida?.toDate();
-            if (fecha == null) return false;
-            return !fecha.isBefore(desde) && !fecha.isAfter(hasta);
-          }).toList()..sort((a, b) {
-            final fa = a.documentoActual?.fechaSubida;
-            final fb = b.documentoActual?.fechaSubida;
-            if (fa == null && fb == null) return 0;
-            if (fa == null) return 1;
-            if (fb == null) return -1;
-            return fb.compareTo(fa);
-          });
+      final filtradas = lista.where(fichaTecnicaVisibleEnConsultas).toList()
+        ..sort((a, b) {
+          final fa = a.documentoActual?.fechaSubida;
+          final fb = b.documentoActual?.fechaSubida;
+          if (fa == null && fb == null) return 0;
+          if (fa == null) return 1;
+          if (fb == null) return -1;
+          return fb.compareTo(fa);
+        });
       if (!mounted) return;
       setState(() {
         _todos = filtradas;
@@ -16480,14 +16547,15 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
         if (doc != null) {
           if (doc.aprobadoConRequerimientos) {
             estado = 'Aprobado con requerimientos';
-          } else if (doc.aprobado)
+          } else if (doc.aprobado) {
             estado = 'Aprobado';
-          else if (doc.rechazado)
+          } else if (doc.rechazado) {
             estado = 'Rechazado';
-          else if (doc.pendienteRevisionCalidad)
+          } else if (doc.pendienteRevisionCalidad) {
             estado = 'Pendiente revisión';
-          else if (doc.tieneDoc)
+          } else if (doc.tieneDoc) {
             estado = 'Cargado';
+          }
         }
         return [
           f.productoNombre,
@@ -16576,14 +16644,6 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
 
     return Column(
       children: [
-        _ConsultasFechaBar(
-          desde: _desde,
-          hasta: _hasta,
-          onDesdeCambiado: (d) => setState(() => _desde = d),
-          onHastaCambiado: (h) => setState(() => _hasta = h),
-          onBuscar: _buscar,
-          cargando: _loading,
-        ),
         if (_todos != null) ...[
           _ConsultasToolbar(
             searchCtrl: _searchCtrl,
@@ -16676,7 +16736,7 @@ class _ConsultaFichasTabState extends State<_ConsultaFichasTab> {
               : _todos == null
               ? const Center(
                   child: Text(
-                    'Seleccione un rango de fechas y presione Buscar',
+                    'Cargando fichas técnicas aprobadas…',
                     style: TextStyle(fontFamily: _kFont, color: Colors.black45),
                     textAlign: TextAlign.center,
                   ),
@@ -18055,7 +18115,9 @@ class _MarcasScreenState extends State<_MarcasScreen> {
               style: const TextStyle(fontFamily: _kFont, color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Buscar marca...',
-                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                hintStyle: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
                 prefixIcon: const Icon(Icons.search, color: Colors.white70),
                 filled: true,
                 fillColor: Colors.white.withValues(alpha: 0.15),
@@ -18135,7 +18197,9 @@ class _MarcasScreenState extends State<_MarcasScreen> {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF1976D2).withValues(alpha: 0.1),
+                            color: const Color(
+                              0xFF1976D2,
+                            ).withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: const Icon(

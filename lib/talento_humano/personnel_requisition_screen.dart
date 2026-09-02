@@ -46,6 +46,7 @@ class _PersonnelRequisitionScreenState
   late Future<PersonnelRequisitionAccess> _accessFuture;
   PersonnelRequisitionStage? _stageFilter;
   PersonnelRequisitionTraffic? _trafficFilter;
+  bool _onlyPendingHire = false;
   PersonnelRequisition? _selected;
   String _search = '';
   bool _busy = false;
@@ -151,6 +152,7 @@ class _PersonnelRequisitionScreenState
       if (_trafficFilter != null && row.trafficAt(now) != _trafficFilter) {
         return false;
       }
+      if (_onlyPendingHire && row.pendingCount == 0) return false;
       if (query.isEmpty) return true;
       return '${row.position} ${row.establishment} ${row.group} '
               '${row.observations} ${row.processNote}'
@@ -456,6 +458,26 @@ class _PersonnelRequisitionScreenState
             'Atención prioritaria (15+)',
           ),
           _trafficChoice(PersonnelRequisitionTraffic.closed, 'Cerradas'),
+          const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _onlyPendingHire,
+            title: const Text(
+              'Pendientes de contratar',
+              style: TextStyle(
+                fontFamily: _font,
+                fontWeight: FontWeight.w800,
+                color: _ink,
+                fontSize: 12,
+              ),
+            ),
+            subtitle: const Text(
+              'Oculta los requerimientos con todas sus vacantes cubiertas.',
+              style: TextStyle(fontFamily: _font, fontSize: 10),
+            ),
+            onChanged: (value) => setState(() => _onlyPendingHire = value),
+          ),
           const Spacer(),
           TextButton.icon(
             onPressed: _clearFilters,
@@ -509,6 +531,16 @@ class _PersonnelRequisitionScreenState
               _filterChip(PersonnelRequisitionTraffic.yellow, 'Próximas'),
               _filterChip(PersonnelRequisitionTraffic.red, 'Prioritarias'),
               _filterChip(PersonnelRequisitionTraffic.closed, 'Cerradas'),
+              Padding(
+                padding: const EdgeInsets.only(right: 7),
+                child: FilterChip(
+                  avatar: const Icon(Icons.person_search_rounded, size: 17),
+                  label: const Text('Pendientes de contratar'),
+                  selected: _onlyPendingHire,
+                  onSelected: (value) =>
+                      setState(() => _onlyPendingHire = value),
+                ),
+              ),
             ],
           ),
         ),
@@ -781,6 +813,17 @@ class _PersonnelRequisitionScreenState
               TextButton(
                 onPressed: _busy ? null : () => _cancel(row),
                 child: const Text('Cancelar requerimiento'),
+              ),
+            ],
+            if (access.canDelete) ...[
+              const SizedBox(height: 4),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFB42318),
+                ),
+                onPressed: _busy ? null : () => _deleteRequest(row),
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Eliminar requerimiento'),
               ),
             ],
           ],
@@ -1164,7 +1207,49 @@ class _PersonnelRequisitionScreenState
       _search = '';
       _stageFilter = null;
       _trafficFilter = null;
+      _onlyPendingHire = false;
     });
+  }
+
+  Future<void> _deleteRequest(PersonnelRequisition row) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Eliminar requerimiento'),
+        content: Text(
+          'Se eliminará “${row.position}” de ${row.establishment}, junto con '
+          'sus aspirantes e historial. Esta acción no se puede deshacer.'
+          '${row.hiredCount > 0 ? '\n\nLas ${row.hiredCount} persona(s) ya contratada(s) conservarán su usuario y acceso.' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Conservar'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB42318),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            icon: const Icon(Icons.delete_outline_rounded),
+            label: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await _service.delete(requisitionId: row.id);
+      if (!mounted) return;
+      setState(() => _selected = null);
+      _message('Requerimiento eliminado.');
+    } catch (error) {
+      _message('No fue posible eliminar el requerimiento: $error', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _createRequest(PersonnelRequisitionAccess access) async {
@@ -2038,9 +2123,9 @@ class _HireDialogState extends State<_HireDialog> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _requiredField(_names, 'Nombres')),
+                    Expanded(child: _nameField(_names, 'Nombres')),
                     const SizedBox(width: 10),
-                    Expanded(child: _requiredField(_surnames, 'Apellidos')),
+                    Expanded(child: _nameField(_surnames, 'Apellidos')),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -2104,6 +2189,20 @@ class _HireDialogState extends State<_HireDialog> {
         controller: controller,
         decoration: InputDecoration(
           labelText: label,
+          border: const OutlineInputBorder(),
+        ),
+        validator: (value) =>
+            (value ?? '').trim().isEmpty ? 'Campo obligatorio' : null,
+      );
+
+  Widget _nameField(TextEditingController controller, String label) =>
+      TextFormField(
+        controller: controller,
+        textCapitalization: TextCapitalization.words,
+        inputFormatters: const [CapitalizedWordsTextFormatter()],
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: 'Inicial mayúscula en cada palabra.',
           border: const OutlineInputBorder(),
         ),
         validator: (value) =>
@@ -2221,9 +2320,9 @@ class _CandidateDialogState extends State<_CandidateDialog> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _upperField(_names, 'Nombres', true)),
+                    Expanded(child: _nameField(_names, 'Nombres', true)),
                     const SizedBox(width: 10),
-                    Expanded(child: _upperField(_surnames, 'Apellidos', false)),
+                    Expanded(child: _nameField(_surnames, 'Apellidos', false)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -2321,16 +2420,17 @@ class _CandidateDialogState extends State<_CandidateDialog> {
     );
   }
 
-  Widget _upperField(
+  Widget _nameField(
     TextEditingController controller,
     String label,
     bool required,
   ) => TextFormField(
     controller: controller,
-    textCapitalization: TextCapitalization.characters,
-    inputFormatters: const [UpperCaseTextFormatter()],
+    textCapitalization: TextCapitalization.words,
+    inputFormatters: const [CapitalizedWordsTextFormatter()],
     decoration: InputDecoration(
       labelText: label,
+      helperText: 'Inicial mayúscula en cada palabra.',
       border: const OutlineInputBorder(),
     ),
     validator: required
@@ -2517,6 +2617,7 @@ class _CandidateStageBadge extends StatelessWidget {
     );
   }
 }
+
 class _TrafficBadge extends StatelessWidget {
   final PersonnelRequisition requisition;
   final bool expanded;

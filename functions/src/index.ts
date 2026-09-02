@@ -725,6 +725,13 @@ export const onTaskUpdated = functions
     const before = change.before.data() as admin.firestore.DocumentData | undefined;
     const after = change.after.data() as admin.firestore.DocumentData | undefined;
 
+    // El cierre masivo del Admin ya deja auditoría y marca como leídas las
+    // notificaciones del módulo. No generar avisos nuevos por ese mismo cierre.
+    const isAdminModuleCloseout =
+      ((after as any)?.lastEventType ?? "").toString() === "admin_module_closeout" &&
+      ((before as any)?.lastEventType ?? "").toString() !== "admin_module_closeout";
+    if (isAdminModuleCloseout) return;
+
     const prevAssigned = getAssignedId(before || null);
     const newAssigned = getAssignedId(after || null);
 

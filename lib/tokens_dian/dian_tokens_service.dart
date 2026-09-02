@@ -4,7 +4,8 @@ import 'dian_tokens_models.dart';
 
 class DianTokensService {
   DianTokensService({FirebaseFunctions? functions})
-    : _functions = functions ?? FirebaseFunctions.instance;
+    : _functions =
+          functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
 
   final FirebaseFunctions _functions;
 

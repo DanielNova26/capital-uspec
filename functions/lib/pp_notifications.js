@@ -122,6 +122,10 @@ async function notificarResumen(hora) {
             // Verificar que el usuario pertenece a la empresa
             if (!userBelongsToEmpresa(data, empresaId))
                 continue;
+            // El rol sobrevive al retiro: sin esto el resumen diario se le sigue
+            // enviando a quien Talento Humano ya inhabilitó en la empresa.
+            if (!userIsActiveInEmpresa(data, empresaId))
+                continue;
             // Resolver rol: priorizar scoped sobre global
             const rol = resolvePlanillasRole(data, empresaId);
             if (![ROLE_AUDITORIA, ROLE_GERENCIA].includes(rol))
@@ -203,6 +207,37 @@ function userBelongsToEmpresa(data, empresaId) {
         .toString()
         .trim();
     return empresaUnica === empresaId;
+}
+/**
+ * Vinculación laboral vigente en la empresa. Talento Humano inhabilita por
+ * empresa (`empresasDetalle.{empresaId}.estadoLaboral`), no en el `estado`
+ * global, que solo controla el inicio de sesión.
+ *
+ * @param {admin.firestore.DocumentData} data Datos del usuario.
+ * @param {string} empresaId Empresa activa que se debe validar.
+ * @return {boolean} true cuando el usuario sigue activo en la empresa.
+ */
+function userIsActiveInEmpresa(data, empresaId) {
+    if (data.activo === false)
+        return false;
+    const empresasDetalle = data.empresasDetalle;
+    const scoped = empresasDetalle &&
+        typeof empresasDetalle === "object" &&
+        !Array.isArray(empresasDetalle)
+        ? empresasDetalle[empresaId]
+        : null;
+    if (scoped && typeof scoped === "object") {
+        if (scoped.activo === false)
+            return false;
+        for (const key of ["estadoLaboral", "estado"]) {
+            const value = (scoped[key] ?? "").toString().trim().toLowerCase();
+            if (!value)
+                continue;
+            return value !== "inactivo";
+        }
+    }
+    const global = (data.estado ?? "").toString().trim().toLowerCase();
+    return !global || global === "activo";
 }
 function bogotaDateKey(date = new Date()) {
     const parts = new Intl.DateTimeFormat("en-CA", {

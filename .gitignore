@@ -53,3 +53,7 @@ functions/.env
 .env
 *.env
 !*.env.example
+
+# Artefactos generados del instructivo: se rehacen con el script y pesan 65 MB
+outputs/
+tmp/

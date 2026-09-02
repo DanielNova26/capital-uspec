@@ -1,0 +1,4 @@
+Corrección de interfaz.
+
+• En el celular ya no aparece la barra de desplazamiento horizontal encima de las tarjetas de Inicio, Requerimientos y las pestañas de los módulos. En computador se mantiene, porque ahí sí ayuda a desplazarse con el mouse.
+• Mejoras internas de estabilidad al guardar información y cambiar de pantalla.

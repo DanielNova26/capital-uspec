@@ -73,6 +73,35 @@ class AbastecimientoService {
         return rows;
       });
 
+  /// Reúne lo que Bodega debe recibir en una sola operación para la OC.
+  Future<List<AbastecimientoDoc>> getEntregasParaRecepcion(
+    AbastecimientoDoc entrega,
+  ) async {
+    final snapshot = await _db
+        .collection(kAbastecimientoCollection)
+        .where('empresaId', isEqualTo: entrega.empresaId.trim())
+        .get();
+    final rows = snapshot.docs
+        .map((doc) => AbastecimientoDoc.fromMap(doc.id, doc.data()))
+        .where(
+          (candidate) => abastecimientoComparteRecepcion(entrega, candidate),
+        )
+        .toList();
+    if (rows.every((candidate) => candidate.id != entrega.id) &&
+        !entrega.eliminado &&
+        !entrega.estado.finalizado &&
+        entrega.recepcionId.isEmpty) {
+      rows.add(entrega);
+    }
+    rows.sort((left, right) {
+      final byDate = (left.fechaProgramada ?? DateTime(2100)).compareTo(
+        right.fechaProgramada ?? DateTime(2100),
+      );
+      return byDate != 0 ? byDate : left.producto.compareTo(right.producto);
+    });
+    return rows;
+  }
+
   Stream<List<AbastecimientoReporteDoc>> streamReportes(String empresaId) => _db
       .collection(kAbastecimientoReportesCollection)
       .where('empresaId', isEqualTo: empresaId.trim())
@@ -762,6 +791,7 @@ class AbastecimientoService {
     required String condicion,
     required DateTime? fechaProgramada,
     required DateTime consumoDesde,
+    required DateTime consumoHasta,
     required String ordenCompra,
     required String observaciones,
   }) async {
@@ -773,6 +803,26 @@ class AbastecimientoService {
     }
     if (producto.trim().isEmpty || grupoId.trim().isEmpty) {
       throw StateError('Debes escribir el producto y seleccionar un grupo.');
+    }
+    if (fechaProgramada == null) {
+      throw StateError('La fecha programada de entrega es obligatoria.');
+    }
+    final desde = DateTime(
+      consumoDesde.year,
+      consumoDesde.month,
+      consumoDesde.day,
+    );
+    final hasta = DateTime(
+      consumoHasta.year,
+      consumoHasta.month,
+      consumoHasta.day,
+    );
+    if (desde.weekday != DateTime.friday ||
+        hasta.weekday != DateTime.thursday ||
+        hasta.difference(desde).inDays != 6) {
+      throw StateError(
+        'El período de consumo debe iniciar el viernes y terminar el jueves siguiente.',
+      );
     }
     final now = Timestamp.now();
     final rawKey =
@@ -801,9 +851,13 @@ class AbastecimientoService {
       grupo: grupo.trim(),
       destino: destino.trim(),
       condicion: condicion.trim(),
-      fechaProgramada: fechaProgramada,
-      consumoDesde: inicioPeriodoConsumo(consumoDesde),
-      consumoHasta: finPeriodoConsumo(inicioPeriodoConsumo(consumoDesde)),
+      fechaProgramada: DateTime(
+        fechaProgramada.year,
+        fechaProgramada.month,
+        fechaProgramada.day,
+      ),
+      consumoDesde: desde,
+      consumoHasta: hasta,
       ordenCompra: ordenCompra.trim(),
       observaciones: observaciones.trim(),
       pendencias: detectarPendenciasAbastecimiento(observaciones),

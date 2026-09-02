@@ -173,6 +173,20 @@ async function guardarBuzon(
 }
 
 /**
+ * Una credencial guardada sigue configurada aunque Yahoo haya fallado en la
+ * última lectura. Solo la desconexión explícita elimina esa configuración.
+ * @param {string} estado Último estado operativo.
+ * @param {boolean} tieneCredencial Indica si existe el secreto cifrado.
+ * @return {boolean} Si la cuenta debe mostrarse como configurada.
+ */
+export function buzonSigueConfigurado(
+  estado: string,
+  tieneCredencial: boolean
+): boolean {
+  return tieneCredencial && estado !== "sin_conectar";
+}
+
+/**
  * Estado público del buzón. Nunca devuelve la contraseña ni su ciphertext.
  * @param {string} empresaId Empresa activa.
  * @return {Promise<Record<string, unknown>>} Datos visibles en la app.
@@ -189,9 +203,7 @@ export async function estadoBuzonPublico(
   return {
     // Una caída temporal de Yahoo no borra la clave ni equivale a desconectar
     // el buzón. `estado` informa la salud; `conectado` informa si está configurado.
-    conectado: tieneCredencial &&
-      buzon?.estado !== "sin_conectar" &&
-      buzon?.estado !== "credenciales_invalidas",
+    conectado: buzonSigueConfigurado(buzon?.estado ?? "sin_conectar", tieneCredencial),
     configurado: tieneCredencial,
     operativo: tieneCredencial && buzon?.estado === "conectado",
     proveedor: buzon?.proveedor ?? "yahoo",
@@ -494,7 +506,9 @@ export async function sincronizarBuzonDian(
     }));
     const detalle = errorLegible(error);
     await guardarBuzon(empresaId, {
-      estado: esErrorCredenciales(error) ? "credenciales_invalidas" : "error",
+      // Una lectura fallida no desconecta el buzón ni saca la empresa de los
+      // reintentos. Las credenciales ya fueron validadas al configurarlas.
+      estado: "error",
       ultimoError: detalle,
       ultimaRevisionAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -655,9 +669,10 @@ export const dianBuzonProgramado = functions
   .onRun(async () => {
     const snap = await db()
       .collection(CONFIG_COLLECTION)
-      // Los fallos transitorios conservan la clave y deben recuperarse solos.
-      // Solo una credencial rechazada requiere intervención del administrador.
-      .where("buzon.estado", "in", ["conectado", "error"])
+      // Los fallos conservan la clave y deben recuperarse solos. Se incluye el
+      // estado legado credenciales_invalidas para reactivar configuraciones que
+      // una única lectura IMAP dejó detenidas.
+      .where("buzon.estado", "in", ["conectado", "error", "credenciales_invalidas"])
       .get();
     for (const doc of snap.docs) {
       try {

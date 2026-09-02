@@ -25,6 +25,49 @@ class UpperCaseTextFormatter extends TextInputFormatter {
   }
 }
 
+/// Deja cada palabra con inicial mayúscula y el resto en minúscula.
+///
+/// Además de los espacios, trata guiones y apóstrofes como separadores para
+/// que nombres como `maría-josé` y `o'connor` queden bien formados. La función
+/// también se usa en los servicios antes de persistir, de modo que la regla no
+/// dependa únicamente del formulario desde el que se creó la persona.
+String capitalizarPalabras(String input) {
+  final lower = input.toLowerCase();
+  final buffer = StringBuffer();
+  final separadores = RegExp(r"[\s\-']");
+  var capitalizarSiguiente = true;
+
+  for (var index = 0; index < lower.length; index++) {
+    final character = lower[index];
+    final separador = separadores.hasMatch(character);
+    if (separador) {
+      buffer.write(character);
+      capitalizarSiguiente = true;
+      continue;
+    }
+    buffer.write(capitalizarSiguiente ? character.toUpperCase() : character);
+    capitalizarSiguiente = false;
+  }
+  return buffer.toString();
+}
+
+/// Aplica [capitalizarPalabras] mientras se escribe o se pega un nombre.
+class CapitalizedWordsTextFormatter extends TextInputFormatter {
+  const CapitalizedWordsTextFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return newValue.copyWith(
+      text: capitalizarPalabras(newValue.text),
+      selection: newValue.selection,
+      composing: TextRange.empty,
+    );
+  }
+}
+
 /// Solo dígitos. `TextInputType.number` únicamente sugiere un teclado: en Web
 /// y con teclado físico no impide escribir letras, y un "cantidad: 2a" llegaba
 /// al parse como null.

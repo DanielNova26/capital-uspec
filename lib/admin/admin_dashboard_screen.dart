@@ -28,6 +28,7 @@ import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../services/session_audit_service.dart';
 
 import 'admin_repository.dart';
+import 'admin_module_closeout_service.dart';
 import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
 import 'admin_access_filter.dart';
@@ -245,6 +246,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // Limpieza: usuario seleccionado para limpiar notificaciones individualmente
   String? _notifCleanUserId;
 
+  // Cierre no destructivo por módulo y fecha.
+  final AdminModuleCloseoutService _moduleCloseoutService =
+      AdminModuleCloseoutService();
+  DateTime _moduleCloseoutCutoff = DateTime(DateTime.now().year, 9, 1);
+  AdminCloseoutRange _moduleCloseoutRange = AdminCloseoutRange.before;
+  Set<String> _moduleCloseoutModules = {'interventoria', 'facturacion'};
+  AdminModuleCloseoutPreview? _moduleCloseoutPreview;
+  bool _moduleCloseoutBusy = false;
+
   // Salud de usuarios: diagnóstico read-only (Etapa 1).
   // Escanea TODO TBL_USUARIOS (no solo la empresa activa) porque la cédula es
   // identidad global y una membresía rota puede dejar al usuario fuera del
@@ -328,6 +338,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       setState(() {
         _empresas = empresas;
         _empresaId = null;
+        _moduleCloseoutPreview = null;
         _loading = false;
       });
       return;
@@ -370,6 +381,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     setState(() {
       _empresas = empresas;
       _empresaId = selected;
+      _moduleCloseoutPreview = null;
 
       _users = users;
       _appsAdmin = appsAdmin;
@@ -2813,10 +2825,342 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  AdminModuleCloseoutRequest? _moduleCloseoutRequest() {
+    final empresaId = (_empresaId ?? '').trim();
+    if (empresaId.isEmpty || _moduleCloseoutModules.isEmpty) return null;
+    return AdminModuleCloseoutRequest(
+      empresaId: empresaId,
+      userIds: _users.map((user) => user.id).toList(growable: false),
+      cutoff: _moduleCloseoutCutoff,
+      range: _moduleCloseoutRange,
+      modules: Set.unmodifiable(_moduleCloseoutModules),
+    );
+  }
+
+  Future<void> _pickModuleCloseoutCutoff() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _moduleCloseoutCutoff,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      helpText: 'Selecciona la fecha de corte',
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _moduleCloseoutCutoff = selected;
+      _moduleCloseoutPreview = null;
+    });
+  }
+
+  Future<void> _previewModuleCloseout() async {
+    final request = _moduleCloseoutRequest();
+    if (request == null) {
+      _snack('Selecciona empresa y al menos un módulo.');
+      return;
+    }
+    setState(() {
+      _moduleCloseoutBusy = true;
+      _moduleCloseoutPreview = null;
+    });
+    try {
+      final preview = await _moduleCloseoutService.preview(request);
+      if (!mounted) return;
+      setState(() => _moduleCloseoutPreview = preview);
+      if (preview.tasks == 0 && preview.notifications == 0) {
+        _snack(
+          'No hay tareas abiertas ni notificaciones pendientes en ese corte.',
+        );
+      }
+    } catch (error) {
+      if (mounted) _snack('No fue posible calcular la vista previa: $error');
+    } finally {
+      if (mounted) setState(() => _moduleCloseoutBusy = false);
+    }
+  }
+
+  Future<void> _applyModuleCloseout() async {
+    final request = _moduleCloseoutRequest();
+    final preview = _moduleCloseoutPreview;
+    if (request == null || preview == null) return;
+    final date = DateFormat('dd/MM/yyyy').format(request.cutoff);
+    final modules = request.modules
+        .map(
+          (module) =>
+              module == 'interventoria' ? 'Interventoría' : 'Facturación',
+        )
+        .join(' y ');
+    final confirmed = await _confirm(
+      title: 'Confirmar cierre administrativo',
+      message:
+          'Empresa: ${request.empresaId}\n'
+          'Módulos: $modules\n'
+          'Corte: ${request.range.label.toLowerCase()} $date\n\n'
+          'Se finalizarán ${preview.tasks} tarea(s) abierta(s) y se marcarán '
+          'como leídas ${preview.notifications} notificación(es).\n\n'
+          'No se borrarán tareas, avances, adjuntos, actas, documentos ni '
+          'notificaciones. La operación quedará auditada.',
+      confirmText: 'CERRAR Y MARCAR LEÍDAS',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() => _moduleCloseoutBusy = true);
+    try {
+      final result = await _moduleCloseoutService.apply(
+        request: request,
+        adminUserId: widget.userId,
+      );
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: request.empresaId,
+        action: 'adminModuleCloseout',
+        scanned: result.tasksClosed + result.notificationsRead,
+        updated: result.tasksClosed + result.notificationsRead,
+        dryRun: false,
+        extra: {
+          'cutoff': request.cutoff.toIso8601String(),
+          'range': request.range.auditValue,
+          'modules': request.modules.toList(),
+          'tasksClosed': result.tasksClosed,
+          'notificationsRead': result.notificationsRead,
+          'hallazgosClosed': result.hallazgosClosed,
+          'facturacionItemsClosed': result.facturacionItemsClosed,
+        },
+      );
+      if (!mounted) return;
+      setState(() => _moduleCloseoutPreview = null);
+      _snack(
+        'Cierre listo: ${result.tasksClosed} tareas finalizadas y '
+        '${result.notificationsRead} notificaciones marcadas como leídas.',
+      );
+    } catch (error) {
+      if (mounted) _snack('No fue posible completar el cierre: $error');
+    } finally {
+      if (mounted) setState(() => _moduleCloseoutBusy = false);
+    }
+  }
+
+  Widget _moduleCloseoutCard() {
+    final preview = _moduleCloseoutPreview;
+    final canApply =
+        !_moduleCloseoutBusy &&
+        preview != null &&
+        (preview.tasks > 0 || preview.notifications > 0);
+    return Card(
+      color: const Color(0xFFEFF6FF),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Color(0xFF93C5FD)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(
+                  Icons.task_alt_rounded,
+                  color: Color(0xFF1D4ED8),
+                  size: 28,
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Cierre por módulo y fecha',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1E3A8A),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Finaliza tareas abiertas y marca sus notificaciones como leídas. '
+              'Conserva avances, archivos y trazabilidad; no elimina información.',
+              style: TextStyle(fontFamily: kArial, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 720;
+                final dateField = OutlinedButton.icon(
+                  onPressed: _moduleCloseoutBusy
+                      ? null
+                      : _pickModuleCloseoutCutoff,
+                  icon: const Icon(Icons.calendar_month_rounded),
+                  label: Text(
+                    'Fecha de corte: ${DateFormat('dd/MM/yyyy').format(_moduleCloseoutCutoff)}',
+                  ),
+                );
+                final rangeField = DropdownButtonFormField<AdminCloseoutRange>(
+                  initialValue: _moduleCloseoutRange,
+                  decoration: const InputDecoration(
+                    labelText: 'Periodo que se cerrará',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: AdminCloseoutRange.values
+                      .map(
+                        (range) => DropdownMenuItem(
+                          value: range,
+                          child: Text(range.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _moduleCloseoutBusy
+                      ? null
+                      : (range) {
+                          if (range == null) return;
+                          setState(() {
+                            _moduleCloseoutRange = range;
+                            _moduleCloseoutPreview = null;
+                          });
+                        },
+                );
+                if (compact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      dateField,
+                      const SizedBox(height: 10),
+                      rangeField,
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: dateField),
+                    const SizedBox(width: 12),
+                    Expanded(child: rangeField),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Módulos incluidos',
+              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final entry in const {
+                  'interventoria': 'Interventoría',
+                  'facturacion': 'Facturación',
+                }.entries)
+                  FilterChip(
+                    label: Text(entry.value),
+                    selected: _moduleCloseoutModules.contains(entry.key),
+                    onSelected: _moduleCloseoutBusy
+                        ? null
+                        : (selected) {
+                            setState(() {
+                              final modules = Set<String>.from(
+                                _moduleCloseoutModules,
+                              );
+                              selected
+                                  ? modules.add(entry.key)
+                                  : modules.remove(entry.key);
+                              _moduleCloseoutModules = modules;
+                              _moduleCloseoutPreview = null;
+                            });
+                          },
+                  ),
+              ],
+            ),
+            if (preview != null) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 20,
+                      runSpacing: 8,
+                      children: [
+                        Text(
+                          '${preview.tasks} tareas abiertas',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${preview.notifications} notificaciones no leídas',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Interventoría: ${preview.tasksByModule['interventoria'] ?? 0} tareas · '
+                      '${preview.notificationsByModule['interventoria'] ?? 0} avisos  |  '
+                      'Facturación: ${preview.tasksByModule['facturacion'] ?? 0} tareas · '
+                      '${preview.notificationsByModule['facturacion'] ?? 0} avisos',
+                      style: const TextStyle(
+                        fontFamily: kArial,
+                        fontSize: 12,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                OutlinedButton.icon(
+                  onPressed:
+                      _moduleCloseoutBusy || _moduleCloseoutModules.isEmpty
+                      ? null
+                      : _previewModuleCloseout,
+                  icon: _moduleCloseoutBusy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.manage_search_rounded),
+                  label: const Text('Ver impacto'),
+                ),
+                FilledButton.icon(
+                  onPressed: canApply ? _applyModuleCloseout : null,
+                  icon: const Icon(Icons.done_all_rounded),
+                  label: const Text('Finalizar y marcar leídas'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _tabCleanup() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _moduleCloseoutCard(),
+        const SizedBox(height: 24),
         Card(
           color: Colors.orange.shade50,
           shape: RoundedRectangleBorder(
@@ -3700,7 +4044,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                               userId: uDoc.id,
                               nameHint: nombre,
                               radius: 22,
-                              backgroundColor: kAdminPrimary.withValues(alpha: 0.05),
+                              backgroundColor: kAdminPrimary.withValues(
+                                alpha: 0.05,
+                              ),
                               foregroundColor: kAdminPrimary,
                             ),
                             const SizedBox(width: 16),
@@ -3861,7 +4207,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                       vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: kAdminAccent.withValues(alpha: 0.1),
+                                      color: kAdminAccent.withValues(
+                                        alpha: 0.1,
+                                      ),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -7236,7 +7584,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                 decoration: BoxDecoration(
                   color: kAdminAccent.withValues(alpha: 0.07),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: kAdminAccent.withValues(alpha: 0.2)),
+                  border: Border.all(
+                    color: kAdminAccent.withValues(alpha: 0.2),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -7563,7 +7913,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       SizedBox(
                         width: isWeb ? 200 : double.infinity,
                         child: DropdownButtonFormField<String>(
-                          initialValue: cargoFilter.isEmpty ? null : cargoFilter,
+                          initialValue: cargoFilter.isEmpty
+                              ? null
+                              : cargoFilter,
                           isExpanded: true,
                           decoration: InputDecoration(
                             labelText: 'Cargo',
@@ -9128,7 +9480,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: (enabled ? kAdminAccent : kAdminMuted).withValues(alpha: 0.1),
+                color: (enabled ? kAdminAccent : kAdminMuted).withValues(
+                  alpha: 0.1,
+                ),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -10992,7 +11346,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           userId: cedula,
                           nameHint: nombre,
                           radius: 14,
-                          backgroundColor: kAdminPrimary.withValues(alpha: 0.08),
+                          backgroundColor: kAdminPrimary.withValues(
+                            alpha: 0.08,
+                          ),
                           foregroundColor: kAdminPrimary,
                         ),
                         const SizedBox(width: 8),
@@ -11264,7 +11620,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           userId: cedula,
                           nameHint: nombre,
                           radius: 14,
-                          backgroundColor: kAdminPrimary.withValues(alpha: 0.08),
+                          backgroundColor: kAdminPrimary.withValues(
+                            alpha: 0.08,
+                          ),
                           foregroundColor: kAdminPrimary,
                         ),
                         const SizedBox(width: 8),
@@ -11718,7 +12076,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             userId: cedula,
                             nameHint: nombre,
                             radius: 14,
-                            backgroundColor: kAdminPrimary.withValues(alpha: 0.08),
+                            backgroundColor: kAdminPrimary.withValues(
+                              alpha: 0.08,
+                            ),
                             foregroundColor: kAdminPrimary,
                           ),
                           const SizedBox(width: 8),
@@ -12150,7 +12510,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       decoration: BoxDecoration(
                         color: c.color.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: c.color.withValues(alpha: 0.35)),
+                        border: Border.all(
+                          color: c.color.withValues(alpha: 0.35),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -14131,7 +14493,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       decoration: BoxDecoration(
                         color: c.color.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: c.color.withValues(alpha: 0.35)),
+                        border: Border.all(
+                          color: c.color.withValues(alpha: 0.35),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,

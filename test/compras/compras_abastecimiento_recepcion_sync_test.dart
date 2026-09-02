@@ -14,6 +14,9 @@ void main() {
     String producto = 'Arroz',
     String grupoId = 'grupo-1',
     String ordenCompra = 'OC-2-2017',
+    String destino = 'Bodega Norte',
+    AbastecimientoEstado estado = AbastecimientoEstado.programado,
+    String recepcionId = '',
     bool eliminado = false,
   }) => AbastecimientoDoc(
     id: id,
@@ -26,6 +29,9 @@ void main() {
     producto: producto,
     grupoId: grupoId,
     ordenCompra: ordenCompra,
+    destino: destino,
+    estado: estado,
+    recepcionId: recepcionId,
     eliminado: eliminado,
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
@@ -95,6 +101,35 @@ void main() {
       abastecimientoCoincideConRecepcion(
         entrega(eliminado: true),
         recepcion(abastecimientoIds: const ['ab-1']),
+      ),
+      isFalse,
+    );
+  });
+
+  test('agrupa productos pendientes de la misma OC para una recepción', () {
+    final base = entrega();
+    expect(
+      abastecimientoComparteRecepcion(
+        base,
+        entrega(id: 'ab-2', productoId: 'prod-2', producto: 'Aceite'),
+      ),
+      isTrue,
+    );
+    expect(
+      abastecimientoComparteRecepcion(
+        base,
+        entrega(id: 'ab-3', destino: 'Bodega Sur'),
+      ),
+      isFalse,
+    );
+    expect(
+      abastecimientoComparteRecepcion(
+        base,
+        entrega(
+          id: 'ab-4',
+          estado: AbastecimientoEstado.recibido,
+          recepcionId: 'rec-1',
+        ),
       ),
       isFalse,
     );

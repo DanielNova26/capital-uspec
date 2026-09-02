@@ -34,6 +34,94 @@ InterventoriaVisita _visita({
 }
 
 void main() {
+  group('catálogo de establecimientos', () {
+    test('lee G1/G9 de los datos sin inferirlo desde el nombre', () {
+      final g1 = CentroCostoRef.fromMap('a', {
+        'nombre': 'Pasto',
+        'grupo': 'Grupo 1',
+      });
+      final g9 = CentroCostoRef.fromMap('b', {
+        'nombre': 'Ipiales',
+        'codigo': 'CC-G09-014',
+      });
+      final sinGrupo = CentroCostoRef.fromMap('c', {
+        'nombre': 'Establecimiento G1 solo en el nombre',
+      });
+
+      expect(g1.grupo, 'G1');
+      expect(g9.grupo, 'G9');
+      expect(sinGrupo.grupo, isEmpty);
+    });
+
+    test('agrupa G1 y G9 y ordena alfabéticamente cada grupo', () {
+      const centros = [
+        CentroCostoRef(
+          centroId: '3',
+          empresaId: 'e',
+          codigo: '',
+          nombre: 'Tunja',
+          grupo: 'G9',
+        ),
+        CentroCostoRef(
+          centroId: '2',
+          empresaId: 'e',
+          codigo: '',
+          nombre: 'Bordo',
+          grupo: 'G1',
+        ),
+        CentroCostoRef(
+          centroId: '1',
+          empresaId: 'e',
+          codigo: '',
+          nombre: 'Buen Pastor',
+          grupo: 'G1',
+        ),
+        CentroCostoRef(
+          centroId: '4',
+          empresaId: 'e',
+          codigo: '',
+          nombre: 'Ipiales',
+          grupo: 'G9',
+        ),
+      ];
+
+      final grupos = agruparCentrosCosto(centros);
+
+      expect(grupos.map((grupo) => grupo.grupo), ['G1', 'G9']);
+      expect(grupos.first.centros.map((centro) => centro.nombre), [
+        'Bordo',
+        'Buen Pastor',
+      ]);
+      expect(grupos.last.centros.map((centro) => centro.nombre), [
+        'Ipiales',
+        'Tunja',
+      ]);
+    });
+  });
+
+  group('acta PDF obligatoria', () {
+    test('acepta un PDF o imágenes que serán convertidas a PDF', () {
+      expect(puedeGenerarActaPdf(['application/pdf']), isTrue);
+      expect(puedeGenerarActaPdf(['image/jpeg']), isTrue);
+      expect(puedeGenerarActaPdf(['text/plain']), isFalse);
+      expect(puedeGenerarActaPdf(const []), isFalse);
+    });
+
+    test('la visita persistida debe contener un adjunto PDF', () {
+      final pdf = InterventoriaAdjunto(
+        url: 'https://example.test/acta.pdf',
+        nombre: 'acta.pdf',
+        path: 'acta.pdf',
+        contentType: 'application/pdf',
+        origen: 'web',
+        fechaSubida: Timestamp.fromDate(DateTime(2026, 9, 2)),
+      );
+
+      expect(contieneActaPdf([pdf]), isTrue);
+      expect(contieneActaPdf(const []), isFalse);
+    });
+  });
+
   group('calcularPorcentajeGeneral', () {
     test('ignora categorias no evaluadas', () {
       final items = defaultInterventoriaItems();

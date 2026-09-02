@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -33,7 +35,8 @@ class DianTokensDashboardScreen extends StatefulWidget {
       _DianTokensDashboardScreenState();
 }
 
-class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen> {
+class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
+    with WidgetsBindingObserver {
   final _service = DianTokensService();
   final _search = TextEditingController();
   List<DianTokenRecord> _tokens = const [];
@@ -42,19 +45,35 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen> {
   String _status = 'todos';
   bool _loading = true;
   bool _syncing = false;
+  bool _loadingBuzon = false;
   String? _openingId;
   String? _error;
+  bool _buzonStatusUnavailable = false;
+  Timer? _buzonRefreshTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _buzonRefreshTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      if (!_syncing) _loadBuzon();
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _buzonRefreshTimer?.cancel();
     _search.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_syncing) {
+      _loadBuzon();
+    }
   }
 
   Future<void> _load() async {
@@ -80,14 +99,25 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen> {
 
   /// El estado del buzon es informativo: si falla no debe tumbar la tabla.
   Future<void> _loadBuzon() async {
+    if (_loadingBuzon) return;
+    _loadingBuzon = true;
     try {
       final estado = await _service.estadoBuzon(
         empresaId: widget.empresaId,
         userId: widget.userId,
       );
-      if (mounted) setState(() => _buzon = estado);
+      if (mounted) {
+        setState(() {
+          _buzon = estado;
+          _buzonStatusUnavailable = false;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() => _buzon = DianBuzonEstado.sinConectar);
+      // Un timeout o una pérdida temporal de red no equivale a desconectar el
+      // buzón. Conservamos el último estado confirmado y avisamos la novedad.
+      if (mounted) setState(() => _buzonStatusUnavailable = true);
+    } finally {
+      _loadingBuzon = false;
     }
   }
 
@@ -301,8 +331,12 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  conectado && _buzon.conError
+                  _buzonStatusUnavailable && !conectado
+                      ? 'No fue posible verificar el buzón ahora'
+                      : conectado && _buzon.conError
                       ? 'Buzón configurado con novedad · ${_buzon.email}'
+                      : conectado && _buzonStatusUnavailable
+                      ? 'Buzón configurado · verificación pendiente'
                       : conectado
                       ? 'Buzón conectado · ${_buzon.email}'
                       : 'Buzón sin conectar',
@@ -312,7 +346,10 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen> {
                   ),
                 ),
                 Text(
-                  conectado
+                  _buzonStatusUnavailable
+                      ? 'La conexión guardada no se eliminó. La aplicación '
+                            'volverá a verificarla automáticamente.'
+                      : conectado
                       ? _buzon.conError
                             ? 'La clave continúa guardada. Yahoo presentó una '
                                   'novedad y el detector volverá a intentarlo.'

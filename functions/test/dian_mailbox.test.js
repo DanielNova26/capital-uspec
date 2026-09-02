@@ -12,6 +12,7 @@ const assert = require("node:assert/strict");
 const {
   DIAN_ASUNTO_OFICIAL,
   DIAN_REMITENTE_OFICIAL,
+  buzonSigueConfigurado,
   errorLegible,
   esCorreoTokenDian,
   extraerDireccion,
@@ -151,4 +152,12 @@ test("un Command failed sin detalle explica que el backend no esta apagado", () 
   const mensaje = errorLegible(new Error("Command failed"));
   assert.match(mensaje, /servidor de Capital/i);
   assert.match(mensaje, /clave guardada no se eliminó/i);
+});
+
+test("un fallo de lectura no presenta la credencial guardada como desconectada", () => {
+  assert.equal(buzonSigueConfigurado("conectado", true), true);
+  assert.equal(buzonSigueConfigurado("error", true), true);
+  assert.equal(buzonSigueConfigurado("credenciales_invalidas", true), true);
+  assert.equal(buzonSigueConfigurado("sin_conectar", true), false);
+  assert.equal(buzonSigueConfigurado("error", false), false);
 });
