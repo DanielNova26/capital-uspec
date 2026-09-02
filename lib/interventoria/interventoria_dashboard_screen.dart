@@ -27,6 +27,7 @@ import '../widgets/internal_module_layout.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'interventoria_hallazgo_panel.dart';
+import 'interventoria_maestro_subsanaciones.dart';
 import '../widgets/paged_list.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
@@ -172,6 +173,11 @@ class _InterventoriaDashboardScreenState
         label: 'Subsanaciones',
         icon: Icons.grid_on_rounded,
       ),
+      if (puedeConsultarMaestroSubsanaciones(rol))
+        const InternalModuleTabItem(
+          label: 'Maestro',
+          icon: Icons.local_library_outlined,
+        ),
       if (canDirectivo)
         const InternalModuleTabItem(
           label: 'Analisis',
@@ -326,6 +332,10 @@ class _InterventoriaDashboardScreenState
                     );
                   },
                 ),
+                // Tab: Maestro — biblioteca de los 141 numerales y su regla
+                // de asignación. Solo la consulta el administrador del módulo.
+                if (puedeConsultarMaestroSubsanaciones(rol))
+                  const InterventoriaMaestroSubsanaciones(),
                 // Último tab: Análisis (solo directivos) — índice coincide con tabs list
                 if (canDirectivo)
                   _AnalisisDirectivo(
@@ -496,6 +506,8 @@ class _InterventoriaDashboardScreenState
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      isDismissible: false,
+      enableDrag: false,
       builder: (_) => _RegistrarActaSheet(
         empresaId: widget.empresaId,
         userId: widget.userId,
@@ -656,6 +668,8 @@ class _HallazgosTab extends StatelessWidget {
           // Filtros
           _FiltrosHallazgos(
             centros: centros,
+            service: service,
+            empresaId: empresaId,
             dptos: {
               for (final h in todosHallazgos)
                 if (h.dptoEncargado.isNotEmpty)
@@ -2204,23 +2218,12 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
         if (!ocultarFiltroCentro)
           SizedBox(
             width: 220,
-            child: DropdownButtonFormField<String>(
-              key: ValueKey(centroFiltro),
-              initialValue: centroFiltro,
-              decoration: const InputDecoration(
-                labelText: 'Establecimiento',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              items: [
-                const DropdownMenuItem(value: '', child: Text('Todos')),
-                ...centros.entries.map(
-                  (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                ),
-              ],
-              onChanged: onCentroChanged == null
-                  ? null
-                  : (v) => onCentroChanged(v ?? ''),
+            child: _CentroCostoFilterDropdown(
+              service: service,
+              empresaId: widget.empresaId,
+              fallbackCentros: centros,
+              value: centroFiltro,
+              onChanged: onCentroChanged,
             ),
           ),
         _FechaTile(
@@ -4505,24 +4508,12 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final esMovil = constraints.maxWidth < 600;
-                  final dropEstablecimiento = DropdownButtonFormField<String>(
-                    key: ValueKey(widget.centroFiltro),
-                    initialValue: widget.centroFiltro,
-                    decoration: const InputDecoration(
-                      labelText: 'Establecimiento',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: [
-                      const DropdownMenuItem(value: '', child: Text('Todos')),
-                      ...centrosMap.entries.map(
-                        (e) => DropdownMenuItem(
-                          value: e.key,
-                          child: Text(e.value),
-                        ),
-                      ),
-                    ],
-                    onChanged: (v) => widget.onCentroChanged?.call(v ?? ''),
+                  final dropEstablecimiento = _CentroCostoFilterDropdown(
+                    service: widget.service,
+                    empresaId: widget.empresaId,
+                    fallbackCentros: centrosMap,
+                    value: widget.centroFiltro,
+                    onChanged: widget.onCentroChanged,
                   );
                   final dropCategoria = DropdownButtonFormField<String>(
                     initialValue: _categoriaKey,
@@ -5952,12 +5943,19 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
               // ── Botón guardar (fijo al fondo) ─────────────────────────
               // Deshabilitado (no solo validado al click) si falta el
-              // establecimiento o algún ítem sin puntaje ni marcar NE.
+              // establecimiento, el acta PDF o algún ítem sin puntaje/NE.
               Builder(
                 builder: (_) {
                   final faltantes = _itemsIncompletos();
+                  final faltaActa = !puedeGenerarActaPdf(
+                    _files.map((file) => file.contentType),
+                  );
                   final puedeGuardar =
-                      !_saving && _centro != null && faltantes.isEmpty;
+                      !_saving &&
+                      !_extracting &&
+                      _centro != null &&
+                      !faltaActa &&
+                      faltantes.isEmpty;
                   return SafeArea(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
@@ -5966,14 +5964,15 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (!puedeGuardar &&
-                                !_saving &&
-                                _centro != null &&
-                                faltantes.isNotEmpty)
+                            if (!puedeGuardar && !_saving && _centro != null)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: Text(
-                                  'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
+                                  _extracting
+                                      ? 'Espera a que termine de procesarse el acta'
+                                      : faltaActa
+                                      ? 'Adjunta el acta PDF obligatoria'
+                                      : 'Faltan ${faltantes.length} sección(es) sin puntaje ni NE',
                                   style: const TextStyle(
                                     fontSize: 11,
                                     color: _kDanger,
@@ -6066,17 +6065,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
-                items: centros
-                    .map(
-                      (c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(
-                          '${c.codigo.isEmpty ? c.centroId : c.codigo} — ${c.nombre}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
+                items: _centrosCostoDropdownItems(centros),
                 onChanged: (v) => setState(() => _centro = v),
               );
             },
@@ -6160,7 +6149,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         _ActaGeneralCard(
           files: _files,
           extracting: _extracting,
-          onPickWeb: _pickWeb,
+          onPickArchivo: _pickArchivo,
           onPickCamera: _pickCamera,
           onPickGallery: _pickGallery,
           onPreview: _showActaPreview,
@@ -6172,116 +6161,122 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   // ── Tab: Puntajes por sección ─────────────────────────────────────────────
   Widget _buildPuntajesTab(bool isWeb) {
-    return ListView(
+    return Scrollbar(
       controller: _scrollCtrl,
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 120),
-      children: [
-        _buildCommonHeader(isWeb),
-        const SizedBox(height: 12),
-        if (_tipoActa == 'INFRAESTRUCTURA')
-          Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: _kWarning.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: _kWarning.withValues(alpha: 0.5)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded, color: _kWarning, size: 16),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'INFRAESTRUCTURA: solo aplica sección 2. '
-                    'Las demás secciones márquelas como NE.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        // ── Índice navegable: salta directo al numeral sin scroll largo ──
-        SizedBox(
-          height: 64,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: kInterventoriaCategorias.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 6),
-            itemBuilder: (_, i) {
-              final cat = kInterventoriaCategorias[i];
-              final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
-              final color = item.noEvaluado
-                  ? const Color(0xFF94A3B8)
-                  : item.valor != null
-                  ? _percentColor(item.valor!)
-                  : const Color(0xFFCBD5E1);
-              return InkWell(
-                onTap: () => _irAlItem(cat.key),
+      thumbVisibility: isWeb,
+      trackVisibility: isWeb,
+      child: ListView(
+        controller: _scrollCtrl,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.fromLTRB(14, 12, 22, 120),
+        children: [
+          _buildCommonHeader(isWeb),
+          const SizedBox(height: 12),
+          if (_tipoActa == 'INFRAESTRUCTURA')
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: _kWarning.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: 78,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    border: Border.all(color: color.withValues(alpha: 0.6)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        '${i + 1}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14,
-                          color: color,
-                        ),
-                      ),
-                      Text(
-                        cat.label,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: color,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...kInterventoriaCategorias.map((cat) {
-          final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
-          Widget card;
-          if (cat.key == 'conceptoSanitario') {
-            card = _buildConceptoSanitarioCard(item);
-          } else if (cat.key == 'horario') {
-            card = _buildHorarioCard(item);
-          } else {
-            card = _ItemPuntajeRow(
-              item: item,
-              ocrText: _ocrCtrl.text,
-              onPickOcrSnippets: () => _pickOcrSnippets(
-                title: 'Agregar observaciones a ${cat.label}',
+                border: Border.all(color: _kWarning.withValues(alpha: 0.5)),
               ),
-              onChanged: (updated) => setState(() => _items[cat.key] = updated),
-              showObservaciones: false, // Fase 1: solo puntaje
-            );
-          }
-          return KeyedSubtree(key: _itemKeys[cat.key], child: card);
-        }),
-      ],
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline_rounded, color: _kWarning, size: 16),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'INFRAESTRUCTURA: solo aplica sección 2. '
+                      'Las demás secciones márquelas como NE.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          // ── Índice navegable: salta directo al numeral sin scroll largo ──
+          SizedBox(
+            height: 64,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: kInterventoriaCategorias.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
+              itemBuilder: (_, i) {
+                final cat = kInterventoriaCategorias[i];
+                final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
+                final color = item.noEvaluado
+                    ? const Color(0xFF94A3B8)
+                    : item.valor != null
+                    ? _percentColor(item.valor!)
+                    : const Color(0xFFCBD5E1);
+                return InkWell(
+                  onTap: () => _irAlItem(cat.key),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    width: 78,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      border: Border.all(color: color.withValues(alpha: 0.6)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                            color: color,
+                          ),
+                        ),
+                        Text(
+                          cat.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...kInterventoriaCategorias.map((cat) {
+            final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
+            Widget card;
+            if (cat.key == 'conceptoSanitario') {
+              card = _buildConceptoSanitarioCard(item);
+            } else if (cat.key == 'horario') {
+              card = _buildHorarioCard(item);
+            } else {
+              card = _ItemPuntajeRow(
+                item: item,
+                ocrText: _ocrCtrl.text,
+                onPickOcrSnippets: () => _pickOcrSnippets(
+                  title: 'Agregar observaciones a ${cat.label}',
+                ),
+                onChanged: (updated) =>
+                    setState(() => _items[cat.key] = updated),
+                showObservaciones: false, // Fase 1: solo puntaje
+              );
+            }
+            return KeyedSubtree(key: _itemKeys[cat.key], child: card);
+          }),
+        ],
+      ),
     );
   }
 
@@ -6619,7 +6614,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     if (p != null) setState(() => _fecha = p);
   }
 
-  Future<void> _pickWeb() async {
+  Future<void> _pickArchivo() async {
     final r = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       withData: true,
@@ -7168,6 +7163,23 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   Future<void> _save() async {
     if (_centro == null) return;
+    if (_extracting) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Espera a que termine de procesarse el acta.'),
+        ),
+      );
+      return;
+    }
+    if (!puedeGenerarActaPdf(_files.map((file) => file.contentType))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFB91C1C),
+          content: Text('Debes adjuntar el acta PDF antes de guardar.'),
+        ),
+      );
+      return;
+    }
     final faltantes = _itemsIncompletos();
     if (faltantes.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -7182,38 +7194,24 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     }
     setState(() => _saving = true);
     try {
-      // 1. Guardar la visita con puntajes
+      // 1. Preparar el PDF obligatorio. Las imágenes escaneadas se convierten
+      // en un PDF general antes de que exista la visita en Firestore.
       final itemsParaGuardar = _itemsParaGuardar();
       final pctGeneral = calcularPorcentajeGeneral(itemsParaGuardar);
-      final visita = InterventoriaVisita(
-        empresaId: widget.empresaId,
-        centroCostoId: _centro!.centroId,
-        centroCostoCodigo: _centro!.codigo,
-        centroCostoNombre: _centro!.nombre,
-        fechaVisita: Timestamp.fromDate(_fecha),
-        fechaRegistro: Timestamp.now(),
-        creadoPor: widget.userId,
-        tipoActa: _tipoActa,
-        tiempoComida: _tiempoComida,
-        porcentajeGeneral: pctGeneral,
-        items: itemsParaGuardar,
-        observaciones: '', // se completa en Fase 2
-        ocrTextoExtraido: _ocrCtrl.text.trim(),
-        ocrDatosDetectados: const {},
-        ocrRevisado: false,
-        faseActa: 'puntajes', // Fase 1 completa — pendiente de revisión
-        createdAt: Timestamp.now(),
-      );
-      final visitaId = await widget.service.guardarVisita(visita);
-
-      // 2. Subir adjuntos. Si se escanearon imagenes, se genera primero
-      // un PDF general tipo CamScanner y luego se conservan las imagenes.
-      final adjuntos = <InterventoriaAdjunto>[];
       final filesToUpload = <_PickedActa>[];
       final generatedPdf = await _buildGeneralActaPdf();
       if (generatedPdf != null) filesToUpload.add(generatedPdf);
       filesToUpload.addAll(_files);
+      if (!filesToUpload.any(
+        (file) => file.contentType.toLowerCase() == 'application/pdf',
+      )) {
+        throw StateError('No fue posible generar el acta PDF obligatoria.');
+      }
 
+      // 2. Reservar el id y subir los archivos. Si la carga falla, no queda
+      // una visita registrada sin el PDF que la respalda.
+      final visitaId = widget.service.nuevoVisitaId();
+      final adjuntos = <InterventoriaAdjunto>[];
       for (final f in filesToUpload) {
         adjuntos.add(
           f.base64Data != null
@@ -7235,12 +7233,34 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 ),
         );
       }
-      if (adjuntos.isNotEmpty) {
-        await widget.service.agregarAdjuntos(
-          visitaId: visitaId,
-          adjuntos: adjuntos,
-        );
-      }
+      final actaPdf = adjuntos.firstWhere(
+        (adjunto) => adjunto.contentType.toLowerCase() == 'application/pdf',
+      );
+
+      // 3. Persistir la visita únicamente cuando el PDF ya existe.
+      final visita = InterventoriaVisita(
+        id: visitaId,
+        empresaId: widget.empresaId,
+        centroCostoId: _centro!.centroId,
+        centroCostoCodigo: _centro!.codigo,
+        centroCostoNombre: _centro!.nombre,
+        fechaVisita: Timestamp.fromDate(_fecha),
+        fechaRegistro: Timestamp.now(),
+        creadoPor: widget.userId,
+        tipoActa: _tipoActa,
+        tiempoComida: _tiempoComida,
+        porcentajeGeneral: pctGeneral,
+        items: itemsParaGuardar,
+        adjuntos: adjuntos,
+        actaOriginalUrl: actaPdf.url,
+        observaciones: '', // se completa en Fase 2
+        ocrTextoExtraido: _ocrCtrl.text.trim(),
+        ocrDatosDetectados: const {},
+        ocrRevisado: false,
+        faseActa: 'puntajes', // Fase 1 completa — pendiente de revisión
+        createdAt: Timestamp.now(),
+      );
+      await widget.service.guardarVisita(visita);
 
       final hallazgos = _buildHallazgosDesdeComentarios(
         visitaId,
@@ -7274,12 +7294,122 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   }
 }
 
+List<DropdownMenuItem<CentroCostoRef>> _centrosCostoDropdownItems(
+  Iterable<CentroCostoRef> centros,
+) => [
+  for (final grupo in agruparCentrosCosto(centros)) ...[
+    DropdownMenuItem<CentroCostoRef>(
+      enabled: false,
+      child: Text(
+        grupo.label.toUpperCase(),
+        style: const TextStyle(
+          color: Color(0xFF0F766E),
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.4,
+        ),
+      ),
+    ),
+    ...grupo.centros.map(
+      (centro) => DropdownMenuItem<CentroCostoRef>(
+        value: centro,
+        child: Text(
+          '${centro.codigo.isEmpty ? centro.centroId : centro.codigo} — ${centro.nombre}',
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    ),
+  ],
+];
+
+/// Selector compartido por Hallazgos, Subsanaciones y Análisis. Toma la
+/// clasificación G1/G9 del catálogo y conserva establecimientos históricos
+/// que ya no aparezcan allí bajo "Sin grupo".
+class _CentroCostoFilterDropdown extends StatelessWidget {
+  final InterventoriaService service;
+  final String empresaId;
+  final Map<String, String> fallbackCentros;
+  final String value;
+  final ValueChanged<String>? onChanged;
+
+  const _CentroCostoFilterDropdown({
+    required this.service,
+    required this.empresaId,
+    required this.fallbackCentros,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<CentroCostoRef>>(
+      stream: service.streamCentrosCosto(empresaId),
+      builder: (context, snapshot) {
+        final centrosPorId = <String, CentroCostoRef>{
+          for (final centro in snapshot.data ?? const <CentroCostoRef>[])
+            centro.centroId: centro,
+        };
+        for (final entry in fallbackCentros.entries) {
+          centrosPorId.putIfAbsent(
+            entry.key,
+            () => CentroCostoRef(
+              centroId: entry.key,
+              empresaId: empresaId,
+              codigo: '',
+              nombre: entry.value,
+            ),
+          );
+        }
+        final grupos = agruparCentrosCosto(centrosPorId.values);
+        return DropdownButtonFormField<String>(
+          key: ValueKey('$value-${centrosPorId.length}'),
+          initialValue: value,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Establecimiento',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Todos')),
+            for (final grupo in grupos) ...[
+              DropdownMenuItem<String>(
+                enabled: false,
+                child: Text(
+                  grupo.label.toUpperCase(),
+                  style: const TextStyle(
+                    color: Color(0xFF0F766E),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+              ...grupo.centros.map(
+                (centro) => DropdownMenuItem<String>(
+                  value: centro.centroId,
+                  child: Text(centro.nombre, overflow: TextOverflow.ellipsis),
+                ),
+              ),
+            ],
+          ],
+          onChanged: onChanged == null
+              ? null
+              : (selected) => onChanged!(selected ?? ''),
+        );
+      },
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Filtros de hallazgos
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _FiltrosHallazgos extends StatelessWidget {
   final Map<String, String> centros;
+  final InterventoriaService service;
+  final String empresaId;
 
   /// dptos: map de nombre→nombre, derivado de hallazgos reales de la empresa.
   final Map<String, String> dptos;
@@ -7299,6 +7429,8 @@ class _FiltrosHallazgos extends StatelessWidget {
 
   const _FiltrosHallazgos({
     required this.centros,
+    required this.service,
+    required this.empresaId,
     required this.dptos,
     required this.centroFiltro,
     required this.estadoFiltro,
@@ -7382,23 +7514,12 @@ class _FiltrosHallazgos extends StatelessWidget {
     );
   }
 
-  Widget _centroDropdown() => DropdownButtonFormField<String>(
-    key: ValueKey(centroFiltro),
-    initialValue: centroFiltro,
-    decoration: const InputDecoration(
-      labelText: 'Establecimiento',
-      border: OutlineInputBorder(),
-      isDense: true,
-    ),
-    items: [
-      const DropdownMenuItem(value: '', child: Text('Todos')),
-      ...centros.entries.map(
-        (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-      ),
-    ],
-    onChanged: onCentroChanged == null
-        ? null
-        : (v) => onCentroChanged!(v ?? ''),
+  Widget _centroDropdown() => _CentroCostoFilterDropdown(
+    service: service,
+    empresaId: empresaId,
+    fallbackCentros: centros,
+    value: centroFiltro,
+    onChanged: onCentroChanged,
   );
 
   Widget _estadoDropdown() => DropdownButtonFormField<String>(
@@ -7922,7 +8043,7 @@ class _EmptyHallazgos extends StatelessWidget {
 class _ActaGeneralCard extends StatelessWidget {
   final List<_PickedActa> files;
   final bool extracting;
-  final VoidCallback onPickWeb;
+  final VoidCallback onPickArchivo;
   final VoidCallback onPickCamera;
   final VoidCallback onPickGallery;
   final ValueChanged<_PickedActa> onPreview;
@@ -7931,7 +8052,7 @@ class _ActaGeneralCard extends StatelessWidget {
   const _ActaGeneralCard({
     required this.files,
     required this.extracting,
-    required this.onPickWeb,
+    required this.onPickArchivo,
     required this.onPickCamera,
     required this.onPickGallery,
     required this.onPreview,
@@ -7960,7 +8081,7 @@ class _ActaGeneralCard extends StatelessWidget {
               children: [
                 const Expanded(
                   child: Text(
-                    'Acta general (PDF)',
+                    'Acta general (PDF) *',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                   ),
                 ),
@@ -7978,25 +8099,37 @@ class _ActaGeneralCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Escanea varias paginas, revisalas y al guardar se crea el PDF general. Las imagenes quedan como trazabilidad.',
-              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            Text(
+              files.isEmpty
+                  ? 'Obligatorio. Adjunta el PDF o escanea sus páginas para generarlo.'
+                  : 'Las imágenes escaneadas se convierten en el PDF general al guardar.',
+              style: TextStyle(
+                fontSize: 11,
+                color: files.isEmpty ? _kDanger : const Color(0xFF64748B),
+                fontWeight: files.isEmpty ? FontWeight.w700 : FontWeight.normal,
+              ),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (kIsWeb)
-                  OutlinedButton.icon(
-                    onPressed: onPickWeb,
-                    icon: const Icon(Icons.upload_file_rounded, size: 16),
-                    label: const Text('Subir PDF/imagen'),
-                    style: OutlinedButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  )
-                else ...[
+                // Subir archivo va en TODAS las plataformas. Antes estaba tras
+                // un `if (kIsWeb)`, así que en el celular solo aparecían
+                // Escanear y Galería y no había forma de adjuntar un acta que
+                // ya viniera en PDF: había que fotografiar la pantalla.
+                // FilePicker con withData funciona igual en Android e iOS.
+                OutlinedButton.icon(
+                  onPressed: onPickArchivo,
+                  icon: const Icon(Icons.upload_file_rounded, size: 16),
+                  label: const Text('Subir PDF/imagen'),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+                // Cámara y galería solo en móvil: en escritorio no aportan
+                // nada que no cubra el selector de archivos.
+                if (!kIsWeb) ...[
                   OutlinedButton.icon(
                     onPressed: onPickCamera,
                     icon: const Icon(Icons.document_scanner_rounded, size: 16),

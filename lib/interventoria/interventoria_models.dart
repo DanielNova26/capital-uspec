@@ -59,6 +59,11 @@ const Set<String> kInterventoriaRolesDirectivos = {
   kRolInterventoriaDirectivo,
 };
 
+/// El maestro contiene la matriz completa de responsabilidades y se reserva
+/// al administrador funcional del módulo.
+bool puedeConsultarMaestroSubsanaciones(String rol) =>
+    rol == kRolInterventoriaAdmin;
+
 const List<InterventoriaCategoria> kInterventoriaCategorias = [
   InterventoriaCategoria('conceptoSanitario', 'Concepto Sanitario'),
   InterventoriaCategoria('horario', '1. Horario'),
@@ -272,6 +277,70 @@ const Map<String, List<String>> kInterventoriaItemsActaPorCategoria = {
   ],
 };
 
+/// Fila de la biblioteca maestra de subsanaciones.
+///
+/// Une el texto completo del numeral con la matriz oficial que determina a
+/// qué cargo se asigna y quién debe aprobar el cierre. No representa un
+/// hallazgo concreto: es la regla reusable que aplica a todas las visitas.
+class InterventoriaMaestroSubsanacion {
+  final String numeral;
+  final int seccion;
+  final String seccionNombre;
+  final String descripcion;
+  final String responsable;
+  final String aprobador;
+
+  const InterventoriaMaestroSubsanacion({
+    required this.numeral,
+    required this.seccion,
+    required this.seccionNombre,
+    required this.descripcion,
+    required this.responsable,
+    required this.aprobador,
+  });
+}
+
+/// Construye las 141 reglas de la biblioteca a partir de las dos fuentes
+/// oficiales del módulo: los aspectos del acta y su matriz de responsabilidad.
+///
+/// Mantener esta unión en lógica de negocio evita que Web y Móvil terminen
+/// mostrando catálogos distintos aunque cada plataforma use una presentación
+/// adecuada a su espacio disponible.
+List<InterventoriaMaestroSubsanacion> construirMaestroSubsanaciones() {
+  final filas = <InterventoriaMaestroSubsanacion>[];
+  for (final categoria in kInterventoriaCategorias) {
+    final aspectos =
+        kInterventoriaItemsActaPorCategoria[categoria.key] ?? const <String>[];
+    for (final aspecto in aspectos) {
+      final numeral = numeralActaDesdeAspecto(categoria.key, aspecto);
+      final responsabilidad = kInterventoriaResponsabilidadPorNumeral[numeral];
+      final seccion = kInterventoriaSeccionPorCategoria[categoria.key];
+      if (numeral.isEmpty || responsabilidad == null || seccion == null) {
+        continue;
+      }
+      filas.add(
+        InterventoriaMaestroSubsanacion(
+          numeral: numeral,
+          seccion: seccion,
+          seccionNombre:
+              kInterventoriaSeccionNombres[seccion] ?? categoria.label,
+          descripcion: aspecto.replaceFirst(RegExp(r'^\s*\d{1,2}\s*\.\s*'), ''),
+          responsable: responsabilidad.responsable,
+          aprobador: responsabilidad.aprobador,
+        ),
+      );
+    }
+  }
+  filas.sort((a, b) {
+    final porSeccion = a.seccion.compareTo(b.seccion);
+    if (porSeccion != 0) return porSeccion;
+    final itemA = int.tryParse(a.numeral.split('.').last) ?? 0;
+    final itemB = int.tryParse(b.numeral.split('.').last) ?? 0;
+    return itemA.compareTo(itemB);
+  });
+  return List.unmodifiable(filas);
+}
+
 class InterventoriaCategoria {
   final String key;
   final String label;
@@ -284,24 +353,130 @@ class CentroCostoRef {
   final String empresaId;
   final String codigo;
   final String nombre;
+  final String grupo;
 
   const CentroCostoRef({
     required this.centroId,
     required this.empresaId,
     required this.codigo,
     required this.nombre,
+    this.grupo = '',
   });
 
   factory CentroCostoRef.fromMap(String id, Map<String, dynamic> data) {
     final centroId = (data['centroId'] ?? id).toString().trim();
+    final codigo = (data['codigo'] ?? '').toString().trim();
     return CentroCostoRef(
       centroId: centroId.isEmpty ? id : centroId,
       empresaId: (data['empresaId'] ?? '').toString().trim(),
-      codigo: (data['codigo'] ?? '').toString().trim(),
+      codigo: codigo,
       nombre: (data['nombre'] ?? centroId).toString().trim(),
+      grupo: grupoCentroCostoDesdeData(data, codigo: codigo),
     );
   }
 }
+
+/// Normaliza la clasificación contractual de un establecimiento.
+///
+/// Se aceptan las variantes habituales de la fuente de datos (G1, Grupo 1,
+/// 01, etc.). No se deduce el grupo desde el nombre del establecimiento.
+String normalizarGrupoCentroCosto(Object? raw) {
+  final value = (raw ?? '').toString().trim();
+  if (value.isEmpty) return '';
+  final compact = value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
+  if (compact == '1' ||
+      compact == '01' ||
+      compact == 'G1' ||
+      compact == 'G01' ||
+      compact == 'GRUPO1' ||
+      compact == 'GRUPO01') {
+    return 'G1';
+  }
+  if (compact == '9' ||
+      compact == '09' ||
+      compact == 'G9' ||
+      compact == 'G09' ||
+      compact == 'GRUPO9' ||
+      compact == 'GRUPO09') {
+    return 'G9';
+  }
+  return value;
+}
+
+/// Lee el grupo real del catálogo. Como compatibilidad, también reconoce G1
+/// o G9 cuando forman parte del código técnico del centro, nunca del nombre.
+String grupoCentroCostoDesdeData(
+  Map<String, dynamic> data, {
+  String codigo = '',
+}) {
+  for (final key in const [
+    'grupo',
+    'grupoId',
+    'grupoNombre',
+    'grupoContrato',
+    'lote',
+  ]) {
+    final normalized = normalizarGrupoCentroCosto(data[key]);
+    if (normalized.isNotEmpty) return normalized;
+  }
+  final match = RegExp(
+    r'(?:^|[^A-Z0-9])G(?:RUPO)?[\s_-]*0?([19])(?:$|[^0-9])',
+    caseSensitive: false,
+  ).firstMatch(codigo);
+  return match == null ? '' : 'G${match.group(1)}';
+}
+
+class GrupoCentrosCosto {
+  final String grupo;
+  final List<CentroCostoRef> centros;
+
+  const GrupoCentrosCosto({required this.grupo, required this.centros});
+
+  String get label => grupo.isEmpty ? 'Sin grupo' : 'Grupo $grupo';
+}
+
+/// Agrupa primero G1 y G9 y ordena alfabéticamente dentro de cada grupo.
+/// Las demás clasificaciones se conservan y los centros sin dato quedan
+/// explícitamente separados para evitar asignaciones arbitrarias.
+List<GrupoCentrosCosto> agruparCentrosCosto(Iterable<CentroCostoRef> centros) {
+  final porGrupo = <String, List<CentroCostoRef>>{};
+  for (final centro in centros) {
+    final grupo = normalizarGrupoCentroCosto(centro.grupo);
+    porGrupo.putIfAbsent(grupo, () => <CentroCostoRef>[]).add(centro);
+  }
+  for (final list in porGrupo.values) {
+    list.sort((a, b) {
+      final byName = a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase());
+      return byName != 0
+          ? byName
+          : a.codigo.toLowerCase().compareTo(b.codigo.toLowerCase());
+    });
+  }
+  int rank(String group) => switch (group) {
+    'G1' => 0,
+    'G9' => 1,
+    '' => 3,
+    _ => 2,
+  };
+  final groups = porGrupo.entries.toList()
+    ..sort((a, b) {
+      final byRank = rank(a.key).compareTo(rank(b.key));
+      return byRank != 0
+          ? byRank
+          : a.key.toLowerCase().compareTo(b.key.toLowerCase());
+    });
+  return groups
+      .map((entry) => GrupoCentrosCosto(grupo: entry.key, centros: entry.value))
+      .toList(growable: false);
+}
+
+/// Una o varias imágenes son una fuente válida porque el registro las
+/// convierte a un PDF general antes de persistir la visita.
+bool puedeGenerarActaPdf(Iterable<String> contentTypes) => contentTypes.any(
+  (type) =>
+      type.toLowerCase() == 'application/pdf' ||
+      type.toLowerCase().startsWith('image/'),
+);
 
 class InterventoriaItem {
   final String key;
@@ -478,6 +653,10 @@ class InterventoriaAdjunto {
     'fechaSubida': fechaSubida,
   };
 }
+
+bool contieneActaPdf(Iterable<InterventoriaAdjunto> adjuntos) => adjuntos.any(
+  (adjunto) => adjunto.contentType.toLowerCase() == 'application/pdf',
+);
 
 class InterventoriaVisita {
   final String id;
@@ -758,7 +937,20 @@ const List<String> kDptosInterventoria = [
   'TALENTO HUMANO',
 ];
 
-const List<String> kTiposActaInterventoria = ['REGULAR', 'INFRAESTRUCTURA'];
+/// Tipos de acta.
+///
+/// REGULAR y SEGUIMIENTO evalúan todas las categorías; se distinguen solo por
+/// el propósito de la visita, y por eso SEGUIMIENTO no necesita ningún trato
+/// especial en `_onTipoActaChanged`: cae en la rama por defecto y hereda el
+/// comportamiento completo.
+///
+/// INFRAESTRUCTURA es la excepción: marca como "no evaluado" todo lo que no
+/// sea instalaciones físicas.
+const List<String> kTiposActaInterventoria = [
+  'REGULAR',
+  'SEGUIMIENTO',
+  'INFRAESTRUCTURA',
+];
 
 const List<String> kTiemposComidaInterventoria = [
   'DESAYUNO',
