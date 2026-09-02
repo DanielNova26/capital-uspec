@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:todo/state/empresa_scope.dart';
+import 'package:todo/services/app_update_service.dart';
 import 'package:todo/services/notification_service.dart';
 import 'package:todo/theme/app_typography.dart';
 import 'package:todo/utils/task_status.dart';
@@ -795,6 +796,13 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _focusedDay = DateTime.now();
     _selectedDay = DateTime.now();
+
+    // El aviso de actualización se consulta aquí y no en main(): una consulta
+    // de red antes de runApp() es lo que dejaba la app en pantalla blanca
+    // cuando fallaba. Aquí, si falla, simplemente no aparece el aviso.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) mostrarAvisoActualizacion(context);
+    });
   }
 
   @override
