@@ -1,0 +1,6 @@
+• Interventoría: ya puedes subir el acta en PDF desde el celular, y se agrega el tipo de acta SEGUIMIENTO.
+• Interventoría: nuevo maestro de subsanaciones.
+• Talento humano: recordatorios de cumpleaños.
+• Compras: mejoras en abastecimiento y su sincronización con recepción.
+• Se corrigió el ingreso con huella, que volvía a pedirla sin avanzar.
+• La app avisa cuando hay una versión nueva disponible.
