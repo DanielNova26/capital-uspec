@@ -2,6 +2,8 @@
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+
+import '../widgets/version_label.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:todo/state/empresa_scope.dart';
@@ -672,6 +674,11 @@ class AppDrawer extends StatelessWidget {
                   ),
                   onTap: () => _logout(context),
                 ),
+
+                // Versión instalada. Es lo primero que hay que preguntar en
+                // soporte, y en web confirma que el navegador no está sirviendo
+                // una build cacheada.
+                const VersionLabel(),
               ],
             );
 
