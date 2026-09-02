@@ -105,15 +105,29 @@ class _AuthGateState extends State<AuthGate> {
     });
     final ok = await AuthPrefs.instance.authenticateBiometric();
     if (!mounted) return;
-    setState(() => _authInProgress = false);
-    if (ok) {
-      await _resume();
-    } else {
-      setState(
-        () => _error =
-            'No se pudo verificar tu identidad. Intenta de nuevo o usa tu contraseña.',
-      );
+
+    if (!ok) {
+      setState(() {
+        _authInProgress = false;
+        _error =
+            'No se pudo verificar tu identidad. Intenta de nuevo o usa tu contraseña.';
+      });
+      return;
     }
+
+    // La bandera se mantiene en true durante _resume(): esa reanudacion espera
+    // al usuario de Firebase Auth, pide el token y consulta Firestore, y eso
+    // tarda segundos. Apagarla antes devolvia el boton "Verificar identidad" a
+    // pantalla mientras la reanudacion seguia corriendo; el usuario, viendo que
+    // aparentemente no pasaba nada, lo tocaba otra vez y se lanzaba un segundo
+    // prompt biometrico encima del primero. Ese era el bucle de "vuelve a
+    // pedirme la huella".
+    await _resume();
+
+    // _resume() navega fuera en el camino feliz, asi que este State ya no
+    // existe. Si volvio sin navegar (sin red, sesion invalida), se libera la
+    // bandera para que se pueda reintentar.
+    if (mounted) setState(() => _authInProgress = false);
   }
 
   /// Revalida la sesión contra Firestore y navega a Home (o cambio de clave).
