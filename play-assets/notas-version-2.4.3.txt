@@ -1,6 +1,6 @@
-• Interventoría: asignación manual de hallazgos, filtros corregidos y subsanaciones cerradas fuera de la bandeja.
-• Interventoría: biblioteca editable, revisión de adjuntos y aprobación desde Gestión.
-• Interventoría: las eliminaciones ahora requieren autorización y dejan trazabilidad.
-• Administración: transición de empresa, normalización de nombres y centros por módulo.
-• Notificación al desarrollador cuando OpenWA pierde la conexión.
-• Mejoras de compatibilidad con Android 15 y 16, Play Integrity y pantallas grandes.
+• Interventoría: asignación manual, filtros corregidos y subsanaciones cerradas fuera de la bandeja.
+• Biblioteca editable, revisión de adjuntos y aprobación desde Gestión.
+• Las eliminaciones requieren autorización y dejan trazabilidad.
+• Administración: transición de empresa, nombres normalizados y centros por módulo.
+• Aviso al desarrollador cuando OpenWA pierde la conexión.
+• Compatibilidad con Android 15 y 16, Play Integrity y pantallas grandes.
