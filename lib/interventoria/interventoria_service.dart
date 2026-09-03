@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
@@ -101,16 +102,68 @@ class InterventoriaAsignacionSugerida {
     required this.fechaLimite,
   });
 
-  bool get completa => responsable != null;
+  bool get completa => responsable != null && aprobador != null;
 }
 
 class InterventoriaService {
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
+  final FirebaseFunctions _functions;
 
-  InterventoriaService({FirebaseFirestore? db, FirebaseStorage? storage})
-    : _db = db ?? FirebaseFirestore.instance,
-      _storage = storage ?? FirebaseStorage.instance;
+  InterventoriaService({
+    FirebaseFirestore? db,
+    FirebaseStorage? storage,
+    FirebaseFunctions? functions,
+  }) : _db = db ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance,
+       _functions =
+           functions ?? FirebaseFunctions.instanceFor(region: 'us-central1');
+
+  Future<void> solicitarEliminacion({
+    required String empresaId,
+    required String tipo,
+    required String entidadId,
+    required String motivo,
+  }) async {
+    await _functions.httpsCallable('interventoriaSolicitarEliminacion').call({
+      'empresaId': empresaId,
+      'tipo': tipo,
+      'entidadId': entidadId,
+      'motivo': motivo,
+    });
+  }
+
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  streamSolicitudesEliminacion(String empresaId) => _db
+      .collection('TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION')
+      .where('empresaId', isEqualTo: empresaId)
+      .where('estado', isEqualTo: 'pendiente')
+      .snapshots()
+      .map((snapshot) {
+        final docs = snapshot.docs.toList();
+        docs.sort((a, b) {
+          final aTime = a.data()['createdAt'] as Timestamp?;
+          final bTime = b.data()['createdAt'] as Timestamp?;
+          return (bTime?.millisecondsSinceEpoch ?? 0).compareTo(
+            aTime?.millisecondsSinceEpoch ?? 0,
+          );
+        });
+        return docs;
+      });
+
+  Future<void> resolverSolicitudEliminacion({
+    required String empresaId,
+    required String solicitudId,
+    required bool aprobar,
+    String comentario = '',
+  }) async {
+    await _functions.httpsCallable('interventoriaResolverEliminacion').call({
+      'empresaId': empresaId,
+      'solicitudId': solicitudId,
+      'aprobar': aprobar,
+      'comentario': comentario,
+    });
+  }
 
   Stream<List<CentroCostoRef>> streamCentrosCosto(String empresaId) => _db
       .collection('TBL_CENTROS_COSTOS')
@@ -118,7 +171,11 @@ class InterventoriaService {
       .snapshots()
       .map((snap) {
         final list = snap.docs
-            .where((d) => (d.data()['enabled'] as bool?) ?? true)
+            .where(
+              (d) =>
+                  ((d.data()['enabled'] as bool?) ?? true) &&
+                  ((d.data()['enabledInterventoria'] as bool?) ?? true),
+            )
             .map((d) => CentroCostoRef.fromMap(d.id, d.data()))
             .toList();
         list.sort(
@@ -165,8 +222,8 @@ class InterventoriaService {
   }
 
   /// Fase 2 — el revisor guarda un borrador (observaciones parciales) sin
-  /// marcar el acta como completa. También auto-genera hallazgos para ítems
-  /// con puntaje bajo que ya tengan observaciones.
+  /// marcar el acta como completa. También genera hallazgos para los ítems
+  /// que ya tengan observaciones, pero nunca los asigna automáticamente.
   Future<void> guardarBorradorRevision({
     required InterventoriaVisita visita,
     required Map<String, InterventoriaItem> items,
@@ -204,8 +261,6 @@ class InterventoriaService {
     required Map<String, InterventoriaItem> items,
     required String obsGenerales,
     required String conclusiones,
-    String registradoPorId = '',
-    String registradoPorNombre = '',
   }) async {
     final itemsMap = items.map((k, v) => MapEntry(k, v.toMap()));
     final obsTexto = [
@@ -226,13 +281,8 @@ class InterventoriaService {
       'faseActa': 'completa',
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    // Auto-crear/actualizar hallazgos para ítems con puntaje bajo
-    await _autoCrearHallazgosDesdeItems(
-      visita: visita,
-      items: items,
-      registradoPorId: registradoPorId,
-      registradoPorNombre: registradoPorNombre,
-    );
+    // Crear/actualizar hallazgos. La asignación se hace manualmente después.
+    await _autoCrearHallazgosDesdeItems(visita: visita, items: items);
   }
 
   /// Sincroniza TBL_INTERVENTORIA_HALLAZGOS (fuente:'acta') con las
@@ -247,8 +297,6 @@ class InterventoriaService {
   Future<void> _autoCrearHallazgosDesdeItems({
     required InterventoriaVisita visita,
     required Map<String, InterventoriaItem> items,
-    String registradoPorId = '',
-    String registradoPorNombre = '',
   }) async {
     // ── 1. Cargar hallazgos 'acta' existentes para esta visita ───────────────
     final snap = await _db
@@ -277,10 +325,6 @@ class InterventoriaService {
     final usedGrupoIds = <String>{};
     final batch = _db.batch();
     bool hasCambios = false;
-    // Hallazgos creados en esta pasada: son los únicos que se asignan solos.
-    // Los que ya existían conservan su flujo manual para no generar de golpe
-    // tareas y notificaciones de actas viejas.
-    final nuevos = <InterventoriaHallazgo>[];
 
     for (final entry in items.entries) {
       final itemKey = entry.key;
@@ -342,25 +386,6 @@ class InterventoriaService {
         } else {
           // Crear nuevo hallazgo
           final ref = _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc();
-          nuevos.add(
-            InterventoriaHallazgo(
-              id: ref.id,
-              empresaId: visita.empresaId,
-              visitaId: visita.id,
-              centroCostoId: visita.centroCostoId,
-              centroCostoNombre: visita.centroCostoNombre,
-              grupoId: grupoId,
-              tipoActa: visita.tipoActa,
-              numeroHallazgo: '$secNum.${i + 1}',
-              numeralActa: numeralActa,
-              descripcion: descripcion,
-              observaciones: textoObs,
-              fechaHallazgo: visita.fechaVisita,
-              puntajeSeccion: item.valor,
-              fuente: 'acta',
-              createdAt: Timestamp.now(),
-            ),
-          );
           batch.set(ref, {
             'empresaId': visita.empresaId,
             'visitaId': visita.id,
@@ -400,23 +425,6 @@ class InterventoriaService {
     }
 
     if (hasCambios) await batch.commit();
-
-    // ── 5. Asignación automática por numeral ────────────────────────────────
-    //      Solo para los hallazgos recién creados cuyo numeral se reconoció.
-    //      Un fallo aquí no puede tumbar el guardado del acta: el hallazgo ya
-    //      quedó registrado y se puede asignar a mano.
-    for (final hallazgo in nuevos) {
-      if (hallazgo.numeralParaMatriz.isEmpty) continue;
-      try {
-        await crearTareaYNotificarHallazgo(
-          hallazgo: hallazgo,
-          creadorId: registradoPorId,
-          creadorNombre: registradoPorNombre,
-        );
-      } catch (_) {
-        // Queda sin tarea; el módulo permite asignarlo manualmente.
-      }
-    }
   }
 
   /// Sincroniza el estado del hallazgo cuando la tarea vinculada cambia.
@@ -934,20 +942,64 @@ class InterventoriaService {
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  /// Aprueba una subsanación pendiente (Revisor / Admin / Directivo / Gerente).
-  Future<void> aprobarSubsanacion(String hallazgoId) =>
-      _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId).set({
-        'estado': 'subsanado',
+  /// Aprueba únicamente la persona que la regla dejó como aprobador.
+  Future<void> aprobarSubsanacion(
+    String hallazgoId, {
+    required String actorId,
+  }) => _resolverSubsanacion(
+    hallazgoId: hallazgoId,
+    actorId: actorId,
+    aprobar: true,
+  );
+
+  /// Rechaza únicamente la persona que la regla dejó como aprobador.
+  Future<void> rechazarSubsanacion(
+    String hallazgoId, {
+    required String actorId,
+  }) => _resolverSubsanacion(
+    hallazgoId: hallazgoId,
+    actorId: actorId,
+    aprobar: false,
+  );
+
+  Future<void> _resolverSubsanacion({
+    required String hallazgoId,
+    required String actorId,
+    required bool aprobar,
+  }) async {
+    final hallazgoRef = _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .doc(hallazgoId);
+    await _db.runTransaction((trx) async {
+      final snap = await trx.get(hallazgoRef);
+      if (!snap.exists) throw StateError('El hallazgo ya no existe.');
+      final data = snap.data()!;
+      final aprobadorId = (data['aprobadorId'] ?? '').toString().trim();
+      if (aprobadorId.isEmpty || aprobadorId != actorId.trim()) {
+        throw StateError(
+          'Esta subsanación solo puede resolverla su aprobador asignado.',
+        );
+      }
+      trx.set(hallazgoRef, {
+        'estado': aprobar ? 'subsanado' : 'activo',
+        if (!aprobar) 'fechaSubsanacion': null,
+        'resueltoPorId': actorId,
+        'resueltoEn': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-  /// Rechaza una subsanación pendiente y la regresa a 'activo'.
-  Future<void> rechazarSubsanacion(String hallazgoId) =>
-      _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgoId).set({
-        'estado': 'activo',
-        'fechaSubsanacion': null,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final tareaId = (data['tareaId'] ?? '').toString().trim();
+      if (tareaId.isNotEmpty) {
+        trx.set(_db.collection('TBL_TAREAS').doc(tareaId), {
+          'estado': aprobar ? 'finalizado' : 'devuelta',
+          'status': aprobar ? 'finalizado' : 'devuelta',
+          'solicitud_finalizacion_estado': aprobar ? 'aprobado' : 'rechazado',
+          'solicitud_finalizacion_resuelto_por': actorId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    });
+  }
 
   Future<void> reabrirHallazgo(
     String hallazgoId, {
@@ -1367,8 +1419,9 @@ class InterventoriaService {
   ) => _usuariosDeEmpresa(empresaId);
 
   Future<List<InterventoriaUsuario>> _usuariosDeEmpresa(
-    String empresaId,
-  ) async {
+    String empresaId, {
+    bool soloAsignables = true,
+  }) async {
     final snap = await _db.collection('TBL_USUARIOS').get();
     // El área del cargo es un respaldo, no la fuente: si el usuario ya trae
     // areaId propio ese manda. Si TBL_CARGOS falla, se sigue sin áreas en
@@ -1412,11 +1465,12 @@ class InterventoriaService {
       // operativo (Talento Humano, administrativos sin computador). Sigue
       // vinculado y con acceso: solo deja de ser candidato a recibir tareas.
       final perfilCargo = perfilPorCargo[_claveCargo(cargo)];
-      if (!recibeAsignacionesEnEmpresa(
-        data,
-        empresaId,
-        marcaDelCargo: perfilCargo?.recibeAsignaciones,
-      )) {
+      if (soloAsignables &&
+          !recibeAsignacionesEnEmpresa(
+            data,
+            empresaId,
+            marcaDelCargo: perfilCargo?.recibeAsignaciones,
+          )) {
         continue;
       }
 
@@ -1498,6 +1552,79 @@ class InterventoriaService {
     return resolverCargo(matriz.responsable, hallazgo.centroCostoId, usuarios);
   }
 
+  /// Configuración editable de la biblioteca para una empresa. Las claves
+  /// ausentes conservan la matriz incluida en la aplicación.
+  Stream<Map<String, dynamic>> streamReglasSubsanacion(String empresaId) => _db
+      .collection('TBL_INTERVENTORIA_CONFIG')
+      .doc(empresaId)
+      .snapshots()
+      .map((doc) {
+        final raw = doc.data()?['reglasSubsanacion'];
+        return raw is Map
+            ? Map<String, dynamic>.from(raw)
+            : <String, dynamic>{};
+      });
+
+  Future<Map<String, dynamic>> _reglasSubsanacion(String empresaId) async {
+    final doc = await _db
+        .collection('TBL_INTERVENTORIA_CONFIG')
+        .doc(empresaId)
+        .get();
+    final raw = doc.data()?['reglasSubsanacion'];
+    return raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+  }
+
+  Future<void> guardarReglaSubsanacion({
+    required String empresaId,
+    required String numeral,
+    required String responsable,
+    required String aprobador,
+    required String actualizadoPor,
+  }) async {
+    final clave = normalizarNumeralActa(numeral);
+    if (!kInterventoriaResponsabilidadPorNumeral.containsKey(clave)) {
+      throw ArgumentError('El numeral $numeral no pertenece al acta regular.');
+    }
+    final ref = _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId);
+    await _db.runTransaction((trx) async {
+      final snap = await trx.get(ref);
+      final actual = snap.data()?['reglasSubsanacion'];
+      final reglas = actual is Map
+          ? Map<String, dynamic>.from(actual)
+          : <String, dynamic>{};
+      reglas[clave] = {
+        'responsable': responsable.trim(),
+        'aprobador': aprobador.trim(),
+        'actualizadoPor': actualizadoPor,
+        'actualizadoEn': Timestamp.now(),
+      };
+      trx.set(ref, {
+        'reglasSubsanacion': reglas,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+  }
+
+  Future<void> restaurarReglaSubsanacion({
+    required String empresaId,
+    required String numeral,
+  }) async {
+    final clave = normalizarNumeralActa(numeral);
+    final ref = _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId);
+    await _db.runTransaction((trx) async {
+      final snap = await trx.get(ref);
+      final actual = snap.data()?['reglasSubsanacion'];
+      final reglas = actual is Map
+          ? Map<String, dynamic>.from(actual)
+          : <String, dynamic>{};
+      reglas.remove(clave);
+      trx.set(ref, {
+        'reglasSubsanacion': reglas,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+  }
+
   /// Días hábiles para subsanar, configurables por sección del acta en
   /// `TBL_INTERVENTORIA_CONFIG/{empresaId}.plazoSubsanacion`.
   Future<int> plazoSubsanacionDias(String empresaId, int seccion) async {
@@ -1540,10 +1667,25 @@ class InterventoriaService {
     DateTime? desde,
   }) async {
     final clave = normalizarNumeralActa(numeral);
-    final matriz = responsabilidadDeNumeral(clave);
+    var matriz = responsabilidadDeNumeral(clave);
     if (matriz == null) return null;
 
-    final usuarios = await _usuariosDeEmpresa(empresaId);
+    final reglas = await _reglasSubsanacion(empresaId);
+    final override = reglas[clave];
+    if (override is Map) {
+      matriz = InterventoriaResponsabilidad(
+        (override['responsable'] ?? '').toString().trim(),
+        (override['aprobador'] ?? '').toString().trim(),
+      );
+    }
+
+    final responsables = await _usuariosDeEmpresa(empresaId);
+    // Un aprobador puede estar marcado como no operativo para recibir tareas;
+    // aun así debe poder aprobar las que le corresponden por su cargo.
+    final usuariosActivos = await _usuariosDeEmpresa(
+      empresaId,
+      soloAsignables: false,
+    );
     final seccion = int.tryParse(clave.split('.').first) ?? 0;
     final dias = await plazoSubsanacionDias(empresaId, seccion);
 
@@ -1551,8 +1693,12 @@ class InterventoriaService {
       numeral: clave,
       cargoResponsable: matriz.responsable,
       cargoAprobador: matriz.aprobador,
-      responsable: resolverCargo(matriz.responsable, centroCostoId, usuarios),
-      aprobador: resolverCargo(matriz.aprobador, centroCostoId, usuarios),
+      responsable: matriz.responsable.isEmpty
+          ? null
+          : resolverCargo(matriz.responsable, centroCostoId, responsables),
+      aprobador: matriz.aprobador.isEmpty
+          ? null
+          : resolverCargo(matriz.aprobador, centroCostoId, usuariosActivos),
       fechaLimite: sumarDiasHabiles(desde ?? DateTime.now(), dias),
     );
   }
@@ -1699,13 +1845,22 @@ class InterventoriaService {
       destinatarioNombre = asignacion?.responsable?.nombre ?? '';
     }
 
+    if (destinatarioId.isEmpty) {
+      throw StateError(
+        'La regla no tiene una persona responsable activa. Corríjala en la biblioteca.',
+      );
+    }
+
     // El aprobador de la matriz es el jefe de la tarea: recibe notificación
     // cuando el responsable termina y es quien aprueba la subsanación.
     final aprobador = asignacion?.aprobador;
-    final jefeId = aprobador?.id.isNotEmpty == true ? aprobador!.id : creadorId;
-    final jefeNombre = aprobador?.id.isNotEmpty == true
-        ? aprobador!.nombre
-        : creadorNombreReal;
+    if (aprobador == null || aprobador.id.trim().isEmpty) {
+      throw StateError(
+        'La regla no tiene un aprobador activo. Corríjala en la biblioteca.',
+      );
+    }
+    final jefeId = aprobador.id;
+    final jefeNombre = aprobador.nombre;
 
     final fechaLimite =
         asignacion?.fechaLimite ??
@@ -1766,10 +1921,8 @@ class InterventoriaService {
     }
     sb.writeln();
     sb.writeln('──────────────────────────────');
-    sb.writeln('ℹ️  Esta tarea fue generada automáticamente por el módulo de');
-    sb.writeln(
-      '   Interventoría a partir del numeral del acta. Quien la recibe puede',
-    );
+    sb.writeln('ℹ️  Esta tarea fue generada por el módulo de Interventoría');
+    sb.writeln('   después de una asignación manual. Quien la recibe puede');
     sb.writeln('   reasignarla a cualquier miembro de su equipo.');
     sb.writeln('Origen: Interventoría');
     final descripcion = sb.toString().trimRight();
@@ -1784,15 +1937,12 @@ class InterventoriaService {
       descripcion: descripcion,
       estado: 'pendiente', // ← estado inicial, NO en_progreso
       prioridad: 'alta',
-      asignadoUid: destinatarioId.isNotEmpty ? destinatarioId : creadorId,
-      asignadoNombre: destinatarioId.isNotEmpty
-          ? destinatarioNombre
-          : creadorNombreReal,
+      asignadoUid: destinatarioId,
+      asignadoNombre: destinatarioNombre,
       creadorUid: creadorId,
       creadorNombre: creadorNombreReal,
       // El aprobador de la matriz queda como "jefe" → recibe notificación
-      // cuando el responsable reasigne o finalice la tarea. Sin aprobador
-      // resuelto, ese rol lo conserva quien registró el hallazgo.
+      // cuando el responsable reasigne o finalice la tarea.
       jefeUid: jefeId,
       jefeNombre: jefeNombre,
       centroId: hallazgo.centroCostoId.isNotEmpty
@@ -1813,10 +1963,14 @@ class InterventoriaService {
         'notify': true,
         'empresas': [hallazgo.empresaId],
         'areaNombre': hallazgo.dptoEncargado,
-        'numeralActa': hallazgo.numeroHallazgo,
+        'numeralActa': hallazgo.numeralParaMatriz,
         'cargoResponsable': asignacion?.cargoResponsable ?? '',
         'cargoAprobador': asignacion?.cargoAprobador ?? '',
-        'asignacionAutomatica': asignacion?.responsable != null,
+        'asignacionAutomatica':
+            responsableForzado == null &&
+            !preferirAreaManual &&
+            asignacion?.completa == true,
+        'aprobadorId': aprobador.id,
         // Marca que permite reasignación directa sin aprobación extra
         'permite_reasignacion_director': true,
       },
@@ -1847,8 +2001,8 @@ class InterventoriaService {
             // la matriz: en la tabla debe leerse a quién quedó de verdad.
             'cargoResponsable':
                 responsableForzado?.cargo ?? asignacion?.cargoResponsable ?? '',
-            'aprobadorId': aprobador?.id ?? '',
-            'aprobadorNombre': aprobador?.nombre ?? '',
+            'aprobadorId': aprobador.id,
+            'aprobadorNombre': aprobador.nombre,
             'cargoAprobador': asignacion?.cargoAprobador ?? '',
             'fechaLimite': Timestamp.fromDate(fechaLimite),
           });

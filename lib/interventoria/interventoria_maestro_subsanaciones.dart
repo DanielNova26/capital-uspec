@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_scroll_behavior.dart' show BarraHorizontal;
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import 'interventoria_models.dart';
-import 'interventoria_numerales_catalogo.dart';
+import 'interventoria_service.dart';
 
 const Color _kAccent = Color(0xFF0F766E);
 const String _kFont = 'Arial';
@@ -14,7 +16,18 @@ const String _kFont = 'Arial';
 /// Web usa una tabla densa y paginada; Móvil conserva los mismos filtros y la
 /// misma lógica, pero presenta una ficha por numeral para priorizar lectura.
 class InterventoriaMaestroSubsanaciones extends StatefulWidget {
-  const InterventoriaMaestroSubsanaciones({super.key});
+  final InterventoriaService? service;
+  final String empresaId;
+  final String userId;
+  final bool canEdit;
+
+  const InterventoriaMaestroSubsanaciones({
+    super.key,
+    this.service,
+    this.empresaId = '',
+    this.userId = '',
+    this.canEdit = false,
+  });
 
   @override
   State<InterventoriaMaestroSubsanaciones> createState() =>
@@ -24,15 +37,29 @@ class InterventoriaMaestroSubsanaciones extends StatefulWidget {
 class _InterventoriaMaestroSubsanacionesState
     extends State<InterventoriaMaestroSubsanaciones> {
   final TextEditingController _buscarCtrl = TextEditingController();
-  late final List<InterventoriaMaestroSubsanacion> _maestro =
+  late final List<InterventoriaMaestroSubsanacion> _base =
       construirMaestroSubsanaciones();
+  Map<String, dynamic> _reglas = const {};
+  StreamSubscription<Map<String, dynamic>>? _reglasSub;
   int _seccion = 0;
   String _responsable = '';
+  bool _soloIncompletas = false;
+
+  List<InterventoriaMaestroSubsanacion> get _maestro =>
+      aplicarReglasSubsanacion(_base, _reglas);
 
   @override
   void initState() {
     super.initState();
     _buscarCtrl.addListener(_actualizarBusqueda);
+    final service = widget.service;
+    if (service != null && widget.empresaId.isNotEmpty) {
+      _reglasSub = service.streamReglasSubsanacion(widget.empresaId).listen((
+        reglas,
+      ) {
+        if (mounted) setState(() => _reglas = reglas);
+      });
+    }
   }
 
   @override
@@ -40,6 +67,7 @@ class _InterventoriaMaestroSubsanacionesState
     _buscarCtrl
       ..removeListener(_actualizarBusqueda)
       ..dispose();
+    _reglasSub?.cancel();
     super.dispose();
   }
 
@@ -51,6 +79,7 @@ class _InterventoriaMaestroSubsanacionesState
     final consulta = normalizarCargo(_buscarCtrl.text);
     return _maestro.where((fila) {
       if (_seccion != 0 && fila.seccion != _seccion) return false;
+      if (_soloIncompletas && !fila.incompleta) return false;
       if (_responsable.isNotEmpty && fila.responsable != _responsable) {
         return false;
       }
@@ -66,21 +95,28 @@ class _InterventoriaMaestroSubsanacionesState
   bool get _hayFiltros =>
       _buscarCtrl.text.trim().isNotEmpty ||
       _seccion != 0 ||
-      _responsable.isNotEmpty;
+      _responsable.isNotEmpty ||
+      _soloIncompletas;
 
   void _limpiarFiltros() {
     _buscarCtrl.clear();
     setState(() {
       _seccion = 0;
       _responsable = '';
+      _soloIncompletas = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final filas = _filtradas;
-    final responsables = _maestro.map((e) => e.responsable).toSet().toList()
-      ..sort();
+    final responsables =
+        _maestro
+            .map((e) => e.responsable)
+            .where((cargo) => cargo.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
 
     return InternalModuleViewport(
       maxWidth: 1800,
@@ -101,6 +137,16 @@ class _InterventoriaMaestroSubsanacionesState
               onResponsableChanged: (value) =>
                   setState(() => _responsable = value),
               onLimpiar: _hayFiltros ? _limpiarFiltros : null,
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                selected: _soloIncompletas,
+                avatar: const Icon(Icons.warning_amber_rounded, size: 17),
+                label: const Text('Solo reglas sin asignar'),
+                onSelected: (value) => setState(() => _soloIncompletas = value),
+              ),
             ),
             const SizedBox(height: 12),
             _ResultadoFiltro(
@@ -124,8 +170,12 @@ class _InterventoriaMaestroSubsanacionesState
                       items: filas,
                       etiqueta: 'numerales',
                       separator: const SizedBox(height: 10),
-                      itemBuilder: (context, fila, _) =>
-                          _TarjetaMaestro(fila: fila),
+                      itemBuilder: (context, fila, _) => _TarjetaMaestro(
+                        fila: fila,
+                        onEditar: widget.canEdit
+                            ? () => _editarRegla(fila)
+                            : null,
+                      ),
                     ),
                   const SizedBox(height: 16),
                 ],
@@ -145,6 +195,7 @@ class _InterventoriaMaestroSubsanacionesState
                           '${_buscarCtrl.text}|$_seccion|$_responsable',
                         ),
                         filas: filas,
+                        onEditar: widget.canEdit ? _editarRegla : null,
                       ),
               ),
             ],
@@ -152,6 +203,94 @@ class _InterventoriaMaestroSubsanacionesState
         },
       ),
     );
+  }
+
+  Future<void> _editarRegla(InterventoriaMaestroSubsanacion fila) async {
+    final service = widget.service;
+    if (service == null || widget.empresaId.isEmpty) return;
+    final responsableCtrl = TextEditingController(text: fila.responsable);
+    final aprobadorCtrl = TextEditingController(text: fila.aprobador);
+    final accion = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Editar regla ${fila.numeral}'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                fila.descripcion,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: responsableCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Cargo responsable',
+                  hintText: 'Vacío = sin responsable',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: aprobadorCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Cargo aprobador',
+                  hintText: 'Vacío = sin aprobador',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Si un cargo queda vacío o no existe en el personal activo, la regla se marcará sin asignar y no creará una tarea incorrecta.',
+                style: TextStyle(fontSize: 11.5, color: Color(0xFFB45309)),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'restaurar'),
+            child: const Text('Restaurar regla base'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, 'guardar'),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    final responsable = responsableCtrl.text;
+    final aprobador = aprobadorCtrl.text;
+    responsableCtrl.dispose();
+    aprobadorCtrl.dispose();
+    if (accion == null) return;
+    if (accion == 'restaurar') {
+      await service.restaurarReglaSubsanacion(
+        empresaId: widget.empresaId,
+        numeral: fila.numeral,
+      );
+    } else {
+      await service.guardarReglaSubsanacion(
+        empresaId: widget.empresaId,
+        numeral: fila.numeral,
+        responsable: responsable,
+        aprobador: aprobador,
+        actualizadoPor: widget.userId,
+      );
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Regla de subsanación actualizada.')),
+      );
+    }
   }
 }
 
@@ -455,8 +594,9 @@ class _ResultadoFiltro extends StatelessWidget {
 
 class _TablaMaestro extends StatelessWidget {
   final List<InterventoriaMaestroSubsanacion> filas;
+  final ValueChanged<InterventoriaMaestroSubsanacion>? onEditar;
 
-  const _TablaMaestro({super.key, required this.filas});
+  const _TablaMaestro({super.key, required this.filas, this.onEditar});
 
   @override
   Widget build(BuildContext context) {
@@ -482,12 +622,16 @@ class _TablaMaestro extends StatelessWidget {
                 dataRowMinHeight: 70,
                 dataRowMaxHeight: 104,
                 columnSpacing: 24,
-                columns: const [
-                  DataColumn(label: Text('Numeral')),
-                  DataColumn(label: Text('Sección')),
-                  DataColumn(label: Text('Subsanación / aspecto del acta')),
-                  DataColumn(label: Text('Asignado a')),
-                  DataColumn(label: Text('Aprueba')),
+                columns: [
+                  const DataColumn(label: Text('Numeral')),
+                  const DataColumn(label: Text('Sección')),
+                  const DataColumn(
+                    label: Text('Subsanación / aspecto del acta'),
+                  ),
+                  const DataColumn(label: Text('Asignado a')),
+                  const DataColumn(label: Text('Aprueba')),
+                  if (onEditar != null)
+                    const DataColumn(label: Text('Acciones')),
                 ],
                 rows: filas
                     .map(
@@ -539,6 +683,14 @@ class _TablaMaestro extends StatelessWidget {
                               texto: fila.aprobador,
                             ),
                           ),
+                          if (onEditar != null)
+                            DataCell(
+                              IconButton(
+                                tooltip: 'Editar responsable y aprobador',
+                                onPressed: () => onEditar!(fila),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                            ),
                         ],
                       ),
                     )
@@ -554,8 +706,9 @@ class _TablaMaestro extends StatelessWidget {
 
 class _TarjetaMaestro extends StatelessWidget {
   final InterventoriaMaestroSubsanacion fila;
+  final VoidCallback? onEditar;
 
-  const _TarjetaMaestro({required this.fila});
+  const _TarjetaMaestro({required this.fila, this.onEditar});
 
   @override
   Widget build(BuildContext context) {
@@ -593,6 +746,12 @@ class _TarjetaMaestro extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onEditar != null)
+                IconButton(
+                  tooltip: 'Editar regla',
+                  onPressed: onEditar,
+                  icon: const Icon(Icons.edit_outlined, color: _kAccent),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -639,7 +798,12 @@ class _DatoResponsabilidad extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = destacado ? _kAccent : const Color(0xFF475569);
+    final sinAsignar = value.trim().isEmpty;
+    final color = sinAsignar
+        ? const Color(0xFFB45309)
+        : destacado
+        ? _kAccent
+        : const Color(0xFF475569);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -656,7 +820,7 @@ class _DatoResponsabilidad extends StatelessWidget {
               children: [
                 TextSpan(text: '$label: '),
                 TextSpan(
-                  text: value,
+                  text: sinAsignar ? 'Sin asignar' : value,
                   style: TextStyle(fontWeight: FontWeight.w900, color: color),
                 ),
               ],
@@ -707,7 +871,12 @@ class _CargoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = destacado ? _kAccent : const Color(0xFF475569);
+    final sinAsignar = texto.trim().isEmpty;
+    final color = sinAsignar
+        ? const Color(0xFFB45309)
+        : destacado
+        ? _kAccent
+        : const Color(0xFF475569);
     return Container(
       constraints: const BoxConstraints(maxWidth: 240),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -723,7 +892,7 @@ class _CargoChip extends StatelessWidget {
           const SizedBox(width: 7),
           Flexible(
             child: Text(
-              texto,
+              sinAsignar ? 'Sin asignar' : texto,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontFamily: _kFont,

@@ -21,6 +21,7 @@ import {
 const REGION = "us-central1";
 const CONFIG_COLLECTION = "TBL_WHATSAPP_CONFIG";
 const LIST_COLLECTION = "TBL_CORREO_LISTADOS";
+const NOTIFICATION_COLLECTION = "TBL_NOTIFICACIONES";
 const PURCHASE_NEW_SUPPLIER_ROUTE = "compras_nuevo_proveedor";
 const SUPPORTED_LIST_MODULES = new Set([
   "correo",
@@ -290,14 +291,37 @@ function normalizePhone(value: unknown, countryCode: string): string {
 
 function isDeveloper(user: admin.firestore.DocumentData): boolean {
   if (user.desarrollador === true || user.developer === true) return true;
-  const roles = [user.role, user.rol, user.tipoUsuario].map(normalize);
+  const roles = [
+    user.roleKey,
+    user.roleId,
+    user.role,
+    user.rol,
+    user.tipoUsuario,
+  ].map(normalize);
+  const detail = user.empresasDetalle;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    for (const raw of Object.values(detail)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+      const scoped = raw as Record<string, unknown>;
+      roles.push(
+        ...[
+          scoped.roleKey,
+          scoped.roleId,
+          scoped.role,
+          scoped.rol,
+        ].map(normalize)
+      );
+    }
+  }
   return roles.some((role) =>
     [
       "desarrollador",
       "developer",
       "superadmin",
       "administrador_sistema",
-    ].includes(role)
+    ].includes(role) ||
+    role.endsWith("_desarrollador") ||
+    role.endsWith("_developer")
   );
 }
 
@@ -818,6 +842,208 @@ async function sessionState(
     return { connected: false, status: "unreachable" };
   }
 }
+
+export interface OpenWaMonitorState {
+  consecutiveFailures: number;
+  incidentOpen: boolean;
+  incidentId: string;
+  incidentStartedAtMs: number;
+  lastStatus: string;
+}
+
+export function nextOpenWaMonitorState(
+  previous: Partial<OpenWaMonitorState> | null | undefined,
+  current: { connected: boolean; status: string },
+  nowMs: number,
+  failureThreshold = 1
+): { state: OpenWaMonitorState; shouldNotify: boolean } {
+  const status = normalize(current.status) || "unknown";
+  if (current.connected) {
+    return {
+      state: {
+        consecutiveFailures: 0,
+        incidentOpen: false,
+        incidentId: "",
+        incidentStartedAtMs: 0,
+        lastStatus: status,
+      },
+      shouldNotify: false,
+    };
+  }
+
+  const consecutiveFailures =
+    Math.max(0, Number(previous?.consecutiveFailures || 0)) + 1;
+  const wasOpen = previous?.incidentOpen === true;
+  const shouldNotify = !wasOpen &&
+    consecutiveFailures >= Math.max(1, failureThreshold);
+  const startedAt = Number(previous?.incidentStartedAtMs || 0) || nowMs;
+  return {
+    state: {
+      consecutiveFailures,
+      incidentOpen: wasOpen || shouldNotify,
+      incidentId: wasOpen
+        ? text(previous?.incidentId)
+        : shouldNotify
+          ? `${nowMs}`
+          : "",
+      incidentStartedAtMs: startedAt,
+      lastStatus: status,
+    },
+    shouldNotify,
+  };
+}
+
+function activeDeveloperRecipients(
+  users: admin.firestore.QuerySnapshot,
+  empresaId: string
+): admin.firestore.QueryDocumentSnapshot[] {
+  return users.docs.filter((doc) => {
+    const user = doc.data();
+    if (!isDeveloper(user) || !belongsToEmpresa(user, empresaId)) return false;
+    if (user.activo === false || user.enabled === false) return false;
+    const status = normalize(
+      user.estadoLaboral || user.estado || user.status || "activo"
+    );
+    return ![
+      "inactivo",
+      "retirado",
+      "retirada",
+      "deshabilitado",
+      "deshabilitada",
+      "bloqueado",
+      "bloqueada",
+    ].includes(status);
+  });
+}
+
+function openWaStatusLabel(status: string): string {
+  const normalized = normalize(status);
+  if (normalized === "unreachable") return "servidor inalcanzable";
+  if (normalized === "not_configured") return "sin configurar";
+  if (normalized === "unknown") return "estado desconocido";
+  return text(status) || "desconectado";
+}
+
+export const whatsappOpenWaMonitor = functions
+  .region(REGION)
+  .runWith({ timeoutSeconds: 120, memory: "256MB" })
+  .pubsub.schedule("every 1 minutes")
+  .timeZone("America/Bogota")
+  .onRun(async () => {
+    const [configs, users] = await Promise.all([
+      db().collection(CONFIG_COLLECTION).get(),
+      db().collection("TBL_USUARIOS").get(),
+    ]);
+    let checked = 0;
+    let alerts = 0;
+
+    for (const configDoc of configs.docs) {
+      const empresaId = configDoc.id;
+      try {
+        const config = await loadRuntimeConfig(empresaId);
+        const isOpenWa = ["openwa", "openclaw_openwa"].includes(
+          config.provider
+        );
+        const configured = Boolean(
+          config.enabled &&
+          isOpenWa &&
+          config.baseUrl &&
+          config.apiKey &&
+          config.sessionId
+        );
+        if (!configured) continue;
+
+        checked += 1;
+        const current = await sessionState(config);
+        const recipients = activeDeveloperRecipients(users, empresaId);
+        const createdAlerts = await db().runTransaction(async (transaction) => {
+          const fresh = await transaction.get(configDoc.ref);
+          const rawMonitor = fresh.get("openWaMonitor");
+          const previous = rawMonitor && typeof rawMonitor === "object" &&
+              !Array.isArray(rawMonitor)
+            ? rawMonitor as Partial<OpenWaMonitorState>
+            : null;
+          // Un estado explícitamente desconectado alerta en el siguiente
+          // minuto. Los fallos de red requieren dos lecturas consecutivas.
+          const failureThreshold = current.status === "unreachable" ? 2 : 1;
+          const transition = nextOpenWaMonitorState(
+            previous,
+            current,
+            Date.now(),
+            failureThreshold
+          );
+          const monitorData: Record<string, unknown> = {
+            ...transition.state,
+            lastCheckedAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+          if (current.connected) {
+            monitorData.lastConnectedAt =
+              admin.firestore.FieldValue.serverTimestamp();
+          }
+          if (transition.shouldNotify) {
+            monitorData.disconnectedAt =
+              admin.firestore.FieldValue.serverTimestamp();
+          }
+          transaction.set(
+            configDoc.ref,
+            { openWaMonitor: monitorData },
+            { merge: true }
+          );
+
+          if (!transition.shouldNotify) return 0;
+          const incidentId = transition.state.incidentId;
+          for (const recipient of recipients) {
+            const notificationId = createHash("sha256")
+              .update(
+                `${recipient.id}:openwa_disconnected:${empresaId}:${incidentId}`
+              )
+              .digest("hex");
+            const parent = db()
+              .collection(NOTIFICATION_COLLECTION)
+              .doc(recipient.id);
+            const notification = parent
+              .collection("notifications")
+              .doc(notificationId);
+            transaction.set(parent, {
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            transaction.create(notification, {
+              id: notificationId,
+              title: "OpenWA se desconectó",
+              description:
+                `La sesión ${config.sessionId} dejó de estar conectada. ` +
+                `Estado: ${openWaStatusLabel(current.status)}. ` +
+                "Revisa la integración de WhatsApp en Administración.",
+              type: "openwa_disconnected",
+              module: "admin",
+              sourceType: "openwa_monitor",
+              sourceEntityId: config.sessionId,
+              empresaId,
+              taskId: "",
+              read: false,
+              idempotencyKey:
+                `openwa_disconnected:${empresaId}:${incidentId}`,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+          return recipients.length;
+        });
+        alerts += createdAlerts;
+      } catch (error) {
+        console.error("OPENWA_MONITOR_COMPANY_ERROR", {
+          empresaId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    console.log("OPENWA_MONITOR_COMPLETED", {
+      configs: configs.size,
+      checked,
+      alerts,
+    });
+    return null;
+  });
 
 function adminOperationError(
   error: unknown,

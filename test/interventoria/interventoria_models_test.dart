@@ -34,6 +34,40 @@ InterventoriaVisita _visita({
 }
 
 void main() {
+  test('solo el aprobador asignado puede resolver una subsanación', () {
+    final hallazgo = InterventoriaHallazgo(
+      empresaId: 'empresa',
+      centroCostoId: 'centro',
+      centroCostoNombre: 'Centro',
+      descripcion: 'Hallazgo',
+      fechaHallazgo: Timestamp.fromDate(DateTime(2026, 9, 2)),
+      aprobadorId: 'calidad-1',
+      createdAt: Timestamp.fromDate(DateTime(2026, 9, 2)),
+    );
+
+    expect(puedeAprobarHallazgo(hallazgo, 'calidad-1'), isTrue);
+    expect(puedeAprobarHallazgo(hallazgo, 'desarrollador'), isFalse);
+  });
+
+  test('la bandeja de asignación excluye lo ya subsanado', () {
+    InterventoriaHallazgo hallazgo(String estado) => InterventoriaHallazgo(
+      empresaId: 'empresa',
+      centroCostoId: 'centro',
+      centroCostoNombre: 'Centro',
+      descripcion: 'Hallazgo',
+      estado: estado,
+      fechaHallazgo: Timestamp.fromDate(DateTime(2026, 9, 2)),
+      createdAt: Timestamp.fromDate(DateTime(2026, 9, 2)),
+    );
+
+    expect(debeAparecerEnTableroAsignacion(hallazgo('activo')), isTrue);
+    expect(
+      debeAparecerEnTableroAsignacion(hallazgo('pendiente_aprobacion')),
+      isTrue,
+    );
+    expect(debeAparecerEnTableroAsignacion(hallazgo('subsanado')), isFalse);
+  });
+
   group('catálogo de establecimientos', () {
     test('lee G1/G9 de los datos sin inferirlo desde el nombre', () {
       final g1 = CentroCostoRef.fromMap('a', {

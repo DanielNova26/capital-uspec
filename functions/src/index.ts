@@ -90,7 +90,12 @@ export {
   whatsappAdminAsignarListado,
   whatsappAdminDirectorio,
   whatsappAdminProbar,
+  whatsappOpenWaMonitor,
 } from "./whatsapp";
+export {
+  interventoriaSolicitarEliminacion,
+  interventoriaResolverEliminacion,
+} from "./interventoria_deletion";
 export {
   rutasResumenEvidencia,
   rutasGenerarInforme,

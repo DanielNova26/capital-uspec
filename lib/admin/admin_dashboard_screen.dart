@@ -32,6 +32,8 @@ import 'admin_module_closeout_service.dart';
 import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
 import 'admin_access_filter.dart';
+import 'admin_name_normalizer.dart';
+import 'company_transition_service.dart';
 import 'compras_document_control_panel.dart';
 import 'correo_admin_panel.dart';
 import 'dian_tokens_admin_panel.dart';
@@ -155,6 +157,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     with SingleTickerProviderStateMixin {
   final _repo = AdminRepository(db: FirebaseFirestore.instance);
   final _mig = AdminMigrationService(db: FirebaseFirestore.instance);
+  final _companyTransition = CompanyTransitionService(
+    db: FirebaseFirestore.instance,
+  );
 
   late TabController _tabController;
   bool _loading = true;
@@ -833,7 +838,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                             (c) => DropdownMenuItem(
                               value: c,
                               child: Text(
-                                '${c.codigo} - ${c.nombre}',
+                                c.nombre,
                                 style: const TextStyle(fontFamily: kArial),
                               ),
                             ),
@@ -1298,7 +1303,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   (c) => DropdownMenuItem(
                     value: c,
                     child: Text(
-                      '${c.codigo} - ${c.nombre}',
+                      c.nombre,
                       style: const TextStyle(fontFamily: kArial),
                     ),
                   ),
@@ -1337,7 +1342,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         title: 'Ejecutar migración de Centro',
         message:
             'Usuarios seleccionados: ${_selectedMigrationUsers.length}\n'
-            'Centro canónico: ${centroCanonical.codigo} - ${centroCanonical.nombre}\n\n'
+            'Centro canónico: ${centroCanonical.nombre}\n\n'
             'Esto SOLO actualizará TBL_USUARIOS (no tareas/cargos/estructura).\n¿Continuar?',
         confirmText: 'Ejecutar',
       );
@@ -5832,7 +5837,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final facturacionCentros = _centros
         .where(
           (centro) =>
-              centro.enabled || centro.centroId == currentFacturacionEstId,
+              (centro.enabled && centro.enabledFacturacion) ||
+              centro.centroId == currentFacturacionEstId,
         )
         .toList();
     final hasKnownFacturacionCentro = facturacionCentros.any(
@@ -5951,9 +5957,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       (centro) => DropdownMenuItem<String>(
                         value: centro.centroId,
                         child: Text(
-                          centro.codigo.isEmpty
-                              ? centro.nombre
-                              : '${centro.codigo} · ${centro.nombre}',
+                          centro.nombre,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -8242,9 +8246,49 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         const SizedBox(height: 16),
         ...centros.map(
           (c) => _catalogTile(
-            title: '${c.codigo} - ${c.nombre}',
+            title: c.nombre,
             subtitle: '',
             enabled: c.enabled,
+            trailing2: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilterChip(
+                  label: const Text('Facturación'),
+                  selected: c.enabledFacturacion,
+                  onSelected: c.enabled
+                      ? (value) async {
+                          await _repo.setCentroModuleEnabled(
+                            centroId: c.centroId,
+                            module: 'facturacion',
+                            enabled: value,
+                          );
+                          _snack(
+                            '${c.nombre}: ${value ? "visible" : "oculto"} en Facturación',
+                          );
+                          await _loadAll(forceEmpresaId: _empresaId);
+                        }
+                      : null,
+                ),
+                FilterChip(
+                  label: const Text('Interventoría'),
+                  selected: c.enabledInterventoria,
+                  onSelected: c.enabled
+                      ? (value) async {
+                          await _repo.setCentroModuleEnabled(
+                            centroId: c.centroId,
+                            module: 'interventoria',
+                            enabled: value,
+                          );
+                          _snack(
+                            '${c.nombre}: ${value ? "visible" : "oculto"} en Interventoría',
+                          );
+                          await _loadAll(forceEmpresaId: _empresaId);
+                        }
+                      : null,
+                ),
+              ],
+            ),
             onEdit: () => _dialogCentro(existing: c),
             onToggle: (v) async {
               await _repo.setCentroEnabled(c.centroId, v);
@@ -10338,7 +10382,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               TextField(
                 controller: codCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Código (ej: CC001)',
+                  labelText: 'Código interno (opcional)',
                   border: OutlineInputBorder(),
                 ),
                 style: const TextStyle(fontFamily: kArial),
@@ -10377,15 +10421,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               final codigo = codCtrl.text.trim();
               final nombre = nomCtrl.text.trim();
 
-              if (centroId.isEmpty || codigo.isEmpty || nombre.isEmpty) {
-                _snack('Completa centroId, código y nombre');
+              if (centroId.isEmpty || nombre.isEmpty) {
+                _snack('Completa centroId y nombre');
                 return;
               }
 
               await _repo.upsertCentro(
                 empresaId: empresaId,
                 centroId: centroId,
-                codigo: codigo,
+                codigo: codigo.isEmpty ? centroId : codigo,
                 nombre: nombre,
                 enabled: enabled,
               );
@@ -10568,7 +10612,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                     (c) => DropdownMenuItem(
                       value: c,
                       child: Text(
-                        '${c.codigo} - ${c.nombre}',
+                        c.nombre,
                         style: const TextStyle(fontFamily: kArial),
                       ),
                     ),
@@ -13102,6 +13146,168 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  Future<void> _normalizarNombresEmpresa() async {
+    final empresaId = _empresaId ?? '';
+    if (empresaId.isEmpty || _membresiaLoading) return;
+    setState(() => _membresiaLoading = true);
+    try {
+      final preview = await _mig.normalizePersonNames(
+        empresaId: empresaId,
+        dryRun: true,
+      );
+      if (!mounted) return;
+      setState(() => _membresiaLoading = false);
+      if (preview.updated == 0) {
+        _snack('Los ${preview.scanned} nombres ya están normalizados.');
+        return;
+      }
+      final ok = await _confirm(
+        title: 'Normalizar nombres',
+        message:
+            'Se corregirá la presentación de ${preview.updated} de '
+            '${preview.scanned} personas de ${_empresaNombre(empresaId)}.\n\n'
+            'Ejemplo: “MARÍA DE LA CRUZ” → “María de la Cruz”.\n'
+            'No se modificarán cédulas, correos, cargos ni permisos.',
+        confirmText: 'Normalizar',
+      );
+      if (!ok) return;
+      if (mounted) setState(() => _membresiaLoading = true);
+      final result = await _mig.normalizePersonNames(
+        empresaId: empresaId,
+        dryRun: false,
+      );
+      await _mig.logMigration(
+        adminUserId: widget.userId,
+        empresaId: empresaId,
+        action: 'normalizePersonNames',
+        scanned: result.scanned,
+        updated: result.updated,
+        dryRun: false,
+      );
+      UserDirectory.instance.clear();
+      _snack('${result.updated} nombre(s) normalizados.');
+      await _loadMembresiaUsers();
+    } catch (e) {
+      _snack('No se pudieron normalizar los nombres: $e');
+    } finally {
+      if (mounted) setState(() => _membresiaLoading = false);
+    }
+  }
+
+  Future<void> _crearEmpresaPorTransicion() async {
+    final source = _empresaActual;
+    if (source == null || _membresiaLoading) return;
+    final idCtrl = TextEditingController();
+    final nameCtrl = TextEditingController();
+    var makePrimary = true;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Nueva empresa por transición'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Se conservará ${source.nombre} y toda su información. '
+                    'Las personas recibirán una membresía adicional en la nueva empresa.',
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: idCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'ID de la nueva empresa',
+                      hintText: 'Ej. NUEVA_EMPRESA_2026',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nombre o razón social nueva',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: makePrimary,
+                    title: const Text('Dejar la empresa nueva como principal'),
+                    subtitle: const Text(
+                      'La empresa anterior seguirá disponible como historial.',
+                    ),
+                    onChanged: (value) =>
+                        setDialogState(() => makePrimary = value),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Revisar y crear'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final targetId = idCtrl.text.trim();
+    final targetName = nameCtrl.text.trim();
+    idCtrl.dispose();
+    nameCtrl.dispose();
+    if (accepted != true) return;
+    if (!RegExp(r'^[A-Za-z0-9_-]{3,80}$').hasMatch(targetId) ||
+        targetName.isEmpty) {
+      _snack(
+        'Usa un ID de 3–80 caracteres, sin espacios, y escribe el nombre.',
+      );
+      return;
+    }
+    final confirmed = await _confirm(
+      title: 'Confirmar transición empresarial',
+      message:
+          'Origen conservado: ${source.nombre} (${source.empresaId})\n'
+          'Nueva empresa: $targetName ($targetId)\n\n'
+          'Se copiará el perfil corporativo y se agregarán todos los empleados. '
+          'También se copiarán centros, áreas, cargos y roles internos. '
+          'No se moverán ni borrarán actas, tareas, facturas o documentos históricos.',
+      confirmText: 'Crear y trasladar',
+    );
+    if (!confirmed) return;
+    setState(() => _membresiaLoading = true);
+    try {
+      final result = await _companyTransition.createCompanyAndTransferEmployees(
+        sourceEmpresaId: source.empresaId,
+        targetEmpresaId: targetId,
+        targetCompanyName: targetName,
+        actorId: widget.userId,
+        makeTargetPrimary: makePrimary,
+      );
+      _snack(
+        'Empresa creada: ${result.usersTransferred} persona(s) trasladadas y '
+        '${result.employeeMirrorsCreated} ficha(s), '
+        '${result.catalogsCopied} catálogo(s) y '
+        '${result.moduleRolesCopied} rol(es) copiados.',
+      );
+      await _loadAll(forceEmpresaId: targetId);
+      await _loadMembresiaUsers();
+    } catch (e) {
+      _snack('No se pudo completar la transición: $e');
+    } finally {
+      if (mounted) setState(() => _membresiaLoading = false);
+    }
+  }
+
   /// Agrega o quita a un usuario de una empresa.
   /// - Agregar: arrayUnion + crea `empresasDetalle[empresaId]` mínimo (evita
   ///   inconsistencias que detecta el panel de Salud).
@@ -13219,6 +13425,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         const SizedBox(height: 12),
         if (empresa != null) ...[
           _empresaProfileCard(empresa),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: _membresiaLoading
+                      ? null
+                      : _crearEmpresaPorTransicion,
+                  icon: const Icon(Icons.move_up_rounded),
+                  label: const Text('Crear empresa y trasladar empleados'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _membresiaLoading
+                      ? null
+                      : _normalizarNombresEmpresa,
+                  icon: const Icon(Icons.spellcheck_rounded),
+                  label: const Text('Normalizar nombres de personas'),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
           Card(
             shape: RoundedRectangleBorder(
@@ -13606,8 +13836,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
     );
 
-    final nombres = nombresCtrl.text.trim();
-    final apellidos = apellidosCtrl.text.trim();
+    final nombres = normalizePersonName(nombresCtrl.text);
+    final apellidos = normalizePersonName(apellidosCtrl.text);
     final correo = correoCtrl.text.trim();
     final cargo = cargoCtrl.text.trim();
     nombresCtrl.dispose();
@@ -13628,7 +13858,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         'cargo': cargo,
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      if (full.isNotEmpty) updates['nombreCompleto'] = full;
+      if (full.isNotEmpty) {
+        updates['nombre'] = full;
+        updates['nombreCompleto'] = full;
+      }
       await userDoc.reference.update(updates);
 
       // Espejo en la estructura (fuente de fallback de nombre/cargo del directorio).
@@ -13662,7 +13895,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           .where('empresaId', isEqualTo: empresaId)
           .get();
       return snap.docs
-          .where((d) => (d.data()['enabled'] as bool?) != false)
+          .where(
+            (d) =>
+                (d.data()['enabled'] as bool?) != false &&
+                (d.data()['enabledFacturacion'] as bool?) != false,
+          )
           .map((d) {
             final centroId = (d.data()['centroId'] ?? d.id).toString().trim();
             final nombre = (d.data()['nombre'] ?? centroId).toString().trim();

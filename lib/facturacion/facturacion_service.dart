@@ -340,7 +340,9 @@ class FacturacionService {
                   .trim();
               if (centroId.isEmpty) continue;
               final enabled = (cd['enabled'] as bool?) ?? true;
-              if (!enabled) continue;
+              final enabledFacturacion =
+                  (cd['enabledFacturacion'] as bool?) ?? true;
+              if (!enabled || !enabledFacturacion) continue;
               final nombre = (cd['nombre'] ?? centroId).toString().trim();
               final docId = _estDocId(empresaId, centroId);
               list.add(

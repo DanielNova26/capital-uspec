@@ -24,7 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = exports.dianBuzonConectar = exports.dianBuzonEstado = exports.dianTokenCambiarEstado = exports.dianTokenAbrir = exports.dianTokenAccesos = exports.dianTokensListar = exports.gdRevisarRespuesta = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.correoPrepararExpediente = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.icd11Search = exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = exports.authCompletarRecuperacion = exports.authPrepararRecuperacion = exports.authCambiarClave = exports.authIniciarSesion = void 0;
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminGuardarListado = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.whatsappOpenWaMonitor = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminGuardarListado = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const crypto_1 = require("crypto");
@@ -105,6 +105,10 @@ Object.defineProperty(exports, "whatsappAdminGuardarListado", { enumerable: true
 Object.defineProperty(exports, "whatsappAdminAsignarListado", { enumerable: true, get: function () { return whatsapp_1.whatsappAdminAsignarListado; } });
 Object.defineProperty(exports, "whatsappAdminDirectorio", { enumerable: true, get: function () { return whatsapp_1.whatsappAdminDirectorio; } });
 Object.defineProperty(exports, "whatsappAdminProbar", { enumerable: true, get: function () { return whatsapp_1.whatsappAdminProbar; } });
+Object.defineProperty(exports, "whatsappOpenWaMonitor", { enumerable: true, get: function () { return whatsapp_1.whatsappOpenWaMonitor; } });
+var interventoria_deletion_1 = require("./interventoria_deletion");
+Object.defineProperty(exports, "interventoriaSolicitarEliminacion", { enumerable: true, get: function () { return interventoria_deletion_1.interventoriaSolicitarEliminacion; } });
+Object.defineProperty(exports, "interventoriaResolverEliminacion", { enumerable: true, get: function () { return interventoria_deletion_1.interventoriaResolverEliminacion; } });
 var rutas_1 = require("./rutas");
 Object.defineProperty(exports, "rutasResumenEvidencia", { enumerable: true, get: function () { return rutas_1.rutasResumenEvidencia; } });
 Object.defineProperty(exports, "rutasGenerarInforme", { enumerable: true, get: function () { return rutas_1.rutasGenerarInforme; } });
@@ -627,8 +631,8 @@ exports.onTaskUpdated = functions
     const after = change.after.data();
     // El cierre masivo del Admin ya deja auditoría y marca como leídas las
     // notificaciones del módulo. No generar avisos nuevos por ese mismo cierre.
-    const isAdminModuleCloseout = ((after === null || after === void 0 ? void 0 : after.lastEventType) ?? "").toString() === "admin_module_closeout" &&
-        ((before === null || before === void 0 ? void 0 : before.lastEventType) ?? "").toString() !== "admin_module_closeout";
+    const isAdminModuleCloseout = (after?.lastEventType ?? "").toString() === "admin_module_closeout" &&
+        (before?.lastEventType ?? "").toString() !== "admin_module_closeout";
     if (isAdminModuleCloseout)
         return;
     const prevAssigned = getAssignedId(before || null);

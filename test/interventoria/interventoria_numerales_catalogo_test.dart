@@ -142,6 +142,22 @@ void main() {
   });
 
   group('maestro de subsanaciones', () {
+    test('aplica reglas editables y conserva las demás reglas base', () {
+      final base = construirMaestroSubsanaciones();
+      final editado = aplicarReglasSubsanacion(base, {
+        '2.3': {'responsable': '', 'aprobador': 'Director de calidad'},
+      });
+
+      final regla = editado.singleWhere((fila) => fila.numeral == '2.3');
+      expect(regla.responsable, isEmpty);
+      expect(regla.aprobador, 'Director de calidad');
+      expect(regla.incompleta, isTrue);
+      expect(
+        editado.singleWhere((fila) => fila.numeral == '1.1').responsable,
+        base.singleWhere((fila) => fila.numeral == '1.1').responsable,
+      );
+    });
+
     test('publica los 141 numerales como una biblioteca completa', () {
       final maestro = construirMaestroSubsanaciones();
 

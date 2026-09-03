@@ -75,6 +75,21 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Las eliminaciones de Interventoría requieren una solicitud y aprobación
+    // en Cloud Functions. El cliente puede crear/editar, pero nunca borrar.
+    match /TBL_INTERVENTORIA_VISITAS/{docId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if false;
+    }
+    match /TBL_INTERVENTORIA_HALLAZGOS/{docId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if false;
+    }
+    match /TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
         && collection != 'TBL_WHATSAPP_CONFIG'

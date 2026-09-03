@@ -57,6 +57,8 @@ class CentroCostoItem {
   final String codigo;
   final String nombre;
   final bool enabled;
+  final bool enabledFacturacion;
+  final bool enabledInterventoria;
 
   const CentroCostoItem({
     required this.centroId,
@@ -64,6 +66,8 @@ class CentroCostoItem {
     required this.codigo,
     required this.nombre,
     required this.enabled,
+    this.enabledFacturacion = true,
+    this.enabledInterventoria = true,
   });
 }
 
@@ -1027,6 +1031,8 @@ class AdminRepository {
           codigo: codigo,
           nombre: nombre.isEmpty ? centroId : nombre,
           enabled: enabled,
+          enabledFacturacion: (data['enabledFacturacion'] as bool?) ?? true,
+          enabledInterventoria: (data['enabledInterventoria'] as bool?) ?? true,
         ),
       );
     }
@@ -1055,6 +1061,23 @@ class AdminRepository {
   Future<void> setCentroEnabled(String centroId, bool enabled) async {
     await _db.collection('TBL_CENTROS_COSTOS').doc(centroId).set({
       'enabled': enabled,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> setCentroModuleEnabled({
+    required String centroId,
+    required String module,
+    required bool enabled,
+  }) async {
+    if (module != 'facturacion' && module != 'interventoria') {
+      throw ArgumentError('Módulo de centro no soportado: $module');
+    }
+    final field = module == 'facturacion'
+        ? 'enabledFacturacion'
+        : 'enabledInterventoria';
+    await _db.collection('TBL_CENTROS_COSTOS').doc(centroId).set({
+      field: enabled,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }

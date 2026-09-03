@@ -700,10 +700,15 @@ const Map<String, List<List<String>>> kInterventoriaCargoAlternativas = {
 /// gana el de índice más bajo.
 int? afinidadCargo(String cargoMatriz, String cargoUsuario) {
   final alternativas = kInterventoriaCargoAlternativas[cargoMatriz];
-  if (alternativas == null) return null;
   final objetivo = normalizarCargo(cargoUsuario);
   if (objetivo.isEmpty) return null;
   if (objetivo == normalizarCargo(cargoMatriz)) return -1;
+  if (alternativas == null) {
+    final palabras = normalizarCargo(
+      cargoMatriz,
+    ).split(RegExp(r'\s+')).where((p) => p.length > 2 && p != 'del').toList();
+    return palabras.isNotEmpty && palabras.every(objetivo.contains) ? 0 : null;
+  }
   for (var i = 0; i < alternativas.length; i++) {
     if (alternativas[i].every(objetivo.contains)) return i;
   }

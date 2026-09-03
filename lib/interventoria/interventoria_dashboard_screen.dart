@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:file_saver/file_saver.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -43,6 +44,65 @@ const String _kFont = 'Arial';
 /// Tab "Hallazgos" oculto temporalmente a pedido del cliente.
 /// Cambiar a `true` para volver a mostrarlo.
 const bool kMostrarTabHallazgos = false;
+
+Future<String?> _pedirMotivoEliminacion(
+  BuildContext context, {
+  required String entidad,
+}) async {
+  final controller = TextEditingController();
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Solicitar eliminación'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$entidad no se borrará inmediatamente. Una persona autorizada '
+            'debe revisar y aprobar la solicitud.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              labelText: 'Motivo de la eliminación',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          icon: const Icon(Icons.outgoing_mail),
+          label: const Text('Enviar solicitud'),
+        ),
+      ],
+    ),
+  );
+  final reason = controller.text.trim();
+  controller.dispose();
+  if (accepted != true) return null;
+  if (reason.length < 8) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Escribe un motivo de al menos 8 caracteres.'),
+        ),
+      );
+    }
+    return null;
+  }
+  return reason;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Root screen
@@ -138,6 +198,7 @@ class _InterventoriaDashboardScreenState
     final rol = _rol;
     final canWrite = kInterventoriaRolesEscritura.contains(rol);
     final canDirectivo = kInterventoriaRolesDirectivos.contains(rol);
+    final canApproveDeletion = puedeAprobarEliminacionInterventoria(rol);
     // Solo el Admin puede registrar puntajes (Fase 1)
     final canFase1 = kInterventoriaRolesFase1.contains(rol);
     // Revisor/Gerente/Directivo/Admin pueden completar actas (Fase 2)
@@ -173,10 +234,15 @@ class _InterventoriaDashboardScreenState
         label: 'Subsanaciones',
         icon: Icons.grid_on_rounded,
       ),
-      if (puedeConsultarMaestroSubsanaciones(rol))
+      if (esAdminDesarrollo)
         const InternalModuleTabItem(
           label: 'Maestro',
           icon: Icons.local_library_outlined,
+        ),
+      if (canApproveDeletion)
+        const InternalModuleTabItem(
+          label: 'Permisos de borrado',
+          icon: Icons.approval_outlined,
         ),
       if (canDirectivo)
         const InternalModuleTabItem(
@@ -319,6 +385,19 @@ class _InterventoriaDashboardScreenState
                               setState(() => _fechaDesde = v),
                           onFechaHastaChanged: (v) =>
                               setState(() => _fechaHasta = v),
+                          hayFiltros:
+                              _centroFiltro.isNotEmpty ||
+                              _estadoFiltro.isNotEmpty ||
+                              _dptoFiltro.isNotEmpty ||
+                              _fechaDesde != null ||
+                              _fechaHasta != null,
+                          onLimpiarFiltros: () => setState(() {
+                            _centroFiltro = '';
+                            _estadoFiltro = '';
+                            _dptoFiltro = '';
+                            _fechaDesde = null;
+                            _fechaHasta = null;
+                          }),
                           service: _svc,
                           userId: widget.userId,
                           empresaId: widget.empresaId,
@@ -334,8 +413,19 @@ class _InterventoriaDashboardScreenState
                 ),
                 // Tab: Maestro — biblioteca de los 141 numerales y su regla
                 // de asignación. Solo la consulta el administrador del módulo.
-                if (puedeConsultarMaestroSubsanaciones(rol))
-                  const InterventoriaMaestroSubsanaciones(),
+                if (esAdminDesarrollo)
+                  InterventoriaMaestroSubsanaciones(
+                    service: _svc,
+                    empresaId: widget.empresaId,
+                    userId: widget.userId,
+                    canEdit: esAdminDesarrollo,
+                  ),
+                if (canApproveDeletion)
+                  _SolicitudesEliminacionTab(
+                    empresaId: widget.empresaId,
+                    userId: widget.userId,
+                    service: _svc,
+                  ),
                 // Último tab: Análisis (solo directivos) — índice coincide con tabs list
                 if (canDirectivo)
                   _AnalisisDirectivo(
@@ -514,6 +604,211 @@ class _InterventoriaDashboardScreenState
         service: _svc,
         centroFijoId: _centroFijoId.isNotEmpty ? _centroFijoId : null,
       ),
+    );
+  }
+}
+
+class _SolicitudesEliminacionTab extends StatelessWidget {
+  final String empresaId;
+  final String userId;
+  final InterventoriaService service;
+
+  const _SolicitudesEliminacionTab({
+    required this.empresaId,
+    required this.userId,
+    required this.service,
+  });
+
+  Future<String?> _commentDialog(
+    BuildContext context, {
+    required bool approve,
+  }) async {
+    final controller = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(approve ? 'Aprobar eliminación' : 'Rechazar eliminación'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          decoration: InputDecoration(
+            labelText: approve ? 'Comentario (opcional)' : 'Motivo del rechazo',
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: approve ? _kDanger : const Color(0xFF475569),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(approve ? 'Aprobar y eliminar' : 'Rechazar'),
+          ),
+        ],
+      ),
+    );
+    final comment = controller.text.trim();
+    controller.dispose();
+    if (accepted != true) return null;
+    if (!approve && comment.length < 5) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Explica brevemente el rechazo.')),
+        );
+      }
+      return null;
+    }
+    return comment;
+  }
+
+  Future<void> _resolve(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> request, {
+    required bool approve,
+  }) async {
+    final comment = await _commentDialog(context, approve: approve);
+    if (comment == null) return;
+    try {
+      await service.resolverSolicitudEliminacion(
+        empresaId: empresaId,
+        solicitudId: request.id,
+        aprobar: approve,
+        comentario: comment,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              approve
+                  ? 'Eliminación aprobada y ejecutada.'
+                  : 'Solicitud rechazada.',
+            ),
+          ),
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'No se pudo resolver.')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      stream: service.streamSolicitudesEliminacion(empresaId),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('No se pudieron cargar: ${snapshot.error}'),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final requests = snapshot.data!;
+        if (requests.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.verified_outlined, size: 46, color: _kOk),
+                SizedBox(height: 10),
+                Text('No hay solicitudes de eliminación pendientes.'),
+              ],
+            ),
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: requests.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final request = requests[index];
+            final data = request.data();
+            final requesterId = (data['solicitadoPorId'] ?? '').toString();
+            final ownRequest = requesterId == userId;
+            final createdAt = data['createdAt'] as Timestamp?;
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.delete_sweep_outlined,
+                          color: _kDanger,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            (data['entidadNombre'] ?? data['tipo'] ?? '')
+                                .toString(),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        if (createdAt != null)
+                          Text(
+                            DateFormat(
+                              'dd/MM/yyyy HH:mm',
+                            ).format(createdAt.toDate()),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Solicita: ${data['solicitadoPorNombre'] ?? requesterId}',
+                    ),
+                    const SizedBox(height: 4),
+                    Text('Motivo: ${data['motivo'] ?? ''}'),
+                    const SizedBox(height: 12),
+                    if (ownRequest)
+                      const Text(
+                        'Otra persona autorizada debe resolver esta solicitud.',
+                        style: TextStyle(color: Color(0xFFB45309)),
+                      )
+                    else
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                _resolve(context, request, approve: false),
+                            icon: const Icon(Icons.close),
+                            label: const Text('Rechazar'),
+                          ),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _kDanger,
+                            ),
+                            onPressed: () =>
+                                _resolve(context, request, approve: true),
+                            icon: const Icon(Icons.delete_forever),
+                            label: const Text('Aprobar eliminación'),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -1177,12 +1472,7 @@ class _AccionesHallazgo extends StatelessWidget {
   Widget build(BuildContext context) {
     final h = hallazgo;
     final esRegistrador = rol == kRolInterventoriaRegistrador;
-    final puedeAprobar =
-        !esRegistrador &&
-        (rol == kRolInterventoriaRevisor ||
-            rol == kRolInterventoriaAdmin ||
-            rol == kRolInterventoriaGerente ||
-            rol == kRolInterventoriaDirectivo);
+    final puedeAprobar = puedeAprobarHallazgo(h, userId);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1199,10 +1489,11 @@ class _AccionesHallazgo extends StatelessWidget {
             icon: Icon(Icons.cancel_outlined, color: Colors.red.shade400),
             onPressed: () => _rechazarSubsanacion(context),
           ),
-        ] else if (h.isPendienteAprobacion && esRegistrador) ...[
-          // Registrador ve un indicador de pendiente, no puede cancelar
+        ] else if (h.isPendienteAprobacion) ...[
           Tooltip(
-            message: 'Pendiente de aprobación',
+            message: h.aprobadorNombre.isEmpty
+                ? 'Pendiente: la regla no tiene aprobador asignado'
+                : 'Pendiente de ${h.aprobadorNombre}',
             child: Icon(
               Icons.hourglass_top_rounded,
               color: Colors.amber.shade700,
@@ -1239,10 +1530,10 @@ class _AccionesHallazgo extends StatelessWidget {
             onPressed: () => _abrirEditar(context),
           ),
 
-        // Eliminar — solo roles superiores
-        if (!esRegistrador && !h.isPendienteAprobacion)
+        // Nadie borra directamente: se crea una solicitud auditada.
+        if (!h.isPendienteAprobacion)
           IconButton(
-            tooltip: 'Eliminar',
+            tooltip: 'Solicitar eliminación',
             icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
             onPressed: () => _confirmarEliminar(context),
           ),
@@ -1272,7 +1563,7 @@ class _AccionesHallazgo extends StatelessWidget {
       ),
     );
     if (ok == true) {
-      await service.aprobarSubsanacion(hallazgo.id);
+      await service.aprobarSubsanacion(hallazgo.id, actorId: userId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1306,7 +1597,7 @@ class _AccionesHallazgo extends StatelessWidget {
       ),
     );
     if (ok == true) {
-      await service.rechazarSubsanacion(hallazgo.id);
+      await service.rechazarSubsanacion(hallazgo.id, actorId: userId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1345,30 +1636,30 @@ class _AccionesHallazgo extends StatelessWidget {
   }
 
   Future<void> _confirmarEliminar(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Eliminar hallazgo'),
-        content: Text(
-          '¿Eliminar hallazgo ${hallazgo.numeroHallazgo}? Esta acción no se puede deshacer.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _kDanger,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+    final reason = await _pedirMotivoEliminacion(
+      context,
+      entidad: 'El hallazgo ${hallazgo.numeroHallazgo}',
     );
-    if (ok == true) await service.eliminarHallazgo(hallazgo.id);
+    if (reason == null) return;
+    try {
+      await service.solicitarEliminacion(
+        empresaId: empresaId,
+        tipo: 'hallazgo',
+        entidadId: hallazgo.id,
+        motivo: reason,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Solicitud enviada para aprobación.')),
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'No se pudo enviar.')),
+        );
+      }
+    }
   }
 }
 
@@ -1433,47 +1724,43 @@ class _SubsanarSheetState extends State<_SubsanarSheet> {
           padding: const EdgeInsets.all(20),
           children: [
             Text(
-              widget.rol == kRolInterventoriaRegistrador
-                  ? 'Proponer subsanación ${widget.hallazgo.numeroHallazgo}'
-                  : 'Subsanar hallazgo ${widget.hallazgo.numeroHallazgo}',
+              'Proponer subsanación ${widget.hallazgo.numeroHallazgo}',
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.w900,
                 fontSize: 18,
               ),
             ),
-            if (widget.rol == kRolInterventoriaRegistrador)
-              Container(
-                margin: const EdgeInsets.only(top: 6, bottom: 4),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.amber.shade300),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline_rounded,
-                      size: 14,
-                      color: Colors.amber.shade800,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Tu propuesta de subsanación quedará pendiente de aprobación por el Revisor o Director.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.amber.shade900,
-                        ),
+            Container(
+              margin: const EdgeInsets.only(top: 6, bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber.shade300),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: Colors.amber.shade800,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      widget.hallazgo.aprobadorNombre.isEmpty
+                          ? 'La propuesta quedará pendiente. Antes de aprobar, asigne un aprobador en la biblioteca.'
+                          : 'La propuesta quedará pendiente de ${widget.hallazgo.aprobadorNombre}.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.amber.shade900,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+            ),
             const SizedBox(height: 14),
             ListTile(
               shape: RoundedRectangleBorder(
@@ -1611,13 +1898,12 @@ class _SubsanarSheetState extends State<_SubsanarSheet> {
         adjuntosGuardados.add(adj);
       }
 
-      final esRegistrador = widget.rol == kRolInterventoriaRegistrador;
       await widget.service.marcarSubsanado(
         hallazgoId: widget.hallazgo.id,
         fechaSubsanacion: _fecha,
         seguimiento: _seguCtrl.text.trim(),
         adjuntos: adjuntosGuardados,
-        aprobarDirecto: !esRegistrador,
+        aprobarDirecto: false,
       );
       if (mounted) Navigator.pop(context);
     } finally {
@@ -2152,6 +2438,8 @@ class _SeguimientoMatriz extends StatefulWidget {
   final ValueChanged<String>? onCentroChanged;
   final ValueChanged<DateTime?> onFechaDesdeChanged;
   final ValueChanged<DateTime?> onFechaHastaChanged;
+  final bool hayFiltros;
+  final VoidCallback onLimpiarFiltros;
   final InterventoriaService service;
   final String userId;
   final String empresaId;
@@ -2168,6 +2456,8 @@ class _SeguimientoMatriz extends StatefulWidget {
     this.onCentroChanged,
     required this.onFechaDesdeChanged,
     required this.onFechaHastaChanged,
+    required this.hayFiltros,
+    required this.onLimpiarFiltros,
     required this.service,
     this.userId = '',
     this.empresaId = '',
@@ -2236,14 +2526,11 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
           fecha: fechaHasta,
           onChanged: onFechaHastaChanged,
         ),
-        if (fechaDesde != null || fechaHasta != null)
+        if (widget.hayFiltros)
           TextButton.icon(
-            onPressed: () {
-              onFechaDesdeChanged(null);
-              onFechaHastaChanged(null);
-            },
+            onPressed: widget.onLimpiarFiltros,
             icon: const Icon(Icons.clear_rounded, size: 16),
-            label: const Text('Limpiar fechas'),
+            label: const Text('Limpiar filtros'),
           ),
         SegmentedButton<bool>(
           showSelectedIcon: false,
@@ -2536,6 +2823,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
       userId: widget.userId,
       empresaId: widget.empresaId,
       canWrite: widget.canWrite,
+      rol: widget.rol,
     );
   }
 }
@@ -4056,7 +4344,7 @@ class _VisitaCardState extends State<_VisitaCard> {
                   ),
                 if (widget.canWrite)
                   IconButton(
-                    tooltip: 'Eliminar',
+                    tooltip: 'Solicitar eliminación',
                     icon: Icon(
                       Icons.delete_outline,
                       color: Colors.red.shade400,
@@ -4137,32 +4425,31 @@ class _VisitaCardState extends State<_VisitaCard> {
   }
 
   Future<void> _confirmarEliminar(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Eliminar acta'),
-        content: Text(
-          '¿Eliminar el acta de ${widget.visita.centroCostoNombre} '
-          '(${DateFormat('dd/MM/yyyy').format(widget.visita.fechaVisita.toDate())})?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _kDanger,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Eliminar'),
-          ),
-        ],
-      ),
+    final reason = await _pedirMotivoEliminacion(
+      context,
+      entidad:
+          'El acta de ${widget.visita.centroCostoNombre} '
+          '(${DateFormat('dd/MM/yyyy').format(widget.visita.fechaVisita.toDate())})',
     );
-    if (ok == true) {
-      await widget.service.eliminarVisita(widget.visita.id);
+    if (reason == null) return;
+    try {
+      await widget.service.solicitarEliminacion(
+        empresaId: widget.visita.empresaId,
+        tipo: 'visita',
+        entidadId: widget.visita.id,
+        motivo: reason,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Solicitud enviada para aprobación.')),
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'No se pudo enviar.')),
+        );
+      }
     }
   }
 
@@ -7313,10 +7600,7 @@ List<DropdownMenuItem<CentroCostoRef>> _centrosCostoDropdownItems(
     ...grupo.centros.map(
       (centro) => DropdownMenuItem<CentroCostoRef>(
         value: centro,
-        child: Text(
-          '${centro.codigo.isEmpty ? centro.centroId : centro.codigo} — ${centro.nombre}',
-          overflow: TextOverflow.ellipsis,
-        ),
+        child: Text(centro.nombre, overflow: TextOverflow.ellipsis),
       ),
     ),
   ],
@@ -7349,15 +7633,17 @@ class _CentroCostoFilterDropdown extends StatelessWidget {
           for (final centro in snapshot.data ?? const <CentroCostoRef>[])
             centro.centroId: centro,
         };
-        for (final entry in fallbackCentros.entries) {
-          centrosPorId.putIfAbsent(
-            entry.key,
-            () => CentroCostoRef(
-              centroId: entry.key,
-              empresaId: empresaId,
-              codigo: '',
-              nombre: entry.value,
-            ),
+        // Un establecimiento deshabilitado no vuelve a llenar el selector por
+        // el solo hecho de existir en el histórico. Se conserva únicamente si
+        // ya estaba seleccionado para que el formulario no quede inválido.
+        if (value.isNotEmpty &&
+            !centrosPorId.containsKey(value) &&
+            fallbackCentros.containsKey(value)) {
+          centrosPorId[value] = CentroCostoRef(
+            centroId: value,
+            empresaId: empresaId,
+            codigo: '',
+            nombre: fallbackCentros[value]!,
           );
         }
         final grupos = agruparCentrosCosto(centrosPorId.values);
@@ -9576,9 +9862,6 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
         items: _items,
         obsGenerales: _obsGeneralesCtrl.text.trim(),
         conclusiones: _conclusionesCtrl.text.trim(),
-        // Queda como creador de las tareas que genere la asignación automática
-        registradoPorId: widget.userId,
-        registradoPorNombre: widget.userId,
       );
       if (mounted) {
         Navigator.pop(context);

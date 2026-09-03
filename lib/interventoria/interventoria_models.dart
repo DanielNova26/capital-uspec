@@ -59,10 +59,31 @@ const Set<String> kInterventoriaRolesDirectivos = {
   kRolInterventoriaDirectivo,
 };
 
+const Set<String> kInterventoriaRolesAprobadoresEliminacion = {
+  kRolInterventoriaAdmin,
+  kRolInterventoriaRevisor,
+  kRolInterventoriaGerente,
+  kRolInterventoriaDirectivo,
+};
+
+bool puedeAprobarEliminacionInterventoria(String rol) =>
+    kInterventoriaRolesAprobadoresEliminacion.contains(rol);
+
 /// El maestro contiene la matriz completa de responsabilidades y se reserva
 /// al administrador funcional del módulo.
 bool puedeConsultarMaestroSubsanaciones(String rol) =>
     rol == kRolInterventoriaAdmin;
+
+/// La aprobación pertenece a la persona resuelta por la regla del numeral,
+/// no al rol genérico ni a quien creó la tarea.
+bool puedeAprobarHallazgo(InterventoriaHallazgo hallazgo, String userId) =>
+    hallazgo.aprobadorId.trim().isNotEmpty &&
+    hallazgo.aprobadorId.trim() == userId.trim();
+
+/// La bandeja de asignación es operativa: los cerrados siguen en histórico y
+/// análisis, pero no deben mezclarse con el trabajo pendiente.
+bool debeAparecerEnTableroAsignacion(InterventoriaHallazgo hallazgo) =>
+    !hallazgo.isSubsanado;
 
 const List<InterventoriaCategoria> kInterventoriaCategorias = [
   InterventoriaCategoria('conceptoSanitario', 'Concepto Sanitario'),
@@ -298,7 +319,38 @@ class InterventoriaMaestroSubsanacion {
     required this.responsable,
     required this.aprobador,
   });
+
+  bool get incompleta => responsable.trim().isEmpty || aprobador.trim().isEmpty;
+
+  InterventoriaMaestroSubsanacion copyWith({
+    String? responsable,
+    String? aprobador,
+  }) => InterventoriaMaestroSubsanacion(
+    numeral: numeral,
+    seccion: seccion,
+    seccionNombre: seccionNombre,
+    descripcion: descripcion,
+    responsable: responsable ?? this.responsable,
+    aprobador: aprobador ?? this.aprobador,
+  );
 }
+
+/// Superpone la configuración editable de la empresa sobre el catálogo base.
+/// Un valor vacío es intencional: permite marcar una regla como incompleta y
+/// evita que la aplicación invente un responsable o aprobador.
+List<InterventoriaMaestroSubsanacion> aplicarReglasSubsanacion(
+  List<InterventoriaMaestroSubsanacion> base,
+  Map<String, dynamic> reglas,
+) => List.unmodifiable(
+  base.map((fila) {
+    final raw = reglas[fila.numeral];
+    if (raw is! Map) return fila;
+    return fila.copyWith(
+      responsable: (raw['responsable'] ?? '').toString().trim(),
+      aprobador: (raw['aprobador'] ?? '').toString().trim(),
+    );
+  }),
+);
 
 /// Construye las 141 reglas de la biblioteca a partir de las dos fuentes
 /// oficiales del módulo: los aspectos del acta y su matriz de responsabilidad.
@@ -985,6 +1037,7 @@ class InterventoriaHallazgo {
   final double? valorCorreccion;
   final Timestamp? fechaSubsanacion;
   final String seguimiento;
+  final List<InterventoriaAdjunto> adjuntosSubsanacion;
   final String fuente; // 'manual' | 'ocr'
   /// Puntaje de la sección al momento de crear el hallazgo (0-100). Null = no registrado.
   final double? puntajeSeccion;
@@ -1033,6 +1086,7 @@ class InterventoriaHallazgo {
     this.valorCorreccion,
     this.fechaSubsanacion,
     this.seguimiento = '',
+    this.adjuntosSubsanacion = const [],
     this.fuente = 'manual',
     this.puntajeSeccion,
     this.notaRegistrador = '',
@@ -1093,6 +1147,13 @@ class InterventoriaHallazgo {
             : null,
         fechaSubsanacion: data['fechaSubsanacion'] as Timestamp?,
         seguimiento: (data['seguimiento'] ?? '').toString(),
+        adjuntosSubsanacion: (data['adjuntosSubsanacion'] as List? ?? const [])
+            .whereType<Map>()
+            .map(
+              (raw) =>
+                  InterventoriaAdjunto.fromMap(Map<String, dynamic>.from(raw)),
+            )
+            .toList(),
         fuente: (data['fuente'] ?? 'manual').toString(),
         puntajeSeccion: data['puntajeSeccion'] is num
             ? (data['puntajeSeccion'] as num).toDouble()
@@ -1130,6 +1191,7 @@ class InterventoriaHallazgo {
     'valorCorreccion': valorCorreccion,
     'fechaSubsanacion': fechaSubsanacion,
     'seguimiento': seguimiento,
+    'adjuntosSubsanacion': adjuntosSubsanacion.map((a) => a.toMap()).toList(),
     'fuente': fuente,
     'puntajeSeccion': puntajeSeccion,
     'notaRegistrador': notaRegistrador,
@@ -1168,6 +1230,7 @@ class InterventoriaHallazgo {
     valorCorreccion: valorCorreccion,
     fechaSubsanacion: fechaSubsanacion,
     seguimiento: seguimiento,
+    adjuntosSubsanacion: adjuntosSubsanacion,
     fuente: fuente,
     puntajeSeccion: puntajeSeccion,
     notaRegistrador: notaRegistrador,
@@ -1197,6 +1260,7 @@ class InterventoriaHallazgo {
     Timestamp? fechaSubsanacion,
     bool clearFechaSubsanacion = false,
     String? seguimiento,
+    List<InterventoriaAdjunto>? adjuntosSubsanacion,
     bool? persiste,
     double? puntajeSeccion,
     String? notaRegistrador,
@@ -1233,6 +1297,7 @@ class InterventoriaHallazgo {
         ? null
         : (fechaSubsanacion ?? this.fechaSubsanacion),
     seguimiento: seguimiento ?? this.seguimiento,
+    adjuntosSubsanacion: adjuntosSubsanacion ?? this.adjuntosSubsanacion,
     fuente: fuente,
     puntajeSeccion: puntajeSeccion ?? this.puntajeSeccion,
     notaRegistrador: notaRegistrador ?? this.notaRegistrador,

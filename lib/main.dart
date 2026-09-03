@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -42,6 +43,14 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> _initFirebaseAndPushCore() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Android 15+ dibuja edge-to-edge de forma obligatoria cuando targetSdk es
+  // 35 o superior. Se declara también desde Flutter para que el mismo contrato
+  // se pruebe en versiones anteriores de Android y MediaQuery exponga siempre
+  // los insets correctos a Scaffold/SafeArea.
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
   // Firebase base
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
@@ -53,15 +62,14 @@ Future<void> _initFirebaseAndPushCore() async {
   // En web se omite App Check (requiere reCAPTCHA site key en producción).
   if (!kIsWeb) {
     await FirebaseAppCheck.instance.activate(
-      androidProvider: kReleaseMode
-          ? AndroidProvider.playIntegrity
-          : AndroidProvider.debug,
-      appleProvider: kReleaseMode
-          ? AppleProvider.appAttestWithDeviceCheckFallback
-          : AppleProvider.debug,
+      providerAndroid: kReleaseMode
+          ? const AndroidPlayIntegrityProvider()
+          : const AndroidDebugProvider(),
+      providerApple: kReleaseMode
+          ? const AppleAppAttestWithDeviceCheckFallbackProvider()
+          : const AppleDebugProvider(),
     );
   }
-
 }
 
 Future<void> main() async {

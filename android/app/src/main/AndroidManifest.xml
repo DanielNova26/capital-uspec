@@ -100,6 +100,7 @@
             android:name="com.todogestion.app.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:resizeableActivity="true"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -120,6 +121,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!--
+          ML Kit fija en portrait su Activity delegada aunque es invisible.
+          Android 16 ignora esa restricción en pantallas grandes; quitarla del
+          manifiesto fusionado evita depender de un comportamiento que desaparece
+          y permite que el escáner sobreviva a cambios de tamaño/orientación.
+        -->
+        <activity
+            android:name="com.google.mlkit.vision.documentscanner.internal.GmsDocumentScanningDelegateActivity"
+            tools:remove="android:screenOrientation" />
 
         <meta-data
             android:name="flutterEmbedding"

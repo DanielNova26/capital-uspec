@@ -56,7 +56,6 @@ class _InterventoriaTableroAsignacionState
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargandoUsuarios = true;
   final Set<String> _asignando = {};
-  bool _asignandoMasivo = false;
 
   /// areaId → nombre legible. Solo sirve para etiquetar el filtro por área
   /// del selector: los usuarios ya traen su `areaId`, pero no su nombre.
@@ -131,12 +130,12 @@ class _InterventoriaTableroAsignacionState
     final sinAsignar = <InterventoriaHallazgo>[];
     final vencidos = <InterventoriaHallazgo>[];
     final enGestion = <InterventoriaHallazgo>[];
-    final subsanados = <InterventoriaHallazgo>[];
 
     for (final h in widget.hallazgos) {
-      if (h.isSubsanado) {
-        subsanados.add(h);
-      } else if (_sinAsignar(h)) {
+      // Los cerrados conservan su historial, pero no pertenecen a una bandeja
+      // cuyo único propósito es asignar o reasignar trabajo pendiente.
+      if (!debeAparecerEnTableroAsignacion(h)) continue;
+      if (_sinAsignar(h)) {
         sinAsignar.add(h);
       } else if (_vencido(h)) {
         vencidos.add(h);
@@ -147,11 +146,11 @@ class _InterventoriaTableroAsignacionState
 
     int porFecha(InterventoriaHallazgo a, InterventoriaHallazgo b) =>
         b.fechaHallazgo.compareTo(a.fechaHallazgo);
-    for (final grupo in [sinAsignar, vencidos, enGestion, subsanados]) {
+    for (final grupo in [sinAsignar, vencidos, enGestion]) {
       grupo.sort(porFecha);
     }
 
-    if (widget.hallazgos.isEmpty) {
+    if (sinAsignar.isEmpty && vencidos.isEmpty && enGestion.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.symmetric(vertical: 48),
@@ -179,14 +178,6 @@ class _InterventoriaTableroAsignacionState
             : constraints.maxWidth >= 760
             ? 2
             : 1;
-        final sugeridosPendientes = _cargandoUsuarios
-            ? const <InterventoriaHallazgo>[]
-            : sinAsignar
-                  .where(
-                    (h) => widget.service.sugerirResponsable(h, _usuarios) != null,
-                  )
-                  .toList();
-
         final secciones = <Widget>[
           _seccion(
             titulo: 'Sin asignar',
@@ -195,9 +186,6 @@ class _InterventoriaTableroAsignacionState
             icono: Icons.person_off_outlined,
             rows: sinAsignar,
             columnas: columnas,
-            accion: widget.canWrite && sugeridosPendientes.isNotEmpty
-                ? _botonAsignarTodos(sugeridosPendientes)
-                : null,
           ),
           _seccion(
             titulo: 'Vencidos',
@@ -213,14 +201,6 @@ class _InterventoriaTableroAsignacionState
             color: _accent,
             icono: Icons.pending_actions_outlined,
             rows: enGestion,
-            columnas: columnas,
-          ),
-          _seccion(
-            titulo: 'Subsanados',
-            detalle: 'Cerrados por el responsable',
-            color: _ok,
-            icono: Icons.task_alt_outlined,
-            rows: subsanados,
             columnas: columnas,
           ),
         ];
@@ -325,9 +305,6 @@ class _InterventoriaTableroAsignacionState
   }
 
   Widget _tarjeta(InterventoriaHallazgo h) {
-    final sugerido = _cargandoUsuarios
-        ? null
-        : widget.service.sugerirResponsable(h, _usuarios);
     final vencido = _vencido(h);
     final ocupado = _asignando.contains(_claveOcupado(h));
     final limite = h.fechaLimite?.toDate();
@@ -387,10 +364,10 @@ class _InterventoriaTableroAsignacionState
               if (_tieneDueno(h))
                 _lineaResponsable(h, limite, vencido)
               else
-                _lineaSinResponsable(h, sugerido),
+                _lineaSinResponsable(h),
               if (widget.canWrite) ...[
                 const SizedBox(height: 10),
-                _acciones(h, sugerido, ocupado),
+                _acciones(h, ocupado),
               ],
             ],
           ),
@@ -476,30 +453,11 @@ class _InterventoriaTableroAsignacionState
     );
   }
 
-  Widget _lineaSinResponsable(
-    InterventoriaHallazgo h,
-    InterventoriaPersona? sugerido,
-  ) {
+  Widget _lineaSinResponsable(InterventoriaHallazgo h) {
     if (_cargandoUsuarios) {
       return const Text(
         'Buscando responsable…',
         style: TextStyle(fontSize: 12, color: _muted),
-      );
-    }
-    if (sugerido != null) {
-      return Row(
-        children: [
-          const Icon(Icons.auto_awesome_outlined, size: 14, color: _accent),
-          const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              'El acta lo asigna a ${sugerido.cargoMatriz}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: _accent),
-            ),
-          ),
-        ],
       );
     }
     final sinNumeral = h.numeralParaMatriz.isEmpty;
@@ -520,11 +478,7 @@ class _InterventoriaTableroAsignacionState
     );
   }
 
-  Widget _acciones(
-    InterventoriaHallazgo h,
-    InterventoriaPersona? sugerido,
-    bool ocupado,
-  ) {
+  Widget _acciones(InterventoriaHallazgo h, bool ocupado) {
     if (ocupado) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 6),
@@ -536,24 +490,9 @@ class _InterventoriaTableroAsignacionState
       spacing: 8,
       runSpacing: 6,
       children: [
-        if (!asignado && sugerido != null)
-          FilledButton.icon(
-            onPressed: () => _asignar(h, sugerido),
-            style: FilledButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              backgroundColor: _accent,
-            ),
-            icon: const Icon(Icons.check_rounded, size: 16),
-            label: Text(
-              'Asignar a ${_primerNombre(sugerido.nombre)}',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ),
         OutlinedButton.icon(
           onPressed: () => _elegirPersona(h),
-          style: OutlinedButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-          ),
+          style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
           icon: Icon(
             asignado ? Icons.swap_horiz_rounded : Icons.person_search_outlined,
             size: 16,
@@ -573,19 +512,12 @@ class _InterventoriaTableroAsignacionState
     );
   }
 
-  String _primerNombre(String nombre) {
-    final parts = nombre.trim().split(RegExp(r'\s+'));
-    return parts.isEmpty ? nombre : parts.first;
-  }
-
   Future<void> _elegirPersona(InterventoriaHallazgo h) async {
-    final sugerido = widget.service.sugerirResponsable(h, _usuarios);
     final elegido = await showModalBottomSheet<InterventoriaUsuario>(
       context: context,
       isScrollControlled: true,
       builder: (_) => InterventoriaSelectorPersona(
         usuarios: _usuarios,
-        sugeridoId: sugerido?.id ?? '',
         centroCostoId: h.centroCostoId,
         centroCostoNombre: h.centroCostoNombre,
         areas: _areas,
@@ -598,88 +530,10 @@ class _InterventoriaTableroAsignacionState
         id: elegido.id,
         nombre: elegido.nombre,
         cargo: elegido.cargo,
-        cargoMatriz: sugerido?.cargoMatriz ?? '',
+        cargoMatriz: '',
         delCentro: elegido.centroId == h.centroCostoId,
       ),
       forzado: true,
-    );
-  }
-
-  /// Botón de la cabecera de "Sin asignar": asigna de una sola vez todos los
-  /// hallazgos para los que el acta ya sugiere responsable. No los asigna
-  /// solo, hay que pedirlo, porque cada asignación crea una tarea y dispara
-  /// una notificación real a esa persona — si la sugerencia falla (cargo mal
-  /// leído del OCR, numeral equivocado) el error queda contenido a un clic y
-  /// no se dispara en cuanto el acta entra al tablero.
-  Widget _botonAsignarTodos(List<InterventoriaHallazgo> sugeridos) {
-    if (_asignandoMasivo) {
-      return const Padding(
-        padding: EdgeInsets.only(left: 10),
-        child: SizedBox(
-          width: 16,
-          height: 16,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(left: 10),
-      child: FilledButton.icon(
-        onPressed: () => _asignarTodosSugeridos(sugeridos),
-        style: FilledButton.styleFrom(
-          visualDensity: VisualDensity.compact,
-          backgroundColor: _accent,
-        ),
-        icon: const Icon(Icons.done_all_rounded, size: 16),
-        label: Text(
-          'Asignar sugeridos (${sugeridos.length})',
-          style: const TextStyle(fontSize: 12),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _asignarTodosSugeridos(
-    List<InterventoriaHallazgo> sugeridos,
-  ) async {
-    setState(() => _asignandoMasivo = true);
-    var ok = 0;
-    var fallidos = 0;
-    // Uno por uno, no en paralelo: cada asignación puede persistir el
-    // hallazgo primero (los que vienen de un acta todavía no son documento) y
-    // dos asignaciones a la vez sobre el mismo hallazgo duplicarían la tarea.
-    for (final h in sugeridos) {
-      final sugerido = widget.service.sugerirResponsable(h, _usuarios);
-      if (sugerido == null) continue;
-      final clave = _claveOcupado(h);
-      if (_asignando.contains(clave)) continue;
-      try {
-        var hallazgo = h;
-        if (hallazgo.id.isEmpty) {
-          final id = await widget.service.guardarHallazgo(hallazgo);
-          hallazgo = hallazgo.copyWithId(id);
-        }
-        await widget.service.crearTareaYNotificarHallazgo(
-          hallazgo: hallazgo,
-          creadorId: widget.userId,
-          creadorNombre: widget.userId,
-        );
-        ok++;
-      } catch (_) {
-        fallidos++;
-      }
-    }
-    if (!mounted) return;
-    setState(() => _asignandoMasivo = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: fallidos == 0 ? _ok : _warn,
-        content: Text(
-          fallidos == 0
-              ? 'Asignados $ok hallazgos · tarea creada para cada uno'
-              : 'Asignados $ok · $fallidos no se pudieron asignar',
-        ),
-      ),
     );
   }
 
@@ -740,15 +594,13 @@ class _InterventoriaTableroAsignacionState
 
 /// Buscador de personas para asignar un hallazgo a mano.
 ///
-/// Marca al que sugiere el acta y a los del mismo establecimiento, que son
-/// los dos criterios con los que la gente decide. Por defecto filtra la
+/// Por defecto filtra la
 /// lista a ese establecimiento (más los cargos corporativos, que no tienen
 /// centro fijo): mostrar de una vez a toda la empresa mezclaba auxiliares,
 /// conductores y supervisores de otros sitios que nunca aplican a este
 /// hallazgo. "Toda la empresa" queda como escape para cubrir ausencias.
 class InterventoriaSelectorPersona extends StatefulWidget {
   final List<InterventoriaUsuario> usuarios;
-  final String sugeridoId;
   final String centroCostoId;
   final String centroCostoNombre;
 
@@ -758,17 +610,18 @@ class InterventoriaSelectorPersona extends StatefulWidget {
   const InterventoriaSelectorPersona({
     super.key,
     required this.usuarios,
-    required this.sugeridoId,
     required this.centroCostoId,
     this.centroCostoNombre = '',
     this.areas = const {},
   });
 
   @override
-  State<InterventoriaSelectorPersona> createState() => InterventoriaSelectorPersonaState();
+  State<InterventoriaSelectorPersona> createState() =>
+      InterventoriaSelectorPersonaState();
 }
 
-class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPersona> {
+class InterventoriaSelectorPersonaState
+    extends State<InterventoriaSelectorPersona> {
   final _ctrl = TextEditingController();
   String _query = '';
   bool _soloEstablecimiento = false;
@@ -797,9 +650,7 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
       final id = u.areaId.trim();
       if (id.isNotEmpty) ids.add(id);
     }
-    final rows = ids
-        .map((id) => MapEntry(id, widget.areas[id] ?? id))
-        .toList()
+    final rows = ids.map((id) => MapEntry(id, widget.areas[id] ?? id)).toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
     return rows;
   }
@@ -814,8 +665,9 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
   Widget build(BuildContext context) {
     final query = _query.trim().toLowerCase();
     final areasDisponibles = _areasConGente(widget.usuarios);
-    final areaActiva =
-        areasDisponibles.any((e) => e.key == _areaId) ? _areaId : '';
+    final areaActiva = areasDisponibles.any((e) => e.key == _areaId)
+        ? _areaId
+        : '';
 
     // Elegir un área es decir "búscame a alguien de esta área", y esa persona
     // casi nunca está en el establecimiento del hallazgo. Mantener además el
@@ -832,23 +684,21 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
       }
       if (areaActiva.isNotEmpty) return u.areaId.trim() == areaActiva;
       if (!filtraPorSitio) return true;
-      final esSugerido = u.id == widget.sugeridoId;
       final delCentro = u.centroId == widget.centroCostoId;
       // Los cargos sin centro (Gerencia, Dirección de operaciones…) no
       // tienen establecimiento propio y deben seguir apareciendo.
       final corporativo = u.centroId.trim().isEmpty;
-      return esSugerido || delCentro || corporativo;
+      return delCentro || corporativo;
     }).toList();
 
-    // El sugerido primero, luego los del mismo establecimiento.
+    // Primero las personas del establecimiento y luego cargos corporativos.
     rows.sort((a, b) {
       int rango(InterventoriaUsuario u) {
-        if (u.id == widget.sugeridoId) return 0;
         if (widget.centroCostoId.isNotEmpty &&
             u.centroId == widget.centroCostoId) {
-          return 1;
+          return 0;
         }
-        return 2;
+        return 1;
       }
 
       final byRango = rango(a).compareTo(rango(b));
@@ -856,9 +706,7 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
     });
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: DraggableScrollableSheet(
         expand: false,
         initialChildSize: .8,
@@ -880,10 +728,7 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
                 children: [
                   const Text(
                     'Elegir responsable',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 16,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
                   ),
                   const SizedBox(height: 10),
                   TextField(
@@ -998,40 +843,24 @@ class InterventoriaSelectorPersonaState extends State<InterventoriaSelectorPerso
                       itemCount: rows.length,
                       itemBuilder: (_, i) {
                         final u = rows[i];
-                        final esSugerido = u.id == widget.sugeridoId;
                         final delCentro =
                             widget.centroCostoId.isNotEmpty &&
                             u.centroId == widget.centroCostoId;
                         return ListTile(
                           onTap: () => Navigator.pop(context, u),
                           leading: CircleAvatar(
-                            backgroundColor: esSugerido
-                                ? const Color(0xFF0F766E)
-                                : const Color(0xFFE2E8F0),
-                            child: Icon(
-                              esSugerido
-                                  ? Icons.auto_awesome
-                                  : Icons.person_outline,
+                            backgroundColor: const Color(0xFFE2E8F0),
+                            child: const Icon(
+                              Icons.person_outline,
                               size: 18,
-                              color: esSugerido
-                                  ? Colors.white
-                                  : const Color(0xFF64748B),
+                              color: Color(0xFF64748B),
                             ),
                           ),
                           title: Text(u.nombre),
                           subtitle: Text(
                             u.cargo.isEmpty ? 'Sin cargo registrado' : u.cargo,
                           ),
-                          trailing: esSugerido
-                              ? const Text(
-                                  'Según el acta',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F766E),
-                                  ),
-                                )
-                              : delCentro
+                          trailing: delCentro
                               ? const Text(
                                   'Mismo establecimiento',
                                   style: TextStyle(

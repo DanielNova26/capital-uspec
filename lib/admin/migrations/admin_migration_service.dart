@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:todo/utils/user_company.dart';
+import '../admin_name_normalizer.dart';
 
 class MigrationResult {
   final int scanned;
@@ -15,7 +16,101 @@ class MigrationResult {
 
 class AdminMigrationService {
   final FirebaseFirestore _db;
-  AdminMigrationService({FirebaseFirestore? db}) : _db = db ?? FirebaseFirestore.instance;
+  AdminMigrationService({FirebaseFirestore? db})
+    : _db = db ?? FirebaseFirestore.instance;
+
+  Future<MigrationResult> normalizePersonNames({
+    required String empresaId,
+    bool dryRun = true,
+  }) async {
+    final users = await _db.collection('TBL_USUARIOS').get();
+    var scanned = 0;
+    var updated = 0;
+    final sample = <String>[];
+    WriteBatch? batch;
+    var writes = 0;
+
+    for (final user in users.docs) {
+      final data = user.data();
+      if (!userBelongsToEmpresa(data, empresaId)) continue;
+      scanned++;
+
+      final rawNames = (data['nombres'] ?? data['primerNombre'] ?? '')
+          .toString();
+      final rawLastNames = (data['apellidos'] ?? data['primerApellido'] ?? '')
+          .toString();
+      final names = normalizePersonName(rawNames);
+      final lastNames = normalizePersonName(rawLastNames);
+      final rawDirectName = (data['nombreCompleto'] ?? data['nombre'] ?? '')
+          .toString();
+      final normalizedDirectName = normalizePersonName(rawDirectName);
+      final fullName = '$names $lastNames'.trim().isNotEmpty
+          ? '$names $lastNames'.trim()
+          : normalizedDirectName;
+      final currentFull = rawDirectName.trim();
+      final needsUpdate =
+          rawNames.trim() != names ||
+          rawLastNames.trim() != lastNames ||
+          (fullName.isNotEmpty && currentFull != fullName);
+      if (!needsUpdate) continue;
+
+      updated++;
+      if (sample.length < 10) sample.add(user.id);
+      if (dryRun) continue;
+
+      batch ??= _db.batch();
+      batch.set(user.reference, {
+        'nombres': names,
+        'primerNombre': names,
+        'apellidos': lastNames,
+        'primerApellido': lastNames,
+        if (fullName.isNotEmpty) ...{
+          'nombre': fullName,
+          'nombreCompleto': fullName,
+        },
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      batch.set(
+        _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').doc(user.id),
+        {
+          if (fullName.isNotEmpty) 'nombre': fullName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      writes += 2;
+
+      final employee = await _db
+          .collection('TBL_EMPLEADOS')
+          .doc('${empresaId}_${user.id}')
+          .get();
+      if (employee.exists) {
+        batch.set(employee.reference, {
+          'nombres': names,
+          'apellidos': lastNames,
+          if (fullName.isNotEmpty) ...{
+            'nombre': fullName,
+            'nombreCompleto': fullName,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        writes++;
+      }
+
+      if (writes >= 440) {
+        await batch.commit();
+        batch = null;
+        writes = 0;
+      }
+    }
+
+    if (!dryRun && batch != null && writes > 0) await batch.commit();
+    return MigrationResult(
+      scanned: scanned,
+      updated: updated,
+      sampleUpdatedIds: sample,
+    );
+  }
 
   // ---------------- LOGS ----------------
   Future<void> logMigration({
@@ -55,7 +150,11 @@ class AdminMigrationService {
     final sample = <String>[];
 
     if (userIds.isEmpty) {
-      return const MigrationResult(scanned: 0, updated: 0, sampleUpdatedIds: []);
+      return const MigrationResult(
+        scanned: 0,
+        updated: 0,
+        sampleUpdatedIds: [],
+      );
     }
 
     final ids = userIds.toList()..sort();
@@ -71,22 +170,19 @@ class AdminMigrationService {
       if (!snap.exists) continue;
 
       final d = snap.data() ?? {};
-      final emp = (d['empresaId'] ?? '').toString().trim();
-
-      // Si tu lógica permite usuarios con varias empresas, igual dejamos pasar
-      // pero si quieres restringir estrictamente:
-      // if (emp.isNotEmpty && emp != empresaId) continue;
 
       scanned++;
 
       final currentCentroId = (d['centroId'] ?? '').toString().trim();
       final currentCodigo = (d['centroCodigo'] ?? '').toString().trim();
-      final currentNombre = (d['centroCostos'] ?? d['centro_costos'] ?? '').toString().trim();
+      final currentNombre = (d['centroCostos'] ?? d['centro_costos'] ?? '')
+          .toString()
+          .trim();
 
       final needs =
           currentCentroId != canonicalCentroId ||
-              currentCodigo != canonicalCentroCodigo ||
-              (currentNombre.isNotEmpty && currentNombre != canonicalCentroNombre);
+          currentCodigo != canonicalCentroCodigo ||
+          (currentNombre.isNotEmpty && currentNombre != canonicalCentroNombre);
 
       if (!needs) continue;
 
@@ -122,7 +218,11 @@ class AdminMigrationService {
       await batch.commit();
     }
 
-    return MigrationResult(scanned: scanned, updated: updated, sampleUpdatedIds: sample);
+    return MigrationResult(
+      scanned: scanned,
+      updated: updated,
+      sampleUpdatedIds: sample,
+    );
   }
 
   // =========================
@@ -138,7 +238,11 @@ class AdminMigrationService {
     final sample = <String>[];
 
     if (userIds.isEmpty) {
-      return const MigrationResult(scanned: 0, updated: 0, sampleUpdatedIds: []);
+      return const MigrationResult(
+        scanned: 0,
+        updated: 0,
+        sampleUpdatedIds: [],
+      );
     }
 
     final ids = userIds.toList()..sort();
@@ -190,7 +294,11 @@ class AdminMigrationService {
       await batch.commit();
     }
 
-    return MigrationResult(scanned: scanned, updated: updated, sampleUpdatedIds: sample);
+    return MigrationResult(
+      scanned: scanned,
+      updated: updated,
+      sampleUpdatedIds: sample,
+    );
   }
 
   // =========================
@@ -206,7 +314,11 @@ class AdminMigrationService {
     final sample = <String>[];
 
     if (userIds.isEmpty) {
-      return const MigrationResult(scanned: 0, updated: 0, sampleUpdatedIds: []);
+      return const MigrationResult(
+        scanned: 0,
+        updated: 0,
+        sampleUpdatedIds: [],
+      );
     }
 
     final ids = userIds.toList()..sort();
@@ -253,7 +365,10 @@ class AdminMigrationService {
       await batch.commit();
     }
 
-    return MigrationResult(scanned: scanned, updated: updated, sampleUpdatedIds: sample);
+    return MigrationResult(
+      scanned: scanned,
+      updated: updated,
+      sampleUpdatedIds: sample,
+    );
   }
 }
-

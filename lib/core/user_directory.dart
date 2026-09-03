@@ -46,7 +46,9 @@ class UserDisplayInfo {
     final words = nombre
         .trim()
         .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty && RegExp(r'[A-Za-zÁÉÍÓÚÑáéíóúñ]').hasMatch(w[0]))
+        .where(
+          (w) => w.isNotEmpty && RegExp(r'[A-Za-zÁÉÍÓÚÑáéíóúñ]').hasMatch(w[0]),
+        )
         .take(2);
     return words.map((w) => w[0].toUpperCase()).join();
   }
@@ -68,6 +70,12 @@ class UserDirectory {
 
   /// Invalida un usuario (p. ej. tras actualizar su foto de perfil).
   void invalidate(String id) => _cache.remove(id.trim());
+
+  /// Invalida todo el directorio después de una migración administrativa.
+  void clear() {
+    _cache.clear();
+    _inflight.clear();
+  }
 
   /// Resuelve nombre/foto/cargo de un usuario. Nunca lanza: ante error
   /// retorna un info con solo la cédula (sin cachear, para reintentar luego).
@@ -124,7 +132,9 @@ class UserDirectory {
         if (q.docs.isNotEmpty) data = q.docs.first.data();
       }
 
-      var info = data != null ? _fromUsuario(id, data) : UserDisplayInfo(id: id);
+      var info = data != null
+          ? _fromUsuario(id, data)
+          : UserDisplayInfo(id: id);
 
       // Fallback a estructura organizacional si falta nombre o foto.
       if (!info.hasNombre || !info.hasFoto) {

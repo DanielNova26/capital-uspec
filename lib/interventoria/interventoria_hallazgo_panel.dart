@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
@@ -26,6 +27,7 @@ Future<void> mostrarPanelHallazgo(
   required String userId,
   required String empresaId,
   required bool canWrite,
+  String rol = '',
 }) {
   final ancho = MediaQuery.sizeOf(context).width >= 760;
   final contenido = InterventoriaHallazgoPanel(
@@ -34,15 +36,14 @@ Future<void> mostrarPanelHallazgo(
     userId: userId,
     empresaId: empresaId,
     canWrite: canWrite,
+    rol: rol,
   );
   if (ancho) {
     return showDialog(
       context: context,
       builder: (_) => Dialog(
         clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720, maxHeight: 720),
           child: contenido,
@@ -75,6 +76,7 @@ class InterventoriaHallazgoPanel extends StatefulWidget {
   final String userId;
   final String empresaId;
   final bool canWrite;
+  final String rol;
 
   const InterventoriaHallazgoPanel({
     super.key,
@@ -83,6 +85,7 @@ class InterventoriaHallazgoPanel extends StatefulWidget {
     required this.userId,
     required this.empresaId,
     required this.canWrite,
+    this.rol = '',
   });
 
   @override
@@ -158,7 +161,17 @@ class _InterventoriaHallazgoPanelState
                 if (_h.tareaId.trim().isNotEmpty) ...[
                   _tituloBloque('Avance publicado en la tarea'),
                   const SizedBox(height: 8),
-                  _AvanceDeTarea(tareaId: _h.tareaId),
+                  _AvanceDeTarea(
+                    tareaId: _h.tareaId,
+                    puedeAprobar: puedeAprobarHallazgo(_h, widget.userId),
+                    aprobadorNombre: _h.aprobadorNombre,
+                    onAprobar: () => _resolverSubsanacion(true),
+                    onRechazar: () => _resolverSubsanacion(false),
+                  ),
+                  if (_h.adjuntosSubsanacion.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    _EvidenciasSubsanacion(adjuntos: _h.adjuntosSubsanacion),
+                  ],
                   const SizedBox(height: 18),
                 ],
                 _tituloBloque('Seguimiento del hallazgo'),
@@ -217,6 +230,48 @@ class _InterventoriaHallazgoPanelState
         ],
       ),
     );
+  }
+
+  Future<void> _resolverSubsanacion(bool aprobar) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(aprobar ? 'Aprobar subsanación' : 'Rechazar subsanación'),
+        content: Text(
+          aprobar
+              ? '¿La evidencia publicada corrige el hallazgo ${_h.numeroHallazgo}?'
+              : '¿La evidencia es insuficiente y debe volver a gestión?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(aprobar ? 'Aprobar' : 'Rechazar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true) return;
+    try {
+      if (aprobar) {
+        await widget.service.aprobarSubsanacion(_h.id, actorId: widget.userId);
+      } else {
+        await widget.service.rechazarSubsanacion(_h.id, actorId: widget.userId);
+      }
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo resolver: $e'),
+            backgroundColor: _danger,
+          ),
+        );
+      }
+    }
   }
 
   Widget _cabecera() {
@@ -321,17 +376,18 @@ class _InterventoriaHallazgoPanelState
     final limite = _h.fechaLimite?.toDate();
     final vencido =
         !_h.isSubsanado && limite != null && limite.isBefore(DateTime.now());
-    final sugerido = _usuarios.isEmpty
-        ? null
-        : widget.service.sugerirResponsable(_h, _usuarios);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: asignado ? _accent.withValues(alpha: .05) : const Color(0xFFFFFBEB),
+        color: asignado
+            ? _accent.withValues(alpha: .05)
+            : const Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: asignado ? _accent.withValues(alpha: .25) : _warn.withValues(alpha: .3),
+          color: asignado
+              ? _accent.withValues(alpha: .25)
+              : _warn.withValues(alpha: .3),
         ),
       ),
       child: Column(
@@ -340,7 +396,9 @@ class _InterventoriaHallazgoPanelState
           Row(
             children: [
               Icon(
-                asignado ? Icons.assignment_ind_outlined : Icons.person_off_outlined,
+                asignado
+                    ? Icons.assignment_ind_outlined
+                    : Icons.person_off_outlined,
                 size: 17,
                 color: asignado ? _accent : _warn,
               ),
@@ -382,18 +440,16 @@ class _InterventoriaHallazgoPanelState
               _h.cargoResponsable.trim().isEmpty
                   ? _h.responsableNombre
                   : '${_h.responsableNombre} · ${_h.cargoResponsable}',
-              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
-            )
-          else if (sugerido != null)
-            Text(
-              'El acta lo asigna a ${sugerido.cargoMatriz}: ${sugerido.nombre}',
-              style: const TextStyle(fontSize: 13),
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
             )
           else
             Text(
               _h.numeralParaMatriz.isEmpty
                   ? 'No se pudo identificar el numeral del acta. Elige tú el responsable.'
-                  : 'Nadie tiene el cargo que responde por ${_h.numeralParaMatriz}.',
+                  : 'Elige manualmente la persona responsable de este numeral.',
               style: const TextStyle(fontSize: 13),
             ),
           if (_h.aprobadorNombre.trim().isNotEmpty) ...[
@@ -413,19 +469,6 @@ class _InterventoriaHallazgoPanelState
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  if (!asignado && sugerido != null)
-                    FilledButton.icon(
-                      onPressed: () => _asignar(sugerido),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _accent,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      icon: const Icon(Icons.check_rounded, size: 16),
-                      label: const Text(
-                        'Asignar según el acta',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                    ),
                   OutlinedButton.icon(
                     onPressed: _elegirPersona,
                     style: OutlinedButton.styleFrom(
@@ -524,13 +567,11 @@ class _InterventoriaHallazgoPanelState
   }
 
   Future<void> _elegirPersona() async {
-    final sugerido = widget.service.sugerirResponsable(_h, _usuarios);
     final elegido = await showModalBottomSheet<InterventoriaUsuario>(
       context: context,
       isScrollControlled: true,
       builder: (_) => InterventoriaSelectorPersona(
         usuarios: _usuarios,
-        sugeridoId: sugerido?.id ?? '',
         centroCostoId: _h.centroCostoId,
         centroCostoNombre: _h.centroCostoNombre,
         areas: _areas,
@@ -542,7 +583,7 @@ class _InterventoriaHallazgoPanelState
         id: elegido.id,
         nombre: elegido.nombre,
         cargo: elegido.cargo,
-        cargoMatriz: sugerido?.cargoMatriz ?? '',
+        cargoMatriz: '',
         delCentro: elegido.centroId == _h.centroCostoId,
       ),
       forzado: true,
@@ -639,9 +680,101 @@ class _InterventoriaHallazgoPanelState
   void _aviso(String texto, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(texto),
-        backgroundColor: error ? _danger : _ok,
+      SnackBar(content: Text(texto), backgroundColor: error ? _danger : _ok),
+    );
+  }
+}
+
+class _EvidenciasSubsanacion extends StatelessWidget {
+  final List<InterventoriaAdjunto> adjuntos;
+
+  const _EvidenciasSubsanacion({required this.adjuntos});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDFA),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF99F6E4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Evidencias para aprobar (${adjuntos.length})',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: _accent,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: adjuntos.map((adjunto) {
+              final esImagen = adjunto.contentType.startsWith('image/');
+              return InkWell(
+                onTap: adjunto.url.isEmpty
+                    ? null
+                    : () => launchUrlString(
+                        adjunto.url,
+                        mode: LaunchMode.externalApplication,
+                      ),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 210),
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _borde),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (esImagen && adjunto.url.isNotEmpty)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(5),
+                          child: Image.network(
+                            adjunto.url,
+                            width: 46,
+                            height: 46,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) =>
+                                const Icon(Icons.broken_image_outlined),
+                          ),
+                        )
+                      else
+                        Icon(
+                          adjunto.contentType.contains('pdf')
+                              ? Icons.picture_as_pdf
+                              : Icons.attach_file,
+                          color: adjunto.contentType.contains('pdf')
+                              ? _danger
+                              : _accent,
+                        ),
+                      const SizedBox(width: 7),
+                      Flexible(
+                        child: Text(
+                          adjunto.nombre,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.open_in_new, size: 13),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -651,7 +784,18 @@ class _InterventoriaHallazgoPanelState
 /// evidencias. Es la respuesta a "¿cómo va esto?" sin salir del hallazgo.
 class _AvanceDeTarea extends StatelessWidget {
   final String tareaId;
-  const _AvanceDeTarea({required this.tareaId});
+  final bool puedeAprobar;
+  final String aprobadorNombre;
+  final VoidCallback onAprobar;
+  final VoidCallback onRechazar;
+
+  const _AvanceDeTarea({
+    required this.tareaId,
+    required this.puedeAprobar,
+    required this.aprobadorNombre,
+    required this.onAprobar,
+    required this.onRechazar,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -683,23 +827,64 @@ class _AvanceDeTarea extends StatelessWidget {
               final data = snap.data!.data() ?? const <String, dynamic>{};
               final estado = (data['estado'] ?? data['status'] ?? '')
                   .toString();
-              final adjuntos = (data['adjuntos'] as List? ?? const []).length;
-              return Row(
+              final adjuntos = _adjuntos(data['adjuntos']);
+              final pendiente =
+                  estado.toLowerCase() == 'por_aprobar' ||
+                  (data['solicitud_finalizacion_estado'] ?? '') == 'pendiente';
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _chipEstadoTarea(estado),
-                  const SizedBox(width: 8),
-                  if (adjuntos > 0) ...[
-                    const Icon(Icons.attach_file, size: 13, color: _muted),
-                    Text(
-                      '$adjuntos',
-                      style: const TextStyle(fontSize: 12, color: _muted),
-                    ),
-                  ],
-                  const Spacer(),
-                  Text(
-                    (data['asignado_nombre'] ?? '').toString(),
-                    style: const TextStyle(fontSize: 11, color: _muted),
+                  Row(
+                    children: [
+                      _chipEstadoTarea(estado),
+                      const Spacer(),
+                      Flexible(
+                        child: Text(
+                          (data['asignado_nombre'] ?? '').toString(),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: _muted),
+                        ),
+                      ),
+                    ],
                   ),
+                  if (adjuntos.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Adjuntos de la tarea',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _listaAdjuntos(adjuntos),
+                  ],
+                  if (pendiente) ...[
+                    const SizedBox(height: 12),
+                    if (puedeAprobar)
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: onAprobar,
+                            icon: const Icon(Icons.verified_rounded, size: 17),
+                            label: const Text('Aprobar'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: onRechazar,
+                            icon: const Icon(Icons.cancel_outlined, size: 17),
+                            label: const Text('Rechazar'),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        aprobadorNombre.isEmpty
+                            ? 'Sin aprobador asignado. Corrija la regla en la biblioteca.'
+                            : 'Pendiente de aprobación por $aprobadorNombre.',
+                        style: const TextStyle(fontSize: 11.5, color: _warn),
+                      ),
+                  ],
                 ],
               );
             },
@@ -738,8 +923,7 @@ class _AvanceDeTarea extends StatelessWidget {
                 children: docs.take(6).map((doc) {
                   final d = doc.data();
                   final fecha = d['createdAt'];
-                  final adjuntos =
-                      (d['attachments'] as List? ?? const []).length;
+                  final adjuntos = _adjuntos(d['attachments']);
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Column(
@@ -764,14 +948,14 @@ class _AvanceDeTarea extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (adjuntos > 0) ...[
+                            if (adjuntos.isNotEmpty) ...[
                               const Icon(
                                 Icons.attach_file,
                                 size: 12,
                                 color: _muted,
                               ),
                               Text(
-                                '$adjuntos',
+                                '${adjuntos.length}',
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: _muted,
@@ -794,6 +978,10 @@ class _AvanceDeTarea extends StatelessWidget {
                           (d['message'] ?? '').toString(),
                           style: const TextStyle(fontSize: 12.5, height: 1.3),
                         ),
+                        if (adjuntos.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          _listaAdjuntos(adjuntos),
+                        ],
                       ],
                     ),
                   );
@@ -802,6 +990,76 @@ class _AvanceDeTarea extends StatelessWidget {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _adjuntos(dynamic raw) => raw is List
+      ? raw.whereType<Map>().map(Map<String, dynamic>.from).toList()
+      : const [];
+
+  Widget _listaAdjuntos(List<Map<String, dynamic>> adjuntos) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: adjuntos.map(_adjunto).toList(),
+  );
+
+  Widget _adjunto(Map<String, dynamic> adjunto) {
+    final url = (adjunto['url'] ?? adjunto['downloadUrl'] ?? '').toString();
+    final nombre = (adjunto['name'] ?? adjunto['storedName'] ?? 'Evidencia')
+        .toString();
+    final mime = (adjunto['mime'] ?? adjunto['contentType'] ?? '').toString();
+    final esImagen =
+        mime.startsWith('image/') ||
+        RegExp(r'\.(png|jpe?g|webp)$', caseSensitive: false).hasMatch(nombre);
+    return InkWell(
+      onTap: url.isEmpty
+          ? null
+          : () => launchUrlString(url, mode: LaunchMode.externalApplication),
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 210),
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: _borde),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (esImagen && url.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(5),
+                child: Image.network(
+                  url,
+                  width: 42,
+                  height: 42,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.broken_image_outlined),
+                ),
+              )
+            else
+              Icon(
+                mime.contains('pdf') ? Icons.picture_as_pdf : Icons.attach_file,
+                color: mime.contains('pdf') ? _danger : _accent,
+              ),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                nombre,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (url.isNotEmpty) const Icon(Icons.open_in_new, size: 13),
+          ],
+        ),
       ),
     );
   }
