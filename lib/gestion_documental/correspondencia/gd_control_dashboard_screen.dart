@@ -1721,6 +1721,8 @@ String _formatDate(DateTime? value) =>
     value == null ? 'Sin fecha' : DateFormat('dd/MM/yyyy').format(value);
 
 String _deliveryChannel(GdExpediente row) {
+  if (row.respuestaExternaRegistrada)
+    return 'Contestada fuera de la app · con soporte';
   final provider =
       (row.envioCanal.isEmpty ? row.proveedor : row.envioCanal).toLowerCase() ==
           'microsoft'

@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.gdRevisarRespuesta = exports.correoPrepararExpediente = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = void 0;
+exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.gdRevisarRespuesta = exports.correoPrepararExpediente = exports.gdTerminarExpediente = exports.gdRegistrarRespuestaExterna = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = void 0;
 exports.readableEmailBody = readableEmailBody;
 exports.documentTypeCode = documentTypeCode;
 exports.bogotaDayStamp = bogotaDayStamp;
@@ -41,6 +41,8 @@ exports.enviarWhatsAppAListado = enviarWhatsAppAListado;
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const storage_1 = require("firebase-admin/storage");
+const correo_alert_policy_1 = require("./correo_alert_policy");
 const crypto_1 = require("crypto");
 const whatsapp_1 = require("./whatsapp");
 const notification_branding_1 = require("./notification_branding");
@@ -67,8 +69,7 @@ const MICROSOFT_SCOPE = [
 const MAX_MESSAGES_PER_RUN = 200;
 const GMAIL_SCAN_OVERLAP_MS = 10 * 60 * 1000;
 const STALE_ALERT_MS = 10 * 60 * 1000;
-const LEGACY_RETRY_WINDOW_MS = 12 * 60 * 60 * 1000;
-const MAX_ALERT_RETRIES_PER_RUN = 25;
+const MAX_STALE_ALERTS_PER_RUN = 200;
 function db() {
     return admin.firestore();
 }
@@ -947,18 +948,18 @@ function friendlyDeliveryError(error) {
         normalized.includes("whatsapp_session_not_ready") ||
         normalized.includes("whatsapp disconnected")) {
         return {
-            user: "WhatsApp está desconectado. La alerta se reintentará automáticamente.",
+            user: "WhatsApp está desconectado. No se reenviará el aviso; consulta la aplicación.",
             technical: technical.slice(0, 500),
         };
     }
     if (normalized.includes("contact_check") || normalized.includes("unreachable")) {
         return {
-            user: "No fue posible verificar WhatsApp. La alerta se reintentará automáticamente.",
+            user: "No fue posible verificar WhatsApp. No se reenviará el aviso; consulta la aplicación.",
             technical: technical.slice(0, 500),
         };
     }
     return {
-        user: "No fue posible enviar la alerta. Se reintentará automáticamente.",
+        user: "No se confirmó el envío. No se reenviará para evitar avisos duplicados o atrasados.",
         technical: technical.slice(0, 500),
     };
 }
@@ -983,15 +984,6 @@ function classifyCorreoAccountError(error) {
         technical: technical.slice(0, 500),
         requiresReconnect: false,
     };
-}
-function retryDelayMs(attempt) {
-    if (attempt <= 1)
-        return 5 * 60 * 1000;
-    if (attempt === 2)
-        return 15 * 60 * 1000;
-    if (attempt === 3)
-        return 60 * 60 * 1000;
-    return 6 * 60 * 60 * 1000;
 }
 async function getRuleRecipients(listadoId, empresaId, moduleId) {
     if (!listadoId)
@@ -1059,6 +1051,14 @@ async function sendRuleAlerts(input) {
     const recipients = await getRuleRecipients(input.rule.listadoId, input.empresaId, "correo");
     if (!recipients.length)
         return { sent: 0, failed: 0, skipped: 0 };
+    const initialOmission = await alertOmissionForMessage(input.messageRef, input.message.fecha, input.empresaId);
+    if (initialOmission) {
+        await input.messageRef.set({
+            avisoWhatsAppOmitido: initialOmission,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return { sent: 0, failed: 0, skipped: recipients.length };
+    }
     let provider;
     try {
         provider = await (0, whatsapp_1.createWhatsAppProvider)(input.empresaId, "correo");
@@ -1109,6 +1109,7 @@ async function sendRuleAlerts(input) {
                 intentos: 1,
                 ultimoIntentoAt: admin.firestore.FieldValue.serverTimestamp(),
                 mensaje: messageText,
+                fechaCorreo: admin.firestore.Timestamp.fromDate(input.message.fecha),
                 templateKey: "correo_alerta",
                 templateVariables: messageTemplateVariables,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1133,6 +1134,15 @@ async function sendRuleAlerts(input) {
                 failed += 1;
                 continue;
             }
+            const omission = await alertOmissionForMessage(input.messageRef, input.message.fecha, input.empresaId);
+            if (omission) {
+                await alertRef.update({
+                    estado: "omitido", motivoOmision: omission,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                skipped++;
+                continue;
+            }
             const result = await provider.send({
                 telefono: recipient.telefono,
                 chatId: verification?.chatId,
@@ -1144,6 +1154,7 @@ async function sendRuleAlerts(input) {
                     cuentaId: input.account.id,
                     correoCuenta: input.account.email,
                     proveedorCorreo: input.account.proveedor,
+                    expiresAtMs: input.message.fecha.getTime() + 15 * 60 * 1000,
                     reglaId: input.rule.id,
                     categoria: input.rule.categoria,
                     templateKey: "correo_alerta",
@@ -1165,10 +1176,11 @@ async function sendRuleAlerts(input) {
         catch (error) {
             const detail = friendlyDeliveryError(error);
             await alertRef.update({
-                estado: "fallido",
+                estado: "omitido",
                 error: detail.user,
                 errorTecnico: detail.technical,
-                nextRetryAt: admin.firestore.Timestamp.fromMillis(Date.now() + retryDelayMs(1)),
+                nextRetryAt: admin.firestore.FieldValue.delete(),
+                motivoOmision: "fallo_sin_reenvio",
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             failed += 1;
@@ -1288,141 +1300,64 @@ async function refreshCorreoMessageDeliveryState(messageId) {
         const states = alerts.docs.map((doc) => normalizeText(doc.get("estado")));
         const accepted = states.filter((state) => state === "aceptado" || state === "enviado").length;
         const pending = states.some((state) => ["enviando", "reintentando"].includes(state));
-        const failed = states.length - accepted;
+        const omitted = states.filter((state) => state === "omitido").length;
+        const failed = states.length - accepted - omitted;
         transaction.set(messageRef, {
-            estado: failed === 0
-                ? "alertado"
-                : pending
-                    ? "en_proceso"
-                    : "procesado_con_errores",
+            estado: omitted === states.length
+                ? "sin_aviso_whatsapp"
+                : failed === 0
+                    ? "alertado"
+                    : pending
+                        ? "en_proceso"
+                        : "procesado_con_errores",
             alertasEnviadas: accepted,
+            alertasOmitidas: omitted,
             alertasFallidas: failed,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
     });
 }
-async function retryPendingCorreoAlerts(empresaId) {
-    const snap = await db()
-        .collection("TBL_CORREO_ALERTAS")
+// Retira la cola anterior sin reenviar mensajes, incluso si vuelve OpenWA.
+async function retirePendingCorreoAlerts(empresaId) {
+    const snap = await db().collection("TBL_CORREO_ALERTAS")
         .where("empresaId", "==", empresaId)
-        .where("estado", "in", ["fallido", "enviando", "reintentando"])
-        .get();
-    const now = Date.now();
-    const candidates = snap.docs
-        .filter((doc) => {
-        const data = doc.data();
-        if (text(data.moduleId) !== "correo" && !text(data.reglaId))
-            return false;
-        if (!text(data.mensaje) || !text(data.destinatario) || !text(data.empresaId))
-            return false;
-        const state = normalizeText(data.estado);
-        const nextRetry = timestampValue(data.nextRetryAt)?.toMillis() ?? 0;
-        const updatedAt = timestampValue(data.updatedAt)?.toMillis() ?? 0;
-        const createdAt = timestampValue(data.createdAt)?.toMillis() ?? 0;
-        const retryManaged = numberValue(data.intentos) > 0;
-        if (!retryManaged && createdAt < now - LEGACY_RETRY_WINDOW_MS)
-            return false;
-        return state === "fallido"
-            ? nextRetry <= now
-            : updatedAt <= now - STALE_ALERT_MS;
-    })
-        .slice(0, MAX_ALERT_RETRIES_PER_RUN);
-    let retried = 0;
-    let recovered = 0;
-    let failed = 0;
-    for (const candidate of candidates) {
-        const claimed = await db().runTransaction(async (transaction) => {
-            const current = await transaction.get(candidate.ref);
+        .where("estado", "in", ["fallido", "enviando", "reintentando"]).get();
+    let omitted = 0;
+    for (const candidate of snap.docs.filter((doc) => text(doc.get("moduleId")) === "correo" || Boolean(text(doc.get("reglaId")))).slice(0, MAX_STALE_ALERTS_PER_RUN)) {
+        const changed = await db().runTransaction(async (tx) => {
+            const current = await tx.get(candidate.ref);
             if (!current.exists)
-                return null;
-            const data = current.data() ?? {};
-            const state = normalizeText(data.estado);
-            const nextRetry = timestampValue(data.nextRetryAt)?.toMillis() ?? 0;
-            const updatedAt = timestampValue(data.updatedAt)?.toMillis() ?? 0;
-            const createdAt = timestampValue(data.createdAt)?.toMillis() ?? 0;
-            const retryManaged = numberValue(data.intentos) > 0;
-            if (!retryManaged && createdAt < Date.now() - LEGACY_RETRY_WINDOW_MS)
-                return null;
-            const due = state === "fallido"
-                ? nextRetry <= Date.now()
-                : ["enviando", "reintentando"].includes(state) &&
-                    updatedAt <= Date.now() - STALE_ALERT_MS;
-            if (!due)
-                return null;
-            const attempts = numberValue(data.intentos) + 1;
-            transaction.update(candidate.ref, {
-                estado: "reintentando",
-                intentos: attempts,
-                ultimoIntentoAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            return { data, attempts };
-        });
-        if (!claimed)
-            continue;
-        retried += 1;
-        const empresaId = text(claimed.data.empresaId);
-        const telefono = normalizePhone(claimed.data.destinatario);
-        const messageId = text(claimed.data.correoMensajeId);
-        try {
-            const provider = await (0, whatsapp_1.createWhatsAppProvider)(empresaId, "correo");
-            const verification = provider.checkRecipient
-                ? await provider.checkRecipient(telefono)
-                : null;
-            if (verification && !verification.registered) {
-                await candidate.ref.update({
-                    estado: "sin_whatsapp",
-                    error: "El número no está registrado en WhatsApp.",
-                    nextRetryAt: admin.firestore.FieldValue.delete(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-                failed += 1;
-                await refreshCorreoMessageDeliveryState(messageId);
-                continue;
-            }
-            const result = await provider.send({
-                telefono,
-                chatId: verification?.chatId,
-                mensaje: text(claimed.data.mensaje),
-                empresaId,
-                prioridad: numberValue(claimed.data.prioridad) >= 80 ? "alta" : "normal",
-                metadata: {
-                    correoMensajeId: messageId,
-                    reglaId: text(claimed.data.reglaId),
-                    reintento: claimed.attempts,
-                    templateKey: text(claimed.data.templateKey || claimed.data.metadata?.templateKey),
-                    templateVariables: claimed.data.templateVariables ||
-                        claimed.data.metadata?.templateVariables ||
-                        {},
-                },
-            });
-            await candidate.ref.update({
-                estado: "aceptado",
-                error: admin.firestore.FieldValue.delete(),
-                errorTecnico: admin.firestore.FieldValue.delete(),
+                return false;
+            const state = text(current.get("estado"));
+            if (!["fallido", "enviando", "reintentando"].includes(state))
+                return false;
+            const updated = timestampValue(current.get("updatedAt"))?.toMillis() ?? 0;
+            if (state !== "fallido" && updated > Date.now() - STALE_ALERT_MS)
+                return false;
+            tx.update(candidate.ref, {
+                estado: "omitido", motivoOmision: "sin_reenvio",
+                error: "No se reenvió el aviso acumulado. Consulta el expediente en la aplicación.",
                 nextRetryAt: admin.firestore.FieldValue.delete(),
-                providerMessageId: result.providerMessageId || null,
-                providerStatus: result.rawStatus,
-                mensaje: result.renderedMessage || text(claimed.data.mensaje),
-                sentAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            recovered += 1;
+            return true;
+        });
+        if (changed) {
+            omitted++;
+            await refreshCorreoMessageDeliveryState(text(candidate.get("correoMensajeId")));
         }
-        catch (error) {
-            const detail = friendlyDeliveryError(error);
-            await candidate.ref.update({
-                estado: "fallido",
-                error: detail.user,
-                errorTecnico: detail.technical,
-                nextRetryAt: admin.firestore.Timestamp.fromMillis(Date.now() + retryDelayMs(claimed.attempts)),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            failed += 1;
-        }
-        await refreshCorreoMessageDeliveryState(messageId);
     }
-    return { retried, recovered, failed };
+    return { omitted };
+}
+async function alertOmissionForMessage(messageRef, receivedAt, empresaId) {
+    const message = await messageRef.get();
+    const expedienteId = text(message.get("expedienteId")) || safeId(`correo_${messageRef.id}`);
+    const expediente = await db().collection("TBL_GD_EXPEDIENTES").doc(expedienteId).get();
+    if (expediente.exists && text(expediente.get("empresaId")) !== empresaId)
+        return "empresa_incompatible";
+    return (0, correo_alert_policy_1.correoAlertOmission)({
+        receivedAtMs: receivedAt.getTime(), nowMs: Date.now(), expediente: expediente.data(),
+    });
 }
 async function ensureAutomaticCorrespondence(input) {
     const expedienteId = safeId(`correo_${input.messageRef.id}`);
@@ -1549,8 +1484,12 @@ async function findCorrespondenceForOutbound(account, message) {
             text(doc.get("cuentaId")) === account.id)
             .forEach((doc) => found.set(doc.id, doc));
     }
-    const candidates = [...found.values()];
-    return candidates.find((doc) => text(doc.get("estado")) !== "respondido" && !doc.get("enviadoAt")) ?? candidates[0] ?? null;
+    const candidates = [...found.values()].filter((doc) => {
+        const received = timestampValue(doc.get("fechaRecepcion"))?.toMillis();
+        return received !== undefined && message.fecha.getTime() >= received;
+    }).sort((a, b) => (timestampValue(b.get("fechaRecepcion"))?.toMillis() ?? 0) -
+        (timestampValue(a.get("fechaRecepcion"))?.toMillis() ?? 0));
+    return candidates.find((doc) => !(0, correo_alert_policy_1.correspondenceHasResponse)(doc.data())) ?? candidates[0] ?? null;
 }
 async function claimOutboundMessage(account, message) {
     const ref = db()
@@ -1593,8 +1532,7 @@ async function syncOutboundCorrespondence(account, message) {
         }, { merge: true });
         return "unlinked";
     }
-    const wasResponded = text(expediente.get("estado")) === "respondido" ||
-        Boolean(expediente.get("enviadoAt"));
+    const wasResponded = (0, correo_alert_policy_1.correspondenceHasResponse)(expediente.data());
     const existingSentId = text(expediente.get("providerSentMessageId"));
     const existingOrigin = normalizeText(expediente.get("envioOrigen"));
     const existingSentAt = timestampValue(expediente.get("enviadoAt"));
@@ -1670,7 +1608,7 @@ async function syncOutboundCorrespondence(account, message) {
             userId: "sistema_correo",
             detail: wasResponded
                 ? `Se detectó un nuevo correo enviado desde ${providerName} (${account.email}) a ${message.destinatarios}.`
-                : `Respuesta enviada directamente desde ${providerName} (${account.email}) a ${message.destinatarios}; el expediente y su tarea fueron cerrados automáticamente.`,
+                : `Respuesta enviada directamente desde ${providerName} (${account.email}) a ${message.destinatarios}; la respuesta quedó trazada sin cerrar el proceso.`,
         }));
     }
     await batch.commit();
@@ -1720,6 +1658,7 @@ async function processAccount(account) {
     let enviosVinculados = 0;
     let enviosSinExpediente = 0;
     let enviosDuplicados = 0;
+    const pendingAlerts = [];
     for (const message of messages) {
         const messageRef = await claimMessage(account, message);
         if (!messageRef) {
@@ -1766,27 +1705,7 @@ async function processAccount(account) {
                 }, { merge: true });
             }
         }
-        const sends = await sendRuleAlerts({
-            empresaId: account.empresaId,
-            account,
-            messageRef,
-            message,
-            rule: result.rule,
-            palabrasClave: result.outcome.palabrasClave,
-        });
-        alertsSent += sends.sent;
-        alertsFailed += sends.failed;
-        await messageRef.update({
-            estado: sends.failed ? "procesado_con_errores" : "alertado",
-            reglaId: result.rule.id,
-            reglaNombre: result.rule.nombre,
-            categoria: result.rule.categoria,
-            palabrasClave: result.outcome.palabrasClave,
-            alertasEnviadas: sends.sent,
-            alertasFallidas: sends.failed,
-            procesadoAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        pendingAlerts.push({ message, messageRef, rule: result.rule, palabrasClave: result.outcome.palabrasClave });
     }
     for (const message of outboundMessages) {
         const result = await syncOutboundCorrespondence(account, message);
@@ -1796,6 +1715,32 @@ async function processAccount(account) {
             enviosSinExpediente += 1;
         if (result === "duplicate")
             enviosDuplicados += 1;
+    }
+    // Primero conciliar Enviados; después decidir si el aviso todavía aplica.
+    for (const pending of pendingAlerts) {
+        const { message, messageRef } = pending;
+        const sends = await sendRuleAlerts({
+            empresaId: account.empresaId,
+            account,
+            messageRef,
+            message,
+            rule: pending.rule,
+            palabrasClave: pending.palabrasClave,
+        });
+        alertsSent += sends.sent;
+        alertsFailed += sends.failed;
+        await messageRef.update({
+            estado: sends.sent ? "alertado" : "sin_aviso_whatsapp",
+            reglaId: pending.rule.id,
+            reglaNombre: pending.rule.nombre,
+            categoria: pending.rule.categoria,
+            palabrasClave: pending.palabrasClave,
+            alertasEnviadas: sends.sent,
+            alertasFallidas: sends.failed,
+            alertasOmitidas: sends.skipped,
+            procesadoAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
     }
     await db().collection("TBL_CORREO_CUENTAS").doc(account.id).set({
         ultimaRevisionAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2794,6 +2739,79 @@ exports.gdCodificarExpedientesHistoricos = functions
  * pasan por ahí. `_approveFinish` en `created_tasks_screen.dart` es quien
  * completa el segundo paso.
  */
+/** Registra una respuesta ya enviada fuera de la app, sin enviarla ni aprobarla. */
+exports.gdRegistrarRespuestaExterna = functions
+    .region(REGION)
+    .https.onCall(async (data, context) => {
+    const caller = await requireCorreoAccess(data, context, ["operador"]);
+    const expedienteId = text(data?.expedienteId);
+    const path = text(data?.storagePath);
+    if (!expedienteId || expedienteId.includes("/")) {
+        throw new functions.https.HttpsError("invalid-argument", "Expediente inválido.");
+    }
+    const ref = db().collection("TBL_GD_EXPEDIENTES").doc(expedienteId);
+    const checkAccess = (doc) => {
+        if (!doc.exists || text(doc.get("empresaId")) !== caller.empresaId) {
+            throw new functions.https.HttpsError("not-found", "Expediente no encontrado.");
+        }
+        if (!(0, correo_alert_policy_1.canRegisterExternalResponse)({
+            userId: caller.userId, responsableId: text(doc.get("responsableId")), role: caller.role,
+        })) {
+            throw new functions.https.HttpsError("permission-denied", "Solo el responsable o administrador puede registrar la respuesta.");
+        }
+    };
+    const current = await ref.get();
+    checkAccess(current);
+    if ((0, correo_alert_policy_1.correspondenceHasResponse)(current.data() ?? {}))
+        return { ok: true, alreadyRegistered: true };
+    const prefix = `gestion_documental/correspondencia/${caller.empresaId}/${expedienteId}/soportes-contestado/${caller.userId}/`;
+    if (!path.startsWith(prefix) || path.slice(prefix.length).includes("/") || path.includes("..")) {
+        throw new functions.https.HttpsError("invalid-argument", "Adjunta un soporte de este expediente.");
+    }
+    const file = admin.storage().bucket().file(path);
+    let metadata;
+    try {
+        [metadata] = await file.getMetadata();
+    }
+    catch (_) {
+        throw new functions.https.HttpsError("failed-precondition", "El soporte no está disponible. Adjunta de nuevo.");
+    }
+    const mime = text(metadata.contentType);
+    const size = Number(metadata.size);
+    if (!["image/png", "image/jpeg", "application/pdf"].includes(mime) || !size || size > 10 * 1024 * 1024) {
+        throw new functions.https.HttpsError("invalid-argument", "El soporte debe ser PNG, JPG o PDF de hasta 10 MB.");
+    }
+    const attachment = {
+        nombre: path.slice(prefix.length).replace(/^\d+_/, ""),
+        storagePath: path, mimeType: mime, size,
+        downloadUrl: await (0, storage_1.getDownloadURL)(file),
+        origen: "respuesta_externa_declarada",
+    };
+    const eventRef = db().collection("TBL_GD_EXPEDIENTES_EVENTOS").doc();
+    return db().runTransaction(async (tx) => {
+        const doc = await tx.get(ref);
+        checkAccess(doc);
+        if ((0, correo_alert_policy_1.correspondenceHasResponse)(doc.data() ?? {}))
+            return { ok: true, alreadyRegistered: true };
+        if (["terminado", "finalizado", "cerrado"].includes(text(doc.get("estado")))) {
+            throw new functions.https.HttpsError("failed-precondition", "El proceso ya está cerrado.");
+        }
+        tx.update(ref, {
+            respuestaExternaRegistrada: true,
+            respuestaExternaRegistradaPor: caller.userId,
+            respuestaExternaRegistradaAt: admin.firestore.FieldValue.serverTimestamp(),
+            soportesRespuestaExterna: admin.firestore.FieldValue.arrayUnion([attachment]),
+            envioOrigen: "declaracion_manual",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.create(eventRef, correspondenceEvent({
+            empresaId: caller.empresaId, expedienteId, type: "respuesta_externa_declarada",
+            userId: caller.userId,
+            detail: "Marcó Ya contesté y adjuntó un soporte. No se envió correo ni se aprobó o cerró el proceso.",
+        }));
+        return { ok: true, alreadyRegistered: false };
+    });
+});
 exports.gdTerminarExpediente = functions
     .region(REGION)
     .https.onCall(async (data, context) => {
@@ -2928,7 +2946,7 @@ exports.correoGuardarBorradorGmail = functions
     if (!doc.exists || text(doc.get("empresaId")) !== caller.empresaId) {
         throw new functions.https.HttpsError("not-found", "Expediente no encontrado.");
     }
-    if (text(doc.get("providerSentMessageId") || doc.get("gmailSentMessageId"))) {
+    if ((0, correo_alert_policy_1.correspondenceHasResponse)(doc.data() ?? {})) {
         throw new functions.https.HttpsError("failed-precondition", "La respuesta ya fue enviada y no puede volver a guardarse como borrador.");
     }
     const accountId = text(doc.get("cuentaId"));
@@ -3003,7 +3021,7 @@ exports.correoEnviarRespuesta = functions
     if (!doc.exists || text(doc.get("empresaId")) !== caller.empresaId) {
         throw new functions.https.HttpsError("not-found", "Expediente no encontrado.");
     }
-    if (text(doc.get("providerSentMessageId") || doc.get("gmailSentMessageId"))) {
+    if ((0, correo_alert_policy_1.correspondenceHasResponse)(doc.data() ?? {})) {
         return {
             ok: true,
             alreadySent: true,
@@ -3406,8 +3424,8 @@ exports.correoProcesarProgramado = functions
         const companies = [...new Set(accounts.docs.map((doc) => text(doc.get("empresaId"))).filter(Boolean))];
         for (const empresaId of companies) {
             try {
-                const retrySummary = await retryPendingCorreoAlerts(empresaId);
-                console.log("[correo] reintentos", JSON.stringify({ empresaId, ...retrySummary }));
+                const omissionSummary = await retirePendingCorreoAlerts(empresaId);
+                console.log("[correo] avisos retirados", JSON.stringify({ empresaId, ...omissionSummary }));
                 await processEmpresa(empresaId);
             }
             catch (error) {

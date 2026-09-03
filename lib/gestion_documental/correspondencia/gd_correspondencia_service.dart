@@ -561,6 +561,38 @@ class GdCorrespondenciaService {
     });
   }
 
+  Future<void> registrarRespuestaExterna({
+    required GdExpediente expediente,
+    required String userId,
+    required PlatformFile file,
+  }) async {
+    final bytes = file.bytes;
+    final mime = _mimeType(file.extension);
+    if (bytes == null ||
+        bytes.isEmpty ||
+        bytes.length > 10 * 1024 * 1024 ||
+        !{'image/png', 'image/jpeg', 'application/pdf'}.contains(mime)) {
+      throw StateError(
+        'Adjunta un pantallazo PNG/JPG o un PDF de hasta 10 MB.',
+      );
+    }
+    final name = file.name
+        .replaceAll(RegExp(r'[^\w.\- áéíóúñÁÉÍÓÚÑ]'), '_')
+        .replaceAll('..', '_');
+    final path =
+        'gestion_documental/correspondencia/${expediente.empresaId}/${expediente.id}'
+        '/soportes-contestado/$userId/${DateTime.now().millisecondsSinceEpoch}_$name';
+    await _storage
+        .ref(path)
+        .putData(bytes, SettableMetadata(contentType: mime));
+    await _functions.httpsCallable('gdRegistrarRespuestaExterna').call({
+      'empresaId': expediente.empresaId,
+      'userId': userId,
+      'expedienteId': expediente.id,
+      'storagePath': path,
+    });
+  }
+
   String _userName(Map<String, dynamic> data, String fallback) {
     final direct = (data['nombre'] ?? data['nombreCompleto'] ?? '')
         .toString()

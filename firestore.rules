@@ -90,10 +90,27 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // La declaración con soporte se valida y registra únicamente en Functions.
+    match /TBL_GD_EXPEDIENTES/{docId} {
+      allow read, delete: if isSignedIn();
+      allow create: if isSignedIn() && !request.resource.data.keys().hasAny([
+        'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
+        'respuestaExternaRegistradaAt', 'soportesRespuestaExterna'
+      ]);
+      allow update: if isSignedIn() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
+        'respuestaExternaRegistradaAt', 'soportesRespuestaExterna'
+      ]);
+    }
+
     match /{collection}/{document=**} {
       allow read, write: if isSignedIn()
         && collection != 'TBL_WHATSAPP_CONFIG'
         && collection != 'TBL_CORREO_LISTADOS'
+        && collection != 'TBL_GD_EXPEDIENTES'
+        && collection != 'TBL_INTERVENTORIA_VISITAS'
+        && collection != 'TBL_INTERVENTORIA_HALLAZGOS'
+        && collection != 'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION'
         && collection != 'TBL_DIAN_TOKENS'
         && collection != 'TBL_DIAN_TOKEN_ACCESOS'
         && collection != 'TBL_DIAN_TOKEN_CONFIG'

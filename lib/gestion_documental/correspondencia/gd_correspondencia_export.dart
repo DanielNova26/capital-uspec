@@ -182,6 +182,8 @@ String _capitalizar(String value) {
 
 String _canalRespuesta(GdExpediente row) {
   if (!row.respondido) return 'Pendiente';
+  if (row.respuestaExternaRegistrada)
+    return 'Declarada fuera de la app, con soporte';
   if (row.envioOrigen == 'buzon_externo') return 'Detectado en el buzón';
   final canal = row.envioCanal.trim().isEmpty ? row.proveedor : row.envioCanal;
   return canal.toLowerCase().contains('microsoft')

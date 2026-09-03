@@ -607,6 +607,14 @@ class OpenWaProvider implements WhatsAppProvider {
   }
 
   async send(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
+    if (input.metadata?.templateKey === "correo_alerta") {
+      const session = await sessionState(this.config);
+      if (!session.connected) throw new Error("WHATSAPP_SESSION_NOT_READY");
+      const expiresAt = Number(input.metadata?.expiresAtMs);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        throw new Error("CORREO_ALERT_EXPIRED");
+      }
+    }
     const phone = normalizePhone(
       input.telefono,
       this.config.defaultCountryCode
@@ -806,7 +814,7 @@ async function sessionState(
   try {
     const response = await fetch(
       `${config.baseUrl}/sessions/${encodeURIComponent(config.sessionId)}`,
-      { headers: { "X-API-Key": config.apiKey } }
+      { headers: { "X-API-Key": config.apiKey }, signal: AbortSignal.timeout(10000) }
     );
     if (!response.ok) {
       console.warn("OPENWA_SESSION_STATUS_HTTP_ERROR", {

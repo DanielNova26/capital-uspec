@@ -812,6 +812,34 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                         ),
                         const SizedBox(height: 12),
                       ],
+                      if (canEditResponse &&
+                          (expediente.responsableId == widget.userId ||
+                              _permisos.puedeCerrarCualquiera)) ...[
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                _registerExternalResponse(expediente),
+                            icon: const Icon(Icons.mark_email_read_outlined),
+                            label: const Text('Ya contesté · adjuntar soporte'),
+                          ),
+                        ),
+                        const Text(
+                          'Si respondiste por fuera de la app, adjunta un pantallazo o PDF. '
+                          'No necesitas copiar el correo. El proceso y sus aprobaciones siguen abiertos.',
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (expediente.respuestaExternaRegistrada) ...[
+                        Text(
+                          'Respuesta externa registrada: ${_longDate(expediente.respuestaExternaRegistradaAt)}. '
+                          'Este registro no equivale a una aprobación.',
+                        ),
+                        ...expediente.soportesRespuestaExterna.map(
+                          (a) => _AttachmentTile(attachment: a),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       TextField(
                         controller: _to,
                         enabled: canEditResponse,
@@ -1481,6 +1509,50 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
     return !_requiresApproval || expediente.aprobacionEstado == 'aprobada';
   }
 
+  Future<void> _registerExternalResponse(GdExpediente expediente) async {
+    if (expediente.respondido ||
+        expediente.terminado ||
+        (expediente.responsableId != widget.userId &&
+            !_permisos.puedeCerrarCualquiera))
+      return;
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['png', 'jpg', 'jpeg', 'pdf'],
+      withData: true,
+    );
+    if (!mounted || picked == null || picked.files.isEmpty) return;
+    final file = picked.files.single;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ya contesté'),
+        content: Text(
+          'Registrar que ya enviaste la respuesta fuera de la app, con el soporte ${file.name}. '
+          'No se enviará otro correo. Esto no aprueba ni cierra el proceso.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.check),
+            label: const Text('Confirmar contestado'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    await _run(
+      () => _service.registrarRespuestaExterna(
+        expediente: expediente,
+        userId: widget.userId,
+        file: file,
+      ),
+    );
+  }
+
   Future<void> _finish(GdExpediente expediente) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1902,6 +1974,7 @@ class _Timeline extends StatelessWidget {
 bool _isResponseEvent(String type) => const {
   'respuesta_enviada',
   'respuesta_externa_detectada',
+  'respuesta_externa_declarada',
   'seguimiento_saliente_detectado',
 }.contains(type);
 
@@ -1977,6 +2050,8 @@ String _longDate(DateTime? value) =>
 String _providerLabel(String provider) =>
     provider.toLowerCase() == 'microsoft' ? 'Microsoft 365' : 'Gmail';
 String _deliveryLabel(GdExpediente expediente) {
+  if (expediente.respuestaExternaRegistrada)
+    return 'Contestada fuera de la app · soporte registrado';
   final provider = _providerLabel(
     expediente.envioCanal.isEmpty
         ? expediente.proveedor

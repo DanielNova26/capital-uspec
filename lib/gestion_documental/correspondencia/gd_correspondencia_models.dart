@@ -131,6 +131,9 @@ class GdExpediente {
   final String enviadoDesde;
   final String providerSentMessageId;
   final DateTime? ultimoCorreoSalienteAt;
+  final bool respuestaExternaRegistrada;
+  final DateTime? respuestaExternaRegistradaAt;
+  final List<GdCorrespondenciaAdjunto> soportesRespuestaExterna;
 
   const GdExpediente({
     required this.id,
@@ -181,6 +184,9 @@ class GdExpediente {
     this.enviadoDesde = '',
     this.providerSentMessageId = '',
     this.ultimoCorreoSalienteAt,
+    this.respuestaExternaRegistrada = false,
+    this.respuestaExternaRegistradaAt,
+    this.soportesRespuestaExterna = const [],
   });
 
   factory GdExpediente.fromFirestore(
@@ -250,6 +256,13 @@ class GdExpediente {
           .toString(),
       providerSentMessageId: (data['providerSentMessageId'] ?? '').toString(),
       ultimoCorreoSalienteAt: _gdDate(data['ultimoCorreoSalienteAt']),
+      respuestaExternaRegistrada: data['respuestaExternaRegistrada'] == true,
+      respuestaExternaRegistradaAt: _gdDate(
+        data['respuestaExternaRegistradaAt'],
+      ),
+      soportesRespuestaExterna: _gdMapList(
+        data['soportesRespuestaExterna'],
+      ).map(GdCorrespondenciaAdjunto.fromMap).toList(),
     );
   }
 
@@ -304,6 +317,7 @@ class GdExpediente {
   bool get terminado => estadoOperativo == GdEstadoExpediente.terminado;
   bool get activo => !terminado;
   bool get respondido =>
+      respuestaExternaRegistrada ||
       estado.trim().toLowerCase() == 'respondido' ||
       enviadoAt != null ||
       providerSentMessageId.trim().isNotEmpty;

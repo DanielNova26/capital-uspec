@@ -39,6 +39,7 @@ export {
   gdAsignarExpediente,
   gdCodificarExpedientesHistoricos,
   gdTerminarExpediente,
+  gdRegistrarRespuestaExterna,
   correoPrepararExpediente,
   correoGuardarBorradorGmail,
   correoEnviarRespuesta,
