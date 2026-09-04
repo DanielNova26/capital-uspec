@@ -180,6 +180,57 @@ class AdminModuleCloseoutService {
   AdminModuleCloseoutService({FirebaseFirestore? db})
     : _db = db ?? FirebaseFirestore.instance;
 
+  /// Hallazgos de interventoria que nunca llegaron a asignarse.
+  ///
+  /// El cierre normal recorre TBL_TAREAS y cierra el hallazgo de origen de cada
+  /// una, asi que los que nadie tomo no tienen tarea y quedaban fuera para
+  /// siempre: se acumulan en "Sin asignar" sin que nada los saque de ahi.
+  ///
+  /// Se consulta solo por empresaId y el resto se filtra en memoria a
+  /// proposito. Combinar empresaId con un rango sobre fechaHallazgo obliga a un
+  /// indice compuesto que hoy no existe, y sin el la consulta falla en
+  /// produccion con un error que no menciona el indice que falta.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  _hallazgosSinAsignar(AdminModuleCloseoutRequest request) async {
+    if (!request.modules.contains('interventoria')) {
+      return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    }
+    final corte = DateTime(
+      request.cutoff.year,
+      request.cutoff.month,
+      request.cutoff.day,
+    );
+    final snap = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: request.empresaId)
+        .get();
+
+    return snap.docs.where((doc) {
+      final data = doc.data();
+
+      // Los ya subsanados no se vuelven a tocar.
+      if ((data['estado'] ?? '').toString().trim().toLowerCase() ==
+          'subsanado') {
+        return false;
+      }
+
+      // Sin asignar = sin persona, sin tarea y sin departamento. Los tres,
+      // porque el flujo antiguo asignaba a un area y no a alguien concreto:
+      // mirar solo responsableNombre cerraria trabajo que si tiene dueno.
+      final sinDueno =
+          (data['responsableNombre'] ?? '').toString().trim().isEmpty &&
+          (data['tareaId'] ?? '').toString().trim().isEmpty &&
+          (data['dptoEncargado'] ?? '').toString().trim().isEmpty;
+      if (!sinDueno) return false;
+
+      final fecha = adminCloseoutDate(data['fechaHallazgo']);
+      if (fecha == null) return false;
+      return request.range == AdminCloseoutRange.before
+          ? fecha.isBefore(corte)
+          : !fecha.isBefore(corte);
+    }).toList();
+  }
+
   Future<AdminModuleCloseoutPreview> preview(
     AdminModuleCloseoutRequest request,
   ) async {
@@ -207,6 +258,33 @@ class AdminModuleCloseoutService {
           )
         : now;
     final hallazgosClosed = <String>{};
+
+    // Se cierran ANTES que las tareas: si una tarea posterior tocara el mismo
+    // hallazgo, `hallazgosClosed` ya lo tiene registrado y no se escribe dos
+    // veces en el mismo lote, cosa que Firestore rechaza.
+    final huerfanos = await _hallazgosSinAsignar(request);
+    for (var start = 0; start < huerfanos.length; start += 300) {
+      final end = start + 300 < huerfanos.length
+          ? start + 300
+          : huerfanos.length;
+      final batch = _db.batch();
+      for (final doc in huerfanos.sublist(start, end)) {
+        if (!hallazgosClosed.add(doc.id)) continue;
+        batch.set(doc.reference, {
+          'estado': 'subsanado',
+          'fechaSubsanacion': finalizationDate,
+          'cierreAdministrativoAt': now,
+          'cierreAdministrativoPor': adminUserId,
+          // Deja rastro de que se cerro por limpieza y no porque alguien lo
+          // resolviera: sin esto el historico no distingue un hallazgo
+          // atendido de uno archivado en bloque.
+          'cierreAdministrativoSinAsignar': true,
+          'updatedAt': now,
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
+    }
+
     final facturacionItemsClosed = <String>{};
 
     // Máximo tres escrituras por tarea (tarea + entidad de origen + margen).
