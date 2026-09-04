@@ -138,12 +138,23 @@ class AdminModuleCloseoutPreview {
   final Map<String, int> tasksByModule;
   final Map<String, int> notificationsByModule;
 
+  /// Hallazgos de interventoria que nunca se asignaron y por tanto no tienen
+  /// tarea. Se cuentan aparte porque el resto del cierre se calcula recorriendo
+  /// TBL_TAREAS: sin este numero, la vista previa decia "0" y el boton de
+  /// aplicar quedaba deshabilitado aunque hubiera cientos por cerrar.
+  final int hallazgosSinAsignar;
+
   const AdminModuleCloseoutPreview({
     required this.tasks,
     required this.notifications,
     required this.tasksByModule,
     required this.notificationsByModule,
+    this.hallazgosSinAsignar = 0,
   });
+
+  /// Hay algo que cerrar, venga de donde venga.
+  bool get hayAlgo =>
+      tasks > 0 || notifications > 0 || hallazgosSinAsignar > 0;
 }
 
 class AdminModuleCloseoutResult {
@@ -235,11 +246,15 @@ class AdminModuleCloseoutService {
     AdminModuleCloseoutRequest request,
   ) async {
     final scan = await _scan(request);
+    // La misma consulta que usa apply(): la vista previa tiene que contar
+    // exactamente lo que se va a cerrar, o deja de ser una vista previa.
+    final huerfanos = await _hallazgosSinAsignar(request);
     return AdminModuleCloseoutPreview(
       tasks: scan.tasks.length,
       notifications: scan.notifications.length,
       tasksByModule: scan.tasksByModule,
       notificationsByModule: scan.notificationsByModule,
+      hallazgosSinAsignar: huerfanos.length,
     );
   }
 

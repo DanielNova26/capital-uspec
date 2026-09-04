@@ -2871,7 +2871,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       final preview = await _moduleCloseoutService.preview(request);
       if (!mounted) return;
       setState(() => _moduleCloseoutPreview = preview);
-      if (preview.tasks == 0 && preview.notifications == 0) {
+      if (!preview.hayAlgo) {
         _snack(
           'No hay tareas abiertas ni notificaciones pendientes en ese corte.',
         );
@@ -2900,8 +2900,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           'Empresa: ${request.empresaId}\n'
           'Módulos: $modules\n'
           'Corte: ${request.range.label.toLowerCase()} $date\n\n'
-          'Se finalizarán ${preview.tasks} tarea(s) abierta(s) y se marcarán '
-          'como leídas ${preview.notifications} notificación(es).\n\n'
+          'Se finalizarán ${preview.tasks} tarea(s) abierta(s), se marcarán '
+          'como leídas ${preview.notifications} notificación(es) y se darán '
+          'por subsanados ${preview.hallazgosSinAsignar} hallazgo(s) de '
+          'interventoría que nunca se asignaron.\n\n'
           'No se borrarán tareas, avances, adjuntos, actas, documentos ni '
           'notificaciones. La operación quedará auditada.',
       confirmText: 'CERRAR Y MARCAR LEÍDAS',
@@ -2949,7 +2951,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     final canApply =
         !_moduleCloseoutBusy &&
         preview != null &&
-        (preview.tasks > 0 || preview.notifications > 0);
+        preview.hayAlgo;
     return Card(
       color: const Color(0xFFEFF6FF),
       shape: RoundedRectangleBorder(
@@ -3105,6 +3107,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                         ),
                         Text(
                           '${preview.notifications} notificaciones no leídas',
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${preview.hallazgosSinAsignar} hallazgos sin asignar',
                           style: const TextStyle(
                             fontFamily: kArial,
                             fontWeight: FontWeight.w800,
