@@ -66,6 +66,43 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-04 (ronda 5) — Informe de avance de reclutamiento
+
+Gerencia pidió un PDF que muestre el avance. Ya existía
+`personnel_requisition_pdf.dart` —el informe de procesos de selección para
+interventoría— pero **no lo llamaba nadie**: estaba escrito y nunca se conectó
+a un botón. Ahora hay un botón "Informe PDF" que ofrece los dos, porque no son
+el mismo documento.
+
+### Por qué son dos documentos y no uno
+
+El de interventoría lista **una línea por aspirante** con su etapa: es lo que
+ellos piden, poder ver quién está en entrevistas y quién en exámenes.
+
+Gerencia no necesita nombres. Necesita saber **cuánto falta, dónde está
+trancado y desde cuándo**. Juntar las dos cosas haría que ninguna se lea.
+
+### Qué muestra el de gerencia
+
+- Vacantes solicitadas, cubiertas, por cubrir y % de cobertura.
+- Procesos abiertos, días promedio y **el más antiguo**, resaltado a partir de
+  30 días. El promedio solo puede esconder una vacante trancada de 90.
+- Embudo: en qué etapa están las vacantes que faltan por cubrir.
+- Tabla por establecimiento **ordenada por lo que falta**, no alfabéticamente.
+
+### Decisiones de cálculo
+
+- **Las canceladas no cuentan como solicitadas.** Sumarlas hundiría la
+  cobertura por puestos que nadie espera que se llenen. Se reportan aparte.
+- Los días se cuentan solo para procesos abiertos, y una fecha futura no
+  produce días negativos.
+- **No lleva ningún dato personal**: ni nombres de aspirantes ni documentos.
+  Es un informe que circula por correo.
+
+11 pruebas cubren el cálculo, que vive separado del PDF para poder probarlo.
+
+---
+
 ## Sesión 2026-09-04 (ronda 4) — Accesos en bloque por cargo
 
 El filtro por cargo ayuda a encontrar a los cuarenta, pero entrar de a una

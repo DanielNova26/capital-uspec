@@ -11,7 +11,9 @@ import '../utils/user_company.dart';
 import 'personnel_access_picker.dart';
 import 'personnel_access_service.dart';
 import '../utils/text_input_formatters.dart';
+import 'personnel_recruitment_summary_pdf.dart';
 import 'personnel_requisition_models.dart';
+import 'personnel_requisition_pdf.dart';
 import 'personnel_requisition_service.dart';
 import '../widgets/paged_list.dart';
 
@@ -250,6 +252,11 @@ class _PersonnelRequisitionScreenState
         onPressed: _busy || allRows.isEmpty ? null : () => _export(allRows),
         icon: const Icon(Icons.download_rounded),
         label: const Text('Exportar Excel'),
+      ),
+      OutlinedButton.icon(
+        onPressed: _busy || allRows.isEmpty ? null : () => _exportPdf(allRows),
+        icon: const Icon(Icons.picture_as_pdf_rounded),
+        label: const Text('Informe PDF'),
       ),
       if (access.canCreate)
         OutlinedButton.icon(
@@ -1506,6 +1513,79 @@ class _PersonnelRequisitionScreenState
       );
     } catch (error) {
       _message('No fue posible importar el Excel: $error', error: true);
+    }
+  }
+
+  /// Los dos informes en PDF, que no son el mismo documento.
+  ///
+  /// El de gerencia responde cuánto falta, dónde está trancado y desde cuándo,
+  /// y no lleva ningún dato personal. El de interventoría lista una línea por
+  /// aspirante con su etapa, que es lo que ellos piden. Juntarlos haría que
+  /// ninguno de los dos se lea.
+  Future<void> _exportPdf(List<PersonnelRequisition> rows) async {
+    final resumen = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('¿Qué informe necesitas?'),
+        children: [
+          ListTile(
+            leading: const Icon(Icons.insights_rounded),
+            title: const Text('Avance para gerencia'),
+            subtitle: const Text(
+              'Cuánto falta, en qué etapa y desde cuándo. Sin datos '
+              'personales.',
+            ),
+            onTap: () => Navigator.pop(ctx, true),
+          ),
+          ListTile(
+            leading: const Icon(Icons.fact_check_outlined),
+            title: const Text('Procesos de selección'),
+            subtitle: const Text(
+              'Una línea por aspirante, con su etapa. Para interventoría.',
+            ),
+            onTap: () => Navigator.pop(ctx, false),
+          ),
+        ],
+      ),
+    );
+    if (resumen == null || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      String companyName = widget.empresaId;
+      final company = await FirebaseFirestore.instance
+          .collection('TBL_EMPRESAS')
+          .doc(widget.empresaId)
+          .get();
+      final name = (company.data()?['nombre'] ?? '').toString().trim();
+      if (name.isNotEmpty) companyName = name;
+
+      final bytes = resumen
+          ? await buildRecruitmentSummaryPdf(
+              rows: rows,
+              empresaId: widget.empresaId,
+              empresaNombre: companyName,
+            )
+          : await buildPersonnelRequisitionPdf(
+              rows: rows,
+              empresaId: widget.empresaId,
+              empresaNombre: companyName,
+            );
+
+      final prefijo = resumen ? 'avance_reclutamiento' : 'procesos_seleccion';
+      await FileSaver.instance.saveFile(
+        name:
+            '${prefijo}_${widget.empresaId}_'
+            '${DateFormat('yyyyMMdd').format(DateTime.now())}',
+        bytes: bytes,
+        fileExtension: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+      _message('Informe PDF generado correctamente.');
+    } catch (error) {
+      _message('No fue posible generar el PDF: $error', error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
