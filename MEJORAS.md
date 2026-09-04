@@ -66,6 +66,76 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-03 (ronda 2) — En iPhone no llegaba ninguna notificación
+
+En Android llegaban y sonaban; en iPhone, nada. La función
+`onNotificationCreated` terminaba en `ok` en todas las ejecuciones.
+
+### Por qué "ok" no significaba entregado
+
+`sendEachForMulticast` **no lanza** aunque fallen todos los tokens: informa el
+resultado uno por uno en `resp.responses`. El código miraba esa respuesta solo
+para limpiar tokens muertos, nunca para registrar el motivo de un fallo. Con
+ocho entregas y dos fallos, la ejecución terminaba en `ok` y en los logs no
+quedaba absolutamente nada.
+
+Ahora se registran los fallos agrupados por código, con conteos pero **sin los
+tokens**: un token identifica el dispositivo de una persona.
+
+### El diagnóstico
+
+Un script contra FCM con las credenciales del proyecto mostró lo que los logs
+no decían:
+
+```
+...31U0Aywk  ios      FALLO  messaging/third-party-auth-error → Invalid APNs credential
+...Vuy3ujos  ios      FALLO  messaging/third-party-auth-error → Invalid APNs credential
+(8 tokens android/web)        ENTREGADO
+```
+
+El iPhone **sí** tenía token registrado. El problema estaba en la credencial
+APNs del proyecto.
+
+### Dos causas encadenadas, ninguna visible desde la app
+
+**1. Los datos de la clave estaban inventados.** En Firebase → Cloud Messaging
+figuraban dos claves con "ID de clave: `ToDo APPLE`" e "ID de equipo:
+`ToDo App D`" — el nombre de la app escrito a mano en los campos de los IDs.
+Firebase firma con la clave un JWT cuyo `iss` es el Team ID y cuyo `kid` es el
+Key ID; con esos valores Apple rechaza la firma.
+
+**2. Firebase pide la clave en DOS renglones.** "Clave de autenticación de APNS
+de desarrollo" y "de producción". Subirla solo en desarrollo no basta: la app
+instalada viene de App Store, FCM la trata como producción y consulta ese
+renglón. Estaba vacío, y el error es el mismo `Invalid APNs credential`, sin
+distinguirse en nada del caso anterior.
+
+**El mismo `.p8` va en los dos renglones.** La clave se crea en el portal de
+Apple con Environment `Sandbox & Production` — ese ajuste **no se puede cambiar
+después de guardar** — y sirve para ambos.
+
+### Lo que NO era
+
+El entitlement. La configuración Release del *target* apuntaba a
+`Runner.entitlements` (`development`) mientras la del *proyecto* apuntaba a
+`RunnerProfile.entitlements` (`production`), y en Xcode el target pisa al
+proyecto: los builds de App Store salían con `development`. Se corrigió, porque
+Apple exige `production` para distribución, pero **no era la causa de esta
+falla**. Se llegó a afirmar que sí; la evidencia lo desmintió.
+
+### Cómo verificarlo sin recompilar
+
+Los tokens ya están guardados en `TBL_USUARIOS`, así que se puede probar la
+entrega contra FCM sin tocar la app. Códigos que importan:
+
+| Código | Significa |
+|---|---|
+| `third-party-auth-error` | la clave APNs de Firebase está mal o falta en el renglón que se consulta |
+| `registration-token-not-registered` | token muerto, o de sandbox contra APNs de producción |
+| sin tokens del todo | el fallo está en el registro del dispositivo, no en el envío |
+
+---
+
 ## Sesión 2026-09-03 — Interventoría: por qué "nadie salía por el cargo"
 
 Reporte con capturas: el botón de asignación masiva había desaparecido del
