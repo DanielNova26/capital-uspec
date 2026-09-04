@@ -308,30 +308,46 @@ class InterventoriaMaestroSubsanacion {
   final int seccion;
   final String seccionNombre;
   final String descripcion;
-  final String responsable;
-  final String aprobador;
+
+  /// Cargos que pueden responder por el numeral, en orden de preferencia.
+  ///
+  /// Son alternativas, no destinatarios: el hallazgo pertenece a un
+  /// establecimiento y se asigna a quien tenga alguno de estos cargos en esa
+  /// sede. Poner "Administrador tipo 1" y "tipo 2" en la misma regla cubre a
+  /// las sedes que usan uno u otro sin repetir la regla por sede.
+  final List<String> responsables;
+
+  /// Cargos que pueden aprobar el cierre. Cualquiera de ellos basta.
+  final List<String> aprobadores;
 
   const InterventoriaMaestroSubsanacion({
     required this.numeral,
     required this.seccion,
     required this.seccionNombre,
     required this.descripcion,
-    required this.responsable,
-    required this.aprobador,
+    required this.responsables,
+    required this.aprobadores,
   });
 
-  bool get incompleta => responsable.trim().isEmpty || aprobador.trim().isEmpty;
+  /// Primer cargo de cada rol, para lo que solo tiene espacio para uno.
+  String get responsable => responsables.isEmpty ? '' : responsables.first;
+  String get aprobador => aprobadores.isEmpty ? '' : aprobadores.first;
+
+  String get responsablesTexto => responsables.join(' · ');
+  String get aprobadoresTexto => aprobadores.join(' · ');
+
+  bool get incompleta => responsables.isEmpty || aprobadores.isEmpty;
 
   InterventoriaMaestroSubsanacion copyWith({
-    String? responsable,
-    String? aprobador,
+    List<String>? responsables,
+    List<String>? aprobadores,
   }) => InterventoriaMaestroSubsanacion(
     numeral: numeral,
     seccion: seccion,
     seccionNombre: seccionNombre,
     descripcion: descripcion,
-    responsable: responsable ?? this.responsable,
-    aprobador: aprobador ?? this.aprobador,
+    responsables: responsables ?? this.responsables,
+    aprobadores: aprobadores ?? this.aprobadores,
   );
 }
 
@@ -346,11 +362,28 @@ List<InterventoriaMaestroSubsanacion> aplicarReglasSubsanacion(
     final raw = reglas[fila.numeral];
     if (raw is! Map) return fila;
     return fila.copyWith(
-      responsable: (raw['responsable'] ?? '').toString().trim(),
-      aprobador: (raw['aprobador'] ?? '').toString().trim(),
+      responsables: cargosDeRegla(raw['responsables'], raw['responsable']),
+      aprobadores: cargosDeRegla(raw['aprobadores'], raw['aprobador']),
     );
   }),
 );
+
+/// Lee los cargos de un rol dentro de una regla guardada.
+///
+/// La lista manda; si no existe se cae al campo en singular, que es como
+/// quedaron guardadas las reglas anteriores. Ignorarlo dejaria esas reglas sin
+/// responsable de un dia para otro y sin ningun aviso.
+List<String> cargosDeRegla(Object? lista, Object? unico) {
+  if (lista is Iterable) {
+    final cargos = lista
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (cargos.isNotEmpty) return cargos;
+  }
+  final unicoLimpio = (unico ?? '').toString().trim();
+  return unicoLimpio.isEmpty ? const <String>[] : <String>[unicoLimpio];
+}
 
 /// Construye las 141 reglas de la biblioteca a partir de las dos fuentes
 /// oficiales del módulo: los aspectos del acta y su matriz de responsabilidad.
@@ -377,8 +410,8 @@ List<InterventoriaMaestroSubsanacion> construirMaestroSubsanaciones() {
           seccionNombre:
               kInterventoriaSeccionNombres[seccion] ?? categoria.label,
           descripcion: aspecto.replaceFirst(RegExp(r'^\s*\d{1,2}\s*\.\s*'), ''),
-          responsable: responsabilidad.responsable,
-          aprobador: responsabilidad.aprobador,
+          responsables: cargosDeRegla(null, responsabilidad.responsable),
+          aprobadores: cargosDeRegla(null, responsabilidad.aprobador),
         ),
       );
     }

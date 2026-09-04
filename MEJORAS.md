@@ -66,6 +66,77 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-03 — Interventoría: por qué "nadie salía por el cargo"
+
+Reporte con capturas: el botón de asignación masiva había desaparecido del
+tablero y, sobre todo, **ningún hallazgo sugería responsable**. Las dos cosas
+tenían causas distintas.
+
+### 1. El puente que faltaba: usuarios que guardan `cargoId`, no el nombre
+
+`_perfilPorCargo` indexaba los cargos por nombre, y al recorrer el personal
+comparaba contra el campo `cargo` del usuario. Pero una parte de
+`TBL_USUARIOS` guarda ahí el **id** del cargo, no su nombre. Esos usuarios
+entraban al `continue` y quedaban fuera del universo sin dejar rastro: no hay
+error, no hay log, simplemente no aparecen. De ahí "nadie me sale por el
+cargo".
+
+Ahora `_perfilPorCargo` devuelve también `nombrePorId`, y antes de descartar a
+un usuario se traduce el id a nombre. Las sugerencias pasaron de 0 a 598.
+
+Es la misma familia de problema que [el área del usuario sale del cargo]: el
+dato existe, pero en la forma que el lector no esperaba.
+
+### 2. Un cargo sin gente en el establecimiento responde en pleno
+
+El hallazgo pertenece a un establecimiento, así que la regla asigna a quien
+tenga el cargo **en esa sede**. Antes, si nadie con ese cargo estaba asignado
+al establecimiento, la función devolvía `null` y el hallazgo quedaba huérfano.
+
+`resolverCargoTodos` devuelve ahora la persona de la sede si existe, y si no,
+**todos** los que tengan el cargo. Es preferible que dos personas reciban un
+hallazgo que no les toca a que no lo reciba nadie: lo primero se corrige en un
+minuto, lo segundo se descubre cuando ya venció el plazo.
+
+### 3. Varios cargos por regla, elegidos de `TBL_CARGOS`
+
+El maestro pedía el cargo en un campo de texto libre. Un "Adminis" a medio
+teclear produce una regla que no resuelve a nadie, y nada avisa. Los campos
+son ahora **desplegables alimentados de `TBL_CARGOS`** y aceptan **más de un
+cargo** por rol.
+
+En responsable la lista es de **alternativas**, no de destinatarios: con
+"Administrador tipo 1" y "Administrador tipo 2" en la misma regla, cada sede
+queda cubierta por el que realmente exista allí, sin una regla por sede. En
+aprobador la lista es de **permisos**: cualquiera de esos cargos puede aprobar
+el cierre.
+
+Las reglas se guardan en `responsables`/`aprobadores` **y** en el campo
+singular con el primer elemento. Hay lectores que esperan el formato viejo, y
+romperlos dejaría reglas sin aplicar sin ningún aviso.
+
+### 4. La limpieza administrativa no veía los hallazgos sin asignar
+
+El cierre de módulos contaba tareas y notificaciones, pero los hallazgos
+**sin responsable** no generan tarea: no existían para el conteo, y el botón
+"Aplicar" quedaba deshabilitado aunque hubiera cientos por cerrar.
+
+`_hallazgosSinAsignar()` los busca consultando solo por `empresaId` y
+filtrando fecha y estado en memoria — a propósito, para no exigir un índice
+compuesto nuevo. Se cierran como `subsanado` con la marca
+`cierreAdministrativoSinAsignar: true`, no se borran: el histórico de una
+interventoría no se tira.
+
+### Lo que queda pendiente
+
+Asignar un hallazgo a **varias personas a la vez** todavía no se puede:
+`crearTareaYNotificarHallazgo` borra la tarea anterior al crear la nueva, y el
+cierre de módulos busca un `tareaId` en singular. El hallazgo tendría que
+referenciar varias tareas. Hoy, cuando hay varios candidatos, el tablero los
+muestra y la asignación toma al primero.
+
+---
+
 ## Sesión 2026-08-27 — La barra de scroll horizontal no va en móvil
 
 Reporte con capturas del teléfono: salía una barra gris **atravesada sobre el

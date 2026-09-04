@@ -80,13 +80,14 @@ class _InterventoriaMaestroSubsanacionesState
     return _maestro.where((fila) {
       if (_seccion != 0 && fila.seccion != _seccion) return false;
       if (_soloIncompletas && !fila.incompleta) return false;
-      if (_responsable.isNotEmpty && fila.responsable != _responsable) {
+      if (_responsable.isNotEmpty &&
+          !fila.responsables.contains(_responsable)) {
         return false;
       }
       if (consulta.isEmpty) return true;
       final texto = normalizarCargo(
         '${fila.numeral} ${fila.seccionNombre} ${fila.descripcion} '
-        '${fila.responsable} ${fila.aprobador}',
+        '${fila.responsablesTexto} ${fila.aprobadoresTexto}',
       );
       return texto.contains(consulta);
     }).toList();
@@ -112,7 +113,7 @@ class _InterventoriaMaestroSubsanacionesState
     final filas = _filtradas;
     final responsables =
         _maestro
-            .map((e) => e.responsable)
+            .expand((e) => e.responsables)
             .where((cargo) => cargo.isNotEmpty)
             .toSet()
             .toList()
@@ -208,69 +209,164 @@ class _InterventoriaMaestroSubsanacionesState
   Future<void> _editarRegla(InterventoriaMaestroSubsanacion fila) async {
     final service = widget.service;
     if (service == null || widget.empresaId.isEmpty) return;
-    final responsableCtrl = TextEditingController(text: fila.responsable);
-    final aprobadorCtrl = TextEditingController(text: fila.aprobador);
+
+    // Los cargos se traen de TBL_CARGOS antes de abrir el dialogo. Escribirlos
+    // a mano era la causa de las reglas que no resolvian a nadie: un "Adminis"
+    // a medio teclear no coincide con ningun cargo y el hallazgo se queda sin
+    // responsable sin que nadie se entere.
+    List<String> cargos = const [];
+    try {
+      cargos = await service.listarCargosDeEmpresa(widget.empresaId);
+    } catch (_) {}
+    if (!mounted) return;
+
+    final responsables = fila.responsables.toList();
+    final aprobadores = fila.aprobadores.toList();
+
     final accion = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Editar regla ${fila.numeral}'),
-        content: SizedBox(
-          width: 520,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                fila.descripcion,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: responsableCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Cargo responsable',
-                  hintText: 'Vacío = sin responsable',
-                  border: OutlineInputBorder(),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          Widget selector({
+            required String titulo,
+            required String ayuda,
+            required List<String> seleccion,
+          }) {
+            final disponibles = cargos
+                .where((c) => !seleccion.contains(c))
+                .toList();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  ayuda,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (seleccion.isEmpty)
+                  const Text(
+                    'Sin cargos: la regla quedara sin asignar.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFFB45309)),
+                  )
+                else
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final cargo in seleccion)
+                        InputChip(
+                          label: Text(
+                            cargo,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onDeleted: () =>
+                              setDialogState(() => seleccion.remove(cargo)),
+                        ),
+                    ],
+                  ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  key: ValueKey('add-$titulo-${seleccion.length}'),
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Agregar cargo',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    for (final cargo in disponibles)
+                      DropdownMenuItem(value: cargo, child: Text(cargo)),
+                  ],
+                  onChanged: disponibles.isEmpty
+                      ? null
+                      : (value) {
+                          if (value == null) return;
+                          setDialogState(() => seleccion.add(value));
+                        },
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: Text('Editar regla ${fila.numeral}'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fila.descripcion,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    selector(
+                      titulo: 'Cargos responsables',
+                      ayuda:
+                          'Alternativas, no destinatarios: el hallazgo va a quien '
+                          'tenga alguno de estos cargos EN el establecimiento del '
+                          'acta. Si ninguno esta en esa sede, responden todos.',
+                      seleccion: responsables,
+                    ),
+                    const SizedBox(height: 18),
+                    selector(
+                      titulo: 'Cargos aprobadores',
+                      ayuda:
+                          'Cualquiera de estos cargos puede aprobar el cierre.',
+                      seleccion: aprobadores,
+                    ),
+                    if (cargos.isEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No se pudieron cargar los cargos de la empresa. '
+                        'Revisa TBL_CARGOS antes de editar la regla.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFFB45309),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: aprobadorCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Cargo aprobador',
-                  hintText: 'Vacío = sin aprobador',
-                  border: OutlineInputBorder(),
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, 'restaurar'),
+                child: const Text('Restaurar regla base'),
               ),
-              const SizedBox(height: 10),
-              const Text(
-                'Si un cargo queda vacío o no existe en el personal activo, la regla se marcará sin asignar y no creará una tarea incorrecta.',
-                style: TextStyle(fontSize: 11.5, color: Color(0xFFB45309)),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, 'guardar'),
+                child: const Text('Guardar'),
               ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'restaurar'),
-            child: const Text('Restaurar regla base'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, 'guardar'),
-            child: const Text('Guardar'),
-          ),
-        ],
+          );
+        },
       ),
     );
-    final responsable = responsableCtrl.text;
-    final aprobador = aprobadorCtrl.text;
-    responsableCtrl.dispose();
-    aprobadorCtrl.dispose();
+
     if (accion == null) return;
     if (accion == 'restaurar') {
       await service.restaurarReglaSubsanacion(
@@ -281,8 +377,8 @@ class _InterventoriaMaestroSubsanacionesState
       await service.guardarReglaSubsanacion(
         empresaId: widget.empresaId,
         numeral: fila.numeral,
-        responsable: responsable,
-        aprobador: aprobador,
+        responsables: responsables,
+        aprobadores: aprobadores,
         actualizadoPor: widget.userId,
       );
     }
@@ -673,14 +769,14 @@ class _TablaMaestro extends StatelessWidget {
                           DataCell(
                             _CargoChip(
                               icon: Icons.assignment_ind_outlined,
-                              texto: fila.responsable,
+                              texto: fila.responsablesTexto,
                               destacado: true,
                             ),
                           ),
                           DataCell(
                             _CargoChip(
                               icon: Icons.verified_user_outlined,
-                              texto: fila.aprobador,
+                              texto: fila.aprobadoresTexto,
                             ),
                           ),
                           if (onEditar != null)
@@ -768,14 +864,14 @@ class _TarjetaMaestro extends StatelessWidget {
           _DatoResponsabilidad(
             icon: Icons.assignment_ind_outlined,
             label: 'El acta lo asigna a',
-            value: fila.responsable,
+            value: fila.responsablesTexto,
             destacado: true,
           ),
           const SizedBox(height: 8),
           _DatoResponsabilidad(
             icon: Icons.verified_user_outlined,
             label: 'Aprueba la subsanación',
-            value: fila.aprobador,
+            value: fila.aprobadoresTexto,
           ),
         ],
       ),

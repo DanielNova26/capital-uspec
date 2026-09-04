@@ -1365,6 +1365,27 @@ class InterventoriaService {
   /// texto, y `nombrePorId` cubre a los usuarios que guardan la referencia
   /// (`cargoId`) en vez del nombre. Separarlos costaria una consulta extra
   /// en cada carga del tablero.
+  /// Nombres de los cargos de la empresa, para los desplegables del maestro.
+  ///
+  /// Escribir el cargo a mano era la fuente del problema: un "Adminis" a medio
+  /// teclear produce una regla que no resuelve a nadie y el hallazgo se queda
+  /// sin responsable sin que nadie se entere.
+  Future<List<String>> listarCargosDeEmpresa(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_CARGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    final nombres = <String>{};
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final nombre = (data['nombre'] ?? '').toString().trim();
+      if (nombre.isNotEmpty) nombres.add(nombre);
+    }
+    final out = nombres.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return out;
+  }
+
   Future<
     ({
       Map<String, ({String areaId, bool recibeAsignaciones})> porNombre,
@@ -1565,17 +1586,19 @@ class InterventoriaService {
     }
     if (candidatos.isEmpty) return const [];
 
-    InterventoriaPersona persona(InterventoriaUsuario u) => InterventoriaPersona(
-      id: u.id,
-      nombre: u.nombre,
-      cargo: u.cargo,
-      cargoMatriz: cargoMatriz,
-      delCentro: centroCostoId.isNotEmpty && u.centroId == centroCostoId,
-    );
+    InterventoriaPersona persona(InterventoriaUsuario u) =>
+        InterventoriaPersona(
+          id: u.id,
+          nombre: u.nombre,
+          cargo: u.cargo,
+          cargoMatriz: cargoMatriz,
+          delCentro: centroCostoId.isNotEmpty && u.centroId == centroCostoId,
+        );
 
     if (centroCostoId.isNotEmpty) {
-      final delCentro =
-          candidatos.where((c) => c.user.centroId == centroCostoId).toList();
+      final delCentro = candidatos
+          .where((c) => c.user.centroId == centroCostoId)
+          .toList();
       if (delCentro.isNotEmpty) {
         // Dentro del establecimiento manda la afinidad: el cargo que mas se
         // parece al de la matriz.
@@ -1676,11 +1699,25 @@ class InterventoriaService {
     return raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
   }
 
+  /// Guarda la regla de un numeral.
+  ///
+  /// Acepta VARIOS cargos por rol. En responsable la lista es de alternativas,
+  /// no de destinatarios: el hallazgo pertenece a un establecimiento, asi que
+  /// se asigna a quien tenga alguno de esos cargos EN esa sede. Poner
+  /// "Administrador tipo 1" y "tipo 2" cubre a las sedes que usan uno u otro
+  /// sin tener que crear una regla por sede.
+  ///
+  /// En aprobador la lista es de permisos: cualquiera de esos cargos puede
+  /// aprobar el cierre.
+  ///
+  /// Se escribe tambien `responsable` y `aprobador` en singular con el primer
+  /// elemento: hay lectores viejos que esperan ese formato y romperlos dejaria
+  /// reglas sin aplicar sin ningun aviso.
   Future<void> guardarReglaSubsanacion({
     required String empresaId,
     required String numeral,
-    required String responsable,
-    required String aprobador,
+    required List<String> responsables,
+    required List<String> aprobadores,
     required String actualizadoPor,
   }) async {
     final clave = normalizarNumeralActa(numeral);
@@ -1694,9 +1731,19 @@ class InterventoriaService {
       final reglas = actual is Map
           ? Map<String, dynamic>.from(actual)
           : <String, dynamic>{};
+      final resp = responsables
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      final aprob = aprobadores
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
       reglas[clave] = {
-        'responsable': responsable.trim(),
-        'aprobador': aprobador.trim(),
+        'responsables': resp,
+        'aprobadores': aprob,
+        'responsable': resp.isEmpty ? '' : resp.first,
+        'aprobador': aprob.isEmpty ? '' : aprob.first,
         'actualizadoPor': actualizadoPor,
         'actualizadoEn': Timestamp.now(),
       };
@@ -1774,12 +1821,28 @@ class InterventoriaService {
 
     final reglas = await _reglasSubsanacion(empresaId);
     final override = reglas[clave];
+
+    // Cargos alternativos de la regla. La lista nueva (`responsables`) manda;
+    // si no existe se cae al campo en singular, que es como quedaron guardadas
+    // las reglas anteriores.
+    var cargosResponsables = <String>[];
+    var cargosAprobadores = <String>[];
     if (override is Map) {
+      cargosResponsables = cargosDeRegla(
+        override['responsables'],
+        override['responsable'],
+      );
+      cargosAprobadores = cargosDeRegla(
+        override['aprobadores'],
+        override['aprobador'],
+      );
       matriz = InterventoriaResponsabilidad(
-        (override['responsable'] ?? '').toString().trim(),
-        (override['aprobador'] ?? '').toString().trim(),
+        cargosResponsables.isEmpty ? '' : cargosResponsables.first,
+        cargosAprobadores.isEmpty ? '' : cargosAprobadores.first,
       );
     }
+    if (cargosResponsables.isEmpty) cargosResponsables = [matriz.responsable];
+    if (cargosAprobadores.isEmpty) cargosAprobadores = [matriz.aprobador];
 
     final responsables = await _usuariosDeEmpresa(empresaId);
     // Un aprobador puede estar marcado como no operativo para recibir tareas;
@@ -1791,16 +1854,42 @@ class InterventoriaService {
     final seccion = int.tryParse(clave.split('.').first) ?? 0;
     final dias = await plazoSubsanacionDias(empresaId, seccion);
 
+    // Se recorren los cargos en orden y gana el primero que resuelva a alguien.
+    // Con "Administrador tipo 1" y "tipo 2" en la misma regla, cada sede queda
+    // cubierta por el que realmente exista alli, sin una regla por sede.
+    InterventoriaPersona? primeroQueResuelva(
+      List<String> cargos,
+      List<InterventoriaUsuario> universo,
+    ) {
+      for (final cargo in cargos) {
+        if (cargo.trim().isEmpty) continue;
+        final persona = resolverCargo(cargo, centroCostoId, universo);
+        if (persona != null) return persona;
+      }
+      return null;
+    }
+
+    final personaResponsable = primeroQueResuelva(
+      cargosResponsables,
+      responsables,
+    );
+    final personaAprobador = primeroQueResuelva(
+      cargosAprobadores,
+      usuariosActivos,
+    );
+
     return InterventoriaAsignacionSugerida(
       numeral: clave,
-      cargoResponsable: matriz.responsable,
-      cargoAprobador: matriz.aprobador,
-      responsable: matriz.responsable.isEmpty
-          ? null
-          : resolverCargo(matriz.responsable, centroCostoId, responsables),
-      aprobador: matriz.aprobador.isEmpty
-          ? null
-          : resolverCargo(matriz.aprobador, centroCostoId, usuariosActivos),
+      // Se reporta el cargo que de verdad resolvio, no el primero de la lista:
+      // en la tabla debe leerse por que quedo esa persona.
+      cargoResponsable:
+          personaResponsable?.cargoMatriz ??
+          (cargosResponsables.isEmpty ? '' : cargosResponsables.first),
+      cargoAprobador:
+          personaAprobador?.cargoMatriz ??
+          (cargosAprobadores.isEmpty ? '' : cargosAprobadores.first),
+      responsable: personaResponsable,
+      aprobador: personaAprobador,
       fechaLimite: sumarDiasHabiles(desde ?? DateTime.now(), dias),
     );
   }

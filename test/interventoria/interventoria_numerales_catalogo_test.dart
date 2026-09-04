@@ -158,6 +158,63 @@ void main() {
       );
     });
 
+    test('una regla puede tener varios cargos por rol', () {
+      final editado = aplicarReglasSubsanacion(
+        construirMaestroSubsanaciones(),
+        {
+          '2.3': {
+            'responsables': ['Administrador tipo 1', 'Administrador tipo 2'],
+            'aprobadores': ['Gerencia', 'Director de calidad'],
+          },
+        },
+      );
+
+      final regla = editado.singleWhere((fila) => fila.numeral == '2.3');
+      expect(regla.responsables, [
+        'Administrador tipo 1',
+        'Administrador tipo 2',
+      ]);
+      expect(regla.aprobadores, ['Gerencia', 'Director de calidad']);
+      expect(regla.incompleta, isFalse);
+      expect(regla.responsable, 'Administrador tipo 1');
+      expect(
+        regla.responsablesTexto,
+        'Administrador tipo 1 · Administrador tipo 2',
+      );
+    });
+
+    test('una regla guardada con un solo cargo sigue valiendo', () {
+      final editado = aplicarReglasSubsanacion(
+        construirMaestroSubsanaciones(),
+        {
+          '2.3': {'responsable': 'Jefe de sede', 'aprobador': 'Gerencia'},
+        },
+      );
+
+      final regla = editado.singleWhere((fila) => fila.numeral == '2.3');
+      expect(regla.responsables, ['Jefe de sede']);
+      expect(regla.aprobadores, ['Gerencia']);
+      expect(regla.incompleta, isFalse);
+    });
+
+    test('dejar un rol sin cargos marca la regla como incompleta', () {
+      final editado = aplicarReglasSubsanacion(
+        construirMaestroSubsanaciones(),
+        {
+          '2.3': {
+            'responsables': <String>[],
+            'responsable': '',
+            'aprobadores': ['Gerencia'],
+            'aprobador': 'Gerencia',
+          },
+        },
+      );
+
+      final regla = editado.singleWhere((fila) => fila.numeral == '2.3');
+      expect(regla.responsables, isEmpty);
+      expect(regla.incompleta, isTrue);
+    });
+
     test('publica los 141 numerales como una biblioteca completa', () {
       final maestro = construirMaestroSubsanaciones();
 
