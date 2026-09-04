@@ -370,6 +370,83 @@ List<InterventoriaMaestroSubsanacion> aplicarReglasSubsanacion(
   }),
 );
 
+/// Clave de la categoría que representa una sección de las actas con catálogo
+/// propio. La pantalla de registro pinta una tarjeta por categoría, así que
+/// cada sección necesita una.
+String claveCategoriaSeccion(int seccion) => 'seccion$seccion';
+
+/// Categorías por acta, construidas una vez.
+final Map<String, List<InterventoriaCategoria>> _categoriasPorActa = {
+  for (final entrada in kSeccionesPorTipoActa.entries)
+    entrada.key: List.unmodifiable([
+      for (final seccion in entrada.value)
+        InterventoriaCategoria(
+          claveCategoriaSeccion(seccion.numero),
+          '${seccion.numero}. ${seccion.nombre}',
+        ),
+    ]),
+};
+
+/// Categorías que se evalúan en un acta.
+///
+/// El acta regular conserva su lista de siempre, con sus tarjetas especiales
+/// de concepto sanitario y horario. Las actas propias sintetizan una categoría
+/// por sección.
+List<InterventoriaCategoria> categoriasDeActa(String? tipoActa) =>
+    _categoriasPorActa[(tipoActa ?? '').trim().toUpperCase()] ??
+    kInterventoriaCategorias;
+
+/// Aspectos del acta para una categoría.
+List<String> aspectosDeActa(String? tipoActa, String categoriaKey) {
+  final propio = kSeccionesPorTipoActa[(tipoActa ?? '').trim().toUpperCase()];
+  if (propio == null) {
+    return kInterventoriaItemsActaPorCategoria[categoriaKey] ?? const [];
+  }
+  for (final seccion in propio) {
+    if (claveCategoriaSeccion(seccion.numero) == categoriaKey) {
+      return seccion.aspectos;
+    }
+  }
+  return const [];
+}
+
+/// Número de sección real de una categoría, para la numeración del acta.
+///
+/// No se usa la posición en la lista: en el acta regular horario y concepto
+/// sanitario son ambos sección 1, así que numerar 1..12 correría todas las
+/// demás un lugar.
+int? seccionDeActa(String? tipoActa, String categoriaKey) {
+  final propio = kSeccionesPorTipoActa[(tipoActa ?? '').trim().toUpperCase()];
+  if (propio == null) return kInterventoriaSeccionPorCategoria[categoriaKey];
+  for (final seccion in propio) {
+    if (claveCategoriaSeccion(seccion.numero) == categoriaKey) {
+      return seccion.numero;
+    }
+  }
+  return null;
+}
+
+/// Numeral del acta para un aspecto elegido del catálogo.
+///
+/// Solo resuelve las actas con catálogo propio, donde el numeral es la
+/// posición del aspecto en su sección. El acta regular sigue por su camino de
+/// siempre: cambiar de dónde saca el numeral movería a quién se asignan los
+/// hallazgos que ya se están registrando, y eso no se toca de pasada.
+String numeralDeAspectoEnActaPropia(
+  String? tipoActa,
+  String categoriaKey,
+  String aspecto,
+) {
+  final propio = kSeccionesPorTipoActa[(tipoActa ?? '').trim().toUpperCase()];
+  if (propio == null) return '';
+  for (final seccion in propio) {
+    if (claveCategoriaSeccion(seccion.numero) != categoriaKey) continue;
+    final i = seccion.aspectos.indexOf(aspecto);
+    return i < 0 ? '' : numeralDeAspecto(seccion.numero, i);
+  }
+  return '';
+}
+
 /// ¿El numeral existe en el acta indicada?
 ///
 /// Se valida antes de guardar una regla: sin esto, un numeral mal escrito

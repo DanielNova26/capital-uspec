@@ -66,6 +66,64 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-04 (ronda 2) — Interventoría: tres actas, no una con variantes
+
+Llegaron dos formatos nuevos: **Instalaciones físicas y sanitarias -
+Infraestructura** (1 sección, 28 aspectos) y **Estaciones de Policía / UT /
+URI** (5 secciones, 25 aspectos). No son variantes del acta regular: son
+formularios distintos, con otras secciones, otros aspectos y otra numeración.
+
+Los PDF llegaron escaneados. El OCR de CamScanner los deja ilegibles
+(`"IISTALACIONES l'lslc:AS"`, columnas mezcladas, páginas enteras vacías), así
+que el catálogo se transcribió leyendo las páginas como imagen. Cargarlo desde
+ese OCR habría metido errores en el texto que después es la fuente de las
+reglas de asignación.
+
+### Lo que ya estaba mal
+
+`INFRAESTRUCTURA` existía como tipo de acta desde antes, pero implementado
+como "marcar no evaluado todo lo que no sea instalaciones físicas" **del acta
+regular**. Esa sección tiene 17 aspectos; la del acta de infraestructura tiene
+28 y otra redacción. Quien registraba un acta de infraestructura estaba
+calificando una lista que no era la suya.
+
+### La trampa que había que resolver primero
+
+Las reglas del maestro se guardaban con el numeral como clave: `"1.4"`. Con
+tres actas, `1.4` significa cosas distintas en cada una. Cargar los catálogos
+nuevos sin tocar eso habría hecho que el acta de policía heredara los
+responsables de la regular, y el hallazgo se iría a quien no es sin que nada
+lo advirtiera.
+
+Ahora la clave lleva la familia del acta por delante: `REGULAR::1.4`,
+`ESTACION_POLICIA::1.4`. **Las claves viejas siguen valiendo, pero solo para
+la familia regular** — que era la única que existía cuando se guardaron. Por
+eso no hubo que migrar nada.
+
+REGULAR y SEGUIMIENTO comparten familia: evalúan el mismo catálogo y se
+distinguen solo por el propósito de la visita. Separarlas obligaría a editar
+cada numeral dos veces, y bastaría olvidar una para que el mismo hallazgo se
+asignara distinto según el tipo de visita.
+
+`Restaurar regla base` borra las dos formas de la clave. Con solo la nueva no
+habría hecho nada sobre una regla guardada antes de este cambio: se borraba
+una clave inexistente y la vieja seguía mandando.
+
+### Lo que se corrigió de paso
+
+El tablero **sugería** responsable con la matriz incluida en la aplicación,
+mientras la asignación real leía la regla guardada. Podían discrepar: se veía
+un nombre sugerido y el hallazgo se iba a otra persona. Ahora las dos leen lo
+mismo.
+
+### Matriz vacía, a propósito
+
+Las actas nuevas no traen matriz de responsabilidad incluida. Se llena desde
+el maestro. Un responsable equivocado por defecto no se nota; una regla sin
+responsable queda marcada "sin asignar" y se ve.
+
+---
+
 ## Sesión 2026-09-04 — Cuatro estorbos de uso diario
 
 Cambios pedidos desde la operación. Ninguno cambia estructura de datos.

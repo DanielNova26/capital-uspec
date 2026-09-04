@@ -3904,12 +3904,17 @@ class _ItemPuntajeRow extends StatefulWidget {
   /// false en Fase 1 (solo puntaje). true en Fase 2 (puntaje + observaciones).
   final bool showObservaciones;
 
+  /// Acta a la que pertenece el ítem. Decide qué aspectos ofrece el catálogo:
+  /// sin esto siempre se ofrecían los del acta regular.
+  final String? tipoActa;
+
   const _ItemPuntajeRow({
     required this.item,
     required this.ocrText,
     required this.onPickOcrSnippets,
     required this.onChanged,
     this.showObservaciones = true,
+    this.tipoActa,
   });
 
   @override
@@ -4095,8 +4100,7 @@ class _ItemPuntajeRowState extends State<_ItemPuntajeRow> {
                 notes: _notes,
                 compact: true,
                 emptyText: 'Sin observaciones',
-                catalogItems:
-                    kInterventoriaItemsActaPorCategoria[item.key] ?? const [],
+                catalogItems: aspectosDeActa(widget.tipoActa, item.key),
                 catalogAsAspect: true,
                 allowManual: false,
                 allowOcrBulk: false,
@@ -6201,19 +6205,26 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   String? _tipoActa;
   String? _tiempoComida;
   // Puntajes por sección
-  final Map<String, InterventoriaItem> _items = {
-    for (final cat in kInterventoriaCategorias)
-      cat.key: InterventoriaItem.empty(cat),
+  /// Categorías del acta seleccionada. Cada acta tiene las suyas: la regular
+  /// sus doce, infraestructura una sola, policía cinco.
+  List<InterventoriaCategoria> get _categorias => categoriasDeActa(_tipoActa);
+
+  Map<String, InterventoriaItem> _itemsVacios() => {
+    for (final cat in _categorias) cat.key: InterventoriaItem.empty(cat),
   };
+
+  Map<String, GlobalKey> _clavesDeItems() => {
+    for (final cat in _categorias) cat.key: GlobalKey(),
+  };
+
+  late Map<String, InterventoriaItem> _items = _itemsVacios();
   final _ocrCtrl = TextEditingController();
   final List<_PickedActa> _files = [];
   bool _saving = false;
   bool _extracting = false;
 
   final _scrollCtrl = ScrollController();
-  final Map<String, GlobalKey> _itemKeys = {
-    for (final cat in kInterventoriaCategorias) cat.key: GlobalKey(),
-  };
+  late Map<String, GlobalKey> _itemKeys = _clavesDeItems();
 
   void _irAlItem(String key) {
     final ctx = _itemKeys[key]?.currentContext;
@@ -6584,10 +6595,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             height: 64,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: kInterventoriaCategorias.length,
+              itemCount: _categorias.length,
               separatorBuilder: (_, _) => const SizedBox(width: 6),
               itemBuilder: (_, i) {
-                final cat = kInterventoriaCategorias[i];
+                final cat = _categorias[i];
                 final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
                 final color = item.noEvaluado
                     ? const Color(0xFF94A3B8)
@@ -6638,7 +6649,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             ),
           ),
           const SizedBox(height: 10),
-          ...kInterventoriaCategorias.map((cat) {
+          ..._categorias.map((cat) {
             final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
             Widget card;
             if (cat.key == 'conceptoSanitario') {
@@ -6648,6 +6659,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             } else {
               card = _ItemPuntajeRow(
                 item: item,
+                tipoActa: _tipoActa,
                 ocrText: _ocrCtrl.text,
                 onPickOcrSnippets: () => _pickOcrSnippets(
                   title: 'Agregar observaciones a ${cat.label}',
@@ -6956,24 +6968,23 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   /// Importante: nunca se borra un puntaje ya escrito (`clearValor`) al
   /// alternar el tipo — eso dejaba secciones vacías para siempre e
   /// impedía guardar el acta al volver de Infraestructura a Regular.
+  /// Cambiar de acta cambia QUÉ se evalúa, no solo cómo se ve.
+  ///
+  /// Antes, INFRAESTRUCTURA se resolvía marcando como "no evaluado" todo lo que
+  /// no fuera instalaciones físicas del acta regular. Eso hacía que quien
+  /// registraba un acta de infraestructura calificara los 17 aspectos de la
+  /// regular en vez de los 28 suyos. Ahora cada acta trae sus propias
+  /// secciones y las tarjetas se rehacen.
   void _onTipoActaChanged(String? newTipo) {
+    final antes = _categorias.map((c) => c.key).join('|');
     setState(() {
       _tipoActa = newTipo;
-      if (newTipo == 'INFRAESTRUCTURA') {
-        for (final cat in kInterventoriaCategorias) {
-          final esSeccion2 = cat.key == 'instalacionesFisicas';
-          if (esSeccion2) continue;
-          final current = _items[cat.key] ?? InterventoriaItem.empty(cat);
-          _items[cat.key] = current.copyWith(noEvaluado: true);
-        }
-      } else {
-        // Solo deshace el NE forzado; conserva cualquier puntaje existente.
-        for (final cat in kInterventoriaCategorias) {
-          final current = _items[cat.key] ?? InterventoriaItem.empty(cat);
-          if (current.noEvaluado) {
-            _items[cat.key] = current.copyWith(noEvaluado: false);
-          }
-        }
+      final ahora = _categorias.map((c) => c.key).join('|');
+      if (antes != ahora) {
+        // Los puntajes de la otra acta no corresponden a nada aquí; dejarlos
+        // pegados a claves que ya no existen los guardaría en silencio.
+        _items = _itemsVacios();
+        _itemKeys = _clavesDeItems();
       }
     });
   }
@@ -7281,10 +7292,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     final hallazgos = <InterventoriaHallazgo>[];
     for (
       var categoryIndex = 0;
-      categoryIndex < kInterventoriaCategorias.length;
+      categoryIndex < _categorias.length;
       categoryIndex++
     ) {
-      final cat = kInterventoriaCategorias[categoryIndex];
+      final cat = _categorias[categoryIndex];
       final item = items[cat.key];
       if (item == null) continue;
       final notes = item.observaciones
@@ -7536,7 +7547,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   List<String> _itemsIncompletos() {
     final faltantes = <String>[];
-    for (final cat in kInterventoriaCategorias) {
+    for (final cat in _categorias) {
       final item = _items[cat.key] ?? InterventoriaItem.empty(cat);
       if (!item.noEvaluado && item.valor == null) {
         faltantes.add(item.label);
@@ -10358,8 +10369,11 @@ class _FormularioRevision extends StatefulWidget {
 
 class _FormularioRevisionState extends State<_FormularioRevision> {
   final _scrollCtrl = ScrollController();
-  final Map<String, GlobalKey> _itemKeys = {
-    for (final cat in kInterventoriaCategorias) cat.key: GlobalKey(),
+  late final List<InterventoriaCategoria> _categorias = categoriasDeActa(
+    widget.visita.tipoActa,
+  );
+  late final Map<String, GlobalKey> _itemKeys = {
+    for (final cat in _categorias) cat.key: GlobalKey(),
   };
 
   @override
@@ -10488,7 +10502,7 @@ class _FormularioRevisionState extends State<_FormularioRevision> {
         ),
         const SizedBox(height: 10),
         // ── Items con puntaje (solo lectura) + observaciones ──────────
-        ...kInterventoriaCategorias.asMap().entries.map((entry) {
+        ..._categorias.asMap().entries.map((entry) {
           final i = entry.key;
           final cat = entry.value;
           final item = items[cat.key] ?? InterventoriaItem.empty(cat);
@@ -10498,8 +10512,9 @@ class _FormularioRevisionState extends State<_FormularioRevision> {
               // Sección REAL del acta, no la posición en la lista: horario y
               // concepto sanitario son ambos sección 1, así que numerarlos
               // 1..12 corría todas las demás secciones un lugar.
-              numero: kInterventoriaSeccionPorCategoria[cat.key] ?? i + 1,
+              numero: seccionDeActa(widget.visita.tipoActa, cat.key) ?? i + 1,
               item: item,
+              tipoActa: widget.visita.tipoActa,
               onChanged: (updated) => widget.onItemChanged(cat.key, updated),
               onGuardarRapido: widget.onGuardarRapido,
             ),
@@ -10584,11 +10599,15 @@ class _ItemRevisionRow extends StatefulWidget {
   final ValueChanged<InterventoriaItem> onChanged;
   final VoidCallback? onGuardarRapido;
 
+  /// Acta a la que pertenece el ítem: decide el catálogo de aspectos.
+  final String? tipoActa;
+
   const _ItemRevisionRow({
     required this.numero,
     required this.item,
     required this.onChanged,
     this.onGuardarRapido,
+    this.tipoActa,
   });
 
   @override
@@ -10689,8 +10708,7 @@ class _ItemRevisionRowState extends State<_ItemRevisionRow> {
               notes: _notes,
               compact: true,
               emptyText: 'Sin observaciones',
-              catalogItems:
-                  kInterventoriaItemsActaPorCategoria[item.key] ?? const [],
+              catalogItems: aspectosDeActa(widget.tipoActa, item.key),
               catalogAsAspect: true,
               allowManual: true,
               allowOcrBulk: false,
