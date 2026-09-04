@@ -478,6 +478,33 @@ class _InterventoriaTableroAsignacionState
       );
     }
     final sinNumeral = h.numeralParaMatriz.isEmpty;
+
+    // Antes esta linea afirmaba "Nadie tiene el cargo" sin haber consultado la
+    // matriz: la pintaba para CUALQUIER hallazgo sin dueno. El resultado era que
+    // el boton de la cabecera contaba 598 sugerencias mientras las 600 tarjetas
+    // decian que nadie respondia. Ahora se pregunta de verdad.
+    if (!sinNumeral) {
+      final sugerido = widget.service.sugerirResponsable(h, _usuarios);
+      if (sugerido != null) {
+        return Row(
+          children: [
+            const Icon(Icons.person_search_outlined, size: 14, color: _accent),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                sugerido.cargo.trim().isEmpty
+                    ? 'Sugerido: ${sugerido.nombre}'
+                    : 'Sugerido: ${sugerido.nombre} · ${sugerido.cargo}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: _accent),
+              ),
+            ),
+          ],
+        );
+      }
+    }
+
     return Row(
       children: [
         const Icon(Icons.help_outline, size: 14, color: _warn),
