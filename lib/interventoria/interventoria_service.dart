@@ -1539,6 +1539,59 @@ class InterventoriaService {
   /// Así "Administrador" cae en el administrador de ESE establecimiento, y los
   /// cargos corporativos (Gerencia, Director de operaciones) se resuelven a
   /// nivel empresa porque su titular no tiene centro asignado.
+  /// Todas las personas a las que corresponde un cargo de la matriz.
+  ///
+  /// La regla del negocio no es "una persona por cargo", es por establecimiento:
+  ///
+  /// - Si alguien con ese cargo pertenece al establecimiento del hallazgo, esa
+  ///   persona es la responsable y nadie mas. Es su sede: el resto no tiene por
+  ///   que enterarse.
+  /// - Si NADIE con ese cargo pertenece al establecimiento, el hallazgo va a
+  ///   TODOS los que tengan el cargo. Son cargos corporativos (mantenimiento y
+  ///   similares) que atienden varias sedes; elegir a uno solo dejaria el
+  ///   trabajo dependiendo de a quien escogio un desempate arbitrario.
+  ///
+  /// Devuelve lista vacia si nadie tiene el cargo.
+  List<InterventoriaPersona> resolverCargoTodos(
+    String cargoMatriz,
+    String centroCostoId,
+    List<InterventoriaUsuario> usuarios,
+  ) {
+    final candidatos = <({InterventoriaUsuario user, int afinidad})>[];
+    for (final user in usuarios) {
+      final afinidad = afinidadCargo(cargoMatriz, user.cargo);
+      if (afinidad == null) continue;
+      candidatos.add((user: user, afinidad: afinidad));
+    }
+    if (candidatos.isEmpty) return const [];
+
+    InterventoriaPersona persona(InterventoriaUsuario u) => InterventoriaPersona(
+      id: u.id,
+      nombre: u.nombre,
+      cargo: u.cargo,
+      cargoMatriz: cargoMatriz,
+      delCentro: centroCostoId.isNotEmpty && u.centroId == centroCostoId,
+    );
+
+    if (centroCostoId.isNotEmpty) {
+      final delCentro =
+          candidatos.where((c) => c.user.centroId == centroCostoId).toList();
+      if (delCentro.isNotEmpty) {
+        // Dentro del establecimiento manda la afinidad: el cargo que mas se
+        // parece al de la matriz.
+        delCentro.sort((a, b) => a.afinidad.compareTo(b.afinidad));
+        return [persona(delCentro.first.user)];
+      }
+    }
+
+    candidatos.sort((a, b) {
+      final porAfinidad = a.afinidad.compareTo(b.afinidad);
+      if (porAfinidad != 0) return porAfinidad;
+      return a.user.nombre.toLowerCase().compareTo(b.user.nombre.toLowerCase());
+    });
+    return candidatos.map((c) => persona(c.user)).toList();
+  }
+
   InterventoriaPersona? resolverCargo(
     String cargoMatriz,
     String centroCostoId,
@@ -1577,6 +1630,21 @@ class InterventoriaService {
   ///
   /// Devuelve null si el numeral no se pudo identificar o si nadie en la
   /// empresa tiene el cargo que responde por él.
+  /// Igual que [sugerirResponsable] pero devolviendo a TODOS los responsables
+  /// cuando el cargo no existe en el establecimiento del hallazgo.
+  List<InterventoriaPersona> sugerirResponsables(
+    InterventoriaHallazgo hallazgo,
+    List<InterventoriaUsuario> usuarios,
+  ) {
+    final matriz = responsabilidadDeNumeral(hallazgo.numeralParaMatriz);
+    if (matriz == null) return const [];
+    return resolverCargoTodos(
+      matriz.responsable,
+      hallazgo.centroCostoId,
+      usuarios,
+    );
+  }
+
   InterventoriaPersona? sugerirResponsable(
     InterventoriaHallazgo hallazgo,
     List<InterventoriaUsuario> usuarios,

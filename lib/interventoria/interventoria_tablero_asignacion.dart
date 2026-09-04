@@ -484,17 +484,30 @@ class _InterventoriaTableroAsignacionState
     // el boton de la cabecera contaba 598 sugerencias mientras las 600 tarjetas
     // decian que nadie respondia. Ahora se pregunta de verdad.
     if (!sinNumeral) {
-      final sugerido = widget.service.sugerirResponsable(h, _usuarios);
-      if (sugerido != null) {
+      // Puede haber mas de uno: cuando nadie con ese cargo pertenece al
+      // establecimiento del hallazgo, responden todos los que lo tengan.
+      final sugeridos = widget.service.sugerirResponsables(h, _usuarios);
+      if (sugeridos.isNotEmpty) {
+        final uno = sugeridos.first;
+        final texto = sugeridos.length == 1
+            ? (uno.cargo.trim().isEmpty
+                  ? 'Sugerido: ${uno.nombre}'
+                  : 'Sugerido: ${uno.nombre} · ${uno.cargo}')
+            : 'Sugeridos (${sugeridos.length}): '
+                  '${sugeridos.map((p) => p.nombre).join(', ')}';
         return Row(
           children: [
-            const Icon(Icons.person_search_outlined, size: 14, color: _accent),
+            Icon(
+              sugeridos.length == 1
+                  ? Icons.person_search_outlined
+                  : Icons.groups_outlined,
+              size: 14,
+              color: _accent,
+            ),
             const SizedBox(width: 5),
             Expanded(
               child: Text(
-                sugerido.cargo.trim().isEmpty
-                    ? 'Sugerido: ${sugerido.nombre}'
-                    : 'Sugerido: ${sugerido.nombre} · ${sugerido.cargo}',
+                texto,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12, color: _accent),
