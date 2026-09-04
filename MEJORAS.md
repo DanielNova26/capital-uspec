@@ -66,6 +66,50 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-04 — Cuatro estorbos de uso diario
+
+Cambios pedidos desde la operación. Ninguno cambia estructura de datos.
+
+### Subsanaciones: filtro por asignado
+
+Faltaba poder preguntar "¿qué tiene fulano?" y, sobre todo, "¿qué no tiene
+nadie?". La opción **Sin asignar** es la que de verdad se usa: un hallazgo sin
+responsable no le figura a nadie en su bandeja y solo aparece revisando la
+lista entera.
+
+Las opciones del desplegable se calculan sobre la lista **sin filtrar**. Si
+salieran de la ya filtrada, elegir a una persona vaciaría el selector y no
+habría forma de volver.
+
+### Maestro: la tabla ya no obliga a desplazarse en horizontal
+
+Las columnas de sección y descripción tenían ancho fijo (250 y 560). Sumadas
+al resto, la tabla medía más que cualquier pantalla: para ver quién responde
+por un numeral había que arrastrar en horizontal o alejar el zoom hasta que la
+letra no se leía. Ahora se reparten el espacio disponible con `LayoutBuilder`.
+El scroll horizontal se conserva como salida en pantallas angostas.
+
+### Accesos del personal: filtro por cargo
+
+Para dar o quitar un módulo a un grupo hay que encontrarlo primero. El buscador
+ya miraba el cargo, pero exigía escribirlo bien y no ofrecía la lista.
+
+Al hacerlo salió un problema de fondo: parte del padrón guarda en `cargo` el
+**ID** del cargo, no su nombre. Esas personas mostraban un identificador crudo
+y habrían quedado fuera del filtro. `loadPersonnel` ahora traduce el id contra
+`TBL_CARGOS`. Es el mismo problema que tenía Interventoría al resolver
+responsables por cargo.
+
+### La lista ya no salta al principio
+
+Al guardar los accesos de una persona se recargaba el padrón poniendo
+`_cargando = true`. Eso reemplazaba la lista por el indicador y, al volver,
+construía un `ListView` nuevo: la posición se perdía y la vista saltaba
+arriba. Quien revisaba de a una persona tenía que buscar otra vez dónde iba.
+La recarga posterior a guardar ya no vacía la pantalla.
+
+---
+
 ## Sesión 2026-09-03 (ronda 2) — En iPhone no llegaba ninguna notificación
 
 En Android llegaban y sonaban; en iPhone, nada. La función

@@ -103,10 +103,28 @@ class PersonnelAccessService {
 
   /// Personal de la empresa con sus accesos actuales, para la pantalla de
   /// Talento Humano.
+  /// Nombre de cada cargo por su id, para traducir a los usuarios que guardan
+  /// el id en vez del nombre.
+  Future<Map<String, String>> _cargoNombrePorId(String empresaId) async {
+    final snap = await _db
+        .collection('TBL_CARGOS')
+        .where('empresaId', isEqualTo: empresaId)
+        .get();
+    return {
+      for (final doc in snap.docs)
+        if ((doc.data()['nombre'] ?? '').toString().trim().isNotEmpty)
+          doc.id: (doc.data()['nombre']).toString().trim(),
+    };
+  }
+
   Future<List<PersonnelAccessRow>> loadPersonnel(String empresaId) async {
     final id = empresaId.trim();
     if (id.isEmpty) return const <PersonnelAccessRow>[];
     final docs = await _users.loadUsersByEmpresa(id);
+    // Parte del padron guarda en `cargo` el ID del cargo, no su nombre. Sin
+    // traducirlo la pantalla muestra un identificador crudo y el filtro por
+    // cargo deja fuera justo a esas personas.
+    final cargosPorId = await _cargoNombrePorId(id);
     final rows = docs.map((doc) {
       final data = doc.data();
       final detail = getUserCompanyDetail(data, id);
@@ -128,11 +146,14 @@ class PersonnelAccessService {
         userId: doc.id,
         cedula: (data['cedula'] ?? doc.id).toString().trim(),
         nombre: completo.trim(),
-        cargo: resolveScopedStringWithFallbacks(
-          data,
-          id,
-          const ['cargoNombre', 'cargo'],
-          const ['cargoNombre', 'cargo'],
+        cargo: _nombreDeCargo(
+          resolveScopedStringWithFallbacks(
+            data,
+            id,
+            const ['cargoNombre', 'cargo'],
+            const ['cargoNombre', 'cargo'],
+          ),
+          cargosPorId,
         ),
         correo: resolveScopedStringWithFallbacks(
           data,
@@ -152,6 +173,14 @@ class PersonnelAccessService {
       ),
     );
     return rows;
+  }
+
+  /// Devuelve el nombre del cargo. Si el valor guardado es un id conocido lo
+  /// traduce; si no, se respeta tal cual, que es lo que la persona tiene.
+  static String _nombreDeCargo(String valor, Map<String, String> porId) {
+    final limpio = valor.trim();
+    if (limpio.isEmpty) return '';
+    return porId[limpio] ?? limpio;
   }
 
   /// Guarda los módulos de la persona en esta empresa.

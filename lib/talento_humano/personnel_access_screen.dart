@@ -42,6 +42,7 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
   Set<String> _apagadosEmpresa = const {};
   bool _soloActivos = true;
   String _filtroModulo = '';
+  String _filtroCargo = '';
   int _pagina = 0;
 
   @override
@@ -56,9 +57,16 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  /// [conIndicador] en false refresca sin vaciar la pantalla.
+  ///
+  /// Al guardar los accesos de una persona se recarga el padron. Poner
+  /// `_cargando = true` reemplazaba la lista por el indicador, y al volver se
+  /// construia un ListView nuevo: la posicion de scroll se perdia y la vista
+  /// saltaba al principio. Quien esta revisando de a una persona terminaba
+  /// buscando otra vez donde iba.
+  Future<void> _cargar({bool conIndicador = true}) async {
     setState(() {
-      _cargando = true;
+      if (conIndicador) _cargando = true;
       _error = null;
     });
     try {
@@ -90,12 +98,26 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
     );
   }
 
+  /// Cargos presentes en el padron. Salen de la lista completa, no de la ya
+  /// filtrada: si no, elegir un cargo vaciaria el desplegable.
+  List<String> get _cargosDisponibles {
+    final cargos = <String>{
+      for (final row in _personal)
+        if (row.cargo.trim().isNotEmpty) row.cargo.trim(),
+    };
+    return cargos.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
+
   List<PersonnelAccessRow> get _visibles {
     final q = _buscarCtrl.text.trim().toLowerCase();
     return _personal.where((row) {
       if (_soloActivos && !row.activo) return false;
       if (_filtroModulo.isNotEmpty &&
           !row.apps.any((app) => appIdsEquivalent(app, _filtroModulo))) {
+        return false;
+      }
+      if (_filtroCargo.isNotEmpty && row.cargo.trim() != _filtroCargo) {
         return false;
       }
       if (q.isEmpty) return true;
@@ -138,7 +160,7 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
         actorId: widget.userId,
       );
       _mensaje('Accesos actualizados para ${row.nombreVisible}.');
-      await _cargar();
+      await _cargar(conIndicador: false);
     } catch (e) {
       _mensaje('No se pudo guardar: $e', error: true);
     }
@@ -260,6 +282,36 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
                   ],
                   onChanged: (v) => setState(() {
                     _filtroModulo = v ?? '';
+                    _pagina = 0;
+                  }),
+                ),
+              ),
+              SizedBox(
+                width: isWeb ? 280 : double.infinity,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _cargosDisponibles.contains(_filtroCargo)
+                      ? _filtroCargo
+                      : '',
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    labelText: 'Filtrar por cargo',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('Todos los cargos'),
+                    ),
+                    ..._cargosDisponibles.map(
+                      (c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(c, overflow: TextOverflow.ellipsis),
+                      ),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() {
+                    _filtroCargo = v ?? '';
                     _pagina = 0;
                   }),
                 ),

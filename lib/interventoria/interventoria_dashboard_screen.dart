@@ -132,6 +132,11 @@ class _InterventoriaDashboardScreenState
   String _centroFiltro = '';
   String _estadoFiltro = ''; // '' | 'activo' | 'subsanado'
   String _dptoFiltro = '';
+
+  /// Filtro por persona asignada en Subsanaciones. Vacio = todas.
+  /// `_kSinAsignar` aisla los hallazgos que no tienen responsable, que son los
+  /// que de verdad hay que perseguir: no le aparecen a nadie en su bandeja.
+  String _asignadoFiltro = '';
   DateTime? _fechaDesde;
   DateTime? _fechaHasta;
 
@@ -374,6 +379,17 @@ class _InterventoriaDashboardScreenState
                         return _SeguimientoMatriz(
                           hallazgos: filtrados,
                           visitas: visitasSnap.data ?? const [],
+                          // Las opciones salen de `combinados`, la lista sin
+                          // filtrar, para que elegir a alguien no vacie el
+                          // desplegable.
+                          asignados: {
+                            for (final h in combinados)
+                              if (h.responsableId.trim().isNotEmpty)
+                                h.responsableId: h.responsableNombre,
+                          },
+                          asignadoFiltro: _asignadoFiltro,
+                          onAsignadoChanged: (v) =>
+                              setState(() => _asignadoFiltro = v),
                           centroFiltro: _centroFiltro,
                           fechaDesde: _fechaDesde,
                           fechaHasta: _fechaHasta,
@@ -389,12 +405,14 @@ class _InterventoriaDashboardScreenState
                               _centroFiltro.isNotEmpty ||
                               _estadoFiltro.isNotEmpty ||
                               _dptoFiltro.isNotEmpty ||
+                              _asignadoFiltro.isNotEmpty ||
                               _fechaDesde != null ||
                               _fechaHasta != null,
                           onLimpiarFiltros: () => setState(() {
                             _centroFiltro = '';
                             _estadoFiltro = '';
                             _dptoFiltro = '';
+                            _asignadoFiltro = '';
                             _fechaDesde = null;
                             _fechaHasta = null;
                           }),
@@ -458,6 +476,11 @@ class _InterventoriaDashboardScreenState
     }
     if (_dptoFiltro.isNotEmpty) {
       r = r.where((h) => h.dptoEncargado == _dptoFiltro).toList();
+    }
+    if (_asignadoFiltro.isNotEmpty) {
+      r = _asignadoFiltro == _kSinAsignar
+          ? r.where((h) => h.responsableId.trim().isEmpty).toList()
+          : r.where((h) => h.responsableId == _asignadoFiltro).toList();
     }
     if (_fechaDesde != null) {
       final desde = DateTime(
@@ -2428,6 +2451,65 @@ class _HallazgoFormState extends State<_HallazgoForm> {
 // Tab Seguimiento — matriz estilo Excel
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Desplegable de persona asignada para Subsanaciones.
+///
+/// Ademas de las personas ofrece "Sin asignar", que es la opcion que de
+/// verdad se usa: un hallazgo sin responsable no le figura a nadie y solo se
+/// descubre revisando la lista completa.
+class _AsignadoFilterDropdown extends StatelessWidget {
+  final Map<String, String> asignados;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  const _AsignadoFilterDropdown({
+    required this.asignados,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ordenados = asignados.entries.toList()
+      ..sort(
+        (a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()),
+      );
+    // Una persona que ya no figura en la lista visible no puede desaparecer del
+    // selector estando seleccionada: dejaria el filtro activo sin manera de
+    // quitarlo salvo "Limpiar".
+    final valorValido =
+        value.isEmpty ||
+        value == _kSinAsignar ||
+        asignados.containsKey(value);
+
+    return DropdownButtonFormField<String>(
+      initialValue: valorValido ? value : '',
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Asignado a',
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      items: [
+        const DropdownMenuItem(value: '', child: Text('Todos')),
+        const DropdownMenuItem(
+          value: _kSinAsignar,
+          child: Text('Sin asignar'),
+        ),
+        for (final e in ordenados)
+          DropdownMenuItem(
+            value: e.key,
+            child: Text(e.value, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: (v) => onChanged(v ?? ''),
+    );
+  }
+}
+
+/// Valor reservado del filtro de asignado: los hallazgos sin responsable.
+/// No puede colisionar con un id real de usuario, que es siempre una cedula.
+const String _kSinAsignar = '__sin_asignar__';
+
 class _SeguimientoMatriz extends StatefulWidget {
   final List<InterventoriaHallazgo> hallazgos;
   final List<InterventoriaVisita> visitas;
@@ -2438,6 +2520,13 @@ class _SeguimientoMatriz extends StatefulWidget {
   final ValueChanged<String>? onCentroChanged;
   final ValueChanged<DateTime?> onFechaDesdeChanged;
   final ValueChanged<DateTime?> onFechaHastaChanged;
+
+  /// Personas que aparecen como responsables. Se calcula sobre la lista SIN
+  /// filtrar: si saliera de la lista ya filtrada, elegir a alguien vaciaria el
+  /// desplegable y no habria forma de volver.
+  final Map<String, String> asignados;
+  final String asignadoFiltro;
+  final ValueChanged<String> onAsignadoChanged;
   final bool hayFiltros;
   final VoidCallback onLimpiarFiltros;
   final InterventoriaService service;
@@ -2456,6 +2545,9 @@ class _SeguimientoMatriz extends StatefulWidget {
     this.onCentroChanged,
     required this.onFechaDesdeChanged,
     required this.onFechaHastaChanged,
+    this.asignados = const {},
+    this.asignadoFiltro = '',
+    required this.onAsignadoChanged,
     required this.hayFiltros,
     required this.onLimpiarFiltros,
     required this.service,
@@ -2516,6 +2608,14 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
               onChanged: onCentroChanged,
             ),
           ),
+        SizedBox(
+          width: 230,
+          child: _AsignadoFilterDropdown(
+            asignados: widget.asignados,
+            value: widget.asignadoFiltro,
+            onChanged: widget.onAsignadoChanged,
+          ),
+        ),
         _FechaTile(
           label: 'Desde',
           fecha: fechaDesde,
