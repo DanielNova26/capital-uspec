@@ -29,7 +29,8 @@ class _WebPdfViewState extends State<WebPdfView> {
   @override
   void initState() {
     super.initState();
-    _viewId = 'pdf-iframe-${widget.url.hashCode}-${DateTime.now().microsecondsSinceEpoch}';
+    _viewId =
+        'pdf-iframe-${widget.url.hashCode}-${DateTime.now().microsecondsSinceEpoch}';
     _load();
   }
 
@@ -92,7 +93,11 @@ class _Fallback extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.picture_as_pdf_rounded, size: 64, color: Colors.red.shade400),
+          Icon(
+            Icons.picture_as_pdf_rounded,
+            size: 64,
+            color: Colors.red.shade400,
+          ),
           const SizedBox(height: 12),
           const Text(
             'No se pudo cargar el PDF',
@@ -105,7 +110,8 @@ class _Fallback extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: () => launchUrlString(url, mode: LaunchMode.externalApplication),
+            onPressed: () =>
+                launchUrlString(url, mode: LaunchMode.externalApplication),
             icon: const Icon(Icons.open_in_new_rounded),
             label: const Text('Abrir PDF'),
             style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
