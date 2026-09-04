@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- SOLO Debug y Profile. Release firma con RunnerProfile.entitlements.
+
+         Este archivo estaba puesto tambien en la configuracion Release del
+         TARGET, y en Xcode el target pisa al proyecto: los builds de App Store
+         salian con "development" aunque el proyecto dijera "production". Con
+         eso el telefono se registra contra APNs de sandbox y ningun push de
+         produccion llega, sin error visible en ninguna parte. -->
     <key>aps-environment</key>
     <string>development</string>
 </dict>

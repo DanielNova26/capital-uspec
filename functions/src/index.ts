@@ -416,6 +416,33 @@ async function sendPushTo(
 
   const resp = await fcm.sendEachForMulticast(msg);
 
+  // sendEachForMulticast NO lanza aunque fallen todos los tokens: informa el
+  // resultado uno por uno. Sin este log la funcion termina en 'ok' con cero
+  // entregas y no queda rastro de por que. Fue justo lo que impidio
+  // diagnosticar por que en iPhone no llegaba nada.
+  //
+  // Se registran codigos y conteos, nunca los tokens: identifican al
+  // dispositivo de una persona.
+  //
+  // Codigos que importan:
+  //   messaging/third-party-auth-error ......... falta la clave APNs en Firebase
+  //   messaging/registration-token-not-registered  token muerto o de sandbox
+  //                                               usado contra APNs de produccion
+  if (resp.failureCount > 0) {
+    const porCodigo: Record<string, number> = {};
+    resp.responses.forEach((r) => {
+      if (r.success) return;
+      const code = (r.error as { code?: string } | undefined)?.code || "desconocido";
+      porCodigo[code] = (porCodigo[code] ?? 0) + 1;
+    });
+    functions.logger.warn("push con entregas fallidas", {
+      enviados: tokens.length,
+      entregados: resp.successCount,
+      fallidos: resp.failureCount,
+      porCodigo,
+    });
+  }
+
   // limpiar tokens inválidos
   const invalid: string[] = [];
   const retryTokens: string[] = [];
