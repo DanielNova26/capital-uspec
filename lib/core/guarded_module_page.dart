@@ -60,8 +60,8 @@ class _GuardedModulePageState extends State<GuardedModulePage> {
   void _scheduleValidation({bool notify = true}) {
     final selectedEmpresaId =
         _empresaState?.selectedEmpresaId?.trim().isNotEmpty == true
-            ? _empresaState!.selectedEmpresaId!.trim()
-            : widget.fallbackEmpresaId?.trim();
+        ? _empresaState!.selectedEmpresaId!.trim()
+        : widget.fallbackEmpresaId?.trim();
 
     if (!notify) {
       _redirectScheduled = false;
@@ -106,8 +106,7 @@ class _GuardedModulePageState extends State<GuardedModulePage> {
         widget.fallbackEmpresaId!.trim().isNotEmpty &&
         widget.fallbackEmpresaId!.trim() != empresaId) {
       return _GuardState.denied(
-        message:
-            'La empresa del módulo ya no coincide con la empresa activa.',
+        message: 'La empresa del módulo ya no coincide con la empresa activa.',
         homeUsername: userResolution.docId,
         empresaId: empresaId,
       );
@@ -150,10 +149,8 @@ class _GuardedModulePageState extends State<GuardedModulePage> {
       }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (_) => HomeScreen(
-            username: homeUsername,
-            empresaId: empresaId ?? '',
-          ),
+          builder: (_) =>
+              HomeScreen(username: homeUsername, empresaId: empresaId ?? ''),
         ),
       );
     });
@@ -210,20 +207,16 @@ class _GuardState {
   const _GuardState.allowed({
     required String homeUsername,
     required String empresaId,
-  }) : this._(
-          allowed: true,
-          homeUsername: homeUsername,
-          empresaId: empresaId,
-        );
+  }) : this._(allowed: true, homeUsername: homeUsername, empresaId: empresaId);
 
   const _GuardState.denied({
     required String message,
     String? homeUsername,
     String? empresaId,
   }) : this._(
-          allowed: false,
-          message: message,
-          homeUsername: homeUsername,
-          empresaId: empresaId,
-        );
+         allowed: false,
+         message: message,
+         homeUsername: homeUsername,
+         empresaId: empresaId,
+       );
 }

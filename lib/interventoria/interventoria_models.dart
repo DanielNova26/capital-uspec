@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_numerales_catalogo.dart';
 
@@ -592,13 +593,23 @@ class CentroCostoRef {
   final String nombre;
   final String grupo;
 
+  /// Divisiones internas del establecimiento: Cómbita Alta y Media, Picota
+  /// ERE 1 y ERE 2. Vacío en la mayoría, que no están divididos.
+  final List<SubcentroCosto> subcentros;
+
   const CentroCostoRef({
     required this.centroId,
     required this.empresaId,
     required this.codigo,
     required this.nombre,
     this.grupo = '',
+    this.subcentros = const [],
   });
+
+  /// Subcentros que se pueden elegir hoy. Uno apagado no desaparece del
+  /// histórico, solo deja de ofrecerse.
+  List<SubcentroCosto> get subcentrosActivos =>
+      subcentros.where((s) => s.enabled).toList();
 
   factory CentroCostoRef.fromMap(String id, Map<String, dynamic> data) {
     final centroId = (data['centroId'] ?? id).toString().trim();
@@ -609,8 +620,20 @@ class CentroCostoRef {
       codigo: codigo,
       nombre: (data['nombre'] ?? centroId).toString().trim(),
       grupo: grupoCentroCostoDesdeData(data, codigo: codigo),
+      subcentros: subcentrosDesdeData(data['subcentros']),
     );
   }
+}
+
+/// Establecimiento como debe leerse: el centro y, si lo hay, el subcentro.
+extension EstablecimientoDelHallazgo on InterventoriaHallazgo {
+  String get establecimiento =>
+      nombreEstablecimiento(centroCostoNombre, subcentroNombre);
+}
+
+extension EstablecimientoDeLaVisita on InterventoriaVisita {
+  String get establecimiento =>
+      nombreEstablecimiento(centroCostoNombre, subcentroNombre);
 }
 
 /// Normaliza la clasificación contractual de un establecimiento.
@@ -901,6 +924,13 @@ class InterventoriaVisita {
   final String centroCostoId;
   final String centroCostoCodigo;
   final String centroCostoNombre;
+
+  /// División interna del establecimiento, cuando la tiene. El responsable se
+  /// sigue resolviendo por el centro: la gente está adscrita a Cómbita, no a
+  /// "Cómbita Alta".
+  final String subcentroId;
+  final String subcentroNombre;
+
   final Timestamp fechaVisita;
   final Timestamp fechaRegistro;
   final String creadoPor;
@@ -929,6 +959,8 @@ class InterventoriaVisita {
     required this.centroCostoId,
     required this.centroCostoCodigo,
     required this.centroCostoNombre,
+    this.subcentroId = '',
+    this.subcentroNombre = '',
     required this.fechaVisita,
     required this.fechaRegistro,
     required this.creadoPor,
@@ -968,6 +1000,8 @@ class InterventoriaVisita {
       centroCostoId: (data['centroCostoId'] ?? '').toString(),
       centroCostoCodigo: (data['centroCostoCodigo'] ?? '').toString(),
       centroCostoNombre: (data['centroCostoNombre'] ?? '').toString(),
+      subcentroId: (data['subcentroId'] ?? '').toString(),
+      subcentroNombre: (data['subcentroNombre'] ?? '').toString(),
       fechaVisita: data['fechaVisita'] as Timestamp? ?? Timestamp.now(),
       fechaRegistro: data['fechaRegistro'] as Timestamp? ?? Timestamp.now(),
       creadoPor: (data['creadoPor'] ?? '').toString(),
@@ -1000,6 +1034,8 @@ class InterventoriaVisita {
     'centroCostoId': centroCostoId,
     'centroCostoCodigo': centroCostoCodigo,
     'centroCostoNombre': centroCostoNombre,
+    'subcentroId': subcentroId,
+    'subcentroNombre': subcentroNombre,
     'fechaVisita': fechaVisita,
     'fechaRegistro': fechaRegistro,
     'creadoPor': creadoPor,
@@ -1203,6 +1239,12 @@ class InterventoriaHallazgo {
   final String visitaId;
   final String centroCostoId;
   final String centroCostoNombre;
+
+  /// División interna del establecimiento. Solo informativa: el responsable se
+  /// resuelve por `centroCostoId`, que es donde está adscrita la gente.
+  final String subcentroId;
+  final String subcentroNombre;
+
   final String grupoId;
   final String estado; // 'activo' | 'pendiente_aprobacion' | 'subsanado'
   final String? tipoActa;
@@ -1258,6 +1300,8 @@ class InterventoriaHallazgo {
     this.visitaId = '',
     required this.centroCostoId,
     required this.centroCostoNombre,
+    this.subcentroId = '',
+    this.subcentroNombre = '',
     this.grupoId = '',
     this.estado = 'activo',
     this.tipoActa,
@@ -1317,6 +1361,8 @@ class InterventoriaHallazgo {
         visitaId: (data['visitaId'] ?? '').toString(),
         centroCostoId: (data['centroCostoId'] ?? '').toString(),
         centroCostoNombre: (data['centroCostoNombre'] ?? '').toString(),
+        subcentroId: (data['subcentroId'] ?? '').toString(),
+        subcentroNombre: (data['subcentroNombre'] ?? '').toString(),
         grupoId: (data['grupoId'] ?? '').toString(),
         estado: (data['estado'] ?? 'activo').toString(),
         tipoActa: data['tipoActa']?.toString(),
@@ -1363,6 +1409,8 @@ class InterventoriaHallazgo {
     'visitaId': visitaId,
     'centroCostoId': centroCostoId,
     'centroCostoNombre': centroCostoNombre,
+    'subcentroId': subcentroId,
+    'subcentroNombre': subcentroNombre,
     'grupoId': grupoId,
     'estado': estado,
     'tipoActa': tipoActa,
@@ -1402,6 +1450,8 @@ class InterventoriaHallazgo {
     visitaId: visitaId,
     centroCostoId: centroCostoId,
     centroCostoNombre: centroCostoNombre,
+    subcentroId: subcentroId,
+    subcentroNombre: subcentroNombre,
     grupoId: grupoId,
     estado: estado,
     tipoActa: tipoActa,
@@ -1465,6 +1515,8 @@ class InterventoriaHallazgo {
     visitaId: visitaId,
     centroCostoId: centroCostoId,
     centroCostoNombre: centroCostoNombre,
+    subcentroId: subcentroId,
+    subcentroNombre: subcentroNombre,
     grupoId: grupoId,
     estado: estado ?? this.estado,
     tipoActa: tipoActa,

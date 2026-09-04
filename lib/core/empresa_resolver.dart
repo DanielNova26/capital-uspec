@@ -51,7 +51,7 @@ class EmpresaResolver {
     final normalizedStored = normalizeEmpresaId(storedEmpresaId);
     final usesStructuredMembership =
         (userData['empresas'] as List<dynamic>? ?? const []).isNotEmpty ||
-            userData['empresasDetalle'] is Map;
+        userData['empresasDetalle'] is Map;
 
     return EmpresaSelectionResult(
       empresaId: resolved,

@@ -67,7 +67,12 @@ class OrgContextResolver {
     }
 
     final areaId = readWithFallback(
-      scopedKeys: const ['areaId', 'area_id', 'departamentoId', 'departamento_id'],
+      scopedKeys: const [
+        'areaId',
+        'area_id',
+        'departamentoId',
+        'departamento_id',
+      ],
       fallbackKeys: const ['areaId'],
     );
     final areaNombre = readWithFallback(
@@ -87,7 +92,11 @@ class OrgContextResolver {
       fallbackKeys: const ['centroId'],
     );
     final centroCostos = readWithFallback(
-      scopedKeys: const ['centroCostos', 'centro_costos', 'centro_costos_nombre'],
+      scopedKeys: const [
+        'centroCostos',
+        'centro_costos',
+        'centro_costos_nombre',
+      ],
       fallbackKeys: const ['centroCostos'],
     );
     final jefeId = readWithFallback(

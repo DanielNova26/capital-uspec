@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../core/subcentros_costo.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:todo/data/firestore_user_repository.dart';
 import 'package:todo/utils/user_company.dart';
@@ -60,6 +62,12 @@ class CentroCostoItem {
   final bool enabledFacturacion;
   final bool enabledInterventoria;
 
+  /// Divisiones internas del establecimiento (Cómbita Alta y Media, Picota
+  /// ERE 1 y ERE 2). Viven dentro del centro: partirlo en documentos aparte
+  /// dejaría sin responsable a sus hallazgos, porque la gente está adscrita
+  /// al centro, no al subcentro.
+  final List<SubcentroCosto> subcentros;
+
   const CentroCostoItem({
     required this.centroId,
     required this.empresaId,
@@ -68,6 +76,7 @@ class CentroCostoItem {
     required this.enabled,
     this.enabledFacturacion = true,
     this.enabledInterventoria = true,
+    this.subcentros = const [],
   });
 }
 
@@ -1033,6 +1042,7 @@ class AdminRepository {
           enabled: enabled,
           enabledFacturacion: (data['enabledFacturacion'] as bool?) ?? true,
           enabledInterventoria: (data['enabledInterventoria'] as bool?) ?? true,
+          subcentros: subcentrosDesdeData(data['subcentros']),
         ),
       );
     }
@@ -1061,6 +1071,22 @@ class AdminRepository {
   Future<void> setCentroEnabled(String centroId, bool enabled) async {
     await _db.collection('TBL_CENTROS_COSTOS').doc(centroId).set({
       'enabled': enabled,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Reemplaza la lista de subcentros de un centro.
+  ///
+  /// Se guarda completa a propósito: quitar uno tiene que poder hacerse, y
+  /// hacerlo con arrayRemove exigiría reconstruir el mapa exacto que se
+  /// guardó. Los ids no se recalculan al renombrar, porque quedan escritos en
+  /// las visitas y hallazgos ya registrados.
+  Future<void> setSubcentros({
+    required String centroId,
+    required List<SubcentroCosto> subcentros,
+  }) async {
+    await _db.collection('TBL_CENTROS_COSTOS').doc(centroId).set({
+      'subcentros': [for (final s in subcentros) s.toMap()],
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }

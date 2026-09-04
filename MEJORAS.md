@@ -66,6 +66,48 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-04 (ronda 3) — Subcentros de costo
+
+Cómbita está registrado una vez pero opera como **Alta** y **Media**. Picota,
+como **ERE 1** y **ERE 2**. Al registrar un acta hacía falta poder decir a cuál
+corresponde, sin que dejen de ser el mismo establecimiento.
+
+### Por qué viven DENTRO del centro y no como centros aparte
+
+La alternativa era un documento por subcentro en `TBL_CENTROS_COSTOS` con un
+`padreId`. Se descartó por dos razones concretas:
+
+1. **La asignación de hallazgos se rompería.** El responsable se resuelve
+   buscando quién tiene el cargo *en el establecimiento*. La gente está
+   adscrita a Cómbita, no a "Cómbita Alta". Partir el centro dejaría esos
+   hallazgos sin responsable — justo el problema que se acababa de cerrar.
+2. **Facturación y Talento Humano listan la misma colección.** Un documento
+   nuevo por subcentro les aparecería como establecimiento independiente sin
+   que nadie lo hubiera pedido.
+
+Si algún día un subcentro necesita presupuesto o facturación propios, deja de
+ser un subcentro: hay que promoverlo a centro, y eso es otro cambio.
+
+### Lo que quedó
+
+- `TBL_CENTROS_COSTOS.subcentros`: lista de `{id, nombre, enabled}`. El lector
+  acepta también textos sueltos, para poder sembrarlos desde la consola de
+  Firebase sin romper la app.
+- **El id no se recalcula al renombrar.** Queda escrito en las visitas y
+  hallazgos ya registrados; recalcularlo dejaría el histórico apuntando a nada.
+- Admin → Catálogos → Centros de Costos: chip **Subcentros** por establecimiento,
+  con agregar, apagar y quitar. Apagar deja de ofrecerlo sin tocar el histórico.
+- Al registrar un acta, si el establecimiento está dividido **es obligatorio**
+  elegir el subcentro: "Cómbita" a secas no identifica nada y después no hay
+  forma de saber cuál era.
+- La visita y el hallazgo guardan `subcentroId` y `subcentroNombre`. El
+  responsable se sigue resolviendo por `centroCostoId`, que es lo que hace que
+  todo lo anterior siga funcionando.
+- Los listados muestran `Cómbita — Alta` en vez de dos "Cómbita"
+  indistinguibles.
+
+---
+
 ## Sesión 2026-09-04 (ronda 2) — Interventoría: tres actas, no una con variantes
 
 Llegaron dos formatos nuevos: **Instalaciones físicas y sanitarias -

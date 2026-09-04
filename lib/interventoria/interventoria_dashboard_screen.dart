@@ -30,6 +30,7 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'interventoria_hallazgo_panel.dart';
 import 'interventoria_maestro_subsanaciones.dart';
 import '../widgets/paged_list.dart';
+import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
@@ -558,6 +559,8 @@ class _InterventoriaDashboardScreenState
             visitaId: visita.id,
             centroCostoId: visita.centroCostoId,
             centroCostoNombre: visita.centroCostoNombre,
+            subcentroId: visita.subcentroId,
+            subcentroNombre: visita.subcentroNombre,
             tipoActa: visita.tipoActa,
             numeroHallazgo: '${categoryIndex + 1}.${noteIndex + 1}',
             // Aquí sí se conoce la categoría y el aspecto, así que el numeral
@@ -1236,7 +1239,7 @@ class _HallazgosTableState extends State<_HallazgosTable> {
                         style: const TextStyle(fontWeight: FontWeight.w900),
                       ),
                     ),
-                    DataCell(Text(h.centroCostoNombre)),
+                    DataCell(Text(h.establecimiento)),
                     DataCell(
                       SizedBox(
                         width: 320,
@@ -1346,7 +1349,7 @@ class _HallazgoCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    h.centroCostoNombre,
+                    h.establecimiento,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
@@ -2754,7 +2757,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
                       ),
                       DataCell(_ResponsableHallazgoCell(hallazgo: h)),
                       DataCell(_VenceHallazgoCell(hallazgo: h)),
-                      DataCell(Text(h.centroCostoNombre)),
+                      DataCell(Text(h.establecimiento)),
                       DataCell(
                         _EstadoChip(
                           isSubsanado: h.isSubsanado,
@@ -3124,7 +3127,7 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
           return _TimelinePoint(
             label: DateFormat('dd/MM/yy').format(v.fechaVisita.toDate()),
             value: value,
-            caption: v.centroCostoNombre,
+            caption: v.establecimiento,
           );
         })
         .whereType<_TimelinePoint>()
@@ -4435,7 +4438,7 @@ class _VisitaCardState extends State<_VisitaCard> {
               ),
             ),
             title: Text(
-              v.centroCostoNombre,
+              v.establecimiento,
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             subtitle: Text(_buildSubtitle(v)),
@@ -5378,7 +5381,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
           return _TimelinePoint(
             label: DateFormat('dd/MM').format(visita.fechaVisita.toDate()),
             value: value,
-            caption: visita.centroCostoNombre,
+            caption: visita.establecimiento,
           );
         })
         .whereType<_TimelinePoint>()
@@ -6209,6 +6212,10 @@ class _RegistrarActaSheet extends StatefulWidget {
 
 class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   CentroCostoRef? _centro;
+
+  /// División interna del establecimiento, cuando lo está: Cómbita Alta o
+  /// Media, Picota ERE 1 o ERE 2.
+  SubcentroCosto? _subcentro;
   DateTime _fecha = DateTime.now();
   String? _tipoActa;
   String? _tiempoComida;
@@ -6466,10 +6473,36 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                   isDense: true,
                 ),
                 items: _centrosCostoDropdownItems(centros),
-                onChanged: (v) => setState(() => _centro = v),
+                onChanged: (v) => setState(() {
+                  _centro = v;
+                  // El subcentro anterior es de otro establecimiento.
+                  _subcentro = null;
+                }),
               );
             },
           ),
+        if ((_centro?.subcentrosActivos ?? const []).isNotEmpty) ...[
+          const SizedBox(height: 10),
+          DropdownButtonFormField<SubcentroCosto>(
+            key: ValueKey('sub_${_centro!.centroId}'),
+            initialValue: _subcentro,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Subcentro',
+              helperText: 'Este establecimiento está dividido',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: [
+              for (final sub in _centro!.subcentrosActivos)
+                DropdownMenuItem(
+                  value: sub,
+                  child: Text(sub.nombre, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (v) => setState(() => _subcentro = v),
+          ),
+        ],
         const SizedBox(height: 10),
         Wrap(
           spacing: 10,
@@ -7323,6 +7356,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             visitaId: visitaId,
             centroCostoId: _centro!.centroId,
             centroCostoNombre: _centro!.nombre,
+            subcentroId: _subcentro?.id ?? '',
+            subcentroNombre: _subcentro?.nombre ?? '',
             tipoActa: _tipoActa,
             numeroHallazgo: '${categoryIndex + 1}.${noteIndex + 1}',
             descripcion: aspecto.isEmpty ? cat.label : aspecto,
@@ -7566,6 +7601,20 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   Future<void> _save() async {
     if (_centro == null) return;
+    // Si el establecimiento está dividido, "Cómbita" a secas no identifica
+    // nada: el acta es de Alta o de Media, y después no hay forma de saber
+    // cuál era.
+    if (_centro!.subcentrosActivos.isNotEmpty && _subcentro == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFFB91C1C),
+          content: Text(
+            '${_centro!.nombre} está dividido: elige el subcentro.',
+          ),
+        ),
+      );
+      return;
+    }
     if (_extracting) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -7647,6 +7696,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         centroCostoId: _centro!.centroId,
         centroCostoCodigo: _centro!.codigo,
         centroCostoNombre: _centro!.nombre,
+        subcentroId: _subcentro?.id ?? '',
+        subcentroNombre: _subcentro?.nombre ?? '',
         fechaVisita: Timestamp.fromDate(_fecha),
         fechaRegistro: Timestamp.now(),
         creadoPor: widget.userId,

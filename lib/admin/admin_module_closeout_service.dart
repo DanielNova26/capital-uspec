@@ -153,8 +153,7 @@ class AdminModuleCloseoutPreview {
   });
 
   /// Hay algo que cerrar, venga de donde venga.
-  bool get hayAlgo =>
-      tasks > 0 || notifications > 0 || hallazgosSinAsignar > 0;
+  bool get hayAlgo => tasks > 0 || notifications > 0 || hallazgosSinAsignar > 0;
 }
 
 class AdminModuleCloseoutResult {

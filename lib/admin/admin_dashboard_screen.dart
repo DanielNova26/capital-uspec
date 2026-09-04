@@ -9,6 +9,7 @@ import 'package:todo/services/compras_proveedores_excel_parser.dart';
 import 'package:todo/services/compras_productos_excel_parser.dart';
 import 'package:todo/services/company_branding_service.dart';
 import 'package:todo/state/empresa_scope.dart';
+import '../core/subcentros_costo.dart';
 import '../core/guarded_module_page.dart';
 import '../core/task_permissions.dart';
 import '../home/widgets/home_shared_widgets.dart';
@@ -2948,10 +2949,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
   Widget _moduleCloseoutCard() {
     final preview = _moduleCloseoutPreview;
-    final canApply =
-        !_moduleCloseoutBusy &&
-        preview != null &&
-        preview.hayAlgo;
+    final canApply = !_moduleCloseoutBusy && preview != null && preview.hayAlgo;
     return Card(
       color: const Color(0xFFEFF6FF),
       shape: RoundedRectangleBorder(
@@ -8278,6 +8276,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           await _loadAll(forceEmpresaId: _empresaId);
                         }
                       : null,
+                ),
+                ActionChip(
+                  avatar: const Icon(Icons.account_tree_outlined, size: 16),
+                  label: Text(
+                    c.subcentros.isEmpty
+                        ? 'Subcentros'
+                        : 'Subcentros (${c.subcentros.length})',
+                  ),
+                  onPressed: () => _dialogSubcentros(c),
                 ),
                 FilterChip(
                   label: const Text('Interventoría'),
@@ -13891,6 +13898,143 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     } catch (e) {
       _snack('Error al guardar: $e');
     }
+  }
+
+  /// Administra las divisiones internas de un establecimiento.
+  ///
+  /// Cómbita está registrado una vez pero opera como Alta y Media; Picota,
+  /// como ERE 1 y ERE 2. Con esto el acta puede decir a cuál corresponde sin
+  /// que dejen de ser el mismo establecimiento ni se parta el centro.
+  Future<void> _dialogSubcentros(CentroCostoItem centro) async {
+    final lista = centro.subcentros.toList();
+    final nuevoCtrl = TextEditingController();
+
+    final guardar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void agregar() {
+            final nombre = nuevoCtrl.text.trim();
+            if (nombre.isEmpty) return;
+            final id = slugSubcentro(nombre);
+            if (id.isEmpty || lista.any((s) => s.id == id)) {
+              nuevoCtrl.clear();
+              return;
+            }
+            setDialogState(() {
+              lista.add(SubcentroCosto(id: id, nombre: nombre));
+              nuevoCtrl.clear();
+            });
+          }
+
+          return AlertDialog(
+            title: Text('Subcentros de ${centro.nombre}'),
+            content: SizedBox(
+              width: 460,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Si el establecimiento está dividido, al registrar un '
+                      'acta habrá que decir a cuál corresponde. El responsable '
+                      'se sigue resolviendo por el establecimiento.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                    const SizedBox(height: 14),
+                    if (lista.isEmpty)
+                      const Text(
+                        'Sin subcentros: el establecimiento se registra '
+                        'completo, como hasta ahora.',
+                        style: TextStyle(fontSize: 12.5),
+                      )
+                    else
+                      for (final sub in lista)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(sub.nombre),
+                          subtitle: Text(
+                            sub.enabled
+                                ? sub.id
+                                : '${sub.id} · no se ofrece al registrar',
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Switch(
+                                value: sub.enabled,
+                                onChanged: (v) => setDialogState(() {
+                                  final i = lista.indexOf(sub);
+                                  lista[i] = sub.copyWith(enabled: v);
+                                }),
+                              ),
+                              IconButton(
+                                tooltip: 'Quitar',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () =>
+                                    setDialogState(() => lista.remove(sub)),
+                              ),
+                            ],
+                          ),
+                        ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: nuevoCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Nuevo subcentro',
+                              hintText: 'Alta, Media, ERE 1…',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            onSubmitted: (_) => agregar(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.tonal(
+                          onPressed: agregar,
+                          child: const Text('Agregar'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Quitar un subcentro no borra las actas que ya lo '
+                      'usaron. Si solo quieres dejar de ofrecerlo, apágalo.',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFFB45309),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Guardar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    nuevoCtrl.dispose();
+    if (guardar != true) return;
+    await _repo.setSubcentros(centroId: centro.centroId, subcentros: lista);
+    _snack('Subcentros de ${centro.nombre} actualizados.');
+    await _loadAll(forceEmpresaId: _empresaId);
   }
 
   /// Carga los centros de costo habilitados de TBL_CENTROS_COSTOS.

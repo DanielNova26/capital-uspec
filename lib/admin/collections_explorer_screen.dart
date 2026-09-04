@@ -46,7 +46,8 @@ class CollectionsExplorerScreen extends StatelessWidget {
 /// Muestra todos los documentos de una colección.
 class DocumentListScreen extends StatelessWidget {
   final String collectionName;
-  const DocumentListScreen({Key? key, required this.collectionName}) : super(key: key);
+  const DocumentListScreen({Key? key, required this.collectionName})
+    : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +73,10 @@ class DocumentListScreen extends StatelessWidget {
               final d = docs[i];
               final data = d.data();
               return ExpansionTile(
-                title: Text(d.id, style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Text(
+                  d.id,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
                 children: [
                   Padding(
                     padding: const EdgeInsets.all(8),

@@ -11,7 +11,9 @@ class UsersManagementScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Gestión de Usuarios')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance.collection('TBL_USUARIOS').snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('TBL_USUARIOS')
+            .snapshots(),
         builder: (ctx, snap) {
           if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -21,7 +23,7 @@ class UsersManagementScreen extends StatelessWidget {
             itemCount: docs.length,
             itemBuilder: (_, i) {
               final doc = docs[i];
-              final u   = doc.data();
+              final u = doc.data();
               final nombre = [
                 (u['primerNombre'] ?? u['nombres'] ?? '').toString().trim(),
                 (u['primerApellido'] ?? u['apellidos'] ?? '').toString().trim(),
@@ -71,9 +73,11 @@ class _UserDetailScreenState extends State<UserDetailScreen> {
   void initState() {
     super.initState();
     final data = widget.userDoc.data() ?? {};
-    _primerNombreCtrl  = TextEditingController(text: data['primerNombre'] ?? '');
-    _primerApellidoCtrl = TextEditingController(text: data['primerApellido'] ?? '');
-    _cedulaCtrl        = TextEditingController(text: data['cedula'] ?? '');
+    _primerNombreCtrl = TextEditingController(text: data['primerNombre'] ?? '');
+    _primerApellidoCtrl = TextEditingController(
+      text: data['primerApellido'] ?? '',
+    );
+    _cedulaCtrl = TextEditingController(text: data['cedula'] ?? '');
   }
 
   @override
@@ -99,9 +103,9 @@ class _UserDetailScreenState extends State<UserDetailScreen> {
     // Regresamos a la pantalla anterior y mostramos un mensaje.
     if (!mounted) return;
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Usuario actualizado')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Usuario actualizado')));
   }
 
   @override
@@ -127,14 +131,10 @@ class _UserDetailScreenState extends State<UserDetailScreen> {
               decoration: const InputDecoration(labelText: 'Cédula'),
             ),
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _save,
-              child: const Text('Guardar'),
-            ),
+            ElevatedButton(onPressed: _save, child: const Text('Guardar')),
           ],
         ),
       ),
     );
   }
 }
-

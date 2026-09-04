@@ -73,7 +73,7 @@ class UserResolver {
   final FirestoreUserRepository _repo;
 
   UserResolver({FirestoreUserRepository? repo})
-      : _repo = repo ?? FirestoreUserRepository.instance;
+    : _repo = repo ?? FirestoreUserRepository.instance;
 
   /// Resuelve el usuario aplicando el lookup transitorio.
   ///
@@ -105,8 +105,7 @@ class UserResolver {
       if (cleanCedula.isNotEmpty) {
         final snap = await _repo.resolveByField('cedula', cleanCedula);
         if (snap != null) {
-          final hasUid =
-              ((snap.data()?['uid'] as String?) ?? '').isNotEmpty;
+          final hasUid = ((snap.data()?['uid'] as String?) ?? '').isNotEmpty;
           debugPrint(
             '[UserResolver] resuelto por cedula → docId=${snap.id} '
             'hasUid=$hasUid',
@@ -128,8 +127,7 @@ class UserResolver {
     if (docId != null && docId.isNotEmpty) {
       final snap = await _repo.resolveByDocId(docId);
       if (snap != null) {
-        final hasUid =
-            ((snap.data()?['uid'] as String?) ?? '').isNotEmpty;
+        final hasUid = ((snap.data()?['uid'] as String?) ?? '').isNotEmpty;
         debugPrint(
           '[UserResolver] resuelto por docId legacy → docId=${snap.id} '
           'hasUid=$hasUid',
