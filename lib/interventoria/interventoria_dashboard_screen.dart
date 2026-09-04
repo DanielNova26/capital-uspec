@@ -532,12 +532,16 @@ class _InterventoriaDashboardScreenState
     InterventoriaVisita visita,
   ) {
     final hallazgos = <InterventoriaHallazgo>[];
+    // Las categorías son las del acta de ESTA visita: un acta de policía no
+    // tiene las doce del acta regular, y recorrer aquellas dejaría sus
+    // hallazgos fuera.
+    final categorias = categoriasDeActa(visita.tipoActa);
     for (
       var categoryIndex = 0;
-      categoryIndex < kInterventoriaCategorias.length;
+      categoryIndex < categorias.length;
       categoryIndex++
     ) {
-      final cat = kInterventoriaCategorias[categoryIndex];
+      final cat = categorias[categoryIndex];
       final item = visita.items[cat.key];
       if (item == null) continue;
       final notes = item.observaciones
@@ -560,7 +564,11 @@ class _InterventoriaDashboardScreenState
             // real del acta se puede reconstruir sin ambigüedad. Sin esto, los
             // hallazgos derivados de un acta llegan al tablero como
             // "no se pudo identificar el numeral".
-            numeralActa: numeralActaDesdeAspecto(cat.key, note.aspecto),
+            numeralActa: numeralDeAspectoEnActa(
+              visita.tipoActa,
+              cat.key,
+              note.aspecto,
+            ),
             descripcion: note.aspecto.trim().isEmpty ? cat.label : note.aspecto,
             fechaHallazgo: visita.fechaVisita,
             observaciones: note.texto.trim(),

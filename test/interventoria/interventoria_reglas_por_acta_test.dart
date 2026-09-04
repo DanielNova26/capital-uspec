@@ -67,22 +67,25 @@ void main() {
     test('sale de la posición del aspecto en su sección', () {
       final ultimo = aspectosDeActa(kActaEstacionPolicia, 'seccion4').last;
       expect(
-        numeralDeAspectoEnActaPropia(kActaEstacionPolicia, 'seccion4', ultimo),
+        numeralDeAspectoEnActa(kActaEstacionPolicia, 'seccion4', ultimo),
         '4.11',
       );
     });
 
-    test('el acta regular no pasa por aquí', () {
-      // Su numeral sale del texto del aspecto, por el camino de siempre.
+    test('el acta regular resuelve por el texto del aspecto', () {
+      final aspecto = aspectosDeActa(
+        kActaRegular,
+        'instalacionesFisicas',
+      ).first;
       expect(
-        numeralDeAspectoEnActaPropia(kActaRegular, 'instalacionesFisicas', 'x'),
-        '',
+        numeralDeAspectoEnActa(kActaRegular, 'instalacionesFisicas', aspecto),
+        isNotEmpty,
       );
     });
 
     test('un aspecto que no está en la sección no inventa numeral', () {
       expect(
-        numeralDeAspectoEnActaPropia(kActaEstacionPolicia, 'seccion1', 'otro'),
+        numeralDeAspectoEnActa(kActaEstacionPolicia, 'seccion1', 'otro'),
         '',
       );
     });

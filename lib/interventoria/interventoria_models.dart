@@ -428,17 +428,19 @@ int? seccionDeActa(String? tipoActa, String categoriaKey) {
 
 /// Numeral del acta para un aspecto elegido del catálogo.
 ///
-/// Solo resuelve las actas con catálogo propio, donde el numeral es la
-/// posición del aspecto en su sección. El acta regular sigue por su camino de
-/// siempre: cambiar de dónde saca el numeral movería a quién se asignan los
-/// hallazgos que ya se están registrando, y eso no se toca de pasada.
-String numeralDeAspectoEnActaPropia(
+/// Sin esto el hallazgo llega al tablero como "no se pudo identificar el
+/// numeral" y ninguna regla del maestro se le aplica.
+///
+/// En el acta regular el numeral sale del texto del aspecto, como siempre. En
+/// las actas propias es la posición del aspecto dentro de su sección, que es
+/// exactamente como están numeradas en el papel.
+String numeralDeAspectoEnActa(
   String? tipoActa,
   String categoriaKey,
   String aspecto,
 ) {
   final propio = kSeccionesPorTipoActa[(tipoActa ?? '').trim().toUpperCase()];
-  if (propio == null) return '';
+  if (propio == null) return numeralActaDesdeAspecto(categoriaKey, aspecto);
   for (final seccion in propio) {
     if (claveCategoriaSeccion(seccion.numero) != categoriaKey) continue;
     final i = seccion.aspectos.indexOf(aspecto);
