@@ -6,9 +6,13 @@
 
          Este archivo estaba puesto tambien en la configuracion Release del
          TARGET, y en Xcode el target pisa al proyecto: los builds de App Store
-         salian con "development" aunque el proyecto dijera "production". Con
-         eso el telefono se registra contra APNs de sandbox y ningun push de
-         produccion llega, sin error visible en ninguna parte. -->
+         salian con "development" aunque el proyecto dijera "production", que
+         es lo que Apple exige para distribucion.
+
+         No confundir con la falla de entrega de septiembre 2026: aquella era
+         "Invalid APNs credential", la clave APNs del proyecto en Firebase, y
+         se veia igual desde afuera (en Android llega, en iPhone no). Son dos
+         cosas distintas y las dos tienen que estar bien. -->
     <key>aps-environment</key>
     <string>development</string>
 </dict>
