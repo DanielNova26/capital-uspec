@@ -66,6 +66,50 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-04 (ronda 6) — QR de carnet
+
+Desde la hoja de vida aprobada se genera un QR para pegar en el carnet. Al
+escanearlo se abre una página con foto, nombre, cargo, empresa y si la persona
+sigue vinculada.
+
+### El QR no lleva la cédula
+
+Un carnet se fotografía, se comparte y termina en manos de cualquiera. La
+cédula es un documento de identidad nacional **y** el ID de la persona en
+varias colecciones: ponerla en el enlace convertiría el QR en una llave.
+
+El enlace lleva un **token aleatorio** (`Random.secure()`, 32 caracteres) que
+no dice nada de la persona. Si un carnet se pierde, "generar uno nuevo" rota
+el token y el impreso deja de resolver, sin tocar nada más.
+
+### La página la sirve una Cloud Function, no la app web
+
+Servirla desde la app habría exigido abrir lectura pública sobre
+`TBL_USUARIOS`. Las reglas de Firestore no se tocan: `carnetPublico` lee con
+credenciales de administrador y entrega **solo** los cinco datos que decide.
+La ruta `/carnet/**` está redirigida a la función desde `firebase.json`.
+
+No expone correo, teléfono, dirección, salario ni nada de la hoja de vida.
+
+### El estado se resuelve en vivo
+
+El "personal activo" se lee en el momento de escanear, desde el
+`estadoLaboral` del bloque de la empresa. Congelarlo al imprimir haría que el
+carnet de alguien ya retirado siguiera diciendo que sigue vinculado hasta que
+alguien lo regenerara, que es justo lo que un carnet no debe hacer.
+
+### Detalle que casi se escapa
+
+El paquete `pdf` usa Helvetica por defecto, que **no soporta Unicode**: los
+nombres con tilde o ñ salían partidos. Los dos PDF nuevos de esta sesión (el
+QR y el informe de reclutamiento) cargan `assets/arial.ttf`, igual que los
+demás PDF del proyecto, y lo hacen a la defensiva: un PDF sin acentos es mejor
+que ninguno.
+
+**Requiere desplegar functions y hosting** para que el QR resuelva.
+
+---
+
 ## Sesión 2026-09-04 (ronda 5) — Informe de avance de reclutamiento
 
 Gerencia pidió un PDF que muestre el avance. Ya existía

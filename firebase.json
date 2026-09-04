@@ -40,6 +40,13 @@
           }
         },
         {
+          "source": "/carnet/**",
+          "function": {
+            "functionId": "carnetPublico",
+            "region": "us-central1"
+          }
+        },
+        {
           "source": "/acerca",
           "destination": "/acerca.html"
         },

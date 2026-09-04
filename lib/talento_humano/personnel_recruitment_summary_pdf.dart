@@ -14,6 +14,7 @@
 
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -201,7 +202,7 @@ Future<Uint8List> buildRecruitmentSummaryPdf({
   final avance = calcularAvanceReclutamiento(rows, hoy: ahora);
   final fecha = DateFormat('dd/MM/yyyy').format(ahora);
 
-  final doc = pw.Document();
+  final doc = pw.Document(theme: await _temaConAcentos());
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.letter.copyWith(
@@ -566,3 +567,18 @@ pw.Widget _pie(pw.Context context, String fecha) => pw.Container(
     ],
   ),
 );
+
+/// Tema con una fuente que sí tiene tildes y ñ.
+///
+/// Las fuentes por defecto del paquete `pdf` son Helvetica, que no soporta
+/// Unicode: sin esto "Cómbita" y "Muñoz" salen partidos en el documento.
+/// Se carga a la defensiva porque un PDF sin acentos es mejor que ninguno.
+Future<pw.ThemeData?> _temaConAcentos() async {
+  try {
+    final data = await rootBundle.load('assets/arial.ttf');
+    final arial = pw.Font.ttf(data);
+    return pw.ThemeData.withFont(base: arial, bold: arial);
+  } catch (_) {
+    return null;
+  }
+}

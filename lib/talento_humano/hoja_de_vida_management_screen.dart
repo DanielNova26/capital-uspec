@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'hoja_de_vida_service.dart';
+import 'carnet_qr.dart';
 import 'hoja_de_vida_pdf.dart';
 import '../services/task_service.dart';
 import '../utils/doc_preview.dart';
@@ -654,6 +655,7 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
   Map<String, dynamic>? _orgData;
   bool _loading = true;
   bool _generandoPDF = false;
+  bool _generandoQr = false;
   String? _reviewerNombre;
 
   @override
@@ -699,8 +701,8 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
     final aprobado = estado == 'aprobado';
 
     if (aprobado) {
-      // Hoja aprobada → solo botón de descarga PDF
-      return ElevatedButton.icon(
+      // Hoja aprobada → descarga del PDF y QR para el carnet.
+      final pdfButton = ElevatedButton.icon(
         icon: _generandoPDF
             ? const SizedBox(
                 width: 18,
@@ -719,6 +721,40 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
           textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
         ),
         onPressed: _generandoPDF ? null : _descargarPDF,
+      );
+
+      return Column(
+        children: [
+          pdfButton,
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            icon: _generandoQr
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.qr_code_2_rounded),
+            label: Text(_generandoQr ? 'Generando…' : 'QR para el carnet'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _thPrimary,
+              minimumSize: const Size.fromHeight(46),
+              side: const BorderSide(color: _thPrimary),
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            onPressed: _generandoQr ? null : _generarQrCarnet,
+          ),
+          TextButton(
+            onPressed: _generandoQr ? null : _confirmarRotarCarnet,
+            child: const Text(
+              'Se perdió el carnet: generar uno nuevo',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
       );
     }
 
@@ -766,6 +802,88 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
         );
       },
     );
+  }
+
+  /// Genera el QR del carnet de esta persona.
+  ///
+  /// El QR no lleva la cédula: lleva un token aleatorio que no dice nada de
+  /// ella. Un carnet se fotografía y se comparte, y la cédula es además el ID
+  /// de la persona en varias colecciones, así que ponerla en el enlace lo
+  /// convertiría en una llave.
+  ///
+  /// Al escanearlo se abre una página con foto, nombre, cargo, empresa y si
+  /// sigue vinculada. Nada más: ni correo, ni teléfono, ni documento.
+  Future<void> _generarQrCarnet({bool rotar = false}) async {
+    if (_generandoQr) return;
+    setState(() => _generandoQr = true);
+    try {
+      final empresaId = widget.empresaId.trim();
+      if (empresaId.isEmpty) {
+        throw StateError('No hay empresa activa.');
+      }
+      final token = rotar
+          ? await rotarTokenCarnet(
+              userId: widget.empleadoId,
+              empresaId: empresaId,
+            )
+          : await asegurarTokenCarnet(
+              userId: widget.empleadoId,
+              empresaId: empresaId,
+            );
+
+      final datos = _data ?? const <String, dynamic>{};
+      final bytes = await buildCarnetQrPdf(
+        nombre: widget.empleadoNombre,
+        cargo: (datos['cargo'] ?? datos['cargoNombre'] ?? '').toString(),
+        token: token,
+        fotoUrl: (datos['fotoUrl'] ?? '').toString(),
+      );
+      final limpio = widget.empleadoNombre.replaceAll(' ', '_');
+      await Printing.sharePdf(bytes: bytes, filename: 'QR_carnet_$limpio.pdf');
+      if (mounted && rotar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Carnet anterior invalidado. Imprime el nuevo QR.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo generar el QR: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generandoQr = false);
+    }
+  }
+
+  /// Confirma antes de invalidar un carnet ya impreso.
+  Future<void> _confirmarRotarCarnet() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('¿Generar un carnet nuevo?'),
+        content: const Text(
+          'El QR que ya esté impreso dejará de funcionar. Se usa cuando un '
+          'carnet se pierde o se lo quedó alguien que ya no trabaja aquí.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sí, invalidar el anterior'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _generarQrCarnet(rotar: true);
   }
 
   Future<void> _descargarPDF() async {

@@ -21,6 +21,7 @@ export {
 } from "./security_admin";
 
 // ICD-11 token broker + proxy (Fase B)
+export { carnetPublico } from "./carnet";
 export { icd11Search } from "./icd11";
 
 // Correo — OAuth individual Gmail, reglas multiempresa y alertas WhatsApp.
