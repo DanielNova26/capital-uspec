@@ -152,8 +152,7 @@ const Map<String, String> _cesantiasCertificateUrls = {
 const Map<String, String> _bancoCertificateUrls = {
   'Bancolombia':
       'https://www.grupobancolombia.com/personas/productos-servicios/certificaciones',
-  'Banco de Bogotá':
-      'https://sucursalpersonas.transaccionesbancobogota.com/',
+  'Banco de Bogotá': 'https://sucursalpersonas.transaccionesbancobogota.com/',
   'Davivienda': 'https://micrositios.davivienda.com/personas/',
   'BBVA Colombia': 'https://www.bbva.com.co/personas/banca-online.html',
   'Banco Popular': 'https://www.bancopopular.com.co/',
@@ -999,9 +998,7 @@ class _HojaDeVidaScreenState extends State<HojaDeVidaScreen> {
     'contrUrl': _contrUrl,
     'polUrl': _polUrl,
     'medUrl': _medUrl,
-    'banco': _banco == 'Otro'
-        ? _bancoOtroCtrl.text.trim()
-        : _banco,
+    'banco': _banco == 'Otro' ? _bancoOtroCtrl.text.trim() : _banco,
     'certBancoUrl': _certBancoUrl,
     'bachInst': _bachInst.text.trim(),
     'bachFecha': _bachFecha.text.trim(),
@@ -1426,7 +1423,8 @@ class _HojaDeVidaScreenState extends State<HojaDeVidaScreen> {
           _field(
             _direccion,
             'Dirección de residencia',
-            helperText: 'Ej: calle 118 83A 59  —  solo letras, números y espacios',
+            helperText:
+                'Ej: calle 118 83A 59  —  solo letras, números y espacios',
             formatters: [
               FilteringTextInputFormatter.allow(
                 RegExp(r'[A-Za-zÁÉÍÓÚáéíóúñÑ0-9 ]'),
@@ -1726,8 +1724,9 @@ class _HojaDeVidaScreenState extends State<HojaDeVidaScreen> {
                 labelText: 'Nombre de tu banco',
                 hintText: 'Ej: Banco W, Bancoomeva…',
               ),
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Escribe el nombre del banco' : null,
+              validator: (v) => v == null || v.trim().isEmpty
+                  ? 'Escribe el nombre del banco'
+                  : null,
             ),
             _gap(),
             const Text(
@@ -1742,17 +1741,19 @@ class _HojaDeVidaScreenState extends State<HojaDeVidaScreen> {
               onPressed: (_bancoCertificateUrls[_banco] ?? '').isEmpty
                   ? null
                   : () => launchUrlString(
-                        _bancoCertificateUrls[_banco]!,
-                        mode: LaunchMode.externalApplication,
-                      ),
+                      _bancoCertificateUrls[_banco]!,
+                      mode: LaunchMode.externalApplication,
+                    ),
             ),
           ],
           _gap(),
           _docBtn(
             label: 'Certificado bancario (PDF)',
             url: _certBancoUrl,
-            onTap: () =>
-                _pickDoc('cert_banco', (u) => setState(() => _certBancoUrl = u)),
+            onTap: () => _pickDoc(
+              'cert_banco',
+              (u) => setState(() => _certBancoUrl = u),
+            ),
           ),
         ],
       ),

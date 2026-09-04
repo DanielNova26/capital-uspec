@@ -166,6 +166,292 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
     }
   }
 
+  /// Dar o quitar módulos a todo un cargo de una vez.
+  ///
+  /// Filtrar por cargo ayuda a encontrarlos, pero entrar de a una persona en
+  /// cuarenta es lo que hace que estas tareas no se hagan. Aquí se elige a
+  /// quiénes por cargo, qué módulos, y si es dar o quitar.
+  ///
+  /// Es un cambio de permisos masivo y sin deshacer, así que confirma dos
+  /// veces: primero se arma la operación, después se dice a cuántas personas
+  /// va a tocar antes de escribir nada.
+  Future<void> _dialogEnBloque() async {
+    final cargos = <String>[];
+    final modulos = <String>[];
+    var agregar = true;
+    var soloActivos = true;
+
+    List<PersonnelAccessRow> afectados() => _personal
+        .where(
+          (row) =>
+              cargos.contains(row.cargo.trim()) && (!soloActivos || row.activo),
+        )
+        .toList();
+
+    String nombreModulo(String appId) {
+      for (final m in _modulos) {
+        if (m.appId == appId) return m.nombre;
+      }
+      return appId;
+    }
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final personas = afectados();
+          final listo =
+              cargos.isNotEmpty && modulos.isNotEmpty && personas.isNotEmpty;
+
+          Widget chips({
+            required String titulo,
+            required List<String> seleccion,
+            required List<String> disponibles,
+            required String Function(String) etiqueta,
+            required String etiquetaAgregar,
+          }) {
+            final libres = disponibles
+                .where((d) => !seleccion.contains(d))
+                .toList();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                if (seleccion.isNotEmpty)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final valor in seleccion)
+                        InputChip(
+                          label: Text(
+                            etiqueta(valor),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onDeleted: () =>
+                              setDialogState(() => seleccion.remove(valor)),
+                        ),
+                    ],
+                  ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  key: ValueKey('$titulo-${seleccion.length}'),
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: etiquetaAgregar,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    for (final valor in libres)
+                      DropdownMenuItem(
+                        value: valor,
+                        child: Text(
+                          etiqueta(valor),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: libres.isEmpty
+                      ? null
+                      : (valor) {
+                          if (valor == null) return;
+                          setDialogState(() => seleccion.add(valor));
+                        },
+                ),
+              ],
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('Asignar módulos en bloque'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: true,
+                          icon: Icon(Icons.add_rounded),
+                          label: Text('Agregar'),
+                        ),
+                        ButtonSegment(
+                          value: false,
+                          icon: Icon(Icons.remove_rounded),
+                          label: Text('Quitar'),
+                        ),
+                      ],
+                      selected: {agregar},
+                      onSelectionChanged: (v) =>
+                          setDialogState(() => agregar = v.first),
+                    ),
+                    const SizedBox(height: 18),
+                    chips(
+                      titulo: 'A quiénes, por cargo',
+                      seleccion: cargos,
+                      disponibles: _cargosDisponibles,
+                      etiqueta: (c) => c,
+                      etiquetaAgregar: 'Agregar cargo',
+                    ),
+                    const SizedBox(height: 18),
+                    chips(
+                      titulo: agregar
+                          ? 'Módulos que se van a dar'
+                          : 'Módulos que se van a quitar',
+                      seleccion: modulos,
+                      disponibles: [for (final m in _modulos) m.appId],
+                      etiqueta: nombreModulo,
+                      etiquetaAgregar: 'Agregar módulo',
+                    ),
+                    const SizedBox(height: 12),
+                    CheckboxListTile(
+                      value: soloActivos,
+                      onChanged: (v) =>
+                          setDialogState(() => soloActivos = v ?? true),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: const Text('Solo personal activo'),
+                      subtitle: const Text(
+                        'Quítalo para alcanzar también a quien ya se retiró',
+                        style: TextStyle(fontSize: 11.5),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      cargos.isEmpty
+                          ? 'Elige al menos un cargo.'
+                          : personas.isEmpty
+                          ? 'Ninguna persona con ese cargo.'
+                          : 'Alcanza a ${personas.length} persona(s).',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: personas.isEmpty
+                            ? const Color(0xFFB45309)
+                            : const Color(0xFF166534),
+                      ),
+                    ),
+                    if (!agregar) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Quitar un módulo no se deshace desde aquí: habría '
+                        'que volver a darlo.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFFB45309),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: listo ? () => Navigator.pop(ctx, true) : null,
+                child: Text(agregar ? 'Agregar' : 'Quitar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (confirmado != true || !mounted) return;
+
+    final personas = afectados();
+    final nombres = [for (final id in modulos) nombreModulo(id)].join(', ');
+    final verbo = agregar ? 'dar' : 'quitar';
+    final segunda = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          '${agregar ? 'Agregar' : 'Quitar'} a ${personas.length} persona(s)',
+        ),
+        content: Text(
+          'Se van a $verbo estos módulos: $nombres.\n\n'
+          'Alcanza a quien tenga '
+          '${cargos.length == 1 ? 'el cargo' : 'los cargos'} '
+          '${cargos.join(', ')}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Sí, $verbo'),
+          ),
+        ],
+      ),
+    );
+    if (segunda != true || !mounted) return;
+
+    await _ejecutarEnBloque(
+      personas: personas,
+      modulos: modulos,
+      agregar: agregar,
+    );
+  }
+
+  Future<void> _ejecutarEnBloque({
+    required List<PersonnelAccessRow> personas,
+    required List<String> modulos,
+    required bool agregar,
+  }) async {
+    setState(() => _cargando = true);
+    var cambiadas = 0;
+    var fallidas = 0;
+    for (final row in personas) {
+      final next = PersonnelAccessService.aplicarEnBloque(
+        actuales: row.apps,
+        modulos: modulos,
+        agregar: agregar,
+        administrables: _modulos,
+      );
+      // A quien ya está como debe no se le escribe: quedaría registrado un
+      // cambio en su historial sin que nada haya cambiado.
+      if (next.length == row.apps.length && next.containsAll(row.apps)) {
+        continue;
+      }
+      try {
+        await _service.saveApps(
+          userId: row.userId,
+          empresaId: widget.empresaId,
+          apps: next,
+          actorId: widget.userId,
+        );
+        cambiadas++;
+      } catch (_) {
+        fallidas++;
+      }
+    }
+    await _cargar(conIndicador: false);
+    if (!mounted) return;
+    _mensaje(
+      fallidas == 0
+          ? '$cambiadas persona(s) actualizada(s).'
+          : '$cambiadas actualizada(s), $fallidas con error.',
+      error: fallidas > 0,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWeb = MediaQuery.of(context).size.width >= 900;
@@ -323,6 +609,11 @@ class _PersonnelAccessScreenState extends State<PersonnelAccessScreen> {
                   _pagina = 0;
                 }),
                 label: const Text('Solo personal activo'),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: _personal.isEmpty ? null : _dialogEnBloque,
+                icon: const Icon(Icons.groups_outlined, size: 18),
+                label: const Text('Asignar en bloque'),
               ),
               Text(
                 '$visibles persona(s)',

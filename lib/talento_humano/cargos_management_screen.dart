@@ -240,7 +240,9 @@ class _CargosManagementScreenState extends State<CargosManagementScreen> {
                             dense: true,
                             leading: CircleAvatar(
                               radius: 15,
-                              backgroundColor: _kPrimaryColor.withValues(alpha: 0.12),
+                              backgroundColor: _kPrimaryColor.withValues(
+                                alpha: 0.12,
+                              ),
                               child: Text(
                                 '${depth + 1}',
                                 style: const TextStyle(

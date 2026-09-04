@@ -2604,7 +2604,8 @@ class _OrganizationalStructureScreenState
                         if (_filterArea != null && m['area'] != _filterArea) {
                           return false;
                         }
-                        if (_filterCargo != null && m['cargo'] != _filterCargo) {
+                        if (_filterCargo != null &&
+                            m['cargo'] != _filterCargo) {
                           return false;
                         }
                         if (term.isNotEmpty) {

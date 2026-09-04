@@ -66,6 +66,35 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-04 (ronda 4) — Accesos en bloque por cargo
+
+El filtro por cargo ayuda a encontrar a los cuarenta, pero entrar de a una
+persona en cuarenta es exactamente lo que hace que estas tareas no se hagan.
+
+**Accesos del personal → "Asignar en bloque"**: se eligen uno o varios cargos,
+uno o varios módulos, y si es dar o quitar. Antes de escribir nada dice a
+cuántas personas alcanza.
+
+### Salvaguardas, porque es un cambio masivo y sin deshacer
+
+- **Doble confirmación**: primero se arma la operación viendo el conteo en
+  vivo, después un diálogo dice qué módulos y a cuántas personas.
+- **Solo lo que Talento Humano administra.** Pedir un módulo que no está en su
+  catálogo no lo cuela: sería una puerta de atrás para dar accesos que no
+  puede otorgar de a uno. Los módulos que gobierna Admin se conservan
+  intactos, igual que en la edición individual.
+- **Al quitar se eliminan todas las variantes del id.** El mismo módulo
+  aparece escrito de varias formas en el padrón; quitar solo la forma exacta
+  lo dejaría puesto sin que se note.
+- **A quien ya está como debe no se le escribe.** Si no, quedaría registrado
+  un cambio en su historial sin que nada hubiera cambiado.
+- Casilla "Solo personal activo", encendida por defecto, que se puede quitar
+  para alcanzar también a quien ya se retiró.
+
+8 pruebas fijan estas reglas, incluida la de la puerta de atrás.
+
+---
+
 ## Sesión 2026-09-04 (ronda 3) — Subcentros de costo
 
 Cómbita está registrado una vez pero opera como **Alta** y **Media**. Picota,

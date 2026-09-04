@@ -8,9 +8,9 @@ import 'package:printing/printing.dart';
 
 // ── Colores ───────────────────────────────────────────────────────────────────
 const _kPrimary = PdfColor.fromInt(0xFFC28942);
-const _kBg      = PdfColor.fromInt(0xFFF9F3EA);
-const _kText    = PdfColor.fromInt(0xFF1A1A1A);
-const _kMuted   = PdfColor.fromInt(0xFF6B7280);
+const _kBg = PdfColor.fromInt(0xFFF9F3EA);
+const _kText = PdfColor.fromInt(0xFF1A1A1A);
+const _kMuted = PdfColor.fromInt(0xFF6B7280);
 const _kDivider = PdfColor.fromInt(0xFFE5D9C7);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,15 +97,15 @@ class _Anexo {
 
 List<_Anexo> _buildAnexosList(Map<String, dynamic> d) {
   final list = <_Anexo>[
-    _Anexo('Procuraduría',       d['procUrl']       as String?),
-    _Anexo('Contraloría',        d['contrUrl']      as String?),
-    _Anexo('Policía Nacional',   d['polUrl']        as String?),
-    _Anexo('Medidas Correctivas',d['medUrl']        as String?),
-    _Anexo('Documento de Cédula',d['cedulaDocUrl']  as String?),
-    _Anexo('Soporte EPS',        d['epsUrl']        as String?),
-    _Anexo('Soporte Pensiones',  d['pensionUrl']    as String?),
-    _Anexo('Soporte Cesantías',  d['cesantiasUrl']  as String?),
-    _Anexo('Título Bachillerato',d['bachillerUrl']  as String?),
+    _Anexo('Procuraduría', d['procUrl'] as String?),
+    _Anexo('Contraloría', d['contrUrl'] as String?),
+    _Anexo('Policía Nacional', d['polUrl'] as String?),
+    _Anexo('Medidas Correctivas', d['medUrl'] as String?),
+    _Anexo('Documento de Cédula', d['cedulaDocUrl'] as String?),
+    _Anexo('Soporte EPS', d['epsUrl'] as String?),
+    _Anexo('Soporte Pensiones', d['pensionUrl'] as String?),
+    _Anexo('Soporte Cesantías', d['cesantiasUrl'] as String?),
+    _Anexo('Título Bachillerato', d['bachillerUrl'] as String?),
   ];
   if (d['hasUniversity'] == true) {
     list.add(_Anexo('Título Universitario', d['uniUrl'] as String?));
@@ -129,7 +129,12 @@ List<_Anexo> _buildAnexosList(Map<String, dynamic> d) {
   }
   for (var i = 0; i < (d['experiencias'] as List? ?? []).length; i++) {
     final e = (d['experiencias'] as List)[i] as Map<String, dynamic>? ?? {};
-    list.add(_Anexo('Experiencia: ${e['empresa'] ?? i + 1}', e['soporteUrl'] as String?));
+    list.add(
+      _Anexo(
+        'Experiencia: ${e['empresa'] ?? i + 1}',
+        e['soporteUrl'] as String?,
+      ),
+    );
   }
 
   return list.where((a) => (a.url ?? '').isNotEmpty).toList();
@@ -139,18 +144,26 @@ List<_Anexo> _buildAnexosList(Map<String, dynamic> d) {
 
 pw.Widget _header(String nombre) => pw.Container(
   padding: const pw.EdgeInsets.only(bottom: 6),
-  margin:  const pw.EdgeInsets.only(bottom: 4),
+  margin: const pw.EdgeInsets.only(bottom: 4),
   decoration: const pw.BoxDecoration(
     border: pw.Border(bottom: pw.BorderSide(color: _kPrimary, width: 1.5)),
   ),
   child: pw.Row(
     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
     children: [
-      pw.Text('HOJA DE VIDA',
-          style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold,
-              color: _kPrimary, letterSpacing: 1.5)),
-      pw.Text(nombre.toUpperCase(),
-          style: const pw.TextStyle(fontSize: 9, color: _kMuted)),
+      pw.Text(
+        'HOJA DE VIDA',
+        style: pw.TextStyle(
+          fontSize: 9,
+          fontWeight: pw.FontWeight.bold,
+          color: _kPrimary,
+          letterSpacing: 1.5,
+        ),
+      ),
+      pw.Text(
+        nombre.toUpperCase(),
+        style: const pw.TextStyle(fontSize: 9, color: _kMuted),
+      ),
     ],
   ),
 );
@@ -163,23 +176,33 @@ pw.Widget _footer(pw.Context ctx) => pw.Container(
   child: pw.Row(
     mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
     children: [
-      pw.Text('Documento confidencial – Talento Humano',
-          style: const pw.TextStyle(fontSize: 8, color: _kMuted)),
-      pw.Text('Pág. ${ctx.pageNumber} / ${ctx.pagesCount}',
-          style: const pw.TextStyle(fontSize: 8, color: _kMuted)),
+      pw.Text(
+        'Documento confidencial – Talento Humano',
+        style: const pw.TextStyle(fontSize: 8, color: _kMuted),
+      ),
+      pw.Text(
+        'Pág. ${ctx.pageNumber} / ${ctx.pagesCount}',
+        style: const pw.TextStyle(fontSize: 8, color: _kMuted),
+      ),
     ],
   ),
 );
 
 // ── Portada ───────────────────────────────────────────────────────────────────
 
-pw.Widget _portada(Map<String, dynamic> d, Map<String, dynamic>? org, pw.ImageProvider? foto) {
-  final nombre = '${d['primerNombre'] ?? ''} ${d['segundoNombre'] ?? ''} '
-      '${d['primerApellido'] ?? ''} ${d['segundoApellido'] ?? ''}'
-      .replaceAll(RegExp(r'\s+'), ' ').trim();
+pw.Widget _portada(
+  Map<String, dynamic> d,
+  Map<String, dynamic>? org,
+  pw.ImageProvider? foto,
+) {
+  final nombre =
+      '${d['primerNombre'] ?? ''} ${d['segundoNombre'] ?? ''} '
+              '${d['primerApellido'] ?? ''} ${d['segundoApellido'] ?? ''}'
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
   final cedula = (d['cedula'] ?? '').toString();
-  final cargo  = (org?['cargo'] ?? d['cargo'] ?? '').toString();
-  final area   = (org?['areaNombre'] ?? d['areaNombre'] ?? '').toString();
+  final cargo = (org?['cargo'] ?? d['cargo'] ?? '').toString();
+  final area = (org?['areaNombre'] ?? d['areaNombre'] ?? '').toString();
 
   return pw.Container(
     padding: const pw.EdgeInsets.all(16),
@@ -193,14 +216,16 @@ pw.Widget _portada(Map<String, dynamic> d, Map<String, dynamic>? org, pw.ImagePr
       children: [
         if (foto != null)
           pw.Container(
-            width: 80, height: 100,
+            width: 80,
+            height: 100,
             margin: const pw.EdgeInsets.only(right: 16),
             decoration: pw.BoxDecoration(
               borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
               border: pw.Border.all(color: _kDivider, width: 1),
             ),
             child: pw.ClipRRect(
-              horizontalRadius: 6, verticalRadius: 6,
+              horizontalRadius: 6,
+              verticalRadius: 6,
               child: pw.Image(foto, fit: pw.BoxFit.cover),
             ),
           ),
@@ -208,28 +233,47 @@ pw.Widget _portada(Map<String, dynamic> d, Map<String, dynamic>? org, pw.ImagePr
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(nombre,
-                  style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: _kText)),
+              pw.Text(
+                nombre,
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _kText,
+                ),
+              ),
               if (cedula.isNotEmpty) ...[
                 pw.SizedBox(height: 3),
-                pw.Text('C.C. $cedula',
-                    style: const pw.TextStyle(fontSize: 10, color: _kMuted)),
+                pw.Text(
+                  'C.C. $cedula',
+                  style: const pw.TextStyle(fontSize: 10, color: _kMuted),
+                ),
               ],
               if (cargo.isNotEmpty) ...[
                 pw.SizedBox(height: 8),
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 3,
+                  ),
                   decoration: const pw.BoxDecoration(
                     color: _kPrimary,
                     borderRadius: pw.BorderRadius.all(pw.Radius.circular(20)),
                   ),
-                  child: pw.Text(cargo,
-                      style: const pw.TextStyle(fontSize: 10, color: PdfColors.white)),
+                  child: pw.Text(
+                    cargo,
+                    style: const pw.TextStyle(
+                      fontSize: 10,
+                      color: PdfColors.white,
+                    ),
+                  ),
                 ),
               ],
               if (area.isNotEmpty) ...[
                 pw.SizedBox(height: 4),
-                pw.Text(area, style: const pw.TextStyle(fontSize: 10, color: _kMuted)),
+                pw.Text(
+                  area,
+                  style: const pw.TextStyle(fontSize: 10, color: _kMuted),
+                ),
               ],
             ],
           ),
@@ -254,35 +298,40 @@ List<pw.Widget> _seccionDatosPersonales(Map<String, dynamic> d) {
     pares.last.add(_DatoItem(label, v));
   }
 
-  add('Email',              d['email']);
-  add('Teléfono',           d['telefono']);
-  add('Dirección',          d['direccion']);
-  add('Ciudad',             d['ciudad']);
-  add('Barrio',             d['barrio']);
-  add('EPS',                d['eps']);
-  add('Pensiones',          d['fondoPensiones']);
-  add('Cesantías',          d['fondoCesantias']);
-  add('Fecha de nacimiento',d['fechaNacimiento']);
-  add('Lugar de nacimiento',d['nacimientoCiudadNombre'] ?? d['lugarNacimiento']);
+  add('Email', d['email']);
+  add('Teléfono', d['telefono']);
+  add('Dirección', d['direccion']);
+  add('Ciudad', d['ciudad']);
+  add('Barrio', d['barrio']);
+  add('EPS', d['eps']);
+  add('Pensiones', d['fondoPensiones']);
+  add('Cesantías', d['fondoCesantias']);
+  add('Fecha de nacimiento', d['fechaNacimiento']);
+  add(
+    'Lugar de nacimiento',
+    d['nacimientoCiudadNombre'] ?? d['lugarNacimiento'],
+  );
 
   if (pares.isEmpty) return [];
 
   return [
     _titulo('DATOS PERSONALES'),
     pw.SizedBox(height: 8),
-    ...pares.map((par) => pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 8),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Expanded(child: _datoWidget(par[0].label, par[0].value)),
-          if (par.length > 1)
-            pw.Expanded(child: _datoWidget(par[1].label, par[1].value))
-          else
-            pw.Expanded(child: pw.SizedBox()),
-        ],
+    ...pares.map(
+      (par) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 8),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(child: _datoWidget(par[0].label, par[0].value)),
+            if (par.length > 1)
+              pw.Expanded(child: _datoWidget(par[1].label, par[1].value))
+            else
+              pw.Expanded(child: pw.SizedBox()),
+          ],
+        ),
       ),
-    )),
+    ),
   ];
 }
 
@@ -295,8 +344,14 @@ pw.Widget _datoWidget(String label, String value) => pw.Column(
   crossAxisAlignment: pw.CrossAxisAlignment.start,
   children: [
     pw.Text(label, style: const pw.TextStyle(fontSize: 8, color: _kMuted)),
-    pw.Text(value,
-        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _kText)),
+    pw.Text(
+      value,
+      style: pw.TextStyle(
+        fontSize: 10,
+        fontWeight: pw.FontWeight.bold,
+        color: _kText,
+      ),
+    ),
   ],
 );
 
@@ -304,20 +359,53 @@ List<pw.Widget> _seccionFormacion(Map<String, dynamic> d) {
   final items = <pw.Widget>[];
   void add(String nivel, String? inst, String? carr, String? fecha) {
     if ((inst ?? '').isEmpty && (carr ?? '').isEmpty) return;
-    items.add(_itemFormacion(nivel: nivel, institucion: inst, carrera: carr, fecha: fecha));
+    items.add(
+      _itemFormacion(
+        nivel: nivel,
+        institucion: inst,
+        carrera: carr,
+        fecha: fecha,
+      ),
+    );
   }
-  add('Bachillerato', d['bachInst'] as String?, null, d['bachFecha'] as String?);
+
+  add(
+    'Bachillerato',
+    d['bachInst'] as String?,
+    null,
+    d['bachFecha'] as String?,
+  );
   if (d['hasUniversity'] == true) {
-    add('Universidad', d['uniInst'] as String?, d['uniCarr'] as String?, d['uniFecha'] as String?);
+    add(
+      'Universidad',
+      d['uniInst'] as String?,
+      d['uniCarr'] as String?,
+      d['uniFecha'] as String?,
+    );
   }
   if (d['hasSecondCareer'] == true) {
-    add('Segunda Carrera', d['secInst'] as String?, d['secCarr'] as String?, d['secFecha'] as String?);
+    add(
+      'Segunda Carrera',
+      d['secInst'] as String?,
+      d['secCarr'] as String?,
+      d['secFecha'] as String?,
+    );
   }
   if (d['hasEspecializacion'] == true) {
-    add('Especialización', d['espInst'] as String?, d['espCarr'] as String?, d['espFecha'] as String?);
+    add(
+      'Especialización',
+      d['espInst'] as String?,
+      d['espCarr'] as String?,
+      d['espFecha'] as String?,
+    );
   }
   if (d['hasMaestria'] == true) {
-    add('Maestría', d['maeInst'] as String?, d['maeCarr'] as String?, d['maeFecha'] as String?);
+    add(
+      'Maestría',
+      d['maeInst'] as String?,
+      d['maeCarr'] as String?,
+      d['maeFecha'] as String?,
+    );
   }
   if (items.isEmpty) return [];
   return [_titulo('FORMACIÓN ACADÉMICA'), pw.SizedBox(height: 8), ...items];
@@ -348,11 +436,20 @@ List<pw.Widget> _seccionExperiencia(Map<String, dynamic> d) {
 pw.Widget _titulo(String text) => pw.Column(
   crossAxisAlignment: pw.CrossAxisAlignment.start,
   children: [
-    pw.Text(text,
-        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold,
-            color: _kPrimary, letterSpacing: 1.2)),
-    pw.Container(height: 1, color: _kPrimary,
-        margin: const pw.EdgeInsets.only(top: 3, bottom: 2)),
+    pw.Text(
+      text,
+      style: pw.TextStyle(
+        fontSize: 10,
+        fontWeight: pw.FontWeight.bold,
+        color: _kPrimary,
+        letterSpacing: 1.2,
+      ),
+    ),
+    pw.Container(
+      height: 1,
+      color: _kPrimary,
+      margin: const pw.EdgeInsets.only(top: 3, bottom: 2),
+    ),
   ],
 );
 
@@ -361,29 +458,43 @@ pw.Widget _itemFormacion({
   String? institucion,
   String? carrera,
   String? fecha,
-}) =>
-    pw.Container(
-      margin: const pw.EdgeInsets.only(bottom: 8),
-      padding: const pw.EdgeInsets.all(10),
-      decoration: const pw.BoxDecoration(
-        color: _kBg,
-        border: pw.Border(left: pw.BorderSide(color: _kPrimary, width: 3)),
+}) => pw.Container(
+  margin: const pw.EdgeInsets.only(bottom: 8),
+  padding: const pw.EdgeInsets.all(10),
+  decoration: const pw.BoxDecoration(
+    color: _kBg,
+    border: pw.Border(left: pw.BorderSide(color: _kPrimary, width: 3)),
+  ),
+  child: pw.Column(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: [
+      pw.Text(
+        nivel,
+        style: pw.TextStyle(
+          fontSize: 10,
+          fontWeight: pw.FontWeight.bold,
+          color: _kPrimary,
+        ),
       ),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(nivel,
-              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _kPrimary)),
-          if ((institucion ?? '').isNotEmpty)
-            pw.Text(institucion!,
-                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kText)),
-          if ((carrera ?? '').isNotEmpty)
-            pw.Text(carrera!, style: const pw.TextStyle(fontSize: 10, color: _kText)),
-          if ((fecha ?? '').isNotEmpty)
-            pw.Text(fecha!, style: const pw.TextStyle(fontSize: 9, color: _kMuted)),
-        ],
-      ),
-    );
+      if ((institucion ?? '').isNotEmpty)
+        pw.Text(
+          institucion!,
+          style: pw.TextStyle(
+            fontSize: 11,
+            fontWeight: pw.FontWeight.bold,
+            color: _kText,
+          ),
+        ),
+      if ((carrera ?? '').isNotEmpty)
+        pw.Text(
+          carrera!,
+          style: const pw.TextStyle(fontSize: 10, color: _kText),
+        ),
+      if ((fecha ?? '').isNotEmpty)
+        pw.Text(fecha!, style: const pw.TextStyle(fontSize: 9, color: _kMuted)),
+    ],
+  ),
+);
 
 pw.Widget _itemCurso(Map<String, dynamic> c) => pw.Padding(
   padding: const pw.EdgeInsets.only(bottom: 6),
@@ -391,21 +502,33 @@ pw.Widget _itemCurso(Map<String, dynamic> c) => pw.Padding(
     crossAxisAlignment: pw.CrossAxisAlignment.start,
     children: [
       pw.Container(
-        width: 5, height: 5,
+        width: 5,
+        height: 5,
         margin: const pw.EdgeInsets.only(top: 3, right: 8),
-        decoration: const pw.BoxDecoration(color: _kPrimary, shape: pw.BoxShape.circle),
+        decoration: const pw.BoxDecoration(
+          color: _kPrimary,
+          shape: pw.BoxShape.circle,
+        ),
       ),
       pw.Expanded(
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text(c['nombre'] as String? ?? '',
-                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _kText)),
+            pw.Text(
+              c['nombre'] as String? ?? '',
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: _kText,
+              ),
+            ),
             pw.Text(
               [
-                if ((c['institucion'] as String? ?? '').isNotEmpty) c['institucion'],
+                if ((c['institucion'] as String? ?? '').isNotEmpty)
+                  c['institucion'],
                 if ((c['fecha'] as String? ?? '').isNotEmpty) c['fecha'],
-                if ((c['horas'] as String? ?? '').isNotEmpty) '${c['horas']} horas',
+                if ((c['horas'] as String? ?? '').isNotEmpty)
+                  '${c['horas']} horas',
               ].join(' · '),
               style: const pw.TextStyle(fontSize: 9, color: _kMuted),
             ),
@@ -426,18 +549,36 @@ pw.Widget _itemExperiencia(Map<String, dynamic> e) => pw.Container(
   child: pw.Column(
     crossAxisAlignment: pw.CrossAxisAlignment.start,
     children: [
-      pw.Text(e['empresa'] as String? ?? '',
-          style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: _kText)),
-      if ((e['cargo'] as String? ?? '').isNotEmpty)
-        pw.Text(e['cargo'] as String,
-            style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: _kPrimary)),
       pw.Text(
-        [(e['fechaInicio'] ?? ''), (e['fechaFin'] ?? '')].where((s) => s.isNotEmpty).join(' — '),
+        e['empresa'] as String? ?? '',
+        style: pw.TextStyle(
+          fontSize: 11,
+          fontWeight: pw.FontWeight.bold,
+          color: _kText,
+        ),
+      ),
+      if ((e['cargo'] as String? ?? '').isNotEmpty)
+        pw.Text(
+          e['cargo'] as String,
+          style: pw.TextStyle(
+            fontSize: 10,
+            fontWeight: pw.FontWeight.bold,
+            color: _kPrimary,
+          ),
+        ),
+      pw.Text(
+        [
+          (e['fechaInicio'] ?? ''),
+          (e['fechaFin'] ?? ''),
+        ].where((s) => s.isNotEmpty).join(' — '),
         style: const pw.TextStyle(fontSize: 9, color: _kMuted),
       ),
       if ((e['funciones'] as String? ?? '').isNotEmpty) ...[
         pw.SizedBox(height: 4),
-        pw.Text(e['funciones'] as String, style: const pw.TextStyle(fontSize: 9, color: _kText)),
+        pw.Text(
+          e['funciones'] as String,
+          style: const pw.TextStyle(fontSize: 9, color: _kText),
+        ),
       ],
     ],
   ),

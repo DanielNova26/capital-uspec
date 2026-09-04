@@ -264,6 +264,41 @@ class PersonnelAccessService {
     return {...actuales.where((app) => !esAdministrable(app)), ...seleccion};
   }
 
+  /// Módulos que le quedarían a una persona tras una operación en bloque.
+  ///
+  /// Solo toca los módulos administrables desde Talento Humano: los que
+  /// gobierna Admin se conservan intactos, igual que en la edición de a uno.
+  ///
+  /// Al quitar se eliminan TODAS las variantes del id, no solo la escrita:
+  /// el mismo módulo aparece con más de una forma en el padrón y quitar una
+  /// sola lo dejaría puesto sin que se note.
+  static Set<String> aplicarEnBloque({
+    required Iterable<String> actuales,
+    required Iterable<String> modulos,
+    required bool agregar,
+    required List<AppCatalogEntry> administrables,
+  }) {
+    bool esAdministrable(String app) =>
+        administrables.any((m) => appIdsEquivalent(m.appId, app));
+
+    // Solo se opera sobre módulos que Talento Humano administra. Pedir uno que
+    // no lo es no puede colar un acceso por la puerta de atrás.
+    final pedidos = modulos.where(esAdministrable).toList();
+
+    final conservados = actuales.where((app) => !esAdministrable(app)).toSet();
+    final administrados = actuales.where(esAdministrable).toList();
+
+    if (agregar) {
+      return {...conservados, ...administrados, ...pedidos};
+    }
+    return {
+      ...conservados,
+      ...administrados.where(
+        (app) => !pedidos.any((pedido) => appIdsEquivalent(pedido, app)),
+      ),
+    };
+  }
+
   /// Los módulos que la persona conserva pero Talento Humano no edita.
   static Set<String> noAdministrados({
     required Iterable<String> actuales,

@@ -364,7 +364,9 @@ class PersonnelRequisitionService {
   }) async {
     final document = _cleanDocument(candidate.document);
     if (document.isEmpty || candidate.names.trim().isEmpty) {
-      throw ArgumentError('Documento y nombres del aspirante son obligatorios.');
+      throw ArgumentError(
+        'Documento y nombres del aspirante son obligatorios.',
+      );
     }
     final ref = _db.collection(collection).doc(requisition.id);
     await _db.runTransaction((transaction) async {
@@ -395,9 +397,7 @@ class PersonnelRequisitionService {
       );
       final next = [...current.candidates, added];
       transaction.update(ref, {
-        'candidatos': next
-            .map((item) => item.toMap(timestamp: now))
-            .toList(),
+        'candidatos': next.map((item) => item.toMap(timestamp: now)).toList(),
         'candidatosActivos': next.where((item) => item.isActive).length,
         ..._derivedStagePatch(current, next),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -453,9 +453,7 @@ class PersonnelRequisitionService {
         updatedBy: userId,
       );
       transaction.update(ref, {
-        'candidatos': next
-            .map((item) => item.toMap(timestamp: now))
-            .toList(),
+        'candidatos': next.map((item) => item.toMap(timestamp: now)).toList(),
         'candidatosActivos': next.where((item) => item.isActive).length,
         ..._derivedStagePatch(current, next),
         'updatedAt': FieldValue.serverTimestamp(),

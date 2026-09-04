@@ -2360,9 +2360,7 @@ class _CandidateDialogState extends State<_CandidateDialog> {
                     border: OutlineInputBorder(),
                   ),
                   items: PersonnelCandidateStage.values
-                      .where(
-                        (stage) => stage != PersonnelCandidateStage.hired,
-                      )
+                      .where((stage) => stage != PersonnelCandidateStage.hired)
                       .map(
                         (stage) => DropdownMenuItem(
                           value: stage,

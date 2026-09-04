@@ -64,9 +64,8 @@ Future<Uint8List> buildPersonnelRequisitionPdf({
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4.landscape,
       margin: const pw.EdgeInsets.fromLTRB(28, 24, 28, 30),
-      header: (context) => context.pageNumber == 1
-          ? pw.SizedBox()
-          : _runningHeader(empresa),
+      header: (context) =>
+          context.pageNumber == 1 ? pw.SizedBox() : _runningHeader(empresa),
       footer: _footer,
       build: (context) => [
         _cover(empresa: empresa, now: now, rows: ordered),
@@ -193,7 +192,10 @@ pw.Widget _kpi(String label, String value, {bool highlight = false}) =>
               ),
             ),
             pw.SizedBox(height: 1),
-            pw.Text(label, style: const pw.TextStyle(color: _kMuted, fontSize: 7)),
+            pw.Text(
+              label,
+              style: const pw.TextStyle(color: _kMuted, fontSize: 7),
+            ),
           ],
         ),
       ),
@@ -205,10 +207,7 @@ pw.Widget _establishmentBand(
   DateTime now,
 ) {
   final vacantes = rows.fold<int>(0, (total, row) => total + row.quantity);
-  final contratados = rows.fold<int>(
-    0,
-    (total, row) => total + row.hiredCount,
-  );
+  final contratados = rows.fold<int>(0, (total, row) => total + row.hiredCount);
   final pendientes = rows.fold<int>(
     0,
     (total, row) => total + row.pendingCount,
@@ -297,11 +296,7 @@ pw.TableRow _requisitionRow(
   return pw.TableRow(
     decoration: pw.BoxDecoration(color: zebra ? _kZebra : PdfColors.white),
     children: [
-      _cell(
-        row.position,
-        bold: true,
-        extra: row.annex ? 'Anexo' : null,
-      ),
+      _cell(row.position, bold: true, extra: row.annex ? 'Anexo' : null),
       _cell(_dayFormat.format(row.requestDate)),
       _cell('${row.daysAt(now)}', color: _trafficColor(traffic), bold: true),
       _cell('${row.hiredCount}/${row.quantity}'),
