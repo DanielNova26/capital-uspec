@@ -1360,13 +1360,24 @@ class InterventoriaService {
   /// Se lee de una sola pasada porque son el mismo documento: separar los dos
   /// datos costaba dos lecturas completas de `TBL_CARGOS` por cada apertura
   /// del tablero.
-  Future<Map<String, ({String areaId, bool recibeAsignaciones})>>
+  /// Se indexa de dos formas porque salen de la misma lectura de
+  /// TBL_CARGOS: `porNombre` empareja con lo que TBL_USUARIOS guarda como
+  /// texto, y `nombrePorId` cubre a los usuarios que guardan la referencia
+  /// (`cargoId`) en vez del nombre. Separarlos costaria una consulta extra
+  /// en cada carga del tablero.
+  Future<
+    ({
+      Map<String, ({String areaId, bool recibeAsignaciones})> porNombre,
+      Map<String, String> nombrePorId,
+    })
+  >
   _perfilPorCargo(String empresaId) async {
     final snap = await _db
         .collection('TBL_CARGOS')
         .where('empresaId', isEqualTo: empresaId)
         .get();
     final out = <String, ({String areaId, bool recibeAsignaciones})>{};
+    final porId = <String, String>{};
     for (final doc in snap.docs) {
       final data = doc.data();
       final nombre = (data['nombre'] ?? data['cargoId'] ?? doc.id).toString();
@@ -1376,8 +1387,11 @@ class InterventoriaService {
         areaId: (data['areaId'] ?? '').toString().trim(),
         recibeAsignaciones: cargoRecibeAsignaciones(data),
       );
+      porId[doc.id] = nombre;
+      final campoId = (data['cargoId'] ?? '').toString().trim();
+      if (campoId.isNotEmpty) porId[campoId] = nombre;
     }
-    return out;
+    return (porNombre: out, nombrePorId: porId);
   }
 
   /// Normaliza un nombre de cargo para emparejarlo entre colecciones: los
@@ -1427,8 +1441,11 @@ class InterventoriaService {
     // areaId propio ese manda. Si TBL_CARGOS falla, se sigue sin áreas en
     // vez de quedarse sin lista de personal.
     var perfilPorCargo = <String, ({String areaId, bool recibeAsignaciones})>{};
+    var nombrePorCargoId = <String, String>{};
     try {
-      perfilPorCargo = await _perfilPorCargo(empresaId);
+      final perfiles = await _perfilPorCargo(empresaId);
+      perfilPorCargo = perfiles.porNombre;
+      nombrePorCargoId = perfiles.nombrePorId;
     } catch (_) {}
     final rows = <InterventoriaUsuario>[];
     for (final doc in snap.docs) {
@@ -1451,7 +1468,7 @@ class InterventoriaService {
           data['desarrollador'] == true;
       if (!pertenece) continue;
 
-      final cargo =
+      var cargo =
           (scoped?['cargo'] ??
                   scoped?['cargoNombre'] ??
                   data['cargo'] ??
@@ -1459,6 +1476,23 @@ class InterventoriaService {
                   '')
               .toString()
               .trim();
+      // Puente por id: muchos usuarios guardan `cargoId` (referencia a
+      // TBL_CARGOS) y no el nombre. Sin esto quedaban descartados por el
+      // `continue` de abajo, la lista de asignables salia vacia, y el tablero
+      // mostraba "Nadie tiene el cargo que responde por X" en TODOS los
+      // hallazgos aunque la matriz si resolviera el cargo correctamente.
+      if (cargo.isEmpty) {
+        final cargoId =
+            (scoped?['cargoId'] ??
+                    data['cargoId'] ??
+                    scoped?['cargoID'] ??
+                    data['cargoID'] ??
+                    '')
+                .toString()
+                .trim();
+        if (cargoId.isNotEmpty) cargo = nombrePorCargoId[cargoId] ?? '';
+      }
+
       if (cargo.isEmpty) continue;
 
       // Fuera de los desplegables de asignación quien esté marcado como no

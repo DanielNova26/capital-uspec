@@ -56,6 +56,7 @@ class _InterventoriaTableroAsignacionState
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargandoUsuarios = true;
   final Set<String> _asignando = {};
+  bool _asignandoMasivo = false;
 
   /// areaId → nombre legible. Solo sirve para etiquetar el filtro por área
   /// del selector: los usuarios ya traen su `areaId`, pero no su nombre.
@@ -178,6 +179,19 @@ class _InterventoriaTableroAsignacionState
             : constraints.maxWidth >= 760
             ? 2
             : 1;
+        // Solo los hallazgos para los que la matriz YA resuelve un responsable.
+        // Si la lista de usuarios aun no cargo se deja vacia: ofrecer
+        // "asignar sugeridos" antes de tener a quien asignar produciria cero
+        // asignaciones y la sensacion de que el boton no hace nada.
+        final sugeridosPendientes = _cargandoUsuarios
+            ? const <InterventoriaHallazgo>[]
+            : sinAsignar
+                  .where(
+                    (h) =>
+                        widget.service.sugerirResponsable(h, _usuarios) != null,
+                  )
+                  .toList();
+
         final secciones = <Widget>[
           _seccion(
             titulo: 'Sin asignar',
@@ -186,6 +200,9 @@ class _InterventoriaTableroAsignacionState
             icono: Icons.person_off_outlined,
             rows: sinAsignar,
             columnas: columnas,
+            accion: widget.canWrite && sugeridosPendientes.isNotEmpty
+                ? _botonAsignarTodos(sugeridosPendientes)
+                : null,
           ),
           _seccion(
             titulo: 'Vencidos',
@@ -534,6 +551,84 @@ class _InterventoriaTableroAsignacionState
         delCentro: elegido.centroId == h.centroCostoId,
       ),
       forzado: true,
+    );
+  }
+
+  /// Botón de la cabecera de "Sin asignar": asigna de una sola vez todos los
+  /// hallazgos para los que el acta ya sugiere responsable. No los asigna
+  /// solo, hay que pedirlo, porque cada asignación crea una tarea y dispara
+  /// una notificación real a esa persona — si la sugerencia falla (cargo mal
+  /// leído del OCR, numeral equivocado) el error queda contenido a un clic y
+  /// no se dispara en cuanto el acta entra al tablero.
+  Widget _botonAsignarTodos(List<InterventoriaHallazgo> sugeridos) {
+    if (_asignandoMasivo) {
+      return const Padding(
+        padding: EdgeInsets.only(left: 10),
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(left: 10),
+      child: FilledButton.icon(
+        onPressed: () => _asignarTodosSugeridos(sugeridos),
+        style: FilledButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          backgroundColor: _accent,
+        ),
+        icon: const Icon(Icons.done_all_rounded, size: 16),
+        label: Text(
+          'Asignar sugeridos (${sugeridos.length})',
+          style: const TextStyle(fontSize: 12),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _asignarTodosSugeridos(
+    List<InterventoriaHallazgo> sugeridos,
+  ) async {
+    setState(() => _asignandoMasivo = true);
+    var ok = 0;
+    var fallidos = 0;
+    // Uno por uno, no en paralelo: cada asignación puede persistir el
+    // hallazgo primero (los que vienen de un acta todavía no son documento) y
+    // dos asignaciones a la vez sobre el mismo hallazgo duplicarían la tarea.
+    for (final h in sugeridos) {
+      final sugerido = widget.service.sugerirResponsable(h, _usuarios);
+      if (sugerido == null) continue;
+      final clave = _claveOcupado(h);
+      if (_asignando.contains(clave)) continue;
+      try {
+        var hallazgo = h;
+        if (hallazgo.id.isEmpty) {
+          final id = await widget.service.guardarHallazgo(hallazgo);
+          hallazgo = hallazgo.copyWithId(id);
+        }
+        await widget.service.crearTareaYNotificarHallazgo(
+          hallazgo: hallazgo,
+          creadorId: widget.userId,
+          creadorNombre: widget.userId,
+        );
+        ok++;
+      } catch (_) {
+        fallidos++;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _asignandoMasivo = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: fallidos == 0 ? _ok : _warn,
+        content: Text(
+          fallidos == 0
+              ? 'Asignados $ok hallazgos · tarea creada para cada uno'
+              : 'Asignados $ok · $fallidos no se pudieron asignar',
+        ),
+      ),
     );
   }
 
