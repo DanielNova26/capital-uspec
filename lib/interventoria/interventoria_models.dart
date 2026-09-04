@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'interventoria_actas_catalogo.dart';
 import 'interventoria_numerales_catalogo.dart';
 
 const String kInterventoriaAppId = 'interventoriadashboard';
@@ -356,17 +357,66 @@ class InterventoriaMaestroSubsanacion {
 /// evita que la aplicación invente un responsable o aprobador.
 List<InterventoriaMaestroSubsanacion> aplicarReglasSubsanacion(
   List<InterventoriaMaestroSubsanacion> base,
-  Map<String, dynamic> reglas,
-) => List.unmodifiable(
+  Map<String, dynamic> reglas, {
+  String tipoActa = kActaRegular,
+}) => List.unmodifiable(
   base.map((fila) {
-    final raw = reglas[fila.numeral];
-    if (raw is! Map) return fila;
+    final raw = reglaGuardada(reglas, tipoActa, fila.numeral);
+    if (raw == null) return fila;
     return fila.copyWith(
       responsables: cargosDeRegla(raw['responsables'], raw['responsable']),
       aprobadores: cargosDeRegla(raw['aprobadores'], raw['aprobador']),
     );
   }),
 );
+
+/// ¿El numeral existe en el acta indicada?
+///
+/// Se valida antes de guardar una regla: sin esto, un numeral mal escrito
+/// crea una regla que no aplica a nada y que nadie vuelve a mirar.
+bool numeralPerteneceAActa(String tipoActa, String numeral) {
+  final clave = normalizarNumeralActa(numeral);
+  final propio = kSeccionesPorTipoActa[tipoActa.trim().toUpperCase()];
+  if (propio != null) {
+    for (final seccion in propio) {
+      for (var i = 0; i < seccion.aspectos.length; i++) {
+        if (numeralDeAspecto(seccion.numero, i) == clave) return true;
+      }
+    }
+    return false;
+  }
+  return kInterventoriaResponsabilidadPorNumeral.containsKey(clave);
+}
+
+/// Clave con la que se guarda la regla de un numeral dentro de
+/// `TBL_INTERVENTORIA_CONFIG/{empresa}.reglasSubsanacion`.
+///
+/// Lleva la familia del acta por delante porque el mismo numeral existe en
+/// varias actas y significa cosas distintas: el 1.4 del acta de policía no
+/// tiene nada que ver con el 1.4 de la regular.
+String claveRegla(String tipoActa, String numeral) =>
+    '${familiaReglasActa(tipoActa)}::${normalizarNumeralActa(numeral)}';
+
+/// Busca la regla guardada de un numeral.
+///
+/// Las reglas anteriores se guardaron con el numeral suelto como clave, cuando
+/// el acta regular era la única que existía. Esas claves siguen valiendo, pero
+/// SOLO para la familia regular: si valieran para todas, un acta nueva
+/// heredaría responsables que nadie le asignó y el hallazgo se iría a quien no
+/// es, sin que nada lo advierta. Por eso no hace falta migrar nada.
+Map<String, dynamic>? reglaGuardada(
+  Map<String, dynamic> reglas,
+  String tipoActa,
+  String numeral,
+) {
+  final directa = reglas[claveRegla(tipoActa, numeral)];
+  if (directa is Map) return Map<String, dynamic>.from(directa);
+  if (familiaReglasActa(tipoActa) == kActaRegular) {
+    final legado = reglas[normalizarNumeralActa(numeral)];
+    if (legado is Map) return Map<String, dynamic>.from(legado);
+  }
+  return null;
+}
 
 /// Lee los cargos de un rol dentro de una regla guardada.
 ///
@@ -391,7 +441,30 @@ List<String> cargosDeRegla(Object? lista, Object? unico) {
 /// Mantener esta unión en lógica de negocio evita que Web y Móvil terminen
 /// mostrando catálogos distintos aunque cada plataforma use una presentación
 /// adecuada a su espacio disponible.
-List<InterventoriaMaestroSubsanacion> construirMaestroSubsanaciones() {
+List<InterventoriaMaestroSubsanacion> construirMaestroSubsanaciones({
+  String tipoActa = kActaRegular,
+}) {
+  // Las actas que llegaron después traen su catálogo declarado tal como está
+  // impreso: secciones numeradas y el numeral es `sección.posición`. No tienen
+  // matriz de responsabilidad incluida a propósito — se llena desde el maestro.
+  // Un responsable equivocado por defecto no se nota; una regla sin responsable
+  // queda marcada "sin asignar" y se ve.
+  final propio = kSeccionesPorTipoActa[(tipoActa).trim().toUpperCase()];
+  if (propio != null) {
+    return List.unmodifiable([
+      for (final seccion in propio)
+        for (var i = 0; i < seccion.aspectos.length; i++)
+          InterventoriaMaestroSubsanacion(
+            numeral: numeralDeAspecto(seccion.numero, i),
+            seccion: seccion.numero,
+            seccionNombre: seccion.nombre,
+            descripcion: seccion.aspectos[i],
+            responsables: const [],
+            aprobadores: const [],
+          ),
+    ]);
+  }
+
   final filas = <InterventoriaMaestroSubsanacion>[];
   for (final categoria in kInterventoriaCategorias) {
     final aspectos =
@@ -1029,12 +1102,14 @@ const List<String> kDptosInterventoria = [
 /// especial en `_onTipoActaChanged`: cae en la rama por defecto y hereda el
 /// comportamiento completo.
 ///
-/// INFRAESTRUCTURA es la excepción: marca como "no evaluado" todo lo que no
-/// sea instalaciones físicas.
+/// INFRAESTRUCTURA y ESTACION_POLICIA son formularios propios: traen su
+/// catálogo de aspectos en `interventoria_actas_catalogo.dart` y no evalúan las
+/// categorías del acta regular.
 const List<String> kTiposActaInterventoria = [
-  'REGULAR',
-  'SEGUIMIENTO',
-  'INFRAESTRUCTURA',
+  kActaRegular,
+  kActaSeguimiento,
+  kActaInfraestructura,
+  kActaEstacionPolicia,
 ];
 
 const List<String> kTiemposComidaInterventoria = [

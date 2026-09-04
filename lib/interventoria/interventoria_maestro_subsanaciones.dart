@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_scroll_behavior.dart' show BarraHorizontal;
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
+import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 
@@ -37,16 +38,50 @@ class InterventoriaMaestroSubsanaciones extends StatefulWidget {
 class _InterventoriaMaestroSubsanacionesState
     extends State<InterventoriaMaestroSubsanaciones> {
   final TextEditingController _buscarCtrl = TextEditingController();
-  late final List<InterventoriaMaestroSubsanacion> _base =
-      construirMaestroSubsanaciones();
+
+  /// Acta que se está editando. Cada una tiene sus propios numerales y sus
+  /// propias reglas: el 1.4 de policía no es el 1.4 de la regular.
+  String _tipoActa = kActaRegular;
+
+  /// Catálogo por acta, construido una sola vez. Son cientos de filas de texto
+  /// y se recorren en cada build para filtrar.
+  final Map<String, List<InterventoriaMaestroSubsanacion>> _basePorTipo = {};
+
   Map<String, dynamic> _reglas = const {};
   StreamSubscription<Map<String, dynamic>>? _reglasSub;
   int _seccion = 0;
   String _responsable = '';
   bool _soloIncompletas = false;
 
+  List<InterventoriaMaestroSubsanacion> get _base => _basePorTipo.putIfAbsent(
+    _tipoActa,
+    () => construirMaestroSubsanaciones(tipoActa: _tipoActa),
+  );
+
   List<InterventoriaMaestroSubsanacion> get _maestro =>
-      aplicarReglasSubsanacion(_base, _reglas);
+      aplicarReglasSubsanacion(_base, _reglas, tipoActa: _tipoActa);
+
+  /// Secciones del acta seleccionada, para el filtro. Salen del catálogo y no
+  /// de una lista fija: cada acta tiene las suyas.
+  Map<int, String> get _seccionesDelActa {
+    final out = <int, String>{};
+    for (final fila in _base) {
+      out.putIfAbsent(fila.seccion, () => fila.seccionNombre);
+    }
+    return out;
+  }
+
+  void _cambiarTipoActa(String tipo) {
+    if (tipo == _tipoActa) return;
+    setState(() {
+      _tipoActa = tipo;
+      // Los filtros son de la otra acta: una sección 8 o un cargo que solo
+      // existía allí dejarían la tabla vacía sin explicar por qué.
+      _seccion = 0;
+      _responsable = '';
+      _buscarCtrl.clear();
+    });
+  }
 
   @override
   void initState() {
@@ -128,9 +163,16 @@ class _InterventoriaMaestroSubsanacionesState
           final contenido = <Widget>[
             _CabeceraBiblioteca(total: _maestro.length),
             const SizedBox(height: 14),
+            _SelectorTipoActa(
+              tipoActa: _tipoActa,
+              anchoDisponible: constraints.maxWidth,
+              onChanged: _cambiarTipoActa,
+            ),
+            const SizedBox(height: 12),
             _FiltrosBiblioteca(
               buscarCtrl: _buscarCtrl,
               seccion: _seccion,
+              secciones: _seccionesDelActa,
               responsable: _responsable,
               responsables: responsables,
               anchoDisponible: constraints.maxWidth,
@@ -372,6 +414,7 @@ class _InterventoriaMaestroSubsanacionesState
       await service.restaurarReglaSubsanacion(
         empresaId: widget.empresaId,
         numeral: fila.numeral,
+        tipoActa: _tipoActa,
       );
     } else {
       await service.guardarReglaSubsanacion(
@@ -380,6 +423,7 @@ class _InterventoriaMaestroSubsanacionesState
         responsables: responsables,
         aprobadores: aprobadores,
         actualizadoPor: widget.userId,
+        tipoActa: _tipoActa,
       );
     }
     if (mounted) {
@@ -515,9 +559,60 @@ class _ResumenChip extends StatelessWidget {
   }
 }
 
+/// Selector del acta cuyas reglas se están editando.
+///
+/// Va aparte de los filtros a propósito: los filtros acotan lo que se ve, esto
+/// cambia QUÉ catálogo se está editando. Confundirlos llevaría a guardar la
+/// regla de un acta creyendo estar en otra.
+class _SelectorTipoActa extends StatelessWidget {
+  final String tipoActa;
+  final double anchoDisponible;
+  final ValueChanged<String> onChanged;
+
+  const _SelectorTipoActa({
+    required this.tipoActa,
+    required this.anchoDisponible,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final movil = anchoDisponible < 900;
+    return Row(
+      children: [
+        SizedBox(
+          width: movil ? anchoDisponible : 320,
+          child: DropdownButtonFormField<String>(
+            initialValue: tipoActa,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Acta',
+              prefixIcon: Icon(Icons.description_outlined),
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: [
+              for (final tipo in kActasConMaestro)
+                DropdownMenuItem(
+                  value: tipo,
+                  child: Text(
+                    etiquetaTipoActa(tipo),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) => onChanged(value ?? kActaRegular),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _FiltrosBiblioteca extends StatelessWidget {
   final TextEditingController buscarCtrl;
   final int seccion;
+  final Map<int, String> secciones;
   final String responsable;
   final List<String> responsables;
   final double anchoDisponible;
@@ -528,6 +623,7 @@ class _FiltrosBiblioteca extends StatelessWidget {
   const _FiltrosBiblioteca({
     required this.buscarCtrl,
     required this.seccion,
+    required this.secciones,
     required this.responsable,
     required this.responsables,
     required this.anchoDisponible,
@@ -573,7 +669,7 @@ class _FiltrosBiblioteca extends StatelessWidget {
             ),
             items: [
               const DropdownMenuItem(value: 0, child: Text('Todas')),
-              ...kInterventoriaSeccionNombres.entries.map(
+              ...secciones.entries.map(
                 (entry) => DropdownMenuItem(
                   value: entry.key,
                   child: Text(

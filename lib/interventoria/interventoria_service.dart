@@ -11,6 +11,7 @@ import '../core/festivos_colombia.dart';
 import '../services/org_service.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
+import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_numerales_catalogo.dart';
 
@@ -1655,26 +1656,60 @@ class InterventoriaService {
   /// empresa tiene el cargo que responde por él.
   /// Igual que [sugerirResponsable] pero devolviendo a TODOS los responsables
   /// cuando el cargo no existe en el establecimiento del hallazgo.
+  /// Cargos que responden por el numeral de un hallazgo, en orden.
+  ///
+  /// Manda la regla guardada de la empresa; la matriz incluida en la
+  /// aplicación es solo el punto de partida del acta regular. Las actas con
+  /// catálogo propio NO tienen matriz incluida: si no hay regla guardada no
+  /// hay cargo, y el hallazgo queda sin asignar, que es lo correcto.
+  List<String> cargosResponsablesDe(
+    InterventoriaHallazgo hallazgo,
+    Map<String, dynamic> reglas,
+  ) {
+    final numeral = hallazgo.numeralParaMatriz;
+    final tipo = hallazgo.tipoActa ?? kActaRegular;
+    final regla = reglaGuardada(reglas, tipo, numeral);
+    if (regla != null) {
+      return cargosDeRegla(regla['responsables'], regla['responsable']);
+    }
+    if (tieneCatalogoPropio(tipo)) return const [];
+    final matriz = responsabilidadDeNumeral(numeral);
+    return cargosDeRegla(null, matriz?.responsable);
+  }
+
+  /// Igual que [sugerirResponsable] pero devolviendo a TODOS los responsables
+  /// cuando el cargo no existe en el establecimiento del hallazgo.
+  ///
+  /// [reglas] son las de `streamReglasSubsanacion`. Se pasan en vez de
+  /// consultarlas aquí porque el tablero llama esto una vez por tarjeta.
+  /// Omitirlas hace que la sugerencia use la matriz incluida y contradiga a la
+  /// asignación real, que sí lee la regla guardada.
   List<InterventoriaPersona> sugerirResponsables(
     InterventoriaHallazgo hallazgo,
-    List<InterventoriaUsuario> usuarios,
-  ) {
-    final matriz = responsabilidadDeNumeral(hallazgo.numeralParaMatriz);
-    if (matriz == null) return const [];
-    return resolverCargoTodos(
-      matriz.responsable,
-      hallazgo.centroCostoId,
-      usuarios,
-    );
+    List<InterventoriaUsuario> usuarios, {
+    Map<String, dynamic> reglas = const {},
+  }) {
+    for (final cargo in cargosResponsablesDe(hallazgo, reglas)) {
+      final personas = resolverCargoTodos(
+        cargo,
+        hallazgo.centroCostoId,
+        usuarios,
+      );
+      if (personas.isNotEmpty) return personas;
+    }
+    return const [];
   }
 
   InterventoriaPersona? sugerirResponsable(
     InterventoriaHallazgo hallazgo,
-    List<InterventoriaUsuario> usuarios,
-  ) {
-    final matriz = responsabilidadDeNumeral(hallazgo.numeralParaMatriz);
-    if (matriz == null) return null;
-    return resolverCargo(matriz.responsable, hallazgo.centroCostoId, usuarios);
+    List<InterventoriaUsuario> usuarios, {
+    Map<String, dynamic> reglas = const {},
+  }) {
+    for (final cargo in cargosResponsablesDe(hallazgo, reglas)) {
+      final persona = resolverCargo(cargo, hallazgo.centroCostoId, usuarios);
+      if (persona != null) return persona;
+    }
+    return null;
   }
 
   /// Configuración editable de la biblioteca para una empresa. Las claves
@@ -1719,11 +1754,16 @@ class InterventoriaService {
     required List<String> responsables,
     required List<String> aprobadores,
     required String actualizadoPor,
+    String tipoActa = kActaRegular,
   }) async {
     final clave = normalizarNumeralActa(numeral);
-    if (!kInterventoriaResponsabilidadPorNumeral.containsKey(clave)) {
-      throw ArgumentError('El numeral $numeral no pertenece al acta regular.');
+    if (!numeralPerteneceAActa(tipoActa, clave)) {
+      throw ArgumentError(
+        'El numeral $numeral no pertenece al acta '
+        '${etiquetaTipoActa(tipoActa)}.',
+      );
     }
+    final claveGuardada = claveRegla(tipoActa, clave);
     final ref = _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId);
     await _db.runTransaction((trx) async {
       final snap = await trx.get(ref);
@@ -1739,7 +1779,9 @@ class InterventoriaService {
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList();
-      reglas[clave] = {
+      reglas[claveGuardada] = {
+        'tipoActa': familiaReglasActa(tipoActa),
+        'numeral': clave,
         'responsables': resp,
         'aprobadores': aprob,
         'responsable': resp.isEmpty ? '' : resp.first,
@@ -1757,6 +1799,7 @@ class InterventoriaService {
   Future<void> restaurarReglaSubsanacion({
     required String empresaId,
     required String numeral,
+    String tipoActa = kActaRegular,
   }) async {
     final clave = normalizarNumeralActa(numeral);
     final ref = _db.collection('TBL_INTERVENTORIA_CONFIG').doc(empresaId);
@@ -1766,7 +1809,11 @@ class InterventoriaService {
       final reglas = actual is Map
           ? Map<String, dynamic>.from(actual)
           : <String, dynamic>{};
-      reglas.remove(clave);
+      reglas.remove(claveRegla(tipoActa, clave));
+      // También la clave vieja, sin familia. Si no, "Restaurar regla base" no
+      // haría nada sobre las reglas guardadas antes de que existieran varias
+      // actas: se borraría una clave que no existe y la vieja seguiría mandando.
+      if (familiaReglasActa(tipoActa) == kActaRegular) reglas.remove(clave);
       trx.set(ref, {
         'reglasSubsanacion': reglas,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1814,20 +1861,30 @@ class InterventoriaService {
     required String numeral,
     String centroCostoId = '',
     DateTime? desde,
+    String? tipoActa,
   }) async {
     final clave = normalizarNumeralActa(numeral);
-    var matriz = responsabilidadDeNumeral(clave);
+    final tipo = tipoActa ?? kActaRegular;
+
+    // Las actas con catálogo propio no traen matriz incluida: su única fuente
+    // es la regla guardada. Consultar aquí la matriz del acta regular sería
+    // peor que no resolver nada, porque numerales como "4.11" existen en las
+    // dos y significan cosas distintas.
+    var matriz = tieneCatalogoPropio(tipo)
+        ? const InterventoriaResponsabilidad('', '')
+        : responsabilidadDeNumeral(clave);
     if (matriz == null) return null;
 
     final reglas = await _reglasSubsanacion(empresaId);
-    final override = reglas[clave];
+    final override = reglaGuardada(reglas, tipo, clave);
+    if (override == null && tieneCatalogoPropio(tipo)) return null;
 
     // Cargos alternativos de la regla. La lista nueva (`responsables`) manda;
     // si no existe se cae al campo en singular, que es como quedaron guardadas
     // las reglas anteriores.
     var cargosResponsables = <String>[];
     var cargosAprobadores = <String>[];
-    if (override is Map) {
+    if (override != null) {
       cargosResponsables = cargosDeRegla(
         override['responsables'],
         override['responsable'],
@@ -2013,6 +2070,7 @@ class InterventoriaService {
       numeral: hallazgo.numeralParaMatriz,
       centroCostoId: hallazgo.centroCostoId,
       desde: hallazgo.fechaHallazgo.toDate(),
+      tipoActa: hallazgo.tipoActa,
     );
 
     String destinatarioId = responsableForzado?.id ?? '';

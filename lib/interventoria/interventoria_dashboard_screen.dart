@@ -30,6 +30,7 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'interventoria_hallazgo_panel.dart';
 import 'interventoria_maestro_subsanaciones.dart';
 import '../widgets/paged_list.dart';
+import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_tablero_asignacion.dart';
@@ -2470,16 +2471,12 @@ class _AsignadoFilterDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ordenados = asignados.entries.toList()
-      ..sort(
-        (a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()),
-      );
+      ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
     // Una persona que ya no figura en la lista visible no puede desaparecer del
     // selector estando seleccionada: dejaria el filtro activo sin manera de
     // quitarlo salvo "Limpiar".
     final valorValido =
-        value.isEmpty ||
-        value == _kSinAsignar ||
-        asignados.containsKey(value);
+        value.isEmpty || value == _kSinAsignar || asignados.containsKey(value);
 
     return DropdownButtonFormField<String>(
       initialValue: valorValido ? value : '',
@@ -2491,10 +2488,7 @@ class _AsignadoFilterDropdown extends StatelessWidget {
       ),
       items: [
         const DropdownMenuItem(value: '', child: Text('Todos')),
-        const DropdownMenuItem(
-          value: _kSinAsignar,
-          child: Text('Sin asignar'),
-        ),
+        const DropdownMenuItem(value: _kSinAsignar, child: Text('Sin asignar')),
         for (final e in ordenados)
           DropdownMenuItem(
             value: e.key,
@@ -6503,7 +6497,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 items: [
                   const DropdownMenuItem(value: null, child: Text('Sin tipo')),
                   ...kTiposActaInterventoria.map(
-                    (t) => DropdownMenuItem(value: t, child: Text(t)),
+                    (t) => DropdownMenuItem(
+                      value: t,
+                      child: Text(etiquetaTipoActa(t)),
+                    ),
                   ),
                 ],
                 onChanged: _onTipoActaChanged,

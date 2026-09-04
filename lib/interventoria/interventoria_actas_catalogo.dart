@@ -70,6 +70,16 @@ String familiaReglasActa(String? tipoActa) {
   }
 }
 
+/// Actas cuyas reglas se editan en el Maestro.
+///
+/// SEGUIMIENTO no aparece: comparte reglas con REGULAR por ser el mismo
+/// catálogo, y ofrecerlo aparte haría creer que se está editando otra cosa.
+const List<String> kActasConMaestro = [
+  kActaRegular,
+  kActaInfraestructura,
+  kActaEstacionPolicia,
+];
+
 /// Una sección del acta, con sus aspectos en el orden impreso.
 class SeccionActa {
   final int numero;
