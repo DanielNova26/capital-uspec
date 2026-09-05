@@ -35,13 +35,20 @@ const esc = (value: unknown): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-/** Solo se aceptan http(s) para la foto: un `javascript:` en el src sería XSS. */
+/**
+ * URL de foto utilizable en un `src`, o cadena vacía.
+ *
+ * Solo se aceptan http(s): un `javascript:` en el src sería XSS.
+ *
+ * @param {unknown} raw Valor guardado en el documento del usuario.
+ * @return {string} La URL si es http(s); si no, cadena vacía.
+ */
 const fotoSegura = (raw: unknown): string => {
   const url = String(raw ?? "").trim();
   return /^https?:\/\//i.test(url) ? url : "";
 };
 
-const pagina = (cuerpo: string, status = 200) => `<!doctype html>
+const pagina = (cuerpo: string) => `<!doctype html>
 <html lang="es"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -76,8 +83,7 @@ const noValido = (mensaje: string) =>
     `<div class="sinfoto">?</div>
      <h1>Carnet no válido</h1>
      <p class="cargo">${esc(mensaje)}</p>
-     <p class="pie">Si el carnet es reciente, pide que lo generen de nuevo.</p>`,
-    404
+     <p class="pie">Si el carnet es reciente, pide que lo generen de nuevo.</p>`
   );
 
 /**
@@ -155,10 +161,10 @@ export const carnetPublico = functions
       res.status(200).set("Content-Type", "text/html; charset=utf-8").send(
         pagina(`
           ${
-            foto
-              ? `<img class="foto" src="${esc(foto)}" alt="">`
-              : `<div class="sinfoto">${esc(inicial)}</div>`
-          }
+  foto
+    ? `<img class="foto" src="${esc(foto)}" alt="">`
+    : `<div class="sinfoto">${esc(inicial)}</div>`
+}
           <h1>${esc(completo || "Sin nombre")}</h1>
           ${cargo ? `<p class="cargo">${esc(cargo)}</p>` : ""}
           ${empresa ? `<p class="empresa">${esc(empresa)}</p>` : ""}
