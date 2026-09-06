@@ -8,16 +8,32 @@ class CompanyTransitionResult {
   final int catalogsCopied;
   final int moduleRolesCopied;
 
+  /// Personas que quedaron con las dos empresas activas.
+  final int keptBothActive;
+
+  /// Personas a las que la empresa de origen les quedó apagada.
+  final int sourceTurnedOff;
+
   const CompanyTransitionResult({
     required this.usersTransferred,
     required this.employeeMirrorsCreated,
     required this.catalogsCopied,
     required this.moduleRolesCopied,
+    this.keptBothActive = 0,
+    this.sourceTurnedOff = 0,
   });
 }
 
-/// Crea la nueva razón social y agrega a sus empleados sin eliminar la
-/// membresía ni la estructura histórica de la empresa de origen.
+/// Crea la nueva razón social y traslada a sus empleados.
+///
+/// La empresa de origen NUNCA se borra de la persona: se apaga. Quitarla le
+/// haría perder de vista todo lo que registró bajo la razón social anterior
+/// —actas, tareas, hojas de vida—, y eso es histórico que sigue existiendo.
+/// Apagada, la persona deja de aparecer en los listados de esa empresa pero
+/// conserva el acceso a lo suyo.
+///
+/// `conservanOrigenActivo` son las cédulas que deben quedar con las DOS
+/// empresas activas. El resto queda solo con la nueva.
 class CompanyTransitionService {
   final FirebaseFirestore _db;
 
@@ -120,6 +136,7 @@ class CompanyTransitionService {
     required String targetCompanyName,
     required String actorId,
     bool makeTargetPrimary = true,
+    Set<String> conservanOrigenActivo = const {},
   }) async {
     final sourceId = sourceEmpresaId.trim();
     final targetId = targetEmpresaId.trim();
@@ -180,6 +197,8 @@ class CompanyTransitionService {
     final users = await _db.collection('TBL_USUARIOS').get();
     var transferred = 0;
     var employeeMirrors = 0;
+    var keptBoth = 0;
+    var apagados = 0;
     WriteBatch? batch;
     var writes = 0;
 
@@ -210,10 +229,32 @@ class CompanyTransitionService {
         'transferredAt': FieldValue.serverTimestamp(),
       };
 
+      // Quien no esté en la lista queda solo con la empresa nueva: la de
+      // origen se apaga, no se borra.
+      //
+      // Se marca `activo: false` y NO `estadoLaboral: inactivo`: esto no es un
+      // retiro. Confundirlos haría que la persona apareciera como desvinculada
+      // en los informes de personal, cuando lo que pasó es que cambió de razón
+      // social.
+      final conserva = conservanOrigenActivo.contains(user.id);
+      if (conserva) {
+        keptBoth++;
+      } else {
+        apagados++;
+      }
+
       batch ??= _db.batch();
       batch!.set(user.reference, {
         'empresas': FieldValue.arrayUnion([targetId]),
-        'empresasDetalle': {targetId: targetDetail},
+        'empresasDetalle': {
+          targetId: targetDetail,
+          if (!conserva)
+            sourceId: {
+              'activo': false,
+              'trasladadoA': targetId,
+              'trasladadoAt': FieldValue.serverTimestamp(),
+            },
+        },
         if (makeTargetPrimary) ...{
           'empresaId': targetId,
           'empresaNombre': targetName,
@@ -291,11 +332,15 @@ class CompanyTransitionService {
       'catalogsCopied': centroMap.length + areaMap.length + cargoMap.length,
       'moduleRolesCopied': moduleRoles,
       'preservedSourceMembership': true,
+      'keptBothActive': keptBoth,
+      'sourceTurnedOff': apagados,
       'makeTargetPrimary': makeTargetPrimary,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
     return CompanyTransitionResult(
+      keptBothActive: keptBoth,
+      sourceTurnedOff: apagados,
       usersTransferred: transferred,
       employeeMirrorsCreated: employeeMirrors,
       catalogsCopied: centroMap.length + areaMap.length + cargoMap.length,

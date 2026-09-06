@@ -13330,14 +13330,24 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       );
       return;
     }
+    // Se traslada a todo el mundo. Lo único que se elige es a quién le queda
+    // la empresa de origen ENCENDIDA, es decir, quién trabaja en las dos.
+    final conservan = await _elegirQuienConservaOrigen(source);
+    if (conservan == null) return;
+
     final confirmed = await _confirm(
       title: 'Confirmar transición empresarial',
       message:
-          'Origen conservado: ${source.nombre} (${source.empresaId})\n'
+          'Origen: ${source.nombre} (${source.empresaId})\n'
           'Nueva empresa: $targetName ($targetId)\n\n'
-          'Se copiará el perfil corporativo y se agregarán todos los empleados. '
-          'También se copiarán centros, áreas, cargos y roles internos. '
-          'No se moverán ni borrarán actas, tareas, facturas o documentos históricos.',
+          'Se traslada a todo el personal, y se copian centros, áreas, cargos '
+          'y roles internos.\n\n'
+          '${conservan.isEmpty ? 'A todos' : 'A todos menos ${conservan.length}'} '
+          'les queda ${source.nombre} APAGADA: dejan de aparecer en sus '
+          'listados pero conservan el acceso a lo que ya registraron ahí.\n'
+          '${conservan.isEmpty ? '' : '${conservan.length} persona(s) quedan con las dos empresas activas.\n'}'
+          '\nNo se mueven ni borran actas, tareas, facturas o documentos '
+          'históricos.',
       confirmText: 'Crear y trasladar',
     );
     if (!confirmed) return;
@@ -13349,10 +13359,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         targetCompanyName: targetName,
         actorId: widget.userId,
         makeTargetPrimary: makePrimary,
+        conservanOrigenActivo: conservan,
       );
       _snack(
-        'Empresa creada: ${result.usersTransferred} persona(s) trasladadas y '
-        '${result.employeeMirrorsCreated} ficha(s), '
+        'Empresa creada: ${result.usersTransferred} persona(s) trasladadas, '
+        '${result.sourceTurnedOff} con la anterior apagada y '
+        '${result.keptBothActive} con las dos activas. '
         '${result.catalogsCopied} catálogo(s) y '
         '${result.moduleRolesCopied} rol(es) copiados.',
       );
@@ -13363,6 +13375,131 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     } finally {
       if (mounted) setState(() => _membresiaLoading = false);
     }
+  }
+
+  /// Elige quiénes quedan con las DOS empresas activas.
+  ///
+  /// El traslado alcanza a todo el personal; esto solo decide a quién NO se le
+  /// apaga la empresa de origen. Devuelve null si se cancela, o el conjunto
+  /// vacío si nadie conserva las dos.
+  Future<Set<String>?> _elegirQuienConservaOrigen(EmpresaItem source) async {
+    final activos =
+        _users
+            .where((u) => isPersonaActivaEnEmpresa(u.data(), source.empresaId))
+            .toList()
+          ..sort(
+            (a, b) => _userName(
+              a.data(),
+              a.id,
+            ).toLowerCase().compareTo(_userName(b.data(), b.id).toLowerCase()),
+          );
+
+    final seleccion = <String>{};
+    var busqueda = '';
+
+    return showDialog<Set<String>>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final visibles = busqueda.trim().isEmpty
+              ? activos
+              : activos.where((u) {
+                  final q = busqueda.toLowerCase();
+                  return _userName(u.data(), u.id).toLowerCase().contains(q) ||
+                      u.id.toLowerCase().contains(q);
+                }).toList();
+
+          return AlertDialog(
+            title: const Text('¿Quién trabaja en las dos empresas?'),
+            content: SizedBox(
+              width: 520,
+              height: 460,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Todo el personal se traslada. A quien no marques aquí le '
+                    'quedará ${source.nombre} apagada: deja de salir en sus '
+                    'listados, pero conserva lo que ya registró ahí.',
+                    style: const TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12.5,
+                      color: kAdminMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      hintText: 'Buscar por nombre o cédula',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (v) => setDialogState(() => busqueda = v),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    seleccion.isEmpty
+                        ? 'Nadie marcado: todos quedan solo en la nueva.'
+                        : '${seleccion.length} con las dos empresas activas.',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: seleccion.isEmpty ? kAdminMuted : kAdminAccent,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: visibles.isEmpty
+                        ? const Center(child: Text('Sin coincidencias.'))
+                        : ListView.builder(
+                            itemCount: visibles.length,
+                            itemBuilder: (_, i) {
+                              final u = visibles[i];
+                              final marcado = seleccion.contains(u.id);
+                              return CheckboxListTile(
+                                dense: true,
+                                value: marcado,
+                                title: Text(
+                                  _userName(u.data(), u.id),
+                                  style: const TextStyle(
+                                    fontFamily: kArial,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  u.id,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                onChanged: (v) => setDialogState(() {
+                                  if (v == true) {
+                                    seleccion.add(u.id);
+                                  } else {
+                                    seleccion.remove(u.id);
+                                  }
+                                }),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, seleccion),
+                child: const Text('Continuar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   /// Agrega o quita a un usuario de una empresa.
