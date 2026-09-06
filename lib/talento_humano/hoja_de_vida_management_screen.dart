@@ -704,103 +704,55 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
     final aprobado = estado == 'aprobado';
 
     if (aprobado) {
-      // Hoja aprobada → descarga del PDF y QR para el carnet.
-      final pdfButton = ElevatedButton.icon(
-        icon: _generandoPDF
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Icon(Icons.picture_as_pdf_rounded),
-        label: Text(_generandoPDF ? 'Generando PDF…' : 'Descargar PDF'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _thPrimary,
-          foregroundColor: Colors.white,
-          minimumSize: const Size.fromHeight(48),
-          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-        onPressed: _generandoPDF ? null : _descargarPDF,
-      );
-
-      return Column(
+      // La barra de abajo lleva DOS botones y nada más.
+      //
+      // Aquí hubo una columna con cinco: `bottomNavigationBar` se dimensiona
+      // por el alto de su hijo, así que la barra crecio hasta dejar la hoja de
+      // vida sin altura y solo se veian los botones sobre una pantalla en
+      // blanco. Lo del carnet se movio al menu de la barra superior.
+      return Row(
         children: [
-          pdfButton,
-          const SizedBox(height: 10),
-          // El carnet completo va primero: es lo que se imprime en el 99% de
-          // los casos. El QR suelto queda para reponer el adhesivo de un
-          // carnet que ya existe.
-          ElevatedButton.icon(
-            icon: _generandoCarnet
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.badge_rounded),
-            label: Text(
-              _generandoCarnet ? 'Generando…' : 'Carnet para imprimir',
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1E293B),
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
-              textStyle: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
+          Expanded(
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.edit_note, color: Colors.orange),
+              label: const Text(
+                'Pedir corrección',
+                style: TextStyle(color: Colors.orange),
               ),
-            ),
-            onPressed: _generandoCarnet ? null : _generarCarnet,
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            icon: _generandoQr
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.qr_code_2_rounded),
-            label: Text(_generandoQr ? 'Generando…' : 'Solo el QR'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: _thPrimary,
-              minimumSize: const Size.fromHeight(46),
-              side: const BorderSide(color: _thPrimary),
-              textStyle: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.orange),
+                minimumSize: const Size.fromHeight(48),
               ),
-            ),
-            onPressed: _generandoQr ? null : _generarQrCarnet,
-          ),
-          TextButton(
-            onPressed: _generandoQr ? null : _confirmarRotarCarnet,
-            child: const Text(
-              'Se perdió el carnet: generar uno nuevo',
-              style: TextStyle(fontSize: 12),
+              // Aprobar no deja la hoja congelada: si despues aparece un dato
+              // mal, tiene que poder devolverse.
+              onPressed: _solicitarCorreccion,
             ),
           ),
-          const Divider(height: 24),
-          // Aprobar no deja la hoja congelada: si después se encuentra un dato
-          // mal, tiene que poder devolverse. Sin esto, la única salida era
-          // pedirle a la persona que la volviera a cargar entera.
-          OutlinedButton.icon(
-            icon: const Icon(Icons.edit_note, color: Colors.orange),
-            label: const Text(
-              'Pedir corrección',
-              style: TextStyle(color: Colors.orange),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton.icon(
+              icon: _generandoPDF
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.picture_as_pdf_rounded),
+              label: Text(_generandoPDF ? 'Generando…' : 'Descargar PDF'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _thPrimary,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(48),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onPressed: _generandoPDF ? null : _descargarPDF,
             ),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.orange),
-              minimumSize: const Size.fromHeight(46),
-            ),
-            onPressed: _solicitarCorreccion,
           ),
         ],
       );
@@ -849,6 +801,53 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
           ],
         );
       },
+    );
+  }
+
+  /// Acciones del carnet, fuera de la barra inferior.
+  ///
+  /// Son tres y ninguna es la principal de la pantalla: apiladas abajo dejaban
+  /// la hoja de vida sin altura para dibujarse.
+  Future<void> _menuCarnet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.badge_rounded),
+              title: const Text('Carnet para imprimir'),
+              subtitle: const Text('El carnet completo, listo para la tarjeta'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _generarCarnet();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_2_rounded),
+              title: const Text('Solo el QR'),
+              subtitle: const Text(
+                'Para reponer el adhesivo de uno que ya existe',
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                _generarQrCarnet();
+              },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.refresh_rounded, color: Colors.orange),
+              title: const Text('Se perdió el carnet: generar uno nuevo'),
+              subtitle: const Text('Invalida el QR que ya esté impreso'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _confirmarRotarCarnet();
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1200,6 +1199,30 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
         ),
         backgroundColor: _thPrimary,
         foregroundColor: Colors.white,
+        actions: [
+          // El carnet vive aquí y no en la barra de abajo: son tres acciones y
+          // apiladas dejaban la hoja de vida sin espacio para dibujarse.
+          if (!_loading &&
+              _data != null &&
+              _data!.isNotEmpty &&
+              (_data?['estadoRevision'] as String? ?? '') == 'aprobado')
+            IconButton(
+              tooltip: 'Carnet',
+              icon: (_generandoCarnet || _generandoQr)
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.badge_rounded),
+              onPressed: (_generandoCarnet || _generandoQr)
+                  ? null
+                  : _menuCarnet,
+            ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
