@@ -91,6 +91,32 @@ void main() {
     });
   });
 
+  group('numerales para el selector de ítems', () {
+    test('el acta de policía numera 4.1..4.11, no 1..11', () {
+      // El selector sacaba el número del texto del aspecto, que en estas actas
+      // viene limpio: caía a la posición y mostraba 1..11 en la sección 4.
+      final numerales = numeralesDeActaPropia(kActaEstacionPolicia, 'seccion4');
+      expect(numerales, hasLength(11));
+      expect(numerales.first, '4.1');
+      expect(numerales.last, '4.11');
+    });
+
+    test('infraestructura numera 1.1..1.28', () {
+      final numerales = numeralesDeActaPropia(kActaInfraestructura, 'seccion1');
+      expect(numerales, hasLength(28));
+      expect(numerales.last, '1.28');
+    });
+
+    test('el acta regular no usa esta lista', () {
+      // Su numeral va escrito dentro del propio texto del aspecto.
+      expect(
+        numeralesDeActaPropia(kActaRegular, 'instalacionesFisicas'),
+        isEmpty,
+      );
+      expect(numeralesDeActaPropia(null, 'instalacionesFisicas'), isEmpty);
+    });
+  });
+
   group('maestro por acta', () {
     test('el de policía trae 25 filas sin responsables', () {
       final filas = construirMaestroSubsanaciones(

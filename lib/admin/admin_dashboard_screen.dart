@@ -200,6 +200,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   // UI — filtros de personal
   String _userSearch = '';
   String? _userAreaFilter;
+
+  /// El personal retirado no se muestra por defecto. Aparecía mezclado con el
+  /// activo y era fácil darle módulos a alguien que ya no trabaja aquí.
+  bool _userSoloActivos = true;
   String _sessionSearch = '';
 
   // Roles Compras: filtros
@@ -3997,7 +4001,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       _users,
       search: _userSearch,
       areaId: _userAreaFilter,
+      soloActivos: _userSoloActivos,
     );
+    final ocultos = _userSoloActivos
+        ? _users.length -
+              _applyPersonnelFilter(
+                _users,
+                search: _userSearch,
+                areaId: _userAreaFilter,
+              ).length
+        : 0;
 
     final activeAreas = _areas.where((a) => a.enabled).toList();
     final isMobile = MediaQuery.of(context).size.width < 700;
@@ -4008,6 +4021,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildUsersHeader(activeAreas, isMobile),
+          // Se dice cuántos quedaron fuera: si no, quien busca a alguien que
+          // ya se retiró cree que el usuario no existe.
+          if (ocultos > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '$ocultos persona(s) retirada(s) sin mostrar.',
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: kAdminMuted,
+              ),
+            ),
+          ],
           SizedBox(height: isMobile ? 16 : 24),
           Expanded(
             child: ListView.separated(
@@ -4369,11 +4395,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       ),
     );
 
+    final soloActivos = FilterChip(
+      selected: _userSoloActivos,
+      onSelected: (v) => setState(() => _userSoloActivos = v),
+      label: const Text(
+        'Solo personal activo',
+        style: TextStyle(fontFamily: kArial, fontSize: 12),
+      ),
+    );
+
     if (isMobile) {
       return Column(
         children: [
           if (areaFilter != null) ...[areaFilter, const SizedBox(height: 8)],
           searchField,
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerLeft, child: soloActivos),
         ],
       );
     }
@@ -4382,7 +4419,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       spacing: 8,
       runSpacing: 8,
       crossAxisAlignment: WrapCrossAlignment.center,
-      children: [if (areaFilter != null) areaFilter, searchField],
+      children: [if (areaFilter != null) areaFilter, searchField, soloActivos],
     );
   }
 
@@ -4467,9 +4504,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     List<QueryDocumentSnapshot<Map<String, dynamic>>> users, {
     required String search,
     String? areaId,
+    bool soloActivos = false,
   }) {
     return users.where((u) {
       final d = u.data();
+      // El retiro vive en el bloque de la empresa: el `estado` raíz solo
+      // gobierna el login y no dice nada del vínculo laboral.
+      if (soloActivos && !isPersonaActivaEnEmpresa(d, _empresaId)) return false;
       final scoped = getUserCompanyDetail(d, _empresaId);
       final uAreaId = _safe(scoped?['areaId']).isNotEmpty
           ? _safe(scoped?['areaId'])

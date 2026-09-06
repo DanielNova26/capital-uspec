@@ -4112,6 +4112,10 @@ class _ItemPuntajeRowState extends State<_ItemPuntajeRow> {
                 compact: true,
                 emptyText: 'Sin observaciones',
                 catalogItems: aspectosDeActa(widget.tipoActa, item.key),
+                catalogNumerals: numeralesDeActaPropia(
+                  widget.tipoActa,
+                  item.key,
+                ),
                 catalogAsAspect: true,
                 allowManual: false,
                 allowOcrBulk: false,
@@ -8818,6 +8822,11 @@ class _NotasInlineEditor extends StatelessWidget {
   final String emptyText;
   final bool compact;
   final List<String> catalogItems;
+
+  /// Numeral de cada ítem, alineado con [catalogItems]. Vacío para el acta
+  /// regular, que lleva el número escrito dentro del propio texto del aspecto.
+  final List<String> catalogNumerals;
+
   final bool catalogAsAspect;
   final bool allowManual;
   final bool allowOcrBulk;
@@ -8830,6 +8839,7 @@ class _NotasInlineEditor extends StatelessWidget {
     required this.emptyText,
     required this.compact,
     required this.catalogItems,
+    this.catalogNumerals = const [],
     this.catalogAsAspect = false,
     this.allowManual = true,
     this.allowOcrBulk = true,
@@ -8886,10 +8896,17 @@ class _NotasInlineEditor extends StatelessWidget {
       );
       return const [];
     }
-    // Extrae el numeral real del acta embebido al inicio del texto (p. ej.
-    // "2. Existen fichas..." → "2"), para que el índice nunca contradiga
-    // el número oficial que aparece en el cuerpo del ítem.
+    // El numeral sale de `catalogNumerals` cuando el acta lo trae aparte.
+    //
+    // El acta regular lo lleva escrito dentro del texto ("2. Existen
+    // fichas..."), asi que de ahi se extrae. Las actas de Infraestructura y
+    // Policia guardan el texto limpio: sin la lista se caia al `i + 1`, que es
+    // la POSICION en la seccion y no el numeral del acta. En la seccion 4 del
+    // acta de policia se veia 1..11 en vez de 4.1..4.11.
     String numeroDe(int i) {
+      if (i < catalogNumerals.length && catalogNumerals[i].trim().isNotEmpty) {
+        return catalogNumerals[i];
+      }
       final m = RegExp(r'^(\d+)\.').firstMatch(catalogItems[i]);
       return m?.group(1) ?? '${i + 1}';
     }
@@ -8897,6 +8914,21 @@ class _NotasInlineEditor extends StatelessWidget {
     final selected = <String>{};
     var pagina = 0;
     final total = catalogItems.length;
+
+    // Al pasar de item, el circulo activo se salia de vista y parecia que los
+    // numeros "desaparecian": la tira no seguia al seleccionado.
+    final indiceCtrl = ScrollController();
+    void seguirAlActual() {
+      if (!indiceCtrl.hasClients) return;
+      const anchoItem = 38.0; // 32 del circulo + 6 de separacion
+      final destino = (pagina * anchoItem) - 120;
+      indiceCtrl.animateTo(
+        destino.clamp(0.0, indiceCtrl.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+    }
+
     final result = await showModalBottomSheet<List<String>>(
       context: context,
       isScrollControlled: true,
@@ -8959,6 +8991,7 @@ class _NotasInlineEditor extends StatelessWidget {
                     SizedBox(
                       height: 44,
                       child: ListView.separated(
+                        controller: indiceCtrl,
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         itemCount: total,
@@ -8969,7 +9002,10 @@ class _NotasInlineEditor extends StatelessWidget {
                             catalogItems[i],
                           );
                           return InkWell(
-                            onTap: () => setSheetState(() => pagina = i),
+                            onTap: () {
+                              setSheetState(() => pagina = i);
+                              seguirAlActual();
+                            },
                             borderRadius: BorderRadius.circular(16),
                             child: Container(
                               width: 32,
@@ -9044,7 +9080,10 @@ class _NotasInlineEditor extends StatelessWidget {
                         children: [
                           OutlinedButton.icon(
                             onPressed: pagina > 0
-                                ? () => setSheetState(() => pagina--)
+                                ? () {
+                                    setSheetState(() => pagina--);
+                                    seguirAlActual();
+                                  }
                                 : null,
                             icon: const Icon(Icons.chevron_left_rounded),
                             label: const Text('Anterior'),
@@ -9052,7 +9091,10 @@ class _NotasInlineEditor extends StatelessWidget {
                           const Spacer(),
                           OutlinedButton.icon(
                             onPressed: pagina < total - 1
-                                ? () => setSheetState(() => pagina++)
+                                ? () {
+                                    setSheetState(() => pagina++);
+                                    seguirAlActual();
+                                  }
                                 : null,
                             icon: const Icon(Icons.chevron_right_rounded),
                             label: const Text('Siguiente'),
@@ -9087,6 +9129,7 @@ class _NotasInlineEditor extends StatelessWidget {
         ),
       ),
     );
+    indiceCtrl.dispose();
     return result ?? const [];
   }
 
@@ -10768,6 +10811,7 @@ class _ItemRevisionRowState extends State<_ItemRevisionRow> {
               compact: true,
               emptyText: 'Sin observaciones',
               catalogItems: aspectosDeActa(widget.tipoActa, item.key),
+              catalogNumerals: numeralesDeActaPropia(widget.tipoActa, item.key),
               catalogAsAspect: true,
               allowManual: true,
               allowOcrBulk: false,

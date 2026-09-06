@@ -450,6 +450,21 @@ String numeralDeAspectoEnActa(
   return '';
 }
 
+/// Numerales de los aspectos de una categoría, en el mismo orden.
+///
+/// Solo para las actas con catálogo propio: su numeral no está escrito dentro
+/// del texto del aspecto, como sí ocurre en el acta regular ("2. Existen
+/// fichas…"). Sin esta lista el selector de ítems muestra la posición en vez
+/// del numeral del acta.
+List<String> numeralesDeActaPropia(String? tipoActa, String categoriaKey) {
+  if (!tieneCatalogoPropio(tipoActa)) return const [];
+  final aspectos = aspectosDeActa(tipoActa, categoriaKey);
+  return [
+    for (final aspecto in aspectos)
+      numeralDeAspectoEnActa(tipoActa, categoriaKey, aspecto),
+  ];
+}
+
 /// ¿El numeral existe en el acta indicada?
 ///
 /// Se valida antes de guardar una regla: sin esto, un numeral mal escrito

@@ -630,10 +630,10 @@ class _PersonnelRequisitionScreenState
                           DataColumn(label: Text('Tiempo')),
                           DataColumn(label: Text('Estado')),
                           DataColumn(label: Text('Fecha')),
-                          DataColumn(label: Text('Establecimiento')),
-                          DataColumn(label: Text('Anexo')),
                           DataColumn(label: Text('Cargo')),
+                          DataColumn(label: Text('Anexo')),
                           DataColumn(label: Text('Cant.')),
+                          DataColumn(label: Text('Establecimiento')),
                           DataColumn(label: Text('Salario')),
                           DataColumn(label: Text('Etapa')),
                           DataColumn(label: Text('Avance')),
@@ -652,16 +652,6 @@ class _PersonnelRequisitionScreenState
                               DataCell(Text(_shortDate(row.requestDate))),
                               DataCell(
                                 SizedBox(
-                                  width: 130,
-                                  child: Text(
-                                    row.establishment,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                              DataCell(_AnnexBadge(isRequired: row.annex)),
-                              DataCell(
-                                SizedBox(
                                   width: 190,
                                   child: Text(
                                     row.position,
@@ -669,7 +659,17 @@ class _PersonnelRequisitionScreenState
                                   ),
                                 ),
                               ),
+                              DataCell(_AnnexBadge(isRequired: row.annex)),
                               DataCell(Text('${row.quantity}')),
+                              DataCell(
+                                SizedBox(
+                                  width: 130,
+                                  child: Text(
+                                    row.establishment,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
                               DataCell(
                                 Text(
                                   row.salary == null
