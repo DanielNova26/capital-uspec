@@ -8,6 +8,7 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
+import 'foto_carnet.dart';
 import 'hoja_de_vida_service.dart';
 import '../login/preview_screen.dart';
 
@@ -671,12 +672,33 @@ class _HojaDeVidaScreenState extends State<HojaDeVidaScreen> {
         ),
       );
       if (src == null) return;
-      final picked = await picker.pickImage(source: src, imageQuality: 80);
+      // maxWidth/maxHeight además de imageQuality: el recorte de fondo recorre
+      // la foto pixel a pixel y una de 12 MP tarda un orden de magnitud más sin
+      // que el círculo del carnet gane detalle.
+      final picked = await picker.pickImage(
+        source: src,
+        imageQuality: 90,
+        maxWidth: 1600,
+        maxHeight: 1600,
+      );
       if (picked == null) return;
       bytes = await picked.readAsBytes();
       ext = picked.path.split('.').last;
+
+      // Esta misma foto es la que sale en el carnet, así que se le quita el
+      // fondo aquí y no al imprimir: hacerlo al imprimir obligaría a repetirlo
+      // en cada reimpresión y solo funcionaría desde el celular.
+      final recortada = await recortarFondoCarnet(
+        rutaArchivo: picked.path,
+        bytes: bytes,
+      );
+      if (recortada != null) {
+        bytes = recortada;
+        ext = 'jpg';
+      }
     }
     final url = await _upload('foto', bytes, ext);
+    if (!mounted) return;
     setState(() {
       _fotoBytes = bytes;
       _fotoUrl = url;

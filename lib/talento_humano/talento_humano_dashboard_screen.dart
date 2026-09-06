@@ -11,6 +11,7 @@ import '../home/widgets/home_shared_widgets.dart'
 import '../widgets/internal_module_layout.dart';
 import 'areas_management_screen.dart';
 import 'cargos_management_screen.dart';
+import 'carnet_screen.dart';
 import 'centros_costos_management_screen.dart';
 import 'disciplinary_management_screen.dart';
 import 'hoja_de_vida_management_screen.dart';
@@ -364,6 +365,21 @@ class _TalentoHumanoDashboardScreenState
               userId: userId,
               empresaId: empresaId,
             ),
+          ),
+        ),
+      ),
+      _HumanTalentAction(
+        section: 'Documentación',
+        title: 'Carnets',
+        description:
+            'Diseño de la empresa e impresión de carnets, uno o por lotes.',
+        icon: Icons.badge_rounded,
+        color: const Color(0xFF1E293B),
+        metric: 'Identificación del personal',
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CarnetScreen(userId: userId, empresaId: empresaId),
           ),
         ),
       ),

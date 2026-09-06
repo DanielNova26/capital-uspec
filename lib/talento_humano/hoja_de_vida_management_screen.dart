@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'hoja_de_vida_service.dart';
+import 'carnet_marca.dart';
+import 'carnet_pdf.dart';
 import 'carnet_qr.dart';
 import 'hoja_de_vida_pdf.dart';
 import '../services/task_service.dart';
@@ -656,6 +658,7 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
   bool _loading = true;
   bool _generandoPDF = false;
   bool _generandoQr = false;
+  bool _generandoCarnet = false;
   String? _reviewerNombre;
 
   @override
@@ -727,6 +730,35 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
         children: [
           pdfButton,
           const SizedBox(height: 10),
+          // El carnet completo va primero: es lo que se imprime en el 99% de
+          // los casos. El QR suelto queda para reponer el adhesivo de un
+          // carnet que ya existe.
+          ElevatedButton.icon(
+            icon: _generandoCarnet
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.badge_rounded),
+            label: Text(
+              _generandoCarnet ? 'Generando…' : 'Carnet para imprimir',
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E293B),
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+              textStyle: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            onPressed: _generandoCarnet ? null : _generarCarnet,
+          ),
+          const SizedBox(height: 10),
           OutlinedButton.icon(
             icon: _generandoQr
                 ? const SizedBox(
@@ -735,7 +767,7 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.qr_code_2_rounded),
-            label: Text(_generandoQr ? 'Generando…' : 'QR para el carnet'),
+            label: Text(_generandoQr ? 'Generando…' : 'Solo el QR'),
             style: OutlinedButton.styleFrom(
               foregroundColor: _thPrimary,
               minimumSize: const Size.fromHeight(46),
@@ -753,6 +785,22 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
               'Se perdió el carnet: generar uno nuevo',
               style: TextStyle(fontSize: 12),
             ),
+          ),
+          const Divider(height: 24),
+          // Aprobar no deja la hoja congelada: si después se encuentra un dato
+          // mal, tiene que poder devolverse. Sin esto, la única salida era
+          // pedirle a la persona que la volviera a cargar entera.
+          OutlinedButton.icon(
+            icon: const Icon(Icons.edit_note, color: Colors.orange),
+            label: const Text(
+              'Pedir corrección',
+              style: TextStyle(color: Colors.orange),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.orange),
+              minimumSize: const Size.fromHeight(46),
+            ),
+            onPressed: _solicitarCorreccion,
           ),
         ],
       );
@@ -860,6 +908,68 @@ class _HojaDeVidaViewerScreenState extends State<HojaDeVidaViewerScreen> {
       if (mounted) setState(() => _generandoQr = false);
     }
   }
+
+  /// Genera el carnet impreso de esta persona, en tamaño tarjeta.
+  ///
+  /// Reutiliza el MISMO token que el QR suelto: `asegurarTokenCarnet` no rota
+  /// nada. Si esta acción generara un token nuevo, imprimir un carnet de
+  /// repuesto invalidaría el que la persona lleva encima.
+  ///
+  /// Los datos salen de `_data`, que ya viene con la hoja de vida cargada, así
+  /// que no hace falta ninguna lectura extra: el RH y la foto ya están ahí.
+  Future<void> _generarCarnet() async {
+    if (_generandoCarnet) return;
+    setState(() => _generandoCarnet = true);
+    try {
+      final empresaId = widget.empresaId.trim();
+      if (empresaId.isEmpty) {
+        throw StateError('No hay empresa activa.');
+      }
+      final token = await asegurarTokenCarnet(
+        userId: widget.empleadoId,
+        empresaId: empresaId,
+      );
+      final datos = _data ?? const <String, dynamic>{};
+      final marca = await CarnetMarcaService().cargar(empresaId);
+
+      final bytes = await buildCarnetPdf(
+        persona: CarnetPersona(
+          userId: widget.empleadoId,
+          nombres: _unir([datos['primerNombre'], datos['segundoNombre']]),
+          apellidos: _unir([datos['primerApellido'], datos['segundoApellido']]),
+          cargo: (datos['cargo'] ?? datos['cargoNombre'] ?? '').toString(),
+          cedula: widget.empleadoCedula.trim().isNotEmpty
+              ? widget.empleadoCedula.trim()
+              : widget.empleadoId,
+          rh: (datos['tipoSangre'] ?? '').toString(),
+          token: token,
+          fotoUrl: (datos['fotoUrl'] ?? '').toString(),
+        ),
+        marca: marca,
+      );
+      final limpio = widget.empleadoNombre.replaceAll(' ', '_');
+      await Printing.sharePdf(bytes: bytes, filename: 'Carnet_$limpio.pdf');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo generar el carnet: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _generandoCarnet = false);
+    }
+  }
+
+  /// Junta las partes de un nombre saltando las vacías. El padrón viejo tiene
+  /// personas con segundo nombre en blanco y no puede quedar un espacio doble
+  /// impreso en la tarjeta.
+  static String _unir(List<dynamic> partes) => partes
+      .map((p) => (p ?? '').toString().trim())
+      .where((p) => p.isNotEmpty)
+      .join(' ');
 
   /// Confirma antes de invalidar un carnet ya impreso.
   Future<void> _confirmarRotarCarnet() async {
