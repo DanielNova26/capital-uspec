@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/talento_humano/personnel_requisition_models.dart';
@@ -96,6 +97,213 @@ void main() {
       expect(row.history.first.advanceType, 'Entrevista realizada');
       expect(row.history.first.result, 'no_continua');
       expect(row.history.first.note, 'No cumple la experiencia requerida');
+    });
+  });
+
+  group('identidad del aspirante sin cédula', () {
+    PersonnelCandidate aspirante({
+      String candidateId = '',
+      String document = '',
+      String names = 'Juan',
+      String surnames = 'Pérez',
+    }) => PersonnelCandidate(
+      candidateId: candidateId,
+      document: document,
+      names: names,
+      surnames: surnames,
+    );
+
+    test('la llave es el id propio, no la cédula', () {
+      final conId = aspirante(candidateId: 'abc123', document: '1010');
+      expect(conId.key, 'abc123');
+      expect(conId.matches('abc123'), isTrue);
+      // La cédula deja de servir como llave en cuanto hay id propio: si
+      // respondiera a las dos, un registro viejo podría chocar con uno nuevo.
+      expect(conId.matches('1010'), isFalse);
+    });
+
+    test('los registros viejos siguen respondiendo por su documento', () {
+      final legacy = aspirante(document: '1010');
+      expect(legacy.key, '1010');
+      expect(legacy.matches('1010'), isTrue);
+    });
+
+    test('sin id ni documento no responde a nada', () {
+      final huerfano = aspirante();
+      expect(huerfano.key, isEmpty);
+      expect(huerfano.matches(''), isFalse);
+      expect(huerfano.matches('1010'), isFalse);
+    });
+
+    test('dos aspirantes sin cédula son personas distintas', () {
+      final ana = aspirante(candidateId: 'id-1', names: 'Ana');
+      final luis = aspirante(candidateId: 'id-2', names: 'Luis');
+      // Antes ambos tenían documento vacío y se pisaban entre sí: mover a uno
+      // de etapa movía al otro.
+      expect(ana.matches(luis.key), isFalse);
+      expect(luis.matches(ana.key), isFalse);
+    });
+
+    test('el documento vacío se muestra, no se deja colgando', () {
+      expect(aspirante().documentLabel, 'Sin cédula registrada');
+      expect(aspirante(document: '1010').documentLabel, 'CC 1010');
+    });
+
+    test('copyWith puede llenar la cédula que faltaba', () {
+      final registrado = aspirante(candidateId: 'id-1');
+      final contratado = registrado.copyWith(
+        document: '1020304050',
+        stage: PersonnelCandidateStage.hired,
+      );
+      expect(contratado.document, '1020304050');
+      expect(contratado.candidateId, 'id-1');
+      expect(contratado.stage, PersonnelCandidateStage.hired);
+    });
+
+    test('el mapa guarda la llave para que sobreviva a la recarga', () {
+      final ida = aspirante(candidateId: 'id-1', document: '1010');
+      final vuelta = PersonnelCandidate.fromMap(ida.toMap());
+      expect(vuelta.candidateId, 'id-1');
+      expect(vuelta.key, 'id-1');
+
+      // Un registro viejo no tiene candidatoId: al releerlo debe quedar con su
+      // documento como llave, no con la llave vacía.
+      final antiguo = PersonnelCandidate.fromMap(const {
+        'documento': '2020',
+        'nombres': 'Ana',
+      });
+      expect(antiguo.candidateId, isEmpty);
+      expect(antiguo.key, '2020');
+    });
+  });
+
+  group('borrar novedades del historial', () {
+    Map<String, dynamic> crudo({
+      String? id,
+      required String nota,
+      String usuario = '1010',
+      required DateTime fecha,
+    }) => {
+      if (id != null) 'id': id,
+      'etapa': 'reclutamiento',
+      'nota': nota,
+      'usuario': usuario,
+      'fecha': Timestamp.fromDate(fecha),
+    };
+
+    test('la novedad nueva responde por su id', () {
+      final entrada = PersonnelRequisitionHistoryEntry.fromMap(
+        crudo(id: 'nov-1', nota: 'Avance', fecha: DateTime(2026, 9, 8)),
+      );
+      expect(entrada.key, 'nov-1');
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(
+          crudo(id: 'nov-1', nota: 'Avance', fecha: DateTime(2026, 9, 8)),
+          'nov-1',
+        ),
+        isTrue,
+      );
+    });
+
+    test('las novedades viejas responden por su huella', () {
+      // Las que ya estaban guardadas no tienen id: se reconocen por fecha,
+      // autor y texto, que juntos no se repiten.
+      final fecha = DateTime(2026, 9, 8, 10, 30);
+      final vieja = PersonnelRequisitionHistoryEntry.fromMap(
+        crudo(nota: 'Solicitud creada', fecha: fecha),
+      );
+      expect(vieja.key, isNot(isEmpty));
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(
+          crudo(nota: 'Solicitud creada', fecha: fecha),
+          vieja.key,
+        ),
+        isTrue,
+      );
+      // Otra novedad del mismo autor, mismo texto, distinto instante: no es
+      // la misma y no puede borrarse por error.
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(
+          crudo(nota: 'Solicitud creada', fecha: fecha.add(
+            const Duration(seconds: 1),
+          )),
+          vieja.key,
+        ),
+        isFalse,
+      );
+    });
+
+    test('el id manda sobre la huella', () {
+      // Si la novedad tiene id, una huella que coincida no debe alcanzar:
+      // así una novedad vieja no puede hacerse pasar por una nueva.
+      final fecha = DateTime(2026, 9, 8, 10, 30);
+      final conId = crudo(id: 'nov-9', nota: 'Avance', fecha: fecha);
+      final huella = PersonnelRequisitionHistoryEntry.huella(
+        fecha: fecha,
+        usuario: '1010',
+        nota: 'Avance',
+      );
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(conId, huella),
+        isFalse,
+      );
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(conId, 'nov-9'),
+        isTrue,
+      );
+    });
+
+    test('una llave vacía no borra nada', () {
+      // Sin esto, una novedad sin fecha ni autor podría arrastrar a otra.
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(
+          crudo(nota: 'Avance', fecha: DateTime(2026, 9, 8)),
+          '',
+        ),
+        isFalse,
+      );
+      expect(
+        PersonnelRequisitionHistoryEntry.mapMatches(
+          crudo(id: 'nov-1', nota: 'Avance', fecha: DateTime(2026, 9, 8)),
+          '   ',
+        ),
+        isFalse,
+      );
+    });
+
+    test('se borra la novedad pedida aunque llegue otra en el intervalo', () {
+      // Este es el caso que obliga a filtrar por llave y no por posición: si
+      // alguien registra un avance entre leer y escribir, el índice 1 ya no
+      // apunta a lo mismo que el usuario vio.
+      final historial = [
+        crudo(id: 'a', nota: 'Solicitud creada', fecha: DateTime(2026, 9, 1)),
+        crudo(id: 'nueva', nota: 'Avance de otro', fecha: DateTime(2026, 9, 7)),
+        crudo(id: 'b', nota: 'Avance equivocado', fecha: DateTime(2026, 9, 8)),
+      ];
+      final restantes = historial
+          .where((item) =>
+              !PersonnelRequisitionHistoryEntry.mapMatches(item, 'b'))
+          .toList();
+
+      expect(restantes, hasLength(2));
+      expect(restantes.map((e) => e['id']), ['a', 'nueva']);
+    });
+
+    test('borrar conserva los campos que el modelo no conoce', () {
+      // El arreglo se reescribe completo, así que si el filtro trabajara sobre
+      // objetos tipados se perderían campos guardados por otras versiones.
+      final historial = [
+        {...crudo(id: 'a', nota: 'Creada', fecha: DateTime(2026, 9, 1)),
+          'campoFuturo': 'no se puede perder'},
+        crudo(id: 'b', nota: 'Equivocado', fecha: DateTime(2026, 9, 8)),
+      ];
+      final restantes = historial
+          .where((item) =>
+              !PersonnelRequisitionHistoryEntry.mapMatches(item, 'b'))
+          .toList();
+
+      expect(restantes, hasLength(1));
+      expect(restantes.single['campoFuturo'], 'no se puede perder');
     });
   });
 
@@ -225,7 +433,10 @@ void main() {
 
       expect(sheet.rows[0][0]?.value.toString(), contains('INFORME'));
       expect(sheet.rows[4][0]?.value.toString(), contains('Próxima a vencer'));
-      expect(sheet.rows[4][6]?.value.toString(), contains('Nutricionista'));
+      // El cargo va en la tercera columna, antes de la fecha: se pidió en la
+      // reunión del 8 sep 2026 porque es por lo que se busca en el informe.
+      expect(sheet.rows[3][2]?.value.toString(), contains('Cargo'));
+      expect(sheet.rows[4][2]?.value.toString(), contains('Nutricionista'));
     });
   });
 }

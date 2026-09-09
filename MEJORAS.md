@@ -66,6 +66,503 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-08 (ronda 5) — El deploy de functions fallaba por el antivirus
+
+`firebase deploy --only functions:...` fallaba de dos formas encadenadas y
+ninguna tenía que ver con el código.
+
+### Síntoma 1: "Cannot determine backend specification. Timeout after 10000"
+
+Firebase carga `lib/index.js` en un proceso aparte para enumerar los exports.
+Ese paso se rindió a los 10 segundos. Se sube el plazo con una variable de
+entorno, que hay que poner en la **misma** consola que lanza el deploy:
+
+```powershell
+$env:FUNCTIONS_DISCOVERY_TIMEOUT = 180
+```
+
+El código no era el problema: cargado a mano, `lib/index.js` tarda 1,2 s y no
+deja ningún handle abierto.
+
+### Síntoma 2: TS5033 "Could not write file" en cuatro archivos
+
+Siempre los mismos: `correo.js`, `index.js`, `whatsapp.js` y
+`workflow_whatsapp_notifications.js`.
+
+Lo que descartó las hipótesis fáciles:
+
+- **No es un proceso colgado.** Ningún proceso tiene el proyecto abierto
+  (`Get-Process | Where Path -like *capital-uspec*` no devuelve nada), y el
+  puerto 8350 del discovery queda libre.
+- **No es permisos.** Los archivos son `Archive`, no `ReadOnly`.
+- **No es el predeploy.** Correr a mano `npm run lint && npm run build` —los dos
+  comandos exactos del predeploy— funciona.
+- **No están bloqueados.** Antes y después del fallo se abren para escritura sin
+  problema.
+
+Lo que sí es: **Defender en tiempo real** (`DisableRealtimeMonitoring: False`)
+toma los `.js` recién escritos el tiempo justo para que la **sobrescritura**
+falle. Por eso siempre los cuatro más grandes, que además son los que llevan
+código de red — `correo.js` pesa 158 KB e `whatsapp.js` 78 KB.
+
+La prueba definitiva: `npm run build` (que ahora borra `lib/` antes) pasa dos
+veces seguidas, y `npm test` —que corría `tsc` pelado sobre el `lib/`
+existente— fallaba en esos mismos cuatro.
+
+### El arreglo: crear en vez de sobrescribir
+
+Borrar el directorio antes de compilar esquiva el problema, porque crear un
+archivo nuevo no necesita abrir el viejo.
+
+```json
+"clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
+"build": "npm run clean && tsc",
+"test": "npm run build && node --test test/*.test.js",
+```
+
+Se usa `fs.rmSync` de Node y no `rm -rf` ni `rimraf`: funciona en Windows sin
+agregar dependencias. `lib/` es solo salida de tsc —23 archivos, todos `.js`—
+así que borrarlo no pierde nada.
+
+Con eso, `npm test` pasa tres veces seguidas (44/44) y el deploy entró.
+
+Si vuelve a molestar, la solución de fondo es una exclusión de Defender para la
+carpeta del proyecto, pero eso pide permisos de administrador.
+
+### Quedó desplegada
+
+`thNotificarPlazosDisciplinarios · scheduled · us-central1 · nodejs20`, el cron
+de las alertas del proceso disciplinario. Corre a las 7:00 de Bogotá.
+
+---
+
+## Sesión 2026-09-08 (ronda 4) — Borrar novedades del historial de un requerimiento
+
+Talento Humano registra un avance con el texto equivocado, o en la vacante
+equivocada, y ese renglón queda para siempre en el informe que va a
+interventoría. Se pidió poder borrarlo.
+
+### El historial es un arreglo, y eso decide el diseño
+
+`historial` vive dentro del documento del requerimiento, no en una
+subcolección. Borrar "la tercera novedad" es borrar lo que haya en esa posición
+**cuando llegue la escritura**, no lo que el usuario vio: si otra persona
+registró un avance en el intervalo, se va el equivocado.
+
+Por eso cada novedad ahora nace con `id` propio, generado con
+`_db.collection(collection).doc().id` — un documento de Firestore que nunca se
+escribe, que es la forma barata de tener un identificador único sin agregar
+`uuid` como dependencia. Los siete sitios que escribían en `historial` pasan
+ahora por un único helper `_novedad()`.
+
+Las novedades que ya estaban guardadas no tienen `id`. Se reconocen por su
+**huella**: `fecha en microsegundos | usuario | nota`. Alcanza porque
+`Timestamp.now()` llega al microsegundo, así que dos novedades distintas no
+coinciden en las tres cosas. `mapMatches()` centraliza la comparación y le da
+prioridad al id: una novedad vieja no puede hacerse pasar por una nueva.
+
+### Se borra en transacción y reescribiendo el arreglo
+
+Ni `arrayRemove` ni índice:
+
+- `arrayRemove` con un mapa "igual" se llevaría también las novedades
+  duplicadas, y exige que el mapa coincida campo por campo.
+- El índice se corre si alguien escribe en el intervalo.
+
+`deleteHistoryEntry` lee dentro de la transacción, filtra por llave sobre los
+**mapas crudos** (no sobre los objetos tipados, para no perder campos que el
+modelo todavía no conoce) y reescribe el arreglo completo.
+
+Dos guardas: si la llave no aparece se avisa "esa novedad ya no está" en vez de
+escribir en vano, y no se permite dejar el historial vacío — una vacante sin
+rastro de cuándo se abrió no le sirve a nadie.
+
+### Lo que borrar NO hace, y hay que decirlo antes
+
+La etapa de la vacante **no vuelve atrás**. Si el avance equivocado movió la
+solicitud a "entrevistas", borrar el renglón lo quita del informe pero la
+vacante sigue en entrevistas. El diálogo de confirmación lo dice, y explica que
+eso se corrige registrando el avance correcto.
+
+Permiso: solo el gestor (`access.canDelete`), el mismo que puede eliminar el
+requerimiento completo. Borrar rastro es la misma clase de acción destructiva.
+
+### Dos cosas que estaban mal en esa pantalla y se arreglaron de paso
+
+**La stream se creaba dentro de `build`.**
+`stream: _service.streamForCompany(widget.empresaId)` montaba un listener nuevo
+en cada repintado — exactamente lo que en web termina en "INTERNAL ASSERTION
+FAILED" de Firestore. Ahora vive en `_rows` y solo se rehace al cambiar de
+empresa.
+
+**El historial mostraba la cédula cruda**: `'Por ${entry.userId}'`, contra la
+regla transversal 4 de `CLAUDE.md`. Pasó a `UserNameText`.
+
+### De paso: el cargo antes de la fecha
+
+En la reunión se dio por hecho ("no, mira, ya está"), pero solo estaba en el
+**PDF**. La tabla en pantalla y el Excel seguían con `Fecha` antes de `Cargo`.
+Ya quedan los tres iguales.
+
+El semáforo (`Tiempo`, `Estado`) se conserva adelante: Zuly dijo que la alerta
+está bien, lo que pedía era no tener que buscar el cargo. El test del Excel
+comprobaba la columna 6 y ahora comprueba la 2, que es donde quedó.
+
+### El detalle móvil estaba congelado
+
+La hoja de `showModalBottomSheet` se quedaba con la copia del requerimiento del
+momento en que se abrió. Al borrar una novedad parecía que no había pasado nada
+hasta cerrar y volver a abrir — y eso invita a borrar dos veces. Ahora la hoja
+escucha `_rows` y se cierra sola si el requerimiento desaparece. Beneficia
+también a agregar aspirantes y registrar contrataciones, que tenían el mismo
+problema.
+
+---
+
+## Sesión 2026-09-08 (ronda 2) — El disciplinario listaba la empresa entera de un tirón
+
+El panel izquierdo de `disciplinary_management_screen.dart` (las carpetas del
+personal) pintaba `ListView.separated` con `itemCount: filtered.length`, y la
+carpeta de cada persona recorría sus procesos con un `for` suelto dentro de la
+columna. Ninguno de los dos pasaba por `lib/widgets/paged_list.dart`, que es la
+regla transversal 1 de `CLAUDE.md`: **20 por página, sin excepciones**.
+
+### Qué se rompía de verdad
+
+Conviene ser exacto, porque el `ListView.separated` es perezoso y solo construye
+lo que se ve: no había un cuelgue. Lo que había era otra cosa.
+
+- Una empresa de 400 personas se recorre a rueda, sin forma de saltar. El
+  buscador ayuda si ya sabes el nombre; si estás revisando, no.
+- Cada tecla en el buscador dispara `setState`, y con él se rehace el filtro
+  completo más los mapas `counts` y `alerts` sobre **todos** los procesos de la
+  empresa. Con la página acotada, ese trabajo por tecla es el mismo, pero la
+  lista que se reconstruye ya no es de 400 tarjetas potenciales sino de 20.
+- Y sobre todo: era una pantalla que no cumplía el contrato de la app. Un
+  listado que se comporta distinto al resto obliga a aprender dos veces.
+
+### La página vuelve a 1 con la clave, no con el clamp
+
+`PagedListSection` ya se defiende sola cuando la lista **se acorta**:
+`didUpdateWidget` baja la página a la última válida. Eso no alcanza aquí.
+
+Si estás en la página 4 de "Todos" (137 personas) y escribes un apellido que
+deja 90 coincidencias, la página 4 sigue existiendo: no ves un vacío, ves las
+personas 61-80 de un resultado nuevo, que es peor porque parece correcto. Lo
+mismo al saltar de "Activos" a "Inactivos".
+
+Se resolvió como en el maestro de subsanaciones de Interventoría: la clave del
+widget lleva los filtros.
+
+```dart
+key: ValueKey('$term|$_peopleFilter'),                 // carpetas del personal
+key: ValueKey('${person.cedula}|$_recordFilter'),      // procesos de la carpeta
+```
+
+Cambiar el término, el segmento, la persona o el filtro de procesos monta un
+`State` nuevo y `_page` arranca en 0. Es una línea y no hay que sincronizar
+nada a mano.
+
+### Detalle de montaje: el `Expanded` necesita su propio scroll
+
+`PagedListSection` no scrollea (`mainAxisSize.min`, pensada para vivir dentro de
+una columna que ya scrollea). Dentro del `Expanded` del panel hay que darle uno:
+`SingleChildScrollView` con el `padding` que antes llevaba el `ListView`. Es el
+mismo montaje que usa `_TablaMaestro` en Interventoría.
+
+Se conservan sin tocar el resaltado de la carpeta abierta, el `_CountBadge` con
+el número de procesos y el ícono rojo de plazo vencido: la tarjeta es la misma
+`_PersonFolderTile`, solo cambió quién decide cuántas se pintan.
+
+### Lo que se revisó y se dejó igual
+
+No todo lo que se repite es un listado extenso. En este módulo quedaron fuera a
+propósito:
+
+- `_metricsGrid`: 4 tarjetas fijas (Total / En trámite / Vencidos / Cerrados).
+- `_StageTrack`: las 4 etapas del proceso.
+- `_RecordTimeline` ("Trazabilidad interna"): es el historial de **un** proceso,
+  y en `disciplinary_service.dart` solo hay 6 sitios que escriben eventos, todos
+  atados a un cambio de etapa. Tiene techo natural; paginar 6 filas estorba.
+
+### Lo que sigue debiendo en Talento Humano
+
+El barrido del 2026-08-25 (ronda 3) convirtió las tablas de la app, pero las
+listas de tarjetas de este módulo se quedaron atrás. Siguen pintando completo:
+
+| Pantalla | Listado |
+|---|---|
+| `areas_management_screen.dart` | lista de áreas; personal asignado al área |
+| `cargos_management_screen.dart` | lista de cargos; orden jerárquico; personal del cargo |
+| `centros_costos_management_screen.dart` | lista de centros; personal del centro |
+| `hv_dashboard_screen.dart` | personas detrás de cada indicador |
+| `notificaciones_talento_humano_screen.dart` | historial de notificaciones |
+| `organizational_structure_screen.dart` | movimientos de personal; listado de registros |
+| `personnel_requisition_screen.dart` | tarjetas de requerimientos en móvil |
+| `zeus_export_screen.dart` | pendientes de exportación |
+
+Los de "personal asignado a…" son los urgentes: son justamente los que crecen
+con la plantilla. `personnel_access_screen.dart` ya pagina con `pageOf` +
+`PagerBar`, y en Requerimientos solo falta el camino móvil — el de escritorio ya
+usa `PagedDataTable`.
+
+`dart analyze lib/talento_humano/` no reporta nada nuevo (los 21 avisos son
+previos, en otros archivos) y `flutter test test/talento_humano/` pasa los 100.
+
+---
+
+## Sesión 2026-09-08 (ronda 3) — Cédula opcional + documentos de finalización
+
+Dos cosas de la reunión del mismo día.
+
+### La cédula del aspirante era la llave, no un dato
+
+Talento Humano pidió que el documento fuera opcional: *"citamos solo con el
+nombre de acuerdo a la hoja de vida, mucha gente no pone las cédulas"*.
+
+Pero quitar el `validator` habría roto el módulo en silencio.
+`PersonnelCandidate` se identificaba **por su documento**:
+
+```dart
+current.candidates.indexWhere((item) => item.document == target)
+```
+
+Con dos aspirantes sin cédula, mover a uno de etapa movía al otro, y el segundo
+sin cédula ni siquiera entraba: el chequeo de duplicados lo rechazaba con "ese
+aspirante ya está en la solicitud".
+
+Ahora hay `candidatoId`, generado con `_db.collection(...).doc().id` (id de
+Firestore sin escribir nada). `PersonnelCandidate.key` devuelve el id propio, o
+el documento en los registros viejos que no lo tienen — así la migración es
+nada. `matches()` centraliza esa comparación.
+
+Tres reglas que cambiaron con esto:
+- El duplicado **solo** se puede afirmar si el aspirante trajo cédula. Sin ella,
+  dos "Juan Pérez" pueden ser dos personas.
+- `updateCandidateStage` recibe `candidateKey`, no `document`.
+- Al contratar sí hay cédula. Si el aspirante se había registrado sin ella, se
+  reconcilia **por nombre** contra los que siguen vivos y no tienen documento, y
+  se le llena la cédula. Sin eso, la contratación creaba una ficha duplicada y
+  la original se quedaba congelada en su etapa.
+
+La observación sigue siendo opcional al registrar y obligatoria al avanzar de
+etapa, que es donde de verdad sustenta el informe de interventoría. No se tocó.
+
+### Documentos de finalización de contrato
+
+Módulo nuevo, con el nombre que eligieron en la reunión. Tres papeles fijos:
+carta laboral, certificado de cesantías y orden de exámenes médicos de egreso.
+
+**El certificado de cesantías no es para todos** (*"yo te avisaré quiénes son"*),
+así que Talento Humano lo marca por persona. La marca no es cosmética: define
+`tiposEsperados`, y sin ella el portal no puede distinguir entre "no le toca" y
+"le toca pero aún no lo subimos", que para el trabajador son cosas distintas.
+
+**El portal es del trabajador.** `MisDocumentosFinalizacionScreen` sale del
+perfil, no del menú de Talento Humano, y no tiene búsqueda ni listado: la
+cédula viene de la sesión. No es un módulo del catálogo — lo tiene todo el
+personal, como notificaciones y calendario.
+
+### La combinación de correspondencia (reemplaza la macro)
+
+`lib/talento_humano/plantilla_combinacion.dart`. Se sube un Word con
+marcadores `{{NOMBRE}}` y un Excel con una fila por persona, y sale un .zip.
+
+**Lo difícil no es el reemplazo, es que Word parte los marcadores.** Word
+guarda el texto en `<w:r>` y lo corta cada vez que cambia una propiedad — y el
+corrector ortográfico corta incluso donde no cambia nada. Un `{{NOMBRE}}`
+escrito de una sentada puede quedar como `{{NOM` + `BRE` + `}}` en tres nodos.
+Un `replaceAll` sobre el XML no encuentra nada y el documento sale con los
+marcadores impresos.
+
+El algoritmo: por cada `<w:p>` se aplana el texto de sus `<w:t>`, se busca el
+marcador en el texto plano, y el valor se escribe **completo en el primer nodo
+que tocaba** (así hereda su formato) borrando de los demás solo el pedazo
+cubierto. Los nodos que el marcador no tocaba quedan intactos, con su negrita y
+su tamaño. Se trabaja por párrafo y no sobre todo el XML para que un `{{` suelto
+al principio no se empareje con un `}}` suelto al final y borre el documento
+entero.
+
+Detalles que estaban en la trampa:
+- `xml:space="preserve"` al escribir, o Word recorta y "Señor {{NOMBRE}}" queda
+  como "SeñorJUAN".
+- Se reemplaza también en `header*.xml` y `footer*.xml`: los marcadores viven en
+  el membrete tan seguido como en el cuerpo.
+- Las claves se normalizan sin tildes ni mayúsculas, así "Número de Documento"
+  del Excel casa con `{{NUMERO DE DOCUMENTO}}` del Word.
+- Un marcador sin columna que lo alimente **se deja impreso** en vez de salir en
+  blanco: así se ve que faltó una columna, en vez de firmar cien cartas con un
+  hueco. Además se avisa antes de generar.
+- Dos filas sin cédula ni nombre no se pisan dentro del zip.
+
+18 pruebas en `test/talento_humano/plantilla_combinacion_test.dart`, incluida la
+de un marcador partido carácter por carácter.
+
+### La plantilla se guarda; el Excel es lo único que cambia
+
+`TBL_TH_PLANTILLAS_DOCUMENTOS` guarda el Word por empresa y tipo, con sus
+marcadores ya leídos. La primera vez es la única vez: de ahí en adelante,
+generar el lote es subir el Excel y darle a generar.
+
+### Lo que el .zip trae, y lo que falta
+
+Trae **.docx**, no PDF. Convertir Word a PDF necesita un renderizador
+(LibreOffice headless o similar) que no existe en el proyecto. Para el flujo
+descrito da igual: esos documentos se imprimen y se firman, y lo que sube al
+portal después es el PDF firmado.
+
+Falta la segunda parte que pidió Zuly: subir un lote de PDF ya firmados y que el
+sistema los reparta solo a cada carpeta por la cédula del nombre del archivo.
+Hoy se archivan uno por uno desde la pestaña "Carpetas del personal".
+
+### Reglas y almacenamiento
+
+Las dos colecciones nuevas (`TBL_TH_DOCUMENTOS_FINALIZACION` y
+`TBL_TH_PLANTILLAS_DOCUMENTOS`) entran por el `match /{collection}/{document=**}`
+de `firestore.rules`, así que **no hubo que tocar reglas**. Ojo con lo que eso
+implica: como en el resto de la app, cualquier usuario autenticado puede leer la
+colección; el portal limita por pantalla, no por regla.
+
+Storage usa `talento_humano/finalizacion/...`, hermano de
+`talento_humano/llamados/...` que ya funciona. `storage.rules` no está en el
+repo (se administra en la consola): conviene confirmarlo en la primera carga.
+
+---
+
+## Sesión 2026-09-08 — Proceso disciplinario: cuatro pasos, no un formulario
+
+El módulo pedía a Talento Humano **redactar la falta** al abrir el proceso
+(asunto, descripción de los hechos, gravedad, referencia normativa, acción
+esperada). Eso está mal repartido: quien abre el proceso no es quien juzga, y
+en el paso 1 lo único que existe es un documento que llegó.
+
+El proceso real tiene cuatro pasos, y en cada uno lo que importa es **un
+documento y una fecha**:
+
+| Paso | Qué se monta | Fecha | Alerta |
+|---|---|---|---|
+| 1 | Solicitud de apertura recibida | Fecha de recibido | — |
+| 2 | Citación entregada al colaborador | Fecha de la diligencia (5 días hábiles) | **Sí** |
+| 3 | Acta de la diligencia de descargos | Fecha límite del resultado | **Sí** |
+| 4 | Documento del resultado | Fecha del resultado | Cierra |
+
+### El cierre ya no es texto libre
+
+Antes se cerraba escribiendo una "conclusión" a mano. Ahora se cierra con una
+de **cuatro sanciones y ninguna más**, porque la sanción tiene efecto laboral:
+
+- Exonerado
+- Llamado de Atención Escrito
+- Suspensión del contrato
+- Terminación de contrato por justa causa
+
+### La gravedad no desaparece: se muda al cierre
+
+En la reunión del mismo día quedó claro que la gravedad sí hace falta, pero
+**solo en el paso 4**. Ayli: *"el tipo de gravedad sería un botón que puedes
+dejar, pero solo para el cierre, porque en el cierre ya se sabe cómo te
+califica esa diligencia"*.
+
+La escala también cambió: **leve / grave / gravísima**, no la vieja
+leve/media/alta. Pedirla al abrir obligaba a Talento Humano a prejuzgar un caso
+que todavía no había oído.
+
+### Salida temprana: "No corresponde"
+
+Zuly: *"yo puedo decir validé la situación y no, este informe no va para proceso
+disciplinario, no corresponde, y ya se cerró el proceso"*.
+
+Un proceso puede cerrarse **desde la solicitud**, sin citar a nadie. Se guarda
+con `sancion: no_corresponde`, que a propósito **no** está en
+`DisciplinarySanction.values`: esa lista alimenta el desplegable del paso 4 y
+solo puede contener las cuatro sanciones reales. El descarte tampoco lleva
+gravedad — no hubo diligencia que calificar — y su documento es opcional.
+
+Ojo con la pantalla: un caso descartado no puede pintar las cuatro etapas
+completas, porque diría que hubo citación y diligencia. `_StageTrack` detecta
+`closedWithoutProcess` y dibuja `Solicitud → No corresponde`; los pasos 2 y 3
+dicen "No aplica", no "Pendiente".
+
+### Los 5 días son hábiles, y ya existían
+
+`fechaDiligenciaSugerida()` reusa `sumarDiasHabilesColombia()` de
+`lib/core/festivos_colombia.dart`: salta fines de semana **y festivos** (Ley
+Emiliani incluida). Con días corridos, una citación entregada antes de Semana
+Santa vencía antes de tiempo. La fecha se propone sola y se puede corregir a
+mano; en cuanto alguien la mueve, deja de seguir a la citación.
+
+### La alerta vive en un cron, no en la pantalla
+
+`thNotificarPlazosDisciplinarios` (`functions/src/disciplinary_deadline_notifications.ts`)
+corre a las 7:00 de Bogotá y avisa **el mismo día del vencimiento** a todo el
+equipo de Talento Humano de la empresa dueña del proceso.
+
+Se resolvió con cron y no en el cliente a propósito: una alerta que solo se
+dispara cuando alguien abre el módulo es una alerta que se pierde el día que
+nadie entra. El id de la notificación es determinista
+(`disciplinario_{id}_{etapa}_{yyyymmdd}`) y se escribe con `create()`, así que
+un reintento del cron no vuelve a sonarle a nadie.
+
+Ojo con el destinatario: la membresía de empresa se guarda de dos formas
+(`empresas[]` y `empresaId`) y los módulos también (`apps` global y
+`empresasDetalle[empresaId].apps`). Hay que mirar las cuatro combinaciones, y
+aceptar los ids cortos (`talento`, `talentohumano`) además del completo, o
+media Talento Humano se queda sin alerta.
+
+### Modelo en TBL_LLAMADOS_ATENCION
+
+La etapa guardada es siempre **la última completada**, así que lo pendiente se
+deduce sin campos extra y el proceso no puede saltarse pasos: cada método del
+servicio exige la etapa anterior.
+
+```
+etapa: solicitud | citacion | diligencia | cerrado
+fechaRecibido            + docSolicitud
+fechaCitacion            + fechaDiligencia        + docCitacion
+fechaDiligenciaRealizada + fechaLimiteResultado   + docDiligencia
+sancion                  + fechaResultado         + docResultado
+```
+
+Los adjuntos dejaron de ser un `arrayUnion` sin etiqueta: cada documento vive
+en su campo, porque el requisito es saber *cuál* es la citación y *cuál* el
+resultado, no cuántos archivos hay.
+
+### El dashboard ya no puede hablar de "gravedad"
+
+`highSeverityCases` contaba procesos con `gravedad: alta`, campo que dejó de
+existir. Se renombró a `overdueDisciplinaryCases` y ahora cuenta los que tienen
+**el plazo de su etapa vencido**, que es la urgencia real. La tarjeta dice
+"N con plazo vencido" en vez de "N de prioridad alta".
+
+### Lo que la reunión dejó pendiente
+
+De la misma reunión salieron cuatro requisitos que **no** son de este módulo y
+quedaron sin hacer: documentos de finalización de contrato descargables por el
+propio trabajador (carta laboral, cesantías, orden de exámenes de egreso) más
+su generación masiva en ZIP; certificado de publicación de la vacante en el
+Servicio Público de Empleo, adjuntable por cargo; cédula opcional al registrar
+aspirantes (solo nombre y observaciones obligatorios); y carga de experiencia
+laboral con contrato, fecha de ingreso y fecha de fin.
+
+Queda una ambigüedad sin resolver: en la reunión se dijo "un botón que diga
+generar [la citación]". No está claro si el sistema debe **producir** el PDF de
+la citación desde una plantilla o si basta con adjuntar la que Talento Humano
+ya redactó. Por ahora el botón se llama "Generar citación a descargos" pero
+solo adjunta; generar el documento sería una funcionalidad aparte, con
+plantilla por empresa.
+
+### Dato de prueba eliminado
+
+Había un solo registro en `TBL_LLAMADOS_ATENCION` (`GOXRozTawixuxHSyAsvI`,
+EMPRESA_002, en la carpeta de Amalia Vasquez Ardila pero describiendo a otra
+persona). Era la prueba con la que se levantó el requisito. Se borró con sus 2
+eventos de historial y su PDF en Storage.
+
+El lector de `DisciplinaryRecord` igual tolera registros del modelo viejo: sin
+`etapa` se leen como "solicitud recibida" en vez de reventar.
+
+---
+
 ## Sesión 2026-09-04 (ronda 6) — QR de carnet
 
 Desde la hoja de vida aprobada se genera un QR para pegar en el carnet. Al
@@ -2738,3 +3235,88 @@ figurando como conductor de su ruta.
 
 Resultado: un usuario nuevo con el cargo correspondiente aparece de inmediato
 como conductor o ayudante, y un inhabilitado desaparece de la operación.
+
+
+---
+
+## Carnet imprimible en Talento Humano
+
+Antes solo se podía sacar el QR suelto (una hoja A6 con foto pequeña, nombre y
+QR) para pegarlo en un carnet hecho por fuera. Ahora TH imprime el carnet
+completo desde la app.
+
+### Qué se agregó
+
+- **`carnet_layout.dart`** — todas las proporciones del carnet en un solo sitio.
+- **`carnet_pdf.dart`** — el dibujo del carnet en PDF vectorial. Dos formatos
+  (tarjeta CR80 54×86 mm y escarapela 86×120 mm) y dos salidas: hoja carta con
+  marcas de corte (9 tarjetas o 4 escarapelas por hoja) o una página por carnet
+  para impresora de PVC.
+- **`carnet_marca.dart`** — los colores del carnet por empresa, en TBL_EMPRESAS
+  (`carnetColorPrimario` / `carnetColorSecundario`). El logo NO se duplica: es
+  el `logoUrl` que ya usan notificaciones y planillas.
+- **`carnet_preview.dart`** — el mismo carnet dibujado en Flutter, para elegir
+  los colores viéndolos sin regenerar un PDF en cada cambio.
+- **`carnet_service.dart`** — el padrón de la empresa y el armado de los datos.
+- **`carnet_screen.dart`** — la pantalla: diseño + selección múltiple + generar.
+  Registrada en el dashboard de TH bajo "Documentación".
+- **`foto_carnet*.dart`** — recorte del fondo de la foto con ML Kit en el
+  celular, y la captura/corrección que escribe en la hoja de vida.
+
+### Decisiones que no son de gusto
+
+- **Vectorial y no plantilla PNG.** Un PNG habría que rehacerlo cada vez que una
+  empresa cambia de color, y a 54 mm impreso se ve borroso si no viene a 640 px
+  de ancho. Con el PDF, el color es un parámetro y el tamaño no degrada nada.
+- **El QR sigue llevando el token opaco, no la cédula.** Es el mismo de
+  `carnet_qr.dart` y la misma página pública (`functions/src/carnet.ts`). El
+  carnet impreso NO generó un token nuevo: `asegurarTokenCarnet` reutiliza el
+  que ya existe, porque si cada reimpresión rotara el token, el carnet que la
+  persona lleva encima quedaría invalidado.
+- **La cédula sí va impresa en la tarjeta.** El carnet es un documento que se
+  muestra en mano. Lo que no puede llevarla es el QR, que se fotografía y
+  circula sin control.
+- **Dos unidades de medida.** Los bloques verticales van sobre el alto; las
+  letras y el QR, sobre `unidadCarnet`, que NO es el ancho. Medir las letras
+  contra el ancho hacía que en la escarapela (más ancha en relación con su
+  alto) el contenido no cupiera.
+- **El QR tiene un tamaño mínimo.** 0,30 de la unidad son ~16 mm en una CR80.
+  Por debajo, cada módulo baja de ~0,36 mm impresos y los teléfonos empiezan a
+  fallar. Un carnet cuyo QR no se lee no es un carnet verificable.
+- **La cédula y el RH van al lado del QR, no encima.** El modelo de referencia
+  es más alargado (proporción 0,59) que una tarjeta CR80 (0,63); apilados, el
+  contenido no cabía en el alto. Se usa el hueco que el modelo deja vacío al
+  lado del QR.
+
+### Recorte de fondo de la foto
+
+Se hace con ML Kit **en el teléfono**: gratis, sin llamadas de red y sin que la
+foto salga del dispositivo para procesarse. Solo funciona en Android e iOS; en
+web y escritorio la foto se usa tal cual y la pantalla lo dice.
+
+La foto del carnet **no es una foto aparte**: es la misma `fotoUrl` de la hoja
+de vida, para no terminar con dos caras de la misma persona y una de las dos
+vieja. Se escribe en la subcolección `hoja_de_vida/datos` y en el documento raíz
+de TBL_USUARIOS, que es de donde leen las listas y los avatares.
+
+Dependencia nueva: `google_mlkit_selfie_segmentation: ^0.12.1`.
+
+### Fallo encontrado al revisar el render
+
+La primera versión desbordaba: el contenido no cabía en el alto de la tarjeta y
+los arcos decorativos cruzaban por encima del nombre y de la cédula. No lo
+detectaba `dart analyze` (el PDF recorta en silencio), así que se agregaron dos
+pruebas que sí lo detectan:
+
+- `test/talento_humano/carnet_preview_test.dart` renderiza el carnet y falla si
+  hay desborde de layout.
+- `test/talento_humano/carnet_pdf_test.dart` comprueba con aritmética que la
+  suma de los bloques verticales deja holgura, que el QR no baja del tamaño
+  legible y que los arcos no invaden el nombre ni la cédula.
+
+### Pendiente
+
+La negrita del cargo se ve como texto normal: `assets/` solo trae `arial.ttf`
+regular. Si se quiere negrita real, poner `assets/arial_bold.ttf`, declararlo en
+`pubspec.yaml` y `temaCarnet()` lo toma solo (ya está previsto; si el archivo no
+está, cae en la regular sin romper nada).

@@ -1353,7 +1353,10 @@ async function sendRuleAlerts(input: {
         mensaje: messageText,
         fechaCorreo: admin.firestore.Timestamp.fromDate(input.message.fecha),
         templateKey: "correo_alerta",
-        templateVariables: messageTemplateVariables,
+        templateVariables: {
+          ...messageTemplateVariables,
+          destinatario: recipient.nombre || "Usuario",
+        },
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -1400,7 +1403,10 @@ async function sendRuleAlerts(input: {
           reglaId: input.rule.id,
           categoria: input.rule.categoria,
           templateKey: "correo_alerta",
-          templateVariables: messageTemplateVariables,
+          templateVariables: {
+            ...messageTemplateVariables,
+            destinatario: recipient.nombre || "Usuario",
+          },
         },
       });
       await alertRef.update({

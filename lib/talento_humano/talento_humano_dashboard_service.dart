@@ -30,7 +30,7 @@ class TalentoHumanoDashboardData {
   final int peopleWithoutCostCenter;
   final int peopleWithoutArea;
   final int openDisciplinaryCases;
-  final int highSeverityCases;
+  final int overdueDisciplinaryCases;
   final int openPersonnelRequests;
   final int priorityPersonnelRequests;
   final int pendingPersonnelVacancies;
@@ -52,7 +52,7 @@ class TalentoHumanoDashboardData {
     required this.peopleWithoutCostCenter,
     required this.peopleWithoutArea,
     required this.openDisciplinaryCases,
-    required this.highSeverityCases,
+    required this.overdueDisciplinaryCases,
     required this.costCenterDistribution,
     required this.generatedAt,
     this.unavailableSources = const [],
@@ -228,15 +228,29 @@ class TalentoHumanoDashboardData {
       if (area.isEmpty) withoutArea++;
     }
 
+    // El proceso disciplinario ya no tiene "gravedad": lo que hay que mirar es
+    // el plazo de la etapa en curso. Un proceso con la fecha vencida es el que
+    // realmente necesita atencion.
     var openCases = 0;
-    var highSeverity = 0;
+    var overdueCases = 0;
+    final today = DateTime(now.year, now.month, now.day);
     for (final record in disciplinaryRecords) {
-      final status = DisciplinaryStatus.normalize(record['estado']);
-      if (DisciplinaryStatus.active.contains(status)) openCases++;
-      if (text(record['gravedad']).toLowerCase() == 'alta' &&
-          status != DisciplinaryStatus.closed &&
-          status != DisciplinaryStatus.cancelled) {
-        highSeverity++;
+      final stage = DisciplinaryStage.normalize(record['etapa']);
+      if (stage == DisciplinaryStage.cerrado) continue;
+      openCases++;
+      final rawDeadline = stage == DisciplinaryStage.citacion
+          ? record['fechaDiligencia']
+          : stage == DisciplinaryStage.diligencia
+          ? record['fechaLimiteResultado']
+          : null;
+      final deadline = rawDeadline is Timestamp ? rawDeadline.toDate() : null;
+      if (deadline == null) continue;
+      if (DateTime(
+        deadline.year,
+        deadline.month,
+        deadline.day,
+      ).isBefore(today)) {
+        overdueCases++;
       }
     }
 
@@ -282,7 +296,7 @@ class TalentoHumanoDashboardData {
       peopleWithoutCostCenter: withoutCostCenter,
       peopleWithoutArea: withoutArea,
       openDisciplinaryCases: openCases,
-      highSeverityCases: highSeverity,
+      overdueDisciplinaryCases: overdueCases,
       openPersonnelRequests: openPersonnelRequests,
       priorityPersonnelRequests: priorityPersonnelRequests,
       pendingPersonnelVacancies: pendingPersonnelVacancies,

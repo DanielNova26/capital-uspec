@@ -567,11 +567,7 @@ class _InterventoriaDashboardScreenState
             // real del acta se puede reconstruir sin ambigüedad. Sin esto, los
             // hallazgos derivados de un acta llegan al tablero como
             // "no se pudo identificar el numeral".
-            numeralActa: numeralDeAspectoEnActa(
-              visita.tipoActa,
-              cat.key,
-              note.aspecto,
-            ),
+            numeralActa: numeralDeNotaEnActa(visita.tipoActa, cat.key, note),
             descripcion: note.aspecto.trim().isEmpty ? cat.label : note.aspecto,
             fechaHallazgo: visita.fechaVisita,
             observaciones: note.texto.trim(),
@@ -3971,7 +3967,13 @@ class _ItemPuntajeRowState extends State<_ItemPuntajeRow> {
   }
 
   List<InterventoriaNota> get _notes {
-    if (item.observaciones.isNotEmpty) return item.observaciones;
+    if (item.observaciones.isNotEmpty) {
+      return ordenarNotasPorNumeralActa(
+        widget.tipoActa,
+        item.key,
+        item.observaciones,
+      );
+    }
     if (item.observacion.trim().isEmpty) return const [];
     return [
       InterventoriaNota(texto: item.observacion.trim(), fuente: item.fuente),
@@ -3979,10 +3981,15 @@ class _ItemPuntajeRowState extends State<_ItemPuntajeRow> {
   }
 
   void _setNotes(List<InterventoriaNota> notes) {
+    final ordenadas = ordenarNotasPorNumeralActa(
+      widget.tipoActa,
+      item.key,
+      notes,
+    );
     widget.onChanged(
       item.copyWith(
-        observaciones: notes,
-        observacion: notes.map((n) => n.texto.trim()).join('\n'),
+        observaciones: ordenadas,
+        observacion: ordenadas.map((n) => n.texto.trim()).join('\n'),
       ),
     );
   }
@@ -4112,7 +4119,7 @@ class _ItemPuntajeRowState extends State<_ItemPuntajeRow> {
                 compact: true,
                 emptyText: 'Sin observaciones',
                 catalogItems: aspectosDeActa(widget.tipoActa, item.key),
-                catalogNumerals: numeralesDeActaPropia(
+                catalogNumerals: numeralesDeAspectosEnActa(
                   widget.tipoActa,
                   item.key,
                 ),
@@ -8854,6 +8861,17 @@ class _NotasInlineEditor extends StatelessWidget {
     onChanged([...notes, note.copyWith(texto: text)]);
   }
 
+  String _numeralDelAspecto(String aspecto) {
+    final index = catalogItems.indexOf(aspecto);
+    if (index < 0 || index >= catalogNumerals.length) return '';
+    return catalogNumerals[index].trim();
+  }
+
+  String _numeralDeNota(InterventoriaNota note) {
+    final guardado = note.numeralActa.trim();
+    return guardado.isNotEmpty ? guardado : _numeralDelAspecto(note.aspecto);
+  }
+
   void _updateNote(int index, InterventoriaNota note) {
     final next = [...notes];
     next[index] = note;
@@ -8881,7 +8899,12 @@ class _NotasInlineEditor extends StatelessWidget {
       ...notes,
       ...snippets.map(
         (s) => catalogAsAspect
-            ? InterventoriaNota(aspecto: s, texto: '', fuente: 'lista_acta')
+            ? InterventoriaNota(
+                aspecto: s,
+                numeralActa: _numeralDelAspecto(s),
+                texto: '',
+                fuente: 'lista_acta',
+              )
             : InterventoriaNota(texto: s, fuente: 'lista_acta'),
       ),
     ]);
@@ -9110,7 +9133,10 @@ class _NotasInlineEditor extends StatelessWidget {
                           child: FilledButton.icon(
                             onPressed: selected.isEmpty
                                 ? null
-                                : () => Navigator.pop(ctx, selected.toList()),
+                                : () => Navigator.pop(ctx, [
+                                    for (final item in catalogItems)
+                                      if (selected.contains(item)) item,
+                                  ]),
                             icon: const Icon(Icons.add_rounded),
                             label: Text(
                               selected.isEmpty
@@ -9209,6 +9235,7 @@ class _NotasInlineEditor extends StatelessWidget {
               child: _NotaEditorTile(
                 key: ValueKey('nota_${entry.key}_${entry.value.aspecto}'),
                 note: entry.value,
+                numeral: _numeralDeNota(entry.value),
                 compact: compact,
                 onPickOcrSnippets: onPickOcrSnippets,
                 onChanged: (note) => _updateNote(entry.key, note),
@@ -9225,6 +9252,7 @@ class _NotasInlineEditor extends StatelessWidget {
 
 class _NotaEditorTile extends StatefulWidget {
   final InterventoriaNota note;
+  final String numeral;
   final bool compact;
   final Future<List<String>> Function()? onPickOcrSnippets;
   final ValueChanged<InterventoriaNota> onChanged;
@@ -9234,6 +9262,7 @@ class _NotaEditorTile extends StatefulWidget {
   const _NotaEditorTile({
     super.key,
     required this.note,
+    this.numeral = '',
     required this.compact,
     this.onPickOcrSnippets,
     required this.onChanged,
@@ -9315,6 +9344,12 @@ class _NotaEditorTileState extends State<_NotaEditorTile> {
   @override
   Widget build(BuildContext context) {
     final hasAspect = widget.note.aspecto.trim().isNotEmpty;
+    final numeral = widget.numeral.trim();
+    final aspectoVisible = numeral.isEmpty
+        ? widget.note.aspecto.trim()
+        : widget.note.aspecto
+              .replaceFirst(RegExp(r'^\s*\d+\s*\.\s*'), '')
+              .trim();
 
     // ── Versión colapsada: muestra lo que se escribió + lápiz para reabrir ──
     if (_collapsed) {
@@ -9340,15 +9375,26 @@ class _NotaEditorTileState extends State<_NotaEditorTile> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (hasAspect)
-                      Text(
-                        widget.note.aspecto,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF166534),
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (numeral.isNotEmpty) ...[
+                            _NumeralActaBadge(numeral: numeral, listo: true),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              aspectoVisible,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF166534),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     Text(
                       textoEscrito.isEmpty
@@ -9446,13 +9492,24 @@ class _NotaEditorTileState extends State<_NotaEditorTile> {
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                child: Text(
-                  widget.note.aspecto,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF334155),
-                  ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (numeral.isNotEmpty) ...[
+                      _NumeralActaBadge(numeral: numeral),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        aspectoVisible,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -9476,6 +9533,35 @@ class _NotaEditorTileState extends State<_NotaEditorTile> {
       ),
     );
   }
+}
+
+class _NumeralActaBadge extends StatelessWidget {
+  final String numeral;
+  final bool listo;
+
+  const _NumeralActaBadge({required this.numeral, this.listo = false});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: listo ? const Color(0xFFDCFCE7) : _kAccent.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(
+        color: listo
+            ? const Color(0xFF86EFAC)
+            : _kAccent.withValues(alpha: 0.35),
+      ),
+    ),
+    child: Text(
+      numeral,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w900,
+        color: listo ? const Color(0xFF166534) : _kAccent,
+      ),
+    ),
+  );
 }
 
 class _FuenteNotaChip extends StatelessWidget {
@@ -10471,9 +10557,8 @@ class _FormularioRevision extends StatefulWidget {
 
 class _FormularioRevisionState extends State<_FormularioRevision> {
   final _scrollCtrl = ScrollController();
-  late final List<InterventoriaCategoria> _categorias = categoriasDeActa(
-    widget.visita.tipoActa,
-  );
+  late final List<InterventoriaCategoria> _categorias =
+      categoriasOrdenadasDeActa(widget.visita.tipoActa);
   late final Map<String, GlobalKey> _itemKeys = {
     for (final cat in _categorias) cat.key: GlobalKey(),
   };
@@ -10549,10 +10634,10 @@ class _FormularioRevisionState extends State<_FormularioRevision> {
           height: 64,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: kInterventoriaCategorias.length,
+            itemCount: _categorias.length,
             separatorBuilder: (_, _) => const SizedBox(width: 6),
             itemBuilder: (_, i) {
-              final cat = kInterventoriaCategorias[i];
+              final cat = _categorias[i];
               final item = items[cat.key] ?? InterventoriaItem.empty(cat);
               final color = item.noEvaluado
                   ? const Color(0xFF94A3B8)
@@ -10577,7 +10662,7 @@ class _FormularioRevisionState extends State<_FormularioRevision> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        '${i + 1}',
+                        '${seccionDeActa(widget.visita.tipoActa, cat.key) ?? i + 1}',
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 14,
@@ -10719,7 +10804,13 @@ class _ItemRevisionRow extends StatefulWidget {
 class _ItemRevisionRowState extends State<_ItemRevisionRow> {
   List<InterventoriaNota> get _notes {
     final item = widget.item;
-    if (item.observaciones.isNotEmpty) return item.observaciones;
+    if (item.observaciones.isNotEmpty) {
+      return ordenarNotasPorNumeralActa(
+        widget.tipoActa,
+        item.key,
+        item.observaciones,
+      );
+    }
     if (item.observacion.trim().isEmpty) return const [];
     return [
       InterventoriaNota(texto: item.observacion.trim(), fuente: item.fuente),
@@ -10727,10 +10818,15 @@ class _ItemRevisionRowState extends State<_ItemRevisionRow> {
   }
 
   void _setNotes(List<InterventoriaNota> notes) {
+    final ordenadas = ordenarNotasPorNumeralActa(
+      widget.tipoActa,
+      widget.item.key,
+      notes,
+    );
     widget.onChanged(
       widget.item.copyWith(
-        observaciones: notes,
-        observacion: notes.map((n) => n.texto.trim()).join('\n'),
+        observaciones: ordenadas,
+        observacion: ordenadas.map((n) => n.texto.trim()).join('\n'),
       ),
     );
   }
@@ -10811,7 +10907,10 @@ class _ItemRevisionRowState extends State<_ItemRevisionRow> {
               compact: true,
               emptyText: 'Sin observaciones',
               catalogItems: aspectosDeActa(widget.tipoActa, item.key),
-              catalogNumerals: numeralesDeActaPropia(widget.tipoActa, item.key),
+              catalogNumerals: numeralesDeAspectosEnActa(
+                widget.tipoActa,
+                item.key,
+              ),
               catalogAsAspect: true,
               allowManual: true,
               allowOcrBulk: false,

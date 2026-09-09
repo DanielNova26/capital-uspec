@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/talento_humano/resume_management_report.dart';
@@ -54,20 +55,29 @@ void main() {
     });
 
     test('solo cuenta como abiertos los procesos disciplinarios vigentes', () {
+      final ayer = DateTime.now().subtract(const Duration(days: 2));
+      final manana = DateTime.now().add(const Duration(days: 2));
       final data = TalentoHumanoDashboardData.fromMaps(
         people: const [],
         costCenters: const [],
         areas: const [],
-        disciplinaryRecords: const [
-          {'estado': 'pendiente_respuesta', 'gravedad': 'alta'},
-          {'estado': 'en_seguimiento', 'gravedad': 'media'},
-          {'estado': 'cerrado', 'gravedad': 'alta'},
-          {'estado': 'anulado', 'gravedad': 'alta'},
+        disciplinaryRecords: [
+          // Recién radicado: abierto, pero todavía sin plazo que vigilar.
+          const {'etapa': 'solicitud'},
+          // Citado con la diligencia ya pasada: abierto y vencido.
+          {'etapa': 'citacion', 'fechaDiligencia': Timestamp.fromDate(ayer)},
+          // En diligencia y dentro del plazo: abierto, no vencido.
+          {
+            'etapa': 'diligencia',
+            'fechaLimiteResultado': Timestamp.fromDate(manana),
+          },
+          // Cerrado: no cuenta, aunque su fecha haya quedado atrás.
+          {'etapa': 'cerrado', 'fechaLimiteResultado': Timestamp.fromDate(ayer)},
         ],
       );
 
-      expect(data.openDisciplinaryCases, 2);
-      expect(data.highSeverityCases, 1);
+      expect(data.openDisciplinaryCases, 3);
+      expect(data.overdueDisciplinaryCases, 1);
     });
 
     test('evita divisiones inválidas cuando no hay personal', () {

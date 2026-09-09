@@ -364,7 +364,7 @@ class InterventoriaService {
         // Numeral REAL del acta (p. ej. "2.14"). `numeroHallazgo` no sirve
         // para esto: es un ordinal categoría.observación. Vacío = no se pudo
         // determinar → el hallazgo se asigna a mano.
-        final numeralActa = numeralActaDesdeAspecto(itemKey, aspecto);
+        final numeralActa = numeralDeNotaEnActa(visita.tipoActa, itemKey, nota);
 
         if (existing.containsKey(grupoId)) {
           final e = existing[grupoId]!;

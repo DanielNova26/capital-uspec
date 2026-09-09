@@ -43,11 +43,25 @@ interface WhatsAppMessageTemplateDefinition {
   description: string;
   defaultText: string;
   placeholders: string[];
+  variableInfo: Record<string, { label: string; sample: string }>;
+  metaName: string;
+  metaLanguage: string;
+  metaCategory: "UTILITY";
 }
 
 interface WhatsAppMessageTemplateConfig {
   text: string;
   enabled: boolean;
+}
+
+interface WhatsAppMetaTemplateState {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+  bodyText: string;
+  variableOrder: string[];
 }
 
 const MESSAGE_TEMPLATE_DEFINITIONS: Record<
@@ -59,14 +73,19 @@ const MESSAGE_TEMPLATE_DEFINITIONS: Record<
     moduleId: "correo",
     description: "Se usa cuando un correo coincide con uno de los filtros.",
     defaultText: [
+      "Hola {destinatario}.",
+      "",
       "{icono} *{titulo}*",
       "Buzón: {proveedorIcono} {proveedor} · {buzon}",
       "Tipo: {tipo}",
       "Fecha: {fecha}",
       "Remitente: {remitente}",
       "Asunto: {asunto}",
+      "",
+      "Ingresa a To Do Gestión para revisar y gestionar este registro.",
     ].join("\n"),
     placeholders: [
+      "destinatario",
       "icono",
       "titulo",
       "proveedorIcono",
@@ -77,6 +96,21 @@ const MESSAGE_TEMPLATE_DEFINITIONS: Record<
       "remitente",
       "asunto",
     ],
+    variableInfo: {
+      destinatario: { label: "Persona que recibe", sample: "Daniel" },
+      icono: { label: "Emoji del filtro", sample: "⚖️" },
+      titulo: { label: "Título de la regla", sample: "Nueva tutela" },
+      proveedorIcono: { label: "Emoji del buzón", sample: "📧" },
+      proveedor: { label: "Proveedor de correo", sample: "Gmail" },
+      buzon: { label: "Buzón monitoreado", sample: "notificaciones@empresa.com" },
+      tipo: { label: "Categoría detectada", sample: "Tutela" },
+      fecha: { label: "Fecha del correo", sample: "08/09/2026, 10:30" },
+      remitente: { label: "Correo remitente", sample: "entidad@ejemplo.gov.co" },
+      asunto: { label: "Asunto recibido", sample: "Solicitud de información" },
+    },
+    metaName: "correo_alerta_v2",
+    metaLanguage: "es",
+    metaCategory: "UTILITY",
   },
   compras_nuevo_proveedor: {
     label: "Compras · nuevo proveedor",
@@ -90,6 +124,54 @@ const MESSAGE_TEMPLATE_DEFINITIONS: Record<
       "🔎 Ingresa al módulo de Compras para consultar el expediente.",
     ].join("\n"),
     placeholders: ["proveedor", "nit", "categorias"],
+    variableInfo: {
+      proveedor: { label: "Razón social", sample: "Proveedor de ejemplo S.A.S." },
+      nit: { label: "NIT del proveedor", sample: "900123456-7" },
+      categorias: { label: "Categorías asignadas", sample: "Abarrotes, aseo" },
+    },
+    metaName: "compras_nuevo_proveedor",
+    metaLanguage: "es",
+    metaCategory: "UTILITY",
+  },
+  planilla_pago_actualizacion: {
+    label: "Planillas de pago · actualización",
+    moduleId: "planillas_pago",
+    description: "Se usa al pasar una planilla a Auditoría o Gerencia.",
+    defaultText: [
+      "💵 *Actualización de planilla de pago*",
+      "📄 Planilla: {planilla}",
+      "✅ Estado: {estado}",
+      "👤 Acción requerida: {accion}",
+      "Ingresa al módulo de Planillas de Pago para continuar.",
+    ].join("\n"),
+    placeholders: ["planilla", "estado", "accion"],
+    variableInfo: {
+      planilla: { label: "Nombre de la planilla", sample: "Planilla septiembre 2026" },
+      estado: { label: "Etapa completada", sample: "Firmada por Tesorería" },
+      accion: { label: "Siguiente responsable", sample: "Revisión de Auditoría" },
+    },
+    metaName: "planilla_pago_actualizacion",
+    metaLanguage: "es",
+    metaCategory: "UTILITY",
+  },
+  interventoria_actividad: {
+    label: "Interventoría · nueva acta",
+    moduleId: "interventoria",
+    description: "Se usa cuando se carga una nueva acta de Interventoría.",
+    defaultText: [
+      "🦺 *Nueva acta de Interventoría cargada*",
+      "📍 Centro de costo: {centroCosto}",
+      "📅 Fecha de visita: {fecha}",
+      "🔎 Ingresa al módulo de Interventoría para revisar la información.",
+    ].join("\n"),
+    placeholders: ["centroCosto", "fecha"],
+    variableInfo: {
+      centroCosto: { label: "Centro de costo", sample: "Complejo Norte" },
+      fecha: { label: "Fecha de la visita", sample: "08/09/2026" },
+    },
+    metaName: "interventoria_actividad",
+    metaLanguage: "es",
+    metaCategory: "UTILITY",
   },
   facturacion_documento_rechazado: {
     label: "Facturación · documento rechazado",
@@ -112,6 +194,16 @@ const MESSAGE_TEMPLATE_DEFINITIONS: Record<
       "motivo",
       "fechaLimite",
     ],
+    variableInfo: {
+      establecimiento: { label: "Establecimiento", sample: "Complejo Norte" },
+      documento: { label: "Documento rechazado", sample: "Factura de servicios" },
+      periodo: { label: "Periodo facturado", sample: "Agosto 2026" },
+      motivo: { label: "Corrección requerida", sample: "Falta el soporte firmado." },
+      fechaLimite: { label: "Fecha límite", sample: "23/09/2026" },
+    },
+    metaName: "facturacion_documento_rechazado",
+    metaLanguage: "es",
+    metaCategory: "UTILITY",
   },
 };
 
@@ -147,6 +239,7 @@ interface WhatsAppRuntimeConfig {
   baseUrl: string;
   apiKey: string;
   sessionId: string;
+  wabaId: string;
   defaultCountryCode: string;
   enabled: boolean;
   modules: Record<string, boolean>;
@@ -156,6 +249,7 @@ interface WhatsAppRuntimeConfig {
     showCompanyName: boolean;
   };
   messageTemplates: Record<string, WhatsAppMessageTemplateConfig>;
+  metaTemplates: Record<string, WhatsAppMetaTemplateState>;
   source: "firestore" | "environment";
 }
 
@@ -202,6 +296,29 @@ function normalizedMessageTemplates(
     result[key] = {
       text: templateText,
       enabled: raw.enabled !== false,
+    };
+  }
+  return result;
+}
+
+function normalizedMetaTemplates(
+  value: unknown
+): Record<string, WhatsAppMetaTemplateState> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, WhatsAppMetaTemplateState> = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = normalize(rawKey);
+    if (!MESSAGE_TEMPLATE_DEFINITIONS[key] || !rawValue ||
+        typeof rawValue !== "object" || Array.isArray(rawValue)) continue;
+    const raw = rawValue as Record<string, unknown>;
+    result[key] = {
+      id: text(raw.id),
+      name: text(raw.name),
+      language: text(raw.language),
+      category: text(raw.category),
+      status: text(raw.status).toUpperCase(),
+      bodyText: text(raw.bodyText),
+      variableOrder: textList(raw.variableOrder).map(normalize).filter(Boolean),
     };
   }
   return result;
@@ -453,12 +570,21 @@ async function requireWhatsAppAdmin(
 }
 
 function envConfig(empresaId: string): WhatsAppRuntimeConfig {
+  const provider = normalize(process.env.WHATSAPP_PROVIDER || "openwa");
+  const cloudProvider = ["whatsapp_cloud", "cloud", "whatsappcloud"].includes(
+    provider
+  );
   return {
     empresaId,
-    provider: normalize(process.env.WHATSAPP_PROVIDER || "openwa"),
+    provider,
     baseUrl: text(process.env.WHATSAPP_API_BASE_URL).replace(/\/+$/, ""),
-    apiKey: text(process.env.WHATSAPP_API_KEY),
+    apiKey: text(
+      cloudProvider
+        ? process.env.WHATSAPP_CLOUD_ACCESS_TOKEN
+        : process.env.WHATSAPP_API_KEY
+    ),
     sessionId: text(process.env.WHATSAPP_SESSION_ID),
+    wabaId: text(process.env.WHATSAPP_WABA_ID),
     defaultCountryCode: text(
       process.env.WHATSAPP_DEFAULT_COUNTRY_CODE || "57"
     ).replace(/\D/g, ""),
@@ -473,6 +599,7 @@ function envConfig(empresaId: string): WhatsAppRuntimeConfig {
     routes: {},
     branding: { showEmoji: true, showCompanyName: false },
     messageTemplates: {},
+    metaTemplates: {},
     source: "environment",
   };
 }
@@ -494,6 +621,9 @@ async function loadRuntimeConfig(
   empresaId: string
 ): Promise<WhatsAppRuntimeConfig> {
   const fallback = envConfig(empresaId);
+  const forceEnvironmentCredentials = normalize(
+    process.env.WHATSAPP_FORCE_ENV_CONFIG
+  ) === "true";
   const snapshot = await db().collection(CONFIG_COLLECTION).doc(empresaId).get();
   if (!snapshot.exists) return fallback;
   const data = snapshot.data() || {};
@@ -521,10 +651,19 @@ async function loadRuntimeConfig(
       !Array.isArray(data.branding) ? data.branding : {};
   return {
     empresaId,
-    provider: normalize(data.provider || fallback.provider || "openwa"),
-    baseUrl: text(data.baseUrl || fallback.baseUrl).replace(/\/+$/, ""),
-    apiKey,
-    sessionId: text(data.sessionId || fallback.sessionId),
+    provider: forceEnvironmentCredentials
+      ? fallback.provider
+      : normalize(data.provider || fallback.provider || "openwa"),
+    baseUrl: text(
+      forceEnvironmentCredentials ? fallback.baseUrl : data.baseUrl || fallback.baseUrl
+    ).replace(/\/+$/, ""),
+    apiKey: forceEnvironmentCredentials ? fallback.apiKey : apiKey,
+    sessionId: text(
+      forceEnvironmentCredentials ? fallback.sessionId : data.sessionId || fallback.sessionId
+    ),
+    wabaId: text(
+      forceEnvironmentCredentials ? fallback.wabaId : data.wabaId || fallback.wabaId
+    ),
     defaultCountryCode: text(
       data.defaultCountryCode || fallback.defaultCountryCode || "57"
     ).replace(/\D/g, ""),
@@ -540,6 +679,7 @@ async function loadRuntimeConfig(
       showCompanyName: brandingRaw.showCompanyName === true,
     },
     messageTemplates: normalizedMessageTemplates(data.messageTemplates),
+    metaTemplates: normalizedMetaTemplates(data.metaTemplates),
     source: "firestore",
   };
 }
@@ -690,6 +830,82 @@ class GenericHttpWhatsAppProvider implements WhatsAppProvider {
   }
 }
 
+/** Envío directo por WhatsApp Cloud API de Meta. */
+class WhatsAppCloudProvider implements WhatsAppProvider {
+  readonly name = "whatsapp_cloud";
+
+  constructor(private readonly config: WhatsAppRuntimeConfig) {}
+
+  async send(input: WhatsAppSendInput): Promise<WhatsAppSendResult> {
+    const destination = text(input.telefono).replace(/\D/g, "");
+    const templateKey = normalize(input.metadata?.templateKey);
+    const templateState = this.config.metaTemplates[templateKey];
+    const explicitTemplate = text(input.metadata?.metaTemplateName);
+    const configuredTemplate = explicitTemplate || text(templateState?.name);
+    const language = text(input.metadata?.metaTemplateLanguage) ||
+      text(templateState?.language) || "es";
+    const useTemplate = Boolean(explicitTemplate) ||
+      (Boolean(configuredTemplate) && templateState?.status === "APPROVED");
+    const templateVariables = Array.isArray(input.metadata?.metaTemplateParameters)
+      ? input.metadata!.metaTemplateParameters.map(text)
+      : templateVariablesFromMetadata(
+        input.metadata?.templateVariables,
+        templateState?.variableOrder || []
+      );
+    const body: Record<string, unknown> = useTemplate
+      ? {
+        messaging_product: "whatsapp",
+        to: destination,
+        type: "template",
+        template: {
+          name: configuredTemplate,
+          language: { code: language },
+          ...(templateVariables.length
+            ? { components: [{ type: "body", parameters: templateVariables.map((value) => ({ type: "text", text: value })) }] }
+            : {}),
+        },
+      }
+      : {
+        messaging_product: "whatsapp",
+        to: destination,
+        type: "text",
+        text: { preview_url: false, body: input.mensaje.trim() },
+      };
+    const response = await fetch(this.config.baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${this.config.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const rawText = await response.text();
+    if (!response.ok) {
+      throw new Error(`WHATSAPP_CLOUD_${response.status}:${rawText.slice(0, 300)}`);
+    }
+    let payload: any = {};
+    try {
+      payload = JSON.parse(rawText);
+    } catch (_) {/* respuesta vacía */}
+    return {
+      rawStatus: response.status,
+      providerMessageId: text(payload?.messages?.[0]?.id || payload?.id || payload?.messageId),
+    };
+  }
+}
+
+function templateVariablesFromMetadata(
+  value: unknown,
+  order: string[] = []
+): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const variables = templateVariables(value);
+  if (order.length) {
+    return order.map((key) => variables[normalize(key)] || "No informado");
+  }
+  return Object.values(value as Record<string, unknown>).map(text).filter(Boolean);
+}
+
 class AuditedWhatsAppProvider implements WhatsAppProvider {
   readonly name: string;
 
@@ -785,7 +1001,7 @@ export async function createWhatsAppProvider(
   } else if (
     ["whatsapp_cloud", "cloud", "whatsappcloud"].includes(config.provider)
   ) {
-    throw new Error("WHATSAPP_CLOUD_PROVIDER_NOT_IMPLEMENTED");
+    provider = new WhatsAppCloudProvider(config);
   } else {
     provider = new GenericHttpWhatsAppProvider(config);
   }
@@ -1086,6 +1302,20 @@ function adminOperationError(
       "El número de WhatsApp no es válido."
     );
   }
+  if (message.startsWith("WHATSAPP_META_TEMPLATES_401") ||
+      message.startsWith("WHATSAPP_META_TEMPLATE_CREATE_401")) {
+    return new functions.https.HttpsError(
+      "failed-precondition",
+      "Meta rechazó el token. Genera uno permanente con permisos de mensajería y administración."
+    );
+  }
+  if (message.startsWith("WHATSAPP_META_TEMPLATES_") ||
+      message.startsWith("WHATSAPP_META_TEMPLATE_CREATE_")) {
+    return new functions.https.HttpsError(
+      "failed-precondition",
+      "Meta rechazó la operación de plantillas. Revisa el nombre, el contenido y los ejemplos."
+    );
+  }
   if (message.startsWith("OPENWA_CONTACT_CHECK_401") ||
       message.startsWith("OPENWA_401")) {
     return new functions.https.HttpsError(
@@ -1259,6 +1489,175 @@ async function audit(input: {
   });
 }
 
+function isCloudProvider(provider: string): boolean {
+  return ["whatsapp_cloud", "cloud", "whatsappcloud"].includes(
+    normalize(provider)
+  );
+}
+
+function metaGraphRoot(config: WhatsAppRuntimeConfig): string {
+  const configured = new URL(config.baseUrl);
+  const version = configured.pathname
+    .split("/")
+    .filter(Boolean)
+    .find((part) => /^v\d+(?:\.\d+)?$/i.test(part)) || "v25.0";
+  return `${configured.origin}/${version}`;
+}
+
+function metaBodyText(components: unknown): string {
+  if (!Array.isArray(components)) return "";
+  const body = components.find((item) =>
+    item && typeof item === "object" &&
+    normalize((item as Record<string, unknown>).type) === "body"
+  ) as Record<string, unknown> | undefined;
+  return text(body?.text);
+}
+
+function placeholderOrderFromText(
+  templateText: string,
+  allowed: string[]
+): string[] {
+  const allowedSet = new Set(allowed.map(normalize));
+  const order: string[] = [];
+  for (const match of templateText.matchAll(/\{([A-Za-z0-9_]+)\}/g)) {
+    const key = normalize(match[1]);
+    if (!allowedSet.has(key)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        `La variable {${match[1]}} no está disponible para este mensaje.`
+      );
+    }
+    if (!order.includes(key)) order.push(key);
+  }
+  return order;
+}
+
+function compileMetaTemplate(
+  definition: WhatsAppMessageTemplateDefinition,
+  draftText: string
+): { bodyText: string; variableOrder: string[]; examples: string[] } {
+  const source = text(draftText);
+  if (!source) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "El borrador de la plantilla está vacío."
+    );
+  }
+  const variableOrder = placeholderOrderFromText(
+    source,
+    definition.placeholders
+  );
+  const positions = new Map(
+    variableOrder.map((key, index) => [key, index + 1])
+  );
+  const bodyText = source.replace(
+    /\{([A-Za-z0-9_]+)\}/g,
+    (_match, rawKey: string) => `{{${positions.get(normalize(rawKey))}}}`
+  );
+  if (bodyText.length > 1024) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Meta permite máximo 1024 caracteres en el cuerpo de esta plantilla."
+    );
+  }
+  return {
+    bodyText,
+    variableOrder,
+    examples: variableOrder.map((key) => {
+      const originalKey = definition.placeholders.find(
+        (placeholder) => normalize(placeholder) === key
+      );
+      return (originalKey && definition.variableInfo[originalKey]?.sample) ||
+        "Ejemplo";
+    }),
+  };
+}
+
+async function fetchMetaTemplateStates(
+  config: WhatsAppRuntimeConfig
+): Promise<Record<string, WhatsAppMetaTemplateState>> {
+  if (!isCloudProvider(config.provider)) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "La consulta de plantillas requiere WhatsApp oficial (Meta Cloud API)."
+    );
+  }
+  if (!config.wabaId) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "Falta el ID de la cuenta de WhatsApp Business (WABA)."
+    );
+  }
+  const url = new URL(
+    `${metaGraphRoot(config)}/${encodeURIComponent(config.wabaId)}/message_templates`
+  );
+  url.searchParams.set("fields", "id,name,status,language,category,components");
+  url.searchParams.set("limit", "250");
+  const response = await fetch(url, {
+    headers: { "Authorization": `Bearer ${config.apiKey}` },
+    signal: AbortSignal.timeout(15000),
+  });
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(`WHATSAPP_META_TEMPLATES_${response.status}:${rawText.slice(0, 500)}`);
+  }
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(rawText) as Record<string, unknown>;
+  } catch (_) {
+    throw new Error("WHATSAPP_META_TEMPLATES_INVALID_RESPONSE");
+  }
+  const rows = Array.isArray(payload.data) ? payload.data : [];
+  const result: Record<string, WhatsAppMetaTemplateState> = {};
+  for (const [key, definition] of Object.entries(MESSAGE_TEMPLATE_DEFINITIONS)) {
+    const row = rows.find((item) => {
+      if (!item || typeof item !== "object") return false;
+      const data = item as Record<string, unknown>;
+      return text(data.name) === definition.metaName &&
+        text(data.language) === definition.metaLanguage;
+    }) as Record<string, unknown> | undefined;
+    if (!row) continue;
+    const previous = config.metaTemplates[key];
+    const bodyText = metaBodyText(row.components);
+    const variableCount = Math.max(
+      0,
+      ...Array.from(bodyText.matchAll(/\{\{(\d+)\}\}/g))
+        .map((match) => Number(match[1]) || 0)
+    );
+    let variableOrder = previous?.variableOrder || [];
+    if (variableOrder.length !== variableCount) {
+      const localText = config.messageTemplates[key]?.text || definition.defaultText;
+      const inferred = placeholderOrderFromText(localText, definition.placeholders);
+      variableOrder = inferred.length === variableCount
+        ? inferred
+        : definition.placeholders.slice(0, variableCount);
+    }
+    result[key] = {
+      id: text(row.id),
+      name: text(row.name),
+      language: text(row.language),
+      category: text(row.category),
+      status: text(row.status).toUpperCase() || "UNKNOWN",
+      bodyText,
+      variableOrder,
+    };
+  }
+  return result;
+}
+
+async function persistMetaTemplateStates(
+  empresaId: string,
+  states: Record<string, WhatsAppMetaTemplateState>,
+  userId: string
+): Promise<void> {
+  await db().collection(CONFIG_COLLECTION).doc(empresaId).set({
+    metaTemplates: states,
+    metaTemplatesSyncedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedBy: userId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
 export const whatsappAdminEstado = functions
   .region(REGION)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
@@ -1279,6 +1678,15 @@ export const whatsappAdminEstado = functions
             text: configured?.text || definition.defaultText,
             enabled: configured?.enabled !== false,
             customized: Boolean(configured?.text),
+            meta: config.metaTemplates[key] || {
+              name: definition.metaName,
+              language: definition.metaLanguage,
+              category: definition.metaCategory,
+              status: "MISSING",
+              id: "",
+              bodyText: "",
+              variableOrder: [],
+            },
           }];
         })
       );
@@ -1287,6 +1695,7 @@ export const whatsappAdminEstado = functions
         provider: config.provider,
         baseUrl: config.baseUrl,
         sessionId: config.sessionId,
+        wabaId: config.wabaId,
         defaultCountryCode: config.defaultCountryCode,
         enabled: config.enabled,
         modules: config.modules,
@@ -1323,12 +1732,13 @@ export const whatsappAdminGuardar = functions
     const provider = normalize(data?.provider || "openwa");
     const baseUrl = text(data?.baseUrl).replace(/\/+$/, "");
     const sessionId = text(data?.sessionId);
+    const wabaId = text(data?.wabaId);
     const defaultCountryCode = text(data?.defaultCountryCode || "57").replace(
       /\D/g,
       ""
     );
     const apiKey = text(data?.apiKey);
-    if (!["openwa", "openclaw_openwa", "openclaw", "http"].includes(provider)) {
+    if (!["openwa", "openclaw_openwa", "openclaw", "http", "whatsapp_cloud", "cloud", "whatsappcloud"].includes(provider)) {
       throw new functions.https.HttpsError(
         "invalid-argument",
         "Proveedor de WhatsApp no soportado."
@@ -1340,7 +1750,7 @@ export const whatsappAdminGuardar = functions
     } catch (_) {
       throw new functions.https.HttpsError(
         "invalid-argument",
-        "La URL de OpenWA no es válida."
+        "La URL del proveedor de WhatsApp no es válida."
       );
     }
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
@@ -1367,7 +1777,10 @@ export const whatsappAdminGuardar = functions
     const currentEncrypted = current.exists
       ? text(current.get("apiKeyEncrypted"))
       : "";
-    if (!apiKey && !currentEncrypted && !text(process.env.WHATSAPP_API_KEY)) {
+    const environmentApiKey = isCloudProvider(provider)
+      ? text(process.env.WHATSAPP_CLOUD_ACCESS_TOKEN)
+      : text(process.env.WHATSAPP_API_KEY);
+    if (!apiKey && !currentEncrypted && !environmentApiKey) {
       throw new functions.https.HttpsError(
         "invalid-argument",
         "La API key es obligatoria en la primera configuración."
@@ -1387,6 +1800,7 @@ export const whatsappAdminGuardar = functions
         provider,
         baseUrl,
         sessionId,
+        wabaId,
         defaultCountryCode,
         enabled: data?.enabled !== false,
         modules,
@@ -1449,6 +1863,131 @@ export const whatsappAdminGuardar = functions
       },
     });
     return { ok: true };
+  });
+
+export const whatsappAdminSincronizarPlantillas = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const caller = await requireWhatsAppAdmin(data, context);
+    try {
+      const config = await loadRuntimeConfig(caller.empresaId);
+      assertRuntimeReady(config, "admin", true);
+      const states = await fetchMetaTemplateStates(config);
+      await persistMetaTemplateStates(caller.empresaId, states, caller.userId);
+      await audit({
+        empresaId: caller.empresaId,
+        userId: caller.userId,
+        action: "meta_templates_synced",
+        details: {
+          found: Object.keys(states).length,
+          approved: Object.values(states)
+            .filter((item) => item.status === "APPROVED").length,
+        },
+      });
+      return { ok: true, metaTemplates: states };
+    } catch (error) {
+      throw adminOperationError(
+        error,
+        "No fue posible consultar las plantillas en Meta."
+      );
+    }
+  });
+
+export const whatsappAdminEnviarPlantillaRevision = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const caller = await requireWhatsAppAdmin(data, context);
+    const templateKey = normalize(data?.templateKey);
+    const definition = MESSAGE_TEMPLATE_DEFINITIONS[templateKey];
+    if (!definition) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "La plantilla seleccionada no existe."
+      );
+    }
+    try {
+      const config = await loadRuntimeConfig(caller.empresaId);
+      assertRuntimeReady(config, "admin", true);
+      const existingStates = await fetchMetaTemplateStates(config);
+      if (existingStates[templateKey]) {
+        await persistMetaTemplateStates(
+          caller.empresaId,
+          existingStates,
+          caller.userId
+        );
+        return {
+          ok: true,
+          alreadyExists: true,
+          metaTemplate: existingStates[templateKey],
+        };
+      }
+
+      const configured = config.messageTemplates[templateKey];
+      const compiled = compileMetaTemplate(
+        definition,
+        configured?.text || definition.defaultText
+      );
+      const components: Array<Record<string, unknown>> = [{
+        type: "BODY",
+        text: compiled.bodyText,
+        ...(compiled.examples.length
+          ? { example: { body_text: [compiled.examples] } }
+          : {}),
+      }];
+      const response = await fetch(
+        `${metaGraphRoot(config)}/${encodeURIComponent(config.wabaId)}/message_templates`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify({
+            name: definition.metaName,
+            language: definition.metaLanguage,
+            category: definition.metaCategory,
+            components,
+          }),
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+      const rawText = await response.text();
+      if (!response.ok) {
+        throw new Error(`WHATSAPP_META_TEMPLATE_CREATE_${response.status}:${rawText.slice(0, 500)}`);
+      }
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(rawText) as Record<string, unknown>;
+      } catch (_) {/* Meta puede responder sin cuerpo útil. */}
+      const state: WhatsAppMetaTemplateState = {
+        id: text(payload.id),
+        name: definition.metaName,
+        language: definition.metaLanguage,
+        category: text(payload.category) || definition.metaCategory,
+        status: text(payload.status).toUpperCase() || "PENDING",
+        bodyText: compiled.bodyText,
+        variableOrder: compiled.variableOrder,
+      };
+      const states = { ...existingStates, [templateKey]: state };
+      await persistMetaTemplateStates(caller.empresaId, states, caller.userId);
+      await audit({
+        empresaId: caller.empresaId,
+        userId: caller.userId,
+        action: "meta_template_submitted",
+        details: {
+          templateKey,
+          name: definition.metaName,
+          variableOrder: compiled.variableOrder,
+          status: state.status,
+        },
+      });
+      return { ok: true, alreadyExists: false, metaTemplate: state };
+    } catch (error) {
+      throw adminOperationError(
+        error,
+        "No fue posible enviar la plantilla a revisión de Meta."
+      );
+    }
   });
 
 function firstText(...values: unknown[]): string {

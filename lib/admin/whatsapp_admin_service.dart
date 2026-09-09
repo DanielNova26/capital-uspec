@@ -89,6 +89,7 @@ class WhatsAppAdminService {
     required String baseUrl,
     required String apiKey,
     required String sessionId,
+    required String wabaId,
     required String defaultCountryCode,
     required bool enabled,
     required bool correoEnabled,
@@ -108,6 +109,7 @@ class WhatsAppAdminService {
       'baseUrl': baseUrl,
       'apiKey': apiKey,
       'sessionId': sessionId,
+      'wabaId': wabaId,
       'defaultCountryCode': defaultCountryCode,
       'enabled': enabled,
       'modules': {
@@ -124,6 +126,31 @@ class WhatsAppAdminService {
       },
       'messageTemplates': messageTemplates,
     });
+  }
+
+  Future<Map<String, dynamic>> sincronizarPlantillas({
+    required String empresaId,
+    required String userId,
+  }) async {
+    final result = await _functions
+        .httpsCallable('whatsappAdminSincronizarPlantillas')
+        .call({'empresaId': empresaId, 'userId': userId});
+    return Map<String, dynamic>.from(result.data as Map);
+  }
+
+  Future<Map<String, dynamic>> enviarPlantillaRevision({
+    required String empresaId,
+    required String userId,
+    required String templateKey,
+  }) async {
+    final result = await _functions
+        .httpsCallable('whatsappAdminEnviarPlantillaRevision')
+        .call({
+          'empresaId': empresaId,
+          'userId': userId,
+          'templateKey': templateKey,
+        });
+    return Map<String, dynamic>.from(result.data as Map);
   }
 
   Future<List<WhatsAppDirectorioPersona>> cargarDirectorio({

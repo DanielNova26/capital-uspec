@@ -80,7 +80,16 @@ export const ppWhatsAppCambioFirma = functions
           empresaId,
           routeId: "planillas_tesoreria_auditoria",
           mensaje: `💳 *Planilla firmada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
-          metadata: { type: "planillas_tesoreria_auditoria", planillaId: context.params.planillaId },
+          metadata: {
+            type: "planillas_tesoreria_auditoria",
+            templateKey: "planilla_pago_actualizacion",
+            planillaId: context.params.planillaId,
+            templateVariables: {
+              planilla: nombre,
+              estado: "Firmada por Tesorería",
+              accion: "Revisión de Auditoría",
+            },
+          },
         });
       });
     }
@@ -90,7 +99,16 @@ export const ppWhatsAppCambioFirma = functions
           empresaId,
           routeId: "planillas_auditoria_gerencia",
           mensaje: `✅ *Planilla firmada por Auditoría*\n📄 ${nombre}\n✍️ Está disponible para el proceso de Gerencia.`,
-          metadata: { type: "planillas_auditoria_gerencia", planillaId: context.params.planillaId },
+          metadata: {
+            type: "planillas_auditoria_gerencia",
+            templateKey: "planilla_pago_actualizacion",
+            planillaId: context.params.planillaId,
+            templateVariables: {
+              planilla: nombre,
+              estado: "Firmada por Auditoría",
+              accion: "Proceso de Gerencia",
+            },
+          },
         });
       });
     }
@@ -121,7 +139,15 @@ export const interventoriaWhatsAppNuevaActa = functions
           fecha ? `📅 Fecha de visita: ${fecha}` : "",
           "🔎 Ingresa al módulo de Interventoría para revisarla.",
         ].filter(Boolean).join("\n"),
-        metadata: { type: "interventoria_nueva_acta", visitaId: context.params.visitaId },
+        metadata: {
+          type: "interventoria_nueva_acta",
+          templateKey: "interventoria_actividad",
+          visitaId: context.params.visitaId,
+          templateVariables: {
+            centroCosto: centro || "No informado",
+            fecha: fecha || "No informada",
+          },
+        },
       });
     });
   });

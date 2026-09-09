@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../home/widgets/home_shared_widgets.dart';
 import '../widgets/internal_module_layout.dart';
+import '../widgets/user_avatar.dart';
 import '../core/app_catalog.dart';
 import '../utils/user_company.dart';
 import 'personnel_access_picker.dart';
@@ -46,6 +47,7 @@ class _PersonnelRequisitionScreenState
   final _searchController = TextEditingController();
   final _horizontalTableController = ScrollController();
   late Future<PersonnelRequisitionAccess> _accessFuture;
+  late Stream<List<PersonnelRequisition>> _rows;
   PersonnelRequisitionStage? _stageFilter;
   PersonnelRequisitionTraffic? _trafficFilter;
   bool _onlyPendingHire = false;
@@ -57,6 +59,7 @@ class _PersonnelRequisitionScreenState
   void initState() {
     super.initState();
     _loadAccess();
+    _loadRows();
   }
 
   @override
@@ -66,6 +69,7 @@ class _PersonnelRequisitionScreenState
         oldWidget.empresaId != widget.empresaId) {
       _selected = null;
       _loadAccess();
+      _loadRows();
     }
   }
 
@@ -74,6 +78,13 @@ class _PersonnelRequisitionScreenState
       userId: widget.userId,
       empresaId: widget.empresaId,
     );
+  }
+
+  /// La stream se guarda en un campo y solo se rehace al cambiar de empresa.
+  /// Crearla dentro de `build` monta un listener nuevo en cada repintado, y en
+  /// web eso termina en "INTERNAL ASSERTION FAILED" de Firestore.
+  void _loadRows() {
+    _rows = _service.streamForCompany(widget.empresaId);
   }
 
   @override
@@ -121,7 +132,7 @@ class _PersonnelRequisitionScreenState
           }
           final access = accessSnapshot.data!;
           return StreamBuilder<List<PersonnelRequisition>>(
-            stream: _service.streamForCompany(widget.empresaId),
+            stream: _rows,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return _ErrorState(message: snapshot.error.toString());
@@ -629,8 +640,11 @@ class _PersonnelRequisitionScreenState
                         columns: const [
                           DataColumn(label: Text('Tiempo')),
                           DataColumn(label: Text('Estado')),
-                          DataColumn(label: Text('Fecha')),
+                          // El cargo va antes de la fecha: es lo que se busca
+                          // al revisar la tabla, y el semáforo se conserva
+                          // adelante porque es la alerta.
                           DataColumn(label: Text('Cargo')),
+                          DataColumn(label: Text('Fecha')),
                           DataColumn(label: Text('Anexo')),
                           DataColumn(label: Text('Cant.')),
                           DataColumn(label: Text('Establecimiento')),
@@ -649,7 +663,6 @@ class _PersonnelRequisitionScreenState
                               DataCell(
                                 Text(row.isClosed ? 'Cerrada' : 'Abierta'),
                               ),
-                              DataCell(Text(_shortDate(row.requestDate))),
                               DataCell(
                                 SizedBox(
                                   width: 190,
@@ -659,6 +672,7 @@ class _PersonnelRequisitionScreenState
                                   ),
                                 ),
                               ),
+                              DataCell(Text(_shortDate(row.requestDate))),
                               DataCell(_AnnexBadge(isRequired: row.annex)),
                               DataCell(Text('${row.quantity}')),
                               DataCell(
@@ -761,7 +775,13 @@ class _PersonnelRequisitionScreenState
                 ),
               ),
               const SizedBox(height: 8),
-              ...row.history.map(_historyEntry),
+              ...row.history.map(
+                (entry) => _historyEntry(
+                  entry,
+                  row: row,
+                  puedeBorrar: access.canDelete,
+                ),
+              ),
             ],
             _candidatesSection(row, access),
             if (row.hires.isNotEmpty) ...[
@@ -946,11 +966,14 @@ class _PersonnelRequisitionScreenState
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${candidate.documentType} ${candidate.document}',
-                  style: const TextStyle(
+                  candidate.documentLabel,
+                  style: TextStyle(
                     fontFamily: _font,
                     color: _muted,
                     fontSize: 10,
+                    fontStyle: candidate.document.isEmpty
+                        ? FontStyle.italic
+                        : FontStyle.normal,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -1010,7 +1033,7 @@ class _PersonnelRequisitionScreenState
     await _run(
       () => _service.updateCandidateStage(
         requisition: row,
-        document: candidate.document,
+        candidateKey: candidate.key,
         stage: result.$1,
         note: result.$2,
         userId: widget.userId,
@@ -1019,7 +1042,11 @@ class _PersonnelRequisitionScreenState
     );
   }
 
-  Widget _historyEntry(PersonnelRequisitionHistoryEntry entry) {
+  Widget _historyEntry(
+    PersonnelRequisitionHistoryEntry entry, {
+    PersonnelRequisition? row,
+    bool puedeBorrar = false,
+  }) {
     final result = _advanceResultLabel(entry.result);
     final title = entry.advanceType.isNotEmpty
         ? entry.advanceType
@@ -1066,22 +1093,116 @@ class _PersonnelRequisitionScreenState
                   ),
                 ],
                 const SizedBox(height: 4),
-                Text(
-                  [
-                    if (entry.date != null) _shortDateTime(entry.date!),
-                    if (entry.userId.isNotEmpty) 'Por ${entry.userId}',
-                  ].join(' · '),
-                  style: const TextStyle(
-                    fontFamily: _font,
-                    color: _muted,
-                    fontSize: 9,
-                  ),
+                Row(
+                  children: [
+                    if (entry.date != null)
+                      Text(
+                        '${_shortDateTime(entry.date!)}'
+                        '${entry.userId.isEmpty ? '' : ' · '}',
+                        style: const TextStyle(
+                          fontFamily: _font,
+                          color: _muted,
+                          fontSize: 9,
+                        ),
+                      ),
+                    if (entry.userId.isNotEmpty)
+                      Flexible(
+                        child: UserNameText(
+                          entry.userId,
+                          prefix: 'Por ',
+                          style: const TextStyle(
+                            fontFamily: _font,
+                            color: _muted,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
           ),
+          if (puedeBorrar && row != null)
+            IconButton(
+              tooltip: 'Borrar novedad',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : () => _deleteHistoryEntry(row, entry),
+              icon: const Icon(Icons.delete_outline_rounded, size: 17),
+              color: _muted,
+            ),
         ],
       ),
+    );
+  }
+
+  /// Borrar una novedad quita el renglón del informe, pero no devuelve la
+  /// vacante a su etapa anterior: eso hay que decirlo antes, no después.
+  Future<void> _deleteHistoryEntry(
+    PersonnelRequisition row,
+    PersonnelRequisitionHistoryEntry entry,
+  ) async {
+    final descripcion = [
+      if (entry.advanceType.isNotEmpty)
+        entry.advanceType
+      else
+        entry.stage.label,
+      if (entry.note.isNotEmpty) entry.note,
+    ].join(' · ');
+
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Borrar novedad'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Se va a quitar del historial:'),
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF7F9FB),
+                border: Border.all(color: _border),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                descripcion,
+                style: const TextStyle(fontSize: 12, height: 1.35),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'La vacante no vuelve a su etapa anterior. Si el avance movió la '
+              'solicitud, corrígela registrando el avance correcto.',
+              style: TextStyle(fontSize: 11.5, color: _muted, height: 1.35),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB91C1C),
+            ),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true) return;
+    await _run(
+      () => _service.deleteHistoryEntry(
+        requisition: row,
+        entryKey: entry.key,
+        userId: widget.userId,
+      ),
+      success: 'Novedad borrada del historial.',
     );
   }
 
@@ -1423,7 +1544,7 @@ class _PersonnelRequisitionScreenState
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => DraggableScrollableSheet(
+      builder: (sheetContext) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.88,
         minChildSize: 0.55,
@@ -1431,7 +1552,32 @@ class _PersonnelRequisitionScreenState
         builder: (_, controller) => SingleChildScrollView(
           controller: controller,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 22),
-          child: SizedBox(height: 700, child: _detailPanel(row, access)),
+          // La hoja escucha la misma lista que la pantalla: sin esto se queda
+          // con la copia del momento en que se abrió, y borrar una novedad
+          // parecería no haber hecho nada hasta cerrarla y volverla a abrir.
+          child: StreamBuilder<List<PersonnelRequisition>>(
+            stream: _rows,
+            initialData: [row],
+            builder: (_, snapshot) {
+              final vigente = (snapshot.data ?? const <PersonnelRequisition>[])
+                  .where((item) => item.id == row.id)
+                  .firstOrNull;
+              if (vigente == null) {
+                // La solicitud se eliminó desde otro lado mientras la miraban.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                });
+                return const SizedBox(
+                  height: 700,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              return SizedBox(
+                height: 700,
+                child: _detailPanel(vigente, access),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -2348,9 +2494,10 @@ class _CandidateDialogState extends State<_CandidateDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Cada aspirante avanza por su cuenta: la vacante deja de tener '
-                  'un solo estado y pasa a mostrar quién está en entrevistas, '
-                  'quién en exámenes y quién quedó descartado.',
+                  'Basta el nombre: se cita con el de la hoja de vida y muchas '
+                  'no traen cédula. Cada aspirante avanza por su cuenta, así '
+                  'que la vacante muestra quién está en entrevistas, quién en '
+                  'exámenes y quién quedó descartado.',
                   style: TextStyle(
                     fontFamily: _font,
                     color: _muted,
@@ -2387,12 +2534,11 @@ class _CandidateDialogState extends State<_CandidateDialog> {
                         keyboardType: TextInputType.number,
                         inputFormatters: [digitsOnlyFormatter],
                         decoration: const InputDecoration(
-                          labelText: 'Documento',
+                          labelText: 'Documento (opcional)',
+                          helperText: 'Si la hoja de vida no lo trae, déjalo '
+                              'vacío.',
                           border: OutlineInputBorder(),
                         ),
-                        validator: (value) => (value ?? '').trim().isEmpty
-                            ? 'Campo obligatorio'
-                            : null,
                       ),
                     ),
                   ],

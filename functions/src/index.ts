@@ -88,12 +88,19 @@ export {
 export {
   whatsappAdminEstado,
   whatsappAdminGuardar,
+  whatsappAdminSincronizarPlantillas,
+  whatsappAdminEnviarPlantillaRevision,
   whatsappAdminGuardarListado,
   whatsappAdminAsignarListado,
   whatsappAdminDirectorio,
   whatsappAdminProbar,
   whatsappOpenWaMonitor,
 } from "./whatsapp";
+// Talento Humano — alerta el día que vence la diligencia de descargos o el
+// resultado del proceso disciplinario.
+export {
+  thNotificarPlazosDisciplinarios,
+} from "./disciplinary_deadline_notifications";
 export {
   interventoriaSolicitarEliminacion,
   interventoriaResolverEliminacion,

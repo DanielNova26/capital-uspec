@@ -111,6 +111,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   final _baseUrl = TextEditingController();
   final _apiKey = TextEditingController();
   final _sessionId = TextEditingController();
+  final _wabaId = TextEditingController();
   final _countryCode = TextEditingController(text: '57');
   final _testPhone = TextEditingController();
   final _testMessage = TextEditingController();
@@ -130,6 +131,8 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   bool _loading = true;
   bool _saving = false;
   bool _testing = false;
+  bool _syncingTemplates = false;
+  bool _submittingTemplate = false;
   bool _assigningList = false;
   bool _showApiKey = false;
   String _purchaseNewSupplierListId = '';
@@ -171,6 +174,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     _baseUrl.dispose();
     _apiKey.dispose();
     _sessionId.dispose();
+    _wabaId.dispose();
     _countryCode.dispose();
     _testPhone.dispose();
     _testMessage.dispose();
@@ -213,6 +217,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         _provider = (state['provider'] ?? 'openwa').toString();
         _baseUrl.text = (state['baseUrl'] ?? '').toString();
         _sessionId.text = (state['sessionId'] ?? '').toString();
+        _wabaId.text = (state['wabaId'] ?? '').toString();
         _countryCode.text = (state['defaultCountryCode'] ?? '57').toString();
         _apiKey.clear();
         _enabled = state['enabled'] != false;
@@ -245,12 +250,18 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
     }
   }
 
-  Future<void> _save() async {
+  Future<bool> _save() async {
     if (_baseUrl.text.trim().isEmpty ||
         _sessionId.text.trim().isEmpty ||
-        _countryCode.text.trim().isEmpty) {
-      _message('Completa URL, sesión y código de país.', error: true);
-      return;
+        _countryCode.text.trim().isEmpty ||
+        (_provider == 'whatsapp_cloud' && _wabaId.text.trim().isEmpty)) {
+      _message(
+        _provider == 'whatsapp_cloud'
+            ? 'Completa URL, ID del teléfono, ID de la cuenta WABA y código de país.'
+            : 'Completa URL, sesión y código de país.',
+        error: true,
+      );
+      return false;
     }
     if (_selectedTemplateKey.isNotEmpty &&
         _messageTemplates.containsKey(_selectedTemplateKey)) {
@@ -275,6 +286,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         baseUrl: _baseUrl.text.trim(),
         apiKey: _apiKey.text.trim(),
         sessionId: _sessionId.text.trim(),
+        wabaId: _wabaId.text.trim(),
         defaultCountryCode: _countryCode.text.trim(),
         enabled: _enabled,
         correoEnabled: _correoEnabled,
@@ -289,10 +301,51 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
       );
       _message('Configuración central de WhatsApp guardada.');
       await _load();
+      return true;
     } catch (error) {
       _message('No fue posible guardar: $error', error: true);
+      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _syncMetaTemplates() async {
+    setState(() => _syncingTemplates = true);
+    try {
+      await _service.sincronizarPlantillas(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+      );
+      await _load();
+      _message('Estados de las plantillas actualizados desde Meta.');
+    } catch (error) {
+      _message('No fue posible consultar Meta: $error', error: true);
+    } finally {
+      if (mounted) setState(() => _syncingTemplates = false);
+    }
+  }
+
+  Future<void> _submitTemplateForReview() async {
+    final saved = await _save();
+    if (!saved || !mounted) return;
+    setState(() => _submittingTemplate = true);
+    try {
+      final result = await _service.enviarPlantillaRevision(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+        templateKey: _selectedTemplateKey,
+      );
+      await _load();
+      _message(
+        result['alreadyExists'] == true
+            ? 'La plantilla ya existe en Meta; se actualizó su estado.'
+            : 'Plantilla enviada a revisión de Meta.',
+      );
+    } catch (error) {
+      _message('No fue posible enviar la plantilla: $error', error: true);
+    } finally {
+      if (mounted) setState(() => _submittingTemplate = false);
     }
   }
 
@@ -309,7 +362,11 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         telefono: _testPhone.text.trim(),
         mensaje: _testMessage.text.trim(),
       );
-      _message('OpenWA aceptó el mensaje de prueba.');
+      _message(
+        _provider == 'whatsapp_cloud'
+            ? 'WhatsApp oficial aceptó el mensaje de prueba.'
+            : 'El proveedor aceptó el mensaje de prueba.',
+      );
       await _load();
     } catch (error) {
       _message('La prueba falló: $error', error: true);
@@ -428,6 +485,10 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
               value: 'openclaw_openwa',
               child: Text('OpenClaw + OpenWA'),
             ),
+            DropdownMenuItem(
+              value: 'whatsapp_cloud',
+              child: Text('WhatsApp oficial (Meta Cloud API)'),
+            ),
             DropdownMenuItem(value: 'http', child: Text('HTTP genérico')),
           ],
           onChanged: (value) => setState(() => _provider = value ?? 'openwa'),
@@ -436,8 +497,8 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         TextField(
           controller: _baseUrl,
           decoration: const InputDecoration(
-            labelText: 'URL del servidor OpenWA',
-            hintText: 'https://openwa.midominio.com',
+            labelText: 'URL de la API de WhatsApp',
+            hintText: 'https://graph.facebook.com/vXX.X/ID_DEL_NUMERO/messages',
             border: OutlineInputBorder(),
             prefixIcon: Icon(Icons.dns_outlined),
           ),
@@ -446,17 +507,30 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
         TextField(
           controller: _sessionId,
           decoration: const InputDecoration(
-            labelText: 'ID de sesión',
+            labelText: 'ID de sesión / teléfono',
             border: OutlineInputBorder(),
             prefixIcon: Icon(Icons.phone_android),
           ),
         ),
+        if (_provider == 'whatsapp_cloud') ...[
+          const SizedBox(height: 14),
+          TextField(
+            controller: _wabaId,
+            decoration: const InputDecoration(
+              labelText: 'ID de la cuenta de WhatsApp Business (WABA)',
+              helperText:
+                  'Se usa para consultar, crear y revisar plantillas en Meta.',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.business_center_outlined),
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
         TextField(
           controller: _apiKey,
           obscureText: !_showApiKey,
           decoration: InputDecoration(
-            labelText: 'API key',
+            labelText: 'Token / API key',
             hintText: _state['apiKeyConfigured'] == true
                 ? 'Conservar ${_state['apiKeyMasked'] ?? 'la actual'}'
                 : 'Obligatoria',
@@ -598,6 +672,14 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
               .where((item) => item.isNotEmpty)
               .toList()
         : const <String>[];
+    final variableInfo = current['variableInfo'] is Map
+        ? Map<String, dynamic>.from(current['variableInfo'] as Map)
+        : const <String, dynamic>{};
+    final meta = current['meta'] is Map
+        ? Map<String, dynamic>.from(current['meta'] as Map)
+        : const <String, dynamic>{};
+    final metaStatus = (meta['status'] ?? 'MISSING').toString().toUpperCase();
+    final metaName = (meta['name'] ?? current['metaName'] ?? '').toString();
     return _card(
       title: 'Editor de mensajes',
       subtitle:
@@ -675,6 +757,59 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
             (current['description'] ?? '').toString(),
             style: const TextStyle(fontFamily: _font, color: _muted),
           ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _metaStatusColor(metaStatus).withValues(alpha: 0.08),
+              border: Border.all(
+                color: _metaStatusColor(metaStatus).withValues(alpha: 0.35),
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Icon(
+                  _metaStatusIcon(metaStatus),
+                  size: 20,
+                  color: _metaStatusColor(metaStatus),
+                ),
+                Text(
+                  _metaStatusLabel(metaStatus),
+                  style: TextStyle(
+                    fontFamily: _font,
+                    fontWeight: FontWeight.w800,
+                    color: _metaStatusColor(metaStatus),
+                  ),
+                ),
+                if (metaName.isNotEmpty)
+                  SelectableText(
+                    metaName,
+                    style: const TextStyle(
+                      fontFamily: _font,
+                      fontSize: 12,
+                      color: _muted,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            metaStatus == 'APPROVED'
+                ? 'Meta usará esta plantilla fuera de la ventana de 24 horas. Los valores de las variables seguirán saliendo de cada módulo.'
+                : 'Este contenido se guarda como borrador interno y sirve para mensajes libres dentro de la ventana de 24 horas. Para iniciar conversaciones debe estar aprobado por Meta.',
+            style: const TextStyle(
+              fontFamily: _font,
+              color: _muted,
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
           SwitchListTile(
             value: current['enabled'] != false,
             onChanged: (value) => setState(() {
@@ -729,6 +864,65 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
                   )
                   .toList(),
             ),
+            const SizedBox(height: 12),
+            ...placeholders.map((placeholder) {
+              final raw = variableInfo[placeholder];
+              final info = raw is Map
+                  ? Map<String, dynamic>.from(raw)
+                  : const <String, dynamic>{};
+              return Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  border: Border.all(color: _border),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 135,
+                      child: Text(
+                        '{$placeholder}',
+                        style: const TextStyle(
+                          fontFamily: _font,
+                          fontWeight: FontWeight.w800,
+                          color: _primary,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            (info['label'] ?? placeholder).toString(),
+                            style: const TextStyle(
+                              fontFamily: _font,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Ejemplo: ${info['sample'] ?? 'Dato de ejemplo'}',
+                            style: const TextStyle(
+                              fontFamily: _font,
+                              color: _muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
           ],
           const SizedBox(height: 16),
           Container(
@@ -780,14 +974,69 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
               FilledButton.icon(
                 onPressed: _saving ? null : _save,
                 icon: const Icon(Icons.save_outlined),
-                label: const Text('Guardar mensajes'),
+                label: const Text('Guardar borrador'),
               ),
+              if (_provider == 'whatsapp_cloud')
+                OutlinedButton.icon(
+                  onPressed: _syncingTemplates ? null : _syncMetaTemplates,
+                  icon: _syncingTemplates
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync),
+                  label: const Text('Sincronizar con Meta'),
+                ),
+              if (_provider == 'whatsapp_cloud' && metaStatus == 'MISSING')
+                FilledButton.icon(
+                  onPressed: _submittingTemplate
+                      ? null
+                      : _submitTemplateForReview,
+                  style: FilledButton.styleFrom(backgroundColor: _accent),
+                  icon: _submittingTemplate
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.send_outlined),
+                  label: const Text('Enviar a revisión'),
+                ),
             ],
           ),
         ],
       ),
     );
   }
+
+  String _metaStatusLabel(String status) => switch (status) {
+    'APPROVED' => 'Aprobada y activa en Meta',
+    'PENDING' => 'En revisión por Meta',
+    'REJECTED' => 'Rechazada por Meta',
+    'PAUSED' => 'Pausada por Meta',
+    'DISABLED' => 'Deshabilitada en Meta',
+    _ => 'Borrador local · aún no existe en Meta',
+  };
+
+  Color _metaStatusColor(String status) => switch (status) {
+    'APPROVED' => const Color(0xFF15803D),
+    'PENDING' => const Color(0xFFD97706),
+    'REJECTED' || 'DISABLED' => const Color(0xFFDC2626),
+    'PAUSED' => const Color(0xFF7C3AED),
+    _ => const Color(0xFF475569),
+  };
+
+  IconData _metaStatusIcon(String status) => switch (status) {
+    'APPROVED' => Icons.verified_outlined,
+    'PENDING' => Icons.hourglass_top_outlined,
+    'REJECTED' || 'DISABLED' => Icons.error_outline,
+    'PAUSED' => Icons.pause_circle_outline,
+    _ => Icons.edit_note_outlined,
+  };
 
   void _insertTemplatePlaceholder(String placeholder) {
     final token = '{$placeholder}';
@@ -813,31 +1062,17 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   }
 
   String _messagePreview() {
-    final samples = _selectedTemplateKey == 'compras_nuevo_proveedor'
-        ? const <String, String>{
-            'proveedor': 'Proveedor de ejemplo S.A.S.',
-            'nit': '900123456-7',
-            'categorias': 'Abarrotes, aseo',
-          }
-        : _selectedTemplateKey == 'facturacion_documento_rechazado'
-        ? const <String, String>{
-            'establecimiento': 'Complejo Norte',
-            'documento': 'Factura de servicios',
-            'periodo': 'Agosto 2026',
-            'motivo': 'Falta el soporte firmado.',
-            'fechaLimite': '23/08/2026',
-          }
-        : const <String, String>{
-            'icono': '📨',
-            'titulo': 'Nuevo requerimiento',
-            'proveedorIcono': '📧',
-            'proveedor': 'Gmail',
-            'buzon': 'notificaciones@empresa.com',
-            'tipo': 'Requerimiento',
-            'fecha': '05/08/2026, 10:30',
-            'remitente': 'entidad@ejemplo.gov.co',
-            'asunto': 'Solicitud de información',
-          };
+    final current = _messageTemplates[_selectedTemplateKey] ?? const {};
+    final rawInfo = current['variableInfo'] is Map
+        ? Map<String, dynamic>.from(current['variableInfo'] as Map)
+        : const <String, dynamic>{};
+    final samples = <String, String>{};
+    for (final entry in rawInfo.entries) {
+      final value = entry.value;
+      if (value is Map) {
+        samples[entry.key] = (value['sample'] ?? '').toString();
+      }
+    }
     var body = _templateText.text.replaceAllMapped(
       RegExp(r'\{([A-Za-z0-9_]+)\}'),
       (match) => samples[match.group(1)] ?? '',
@@ -1739,27 +1974,41 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
   }
 
   Widget _statusCard() {
+    final isCloud = const {
+      'whatsapp_cloud',
+      'cloud',
+      'whatsappcloud',
+    }.contains(_provider);
     final connected = _state['connected'] == true;
     final configured =
         _state['apiKeyConfigured'] == true &&
         (_state['baseUrl'] ?? '').toString().isNotEmpty;
+    final ready = isCloud ? configured && _enabled : connected;
     final status = (_state['sessionStatus'] ?? 'unknown').toString();
     return _card(
-      title: 'Estado de OpenWA',
-      subtitle: connected
+      title: isCloud ? 'Estado de WhatsApp oficial' : 'Estado de OpenWA',
+      subtitle: isCloud
+          ? (configured
+                ? 'Meta Cloud API configurada y disponible.'
+                : 'Configuración de Meta incompleta.')
+          : connected
           ? 'Sesión conectada y disponible.'
           : configured
           ? 'Configurado, pero la sesión no está lista.'
           : 'Configuración incompleta.',
-      icon: connected ? Icons.check_circle : Icons.warning_amber_rounded,
-      iconColor: connected ? _accent : Colors.orange.shade700,
+      icon: ready ? Icons.check_circle : Icons.warning_amber_rounded,
+      iconColor: ready ? _accent : Colors.orange.shade700,
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
         children: [
           _pill(
-            connected ? 'Conectado' : status,
-            connected ? _accent : Colors.orange.shade700,
+            isCloud
+                ? (configured ? 'Configurado' : 'Incompleto')
+                : connected
+                ? 'Conectado'
+                : status,
+            ready ? _accent : Colors.orange.shade700,
           ),
           _pill(
             'Origen: ${_state['source'] == 'firestore' ? 'Admin' : 'Variables actuales'}',
@@ -1776,7 +2025,7 @@ class _AdminWhatsAppPanelState extends State<AdminWhatsAppPanel> {
 
   Widget _testCard() => _card(
     title: 'Prueba controlada',
-    subtitle: 'Comprueba número, sesión y aceptación del proveedor.',
+    subtitle: 'Comprueba el número y la aceptación del proveedor.',
     icon: Icons.send_to_mobile_outlined,
     child: Column(
       children: [

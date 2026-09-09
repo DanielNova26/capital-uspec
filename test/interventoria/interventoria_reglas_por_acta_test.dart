@@ -115,6 +115,62 @@ void main() {
       );
       expect(numeralesDeActaPropia(null, 'instalacionesFisicas'), isEmpty);
     });
+
+    test(
+      'la revisión recibe numerales completos también en el acta regular',
+      () {
+        final numerales = numeralesDeAspectosEnActa(
+          kActaRegular,
+          'instalacionesFisicas',
+        );
+        expect(numerales.first, '2.1');
+        expect(numerales.last, '2.17');
+      },
+    );
+  });
+
+  group('orden visible de la revisión', () {
+    test('muestra primero horario 1.1 y luego concepto sanitario 1.2', () {
+      final categorias = categoriasOrdenadasDeActa(kActaRegular);
+      expect(categorias[0].key, 'horario');
+      expect(categorias[1].key, 'conceptoSanitario');
+      expect(categorias[2].key, 'instalacionesFisicas');
+    });
+
+    test('ordena observaciones por numeral aunque se seleccionen al revés', () {
+      final aspectos = aspectosDeActa(kActaRegular, 'instalacionesFisicas');
+      final notas =
+          ordenarNotasPorNumeralActa(kActaRegular, 'instalacionesFisicas', [
+            InterventoriaNota(aspecto: aspectos[9], texto: 'diez'),
+            InterventoriaNota(aspecto: aspectos[1], texto: 'dos'),
+            const InterventoriaNota(texto: 'manual'),
+          ]);
+      expect(
+        numeralDeNotaEnActa(kActaRegular, 'instalacionesFisicas', notas[0]),
+        '2.2',
+      );
+      expect(
+        numeralDeNotaEnActa(kActaRegular, 'instalacionesFisicas', notas[1]),
+        '2.10',
+      );
+      expect(
+        numeralDeNotaEnActa(kActaRegular, 'instalacionesFisicas', notas[2]),
+        '',
+      );
+    });
+
+    test('conserva el numeral persistido aunque el texto ya no coincida', () {
+      const nota = InterventoriaNota(
+        aspecto: 'Texto histórico',
+        numeralActa: '4.11',
+        texto: 'hallazgo',
+      );
+      expect(
+        numeralDeNotaEnActa(kActaEstacionPolicia, 'seccion4', nota),
+        '4.11',
+      );
+      expect(nota.toMap()['numeralActa'], '4.11');
+    });
   });
 
   group('maestro por acta', () {

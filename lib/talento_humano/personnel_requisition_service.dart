@@ -162,12 +162,11 @@ class PersonnelRequisitionService {
       'updatedAt': FieldValue.serverTimestamp(),
       'actualizadoPor': userId,
       'historial': [
-        {
-          'etapa': requisition.stage.value,
-          'nota': 'Solicitud creada',
-          'usuario': userId,
-          'fecha': Timestamp.now(),
-        },
+        _novedad(
+          etapa: requisition.stage.value,
+          nota: 'Solicitud creada',
+          usuario: userId,
+        ),
       ],
     });
     return ref.id;
@@ -187,12 +186,11 @@ class PersonnelRequisitionService {
       'updatedAt': FieldValue.serverTimestamp(),
       'actualizadoPor': userId,
       'historial': FieldValue.arrayUnion([
-        {
-          'etapa': requisition.stage.value,
-          'nota': 'Datos de la solicitud editados',
-          'usuario': userId,
-          'fecha': Timestamp.now(),
-        },
+        _novedad(
+          etapa: requisition.stage.value,
+          nota: 'Datos de la solicitud editados',
+          usuario: userId,
+        ),
       ]),
     });
   }
@@ -302,12 +300,11 @@ class PersonnelRequisitionService {
           'updatedAt': FieldValue.serverTimestamp(),
           'actualizadoPor': userId,
           'historial': [
-            {
-              'etapa': row.stage.value,
-              'nota': 'Importado desde Excel',
-              'usuario': userId,
-              'fecha': Timestamp.now(),
-            },
+            _novedad(
+              etapa: row.stage.value,
+              nota: 'Importado desde Excel',
+              usuario: userId,
+            ),
           ],
         });
       }
@@ -338,14 +335,13 @@ class PersonnelRequisitionService {
       'actualizadoPor': userId,
       if (closed) 'fechaCierre': FieldValue.serverTimestamp(),
       'historial': FieldValue.arrayUnion([
-        {
-          'etapa': stage.value,
-          'tipoAvance': advanceType.trim(),
-          'resultado': result.trim(),
-          'nota': note.trim(),
-          'usuario': userId,
-          'fecha': Timestamp.now(),
-        },
+        _novedad(
+          etapa: stage.value,
+          tipoAvance: advanceType.trim(),
+          resultado: result.trim(),
+          nota: note.trim(),
+          usuario: userId,
+        ),
       ]),
     });
   }
@@ -362,13 +358,16 @@ class PersonnelRequisitionService {
     required PersonnelCandidate candidate,
     required String userId,
   }) async {
+    // La cédula es opcional: se cita con el nombre de la hoja de vida y muchas
+    // no la traen. Lo único que no puede faltar es el nombre.
     final document = _cleanDocument(candidate.document);
-    if (document.isEmpty || candidate.names.trim().isEmpty) {
-      throw ArgumentError(
-        'Documento y nombres del aspirante son obligatorios.',
-      );
+    if (candidate.names.trim().isEmpty) {
+      throw ArgumentError('El nombre del aspirante es obligatorio.');
     }
     final ref = _db.collection(collection).doc(requisition.id);
+    // Id independiente de la cédula, generado sin escribir nada: dos personas
+    // sin documento son dos aspirantes distintos, no un duplicado.
+    final candidateId = _db.collection(collection).doc().id;
     await _db.runTransaction((transaction) async {
       final snapshot = await transaction.get(ref);
       if (!snapshot.exists) throw StateError('La solicitud ya no existe.');
@@ -379,11 +378,15 @@ class PersonnelRequisitionService {
       if (current.stage == PersonnelRequisitionStage.cancelled) {
         throw StateError('La solicitud está cancelada.');
       }
-      if (current.candidates.any((item) => item.document == document)) {
+      // Solo se puede afirmar que alguien está repetido si trajo cédula. Sin
+      // ella, dos "Juan Pérez" pueden ser dos personas.
+      if (document.isNotEmpty &&
+          current.candidates.any((item) => item.document == document)) {
         throw StateError('Ese aspirante ya está en la solicitud.');
       }
       final now = Timestamp.now();
       final added = PersonnelCandidate(
+        candidateId: candidateId,
         document: document,
         documentType: candidate.documentType,
         names: capitalizarPalabras(candidate.names.trim()),
@@ -403,27 +406,35 @@ class PersonnelRequisitionService {
         'updatedAt': FieldValue.serverTimestamp(),
         'actualizadoPor': userId,
         'historial': FieldValue.arrayUnion([
-          {
-            'etapa': added.stage.requisitionStage.value,
-            'tipoAvance': 'Aspirante agregado',
-            'resultado': 'continua',
-            'nota': '${added.fullName} ($document) · ${added.stage.label}',
-            'usuario': userId,
-            'fecha': now,
-          },
+          _novedad(
+            etapa: added.stage.requisitionStage.value,
+            tipoAvance: 'Aspirante agregado',
+            resultado: 'continua',
+            nota: document.isEmpty
+                ? '${added.fullName} · ${added.stage.label}'
+                : '${added.fullName} ($document) · ${added.stage.label}',
+            usuario: userId,
+            fecha: now,
+          ),
         ]),
       });
     });
   }
 
+  /// [candidateKey] es `PersonnelCandidate.key`: el id propio del aspirante,
+  /// o su documento en los registros anteriores a la cédula opcional. No se
+  /// limpia como un documento porque el id lleva mayúsculas y guiones.
   Future<void> updateCandidateStage({
     required PersonnelRequisition requisition,
-    required String document,
+    required String candidateKey,
     required PersonnelCandidateStage stage,
     required String note,
     required String userId,
   }) async {
-    final target = _cleanDocument(document);
+    final target = candidateKey.trim();
+    if (target.isEmpty) {
+      throw ArgumentError('No se identificó al aspirante.');
+    }
     final ref = _db.collection(collection).doc(requisition.id);
     await _db.runTransaction((transaction) async {
       final snapshot = await transaction.get(ref);
@@ -433,7 +444,7 @@ class PersonnelRequisitionService {
         snapshot.data() ?? const <String, dynamic>{},
       );
       final index = current.candidates.indexWhere(
-        (item) => item.document == target,
+        (item) => item.matches(target),
       );
       if (index < 0) throw StateError('Ese aspirante ya no está en la lista.');
       // Contratar no se hace desde aquí: crea usuario en TBL_USUARIOS y cierra
@@ -459,16 +470,16 @@ class PersonnelRequisitionService {
         'updatedAt': FieldValue.serverTimestamp(),
         'actualizadoPor': userId,
         'historial': FieldValue.arrayUnion([
-          {
-            'etapa': stage.requisitionStage.value,
-            'tipoAvance': '${previous.fullName} · ${stage.label}',
-            'resultado': stage == PersonnelCandidateStage.discarded
+          _novedad(
+            etapa: stage.requisitionStage.value,
+            tipoAvance: '${previous.fullName} · ${stage.label}',
+            resultado: stage == PersonnelCandidateStage.discarded
                 ? 'no_continua'
                 : 'continua',
-            'nota': note.trim(),
-            'usuario': userId,
-            'fecha': now,
-          },
+            nota: note.trim(),
+            usuario: userId,
+            fecha: now,
+          ),
         ]),
       });
     });
@@ -511,8 +522,105 @@ class PersonnelRequisitionService {
     PersonnelRequisitionStage.cancelled => 6,
   };
 
+  /// Borra una novedad del historial: sirve para el avance que se registró
+  /// por equivocación, en la vacante equivocada o con el texto equivocado.
+  ///
+  /// Va en transacción y reescribiendo el arreglo completo, no con
+  /// `arrayRemove`: el historial es un arreglo dentro del documento, así que
+  /// entre leer y escribir alguien más pudo registrar otro avance. Con
+  /// `arrayRemove` sobre un mapa "igual" se irían también las novedades
+  /// duplicadas, y borrando por posición se iría la que quedó en ese índice.
+  ///
+  /// [entryKey] es `PersonnelRequisitionHistoryEntry.key`.
+  ///
+  /// Ojo con lo que **no** hace: la etapa de la vacante no vuelve atrás. Si el
+  /// avance equivocado movió la solicitud a "entrevistas", borrarlo quita el
+  /// renglón del informe pero la vacante sigue en entrevistas — eso se corrige
+  /// registrando el avance correcto.
+  Future<void> deleteHistoryEntry({
+    required PersonnelRequisition requisition,
+    required String entryKey,
+    required String userId,
+  }) async {
+    final target = entryKey.trim();
+    if (target.isEmpty) {
+      throw ArgumentError('No se identificó la novedad que se va a borrar.');
+    }
+    final ref = _db.collection(collection).doc(requisition.id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw StateError('La solicitud ya no existe.');
+      final data = snapshot.data() ?? const <String, dynamic>{};
+      final actual = (data['historial'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
+          .toList();
+
+      final restantes = actual
+          .where(
+            (item) => !PersonnelRequisitionHistoryEntry.mapMatches(
+              item,
+              target,
+            ),
+          )
+          .toList();
+      if (restantes.length == actual.length) {
+        throw StateError('Esa novedad ya no está en el historial.');
+      }
+      // La solicitud tiene que quedar con al menos su origen: un historial
+      // vacío es una vacante sin rastro de cuándo ni por qué se abrió.
+      if (restantes.isEmpty) {
+        throw StateError(
+          'No se puede borrar la única novedad: la solicitud quedaría sin '
+          'historial.',
+        );
+      }
+
+      transaction.update(ref, {
+        'historial': restantes,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'actualizadoPor': userId,
+      });
+    });
+  }
+
+  /// Arma una novedad del historial con id propio.
+  ///
+  /// El id se genera con un documento de Firestore que nunca se escribe: es
+  /// una forma barata de tener un identificador único sin agregar `uuid`.
+  Map<String, dynamic> _novedad({
+    required String etapa,
+    required String nota,
+    required String usuario,
+    String tipoAvance = '',
+    String resultado = '',
+    Timestamp? fecha,
+  }) => {
+    'id': _db.collection(collection).doc().id,
+    'etapa': etapa,
+    if (tipoAvance.isNotEmpty) 'tipoAvance': tipoAvance,
+    if (resultado.isNotEmpty) 'resultado': resultado,
+    'nota': nota,
+    'usuario': usuario,
+    'fecha': fecha ?? Timestamp.now(),
+  };
+
   static String _cleanDocument(String raw) =>
       raw.replaceAll(RegExp(r'[^0-9A-Za-z]'), '');
+
+  /// Nombre comparable: sin tildes, sin dobles espacios y en minúscula. Se usa
+  /// solo para reconciliar a quien se registró sin cédula.
+  static String _nameKey(String raw) => raw
+      .trim()
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ü', 'u')
+      .replaceAll('ñ', 'n')
+      .replaceAll(RegExp(r'\s+'), ' ');
 
   Future<bool> registerHireAndCreateUser({
     required PersonnelRequisition requisition,
@@ -637,9 +745,26 @@ class PersonnelRequisitionService {
       // ahora, para que el informe por persona no tenga huecos.
       final stamp = Timestamp.now();
       final nextCandidates = [...current.candidates];
-      final candidateIndex = nextCandidates.indexWhere(
-        (item) => item.document == document,
+      var candidateIndex = nextCandidates.indexWhere(
+        (item) => item.document.isNotEmpty && item.document == document,
       );
+      // El aspirante pudo registrarse sin cédula, que ahora sí se conoce. Se
+      // reconcilia por nombre contra los que siguen vivos y no tienen
+      // documento; si no, la contratación crearía una ficha duplicada y la
+      // original se quedaría congelada en su etapa.
+      if (candidateIndex < 0) {
+        final target = _nameKey(hired.fullName);
+        candidateIndex = nextCandidates.indexWhere(
+          (item) =>
+              item.document.isEmpty &&
+              item.isActive &&
+              _nameKey(item.fullName) == target,
+        );
+        if (candidateIndex >= 0) {
+          nextCandidates[candidateIndex] = nextCandidates[candidateIndex]
+              .copyWith(document: document);
+        }
+      }
       if (candidateIndex >= 0) {
         nextCandidates[candidateIndex] = nextCandidates[candidateIndex]
             .copyWith(
@@ -683,12 +808,11 @@ class PersonnelRequisitionService {
         'updatedAt': FieldValue.serverTimestamp(),
         'actualizadoPor': userId,
         'historial': FieldValue.arrayUnion([
-          {
-            'etapa': complete ? 'contratado' : 'documentos',
-            'nota': 'Usuario creado para ${hired.fullName} ($document)',
-            'usuario': userId,
-            'fecha': Timestamp.now(),
-          },
+          _novedad(
+            etapa: complete ? 'contratado' : 'documentos',
+            nota: 'Usuario creado para ${hired.fullName} ($document)',
+            usuario: userId,
+          ),
         ]),
       });
       return temporaryPasswordAssigned;
@@ -961,14 +1085,16 @@ Uint8List buildPersonnelRequisitionReport({
   final excel = xl.Excel.createExcel();
   excel.rename('Sheet1', 'Requerimientos');
   final sheet = excel['Requerimientos'];
+  // El cargo va antes de la fecha, igual que en la pantalla y en el PDF: es
+  // por lo que se busca cuando alguien abre el informe.
   const headers = [
     'Nivel de atención',
     'Días hábiles',
+    'Cargo',
     'Fecha solicitud',
     'Grupo',
     'Establecimiento',
     'Anexo',
-    'Cargo',
     'Cantidad',
     'Contratados',
     'Pendientes',
@@ -1039,11 +1165,11 @@ Uint8List buildPersonnelRequisitionReport({
     final values = <xl.CellValue>[
       xl.TextCellValue(_trafficLabel(traffic)),
       xl.IntCellValue(row.daysAt(now)),
+      xl.TextCellValue(row.position),
       xl.DateTimeCellValue.fromDateTime(row.requestDate),
       xl.TextCellValue(row.group),
       xl.TextCellValue(row.establishment),
       xl.TextCellValue(row.annex ? 'Sí' : 'No'),
-      xl.TextCellValue(row.position),
       xl.IntCellValue(row.quantity),
       xl.IntCellValue(row.hiredCount),
       xl.IntCellValue(row.pendingCount),

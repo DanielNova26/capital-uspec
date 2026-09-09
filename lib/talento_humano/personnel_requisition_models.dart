@@ -188,6 +188,14 @@ extension PersonnelCandidateStageX on PersonnelCandidateStage {
 
 /// Un aspirante concreto dentro de una vacante, con su propio avance.
 class PersonnelCandidate {
+  /// Identidad del aspirante dentro de la vacante.
+  ///
+  /// No es la cédula a propósito: Talento Humano cita con el nombre de la hoja
+  /// de vida y muchas hojas no traen documento, así que la cédula puede estar
+  /// vacía y repetirse entre varios aspirantes. Si la identidad dependiera de
+  /// ella, mover a uno de etapa movería al otro.
+  final String candidateId;
+
   final String document;
   final String documentType;
   final String names;
@@ -205,8 +213,9 @@ class PersonnelCandidate {
   final String updatedBy;
 
   const PersonnelCandidate({
-    required this.document,
     required this.names,
+    this.candidateId = '',
+    this.document = '',
     this.surnames = '',
     this.documentType = 'CC',
     this.email = '',
@@ -222,13 +231,34 @@ class PersonnelCandidate {
   String get fullName => '$names $surnames'.trim();
   bool get isActive => !stage.isClosed;
 
+  /// Con qué llave responde este aspirante. Los registros anteriores a la
+  /// cédula opcional no tienen `candidatoId` y se siguen ubicando por su
+  /// documento, que en esa época sí era obligatorio y único.
+  bool matches(String key) {
+    final target = key.trim();
+    if (target.isEmpty) return false;
+    if (candidateId.isNotEmpty) return candidateId == target;
+    return document.isNotEmpty && document == target;
+  }
+
+  /// La llave con la que hay que pedir cambios sobre este aspirante.
+  String get key => candidateId.isNotEmpty ? candidateId : document;
+
+  /// Cómo se muestra el documento cuando puede no existir. Sin esto la ficha
+  /// pinta un "CC " colgando, que se lee como un dato perdido.
+  String get documentLabel =>
+      document.isEmpty ? 'Sin cédula registrada' : '$documentType $document';
+
   PersonnelCandidate copyWith({
     PersonnelCandidateStage? stage,
     String? note,
     DateTime? updatedAt,
     String? updatedBy,
+    String? document,
+    String? candidateId,
   }) => PersonnelCandidate(
-    document: document,
+    candidateId: candidateId ?? this.candidateId,
+    document: document ?? this.document,
     documentType: documentType,
     names: names,
     surnames: surnames,
@@ -244,6 +274,7 @@ class PersonnelCandidate {
 
   factory PersonnelCandidate.fromMap(Map<String, dynamic> data) =>
       PersonnelCandidate(
+        candidateId: _text(data['candidatoId']),
         document: _text(data['documento'] ?? data['cedula']),
         documentType: _text(data['tipoDocumento']).isEmpty
             ? 'CC'
@@ -263,6 +294,7 @@ class PersonnelCandidate {
   /// [timestamp] permite escribir `Timestamp.now()` desde el servicio: dentro
   /// de un array de Firestore no se puede usar `serverTimestamp()`.
   Map<String, dynamic> toMap({Object? timestamp}) => {
+    'candidatoId': key,
     'documento': document,
     'tipoDocumento': documentType,
     'nombres': names,
@@ -339,6 +371,13 @@ class PersonnelHire {
 }
 
 class PersonnelRequisitionHistoryEntry {
+  /// Identidad de la novedad dentro del historial.
+  ///
+  /// El historial es un arreglo dentro del documento, así que borrar "la
+  /// tercera" es borrar lo que haya en esa posición cuando llegue la escritura.
+  /// Si alguien registró un avance en el intervalo, se elimina el equivocado.
+  final String id;
+
   final PersonnelRequisitionStage stage;
   final String advanceType;
   final String result;
@@ -348,6 +387,7 @@ class PersonnelRequisitionHistoryEntry {
 
   const PersonnelRequisitionHistoryEntry({
     required this.stage,
+    this.id = '',
     this.advanceType = '',
     this.result = '',
     this.note = '',
@@ -355,8 +395,27 @@ class PersonnelRequisitionHistoryEntry {
     this.date,
   });
 
+  /// Llave con la que se pide borrar esta novedad.
+  ///
+  /// Las novedades anteriores a este campo no tienen `id`, y por eso se
+  /// reconocen por su huella: fecha exacta, autor y texto. Es suficiente
+  /// porque `Timestamp.now()` llega al microsegundo — dos novedades distintas
+  /// no coinciden en las tres cosas.
+  String get key => id.isNotEmpty ? id : huella(
+    fecha: date,
+    usuario: userId,
+    nota: note,
+  );
+
+  static String huella({
+    required DateTime? fecha,
+    required String usuario,
+    required String nota,
+  }) => '${fecha?.microsecondsSinceEpoch ?? 0}|$usuario|$nota';
+
   factory PersonnelRequisitionHistoryEntry.fromMap(Map<String, dynamic> data) =>
       PersonnelRequisitionHistoryEntry(
+        id: _text(data['id']),
         stage: PersonnelRequisitionStageX.parse(data['etapa']),
         advanceType: _text(data['tipoAvance']),
         result: _text(data['resultado']),
@@ -364,6 +423,22 @@ class PersonnelRequisitionHistoryEntry {
         userId: _text(data['usuario']),
         date: _date(data['fecha']),
       );
+
+  /// Si el mapa crudo de Firestore corresponde a esta novedad. Se compara
+  /// sobre el mapa y no sobre el objeto porque al borrar hay que reescribir el
+  /// arreglo tal como está guardado, sin perder campos que no modelamos.
+  static bool mapMatches(Map<String, dynamic> raw, String key) {
+    final target = key.trim();
+    if (target.isEmpty) return false;
+    final id = _text(raw['id']);
+    if (id.isNotEmpty) return id == target;
+    return huella(
+          fecha: _date(raw['fecha']),
+          usuario: _text(raw['usuario']),
+          nota: _text(raw['nota']),
+        ) ==
+        target;
+  }
 }
 
 class PersonnelRequisition {

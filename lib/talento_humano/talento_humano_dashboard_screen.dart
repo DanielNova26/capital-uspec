@@ -14,6 +14,7 @@ import 'cargos_management_screen.dart';
 import 'carnet_screen.dart';
 import 'centros_costos_management_screen.dart';
 import 'disciplinary_management_screen.dart';
+import 'finalizacion_documentos_screen.dart';
 import 'hoja_de_vida_management_screen.dart';
 import 'hv_dashboard_screen.dart';
 import 'notificaciones_talento_humano_screen.dart';
@@ -370,6 +371,25 @@ class _TalentoHumanoDashboardScreenState
       ),
       _HumanTalentAction(
         section: 'Documentación',
+        title: 'Documentos de finalización de contrato',
+        description:
+            'Carta laboral, cesantías y orden de exámenes de egreso. Genera '
+            'el lote desde una plantilla y déjalos listos para descargar.',
+        icon: Icons.folder_zip_rounded,
+        color: const Color(0xFF0F766E),
+        metric: 'Entrega al trabajador',
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => FinalizacionDocumentosScreen(
+              userId: userId,
+              empresaId: empresaId,
+            ),
+          ),
+        ),
+      ),
+      _HumanTalentAction(
+        section: 'Documentación',
         title: 'Carnets',
         description:
             'Diseño de la empresa e impresión de carnets, uno o por lotes.',
@@ -584,7 +604,7 @@ class _HumanTalentControlDashboard extends StatelessWidget {
       _ControlMetric(
         label: 'Procesos abiertos',
         value: '${data.openDisciplinaryCases}',
-        detail: '${data.highSeverityCases} de prioridad alta',
+        detail: '${data.overdueDisciplinaryCases} con plazo vencido',
         icon: Icons.gavel_rounded,
         color: const Color(0xFFB91C1C),
         onTap: onDisciplinary,
@@ -927,7 +947,7 @@ class _PriorityWorkCard extends StatelessWidget {
         _PriorityTask(
           title: '${data.openDisciplinaryCases} proceso(s) por atender',
           subtitle:
-              '${data.highSeverityCases} de prioridad alta requieren seguimiento.',
+              '${data.overdueDisciplinaryCases} con el plazo vencido.',
           icon: Icons.record_voice_over_rounded,
           color: const Color(0xFF9A3412),
           onTap: onDisciplinary,

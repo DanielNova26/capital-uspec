@@ -465,6 +465,86 @@ List<String> numeralesDeActaPropia(String? tipoActa, String categoriaKey) {
   ];
 }
 
+/// Numerales visibles de todos los aspectos de una sección, en el orden del
+/// acta. A diferencia de [numeralesDeActaPropia], también los devuelve para el
+/// acta regular, donde se reconstruyen a partir de la sección y del número que
+/// encabeza cada aspecto.
+List<String> numeralesDeAspectosEnActa(String? tipoActa, String categoriaKey) =>
+    [
+      for (final aspecto in aspectosDeActa(tipoActa, categoriaKey))
+        numeralDeAspectoEnActa(tipoActa, categoriaKey, aspecto),
+    ];
+
+/// Categorías en el orden en que aparecen impresas en el acta.
+///
+/// La lista histórica de la regular conserva `conceptoSanitario` antes de
+/// `horario`, aunque ambos pertenecen a la sección 1 y sus primeros numerales
+/// son 1.2 y 1.1 respectivamente. En revisión sí deben verse 1.1, 1.2, 1.3…
+List<InterventoriaCategoria> categoriasOrdenadasDeActa(String? tipoActa) {
+  final categorias = categoriasDeActa(tipoActa);
+  final enumeradas = categorias.asMap().entries.toList();
+
+  int primerItem(InterventoriaCategoria categoria) {
+    final aspectos = aspectosDeActa(tipoActa, categoria.key);
+    if (aspectos.isEmpty) return 1 << 20;
+    final numeral = numeralDeAspectoEnActa(
+      tipoActa,
+      categoria.key,
+      aspectos.first,
+    );
+    return int.tryParse(numeral.split('.').last) ?? 1 << 20;
+  }
+
+  enumeradas.sort((a, b) {
+    final seccionA = seccionDeActa(tipoActa, a.value.key) ?? 1 << 20;
+    final seccionB = seccionDeActa(tipoActa, b.value.key) ?? 1 << 20;
+    final porSeccion = seccionA.compareTo(seccionB);
+    if (porSeccion != 0) return porSeccion;
+    final porItem = primerItem(a.value).compareTo(primerItem(b.value));
+    return porItem != 0 ? porItem : a.key.compareTo(b.key);
+  });
+
+  return List.unmodifiable(enumeradas.map((entry) => entry.value));
+}
+
+/// Numeral persistido o reconstruido de una observación del acta.
+String numeralDeNotaEnActa(
+  String? tipoActa,
+  String categoriaKey,
+  InterventoriaNota nota,
+) {
+  final persistido = normalizarNumeralActa(nota.numeralActa);
+  if (persistido.isNotEmpty) return persistido;
+  return numeralDeAspectoEnActa(tipoActa, categoriaKey, nota.aspecto);
+}
+
+/// Ordena observaciones por el numeral real del acta. Las notas manuales o
+/// antiguas cuyo numeral no se puede reconstruir quedan al final y conservan
+/// entre sí su orden original.
+List<InterventoriaNota> ordenarNotasPorNumeralActa(
+  String? tipoActa,
+  String categoriaKey,
+  Iterable<InterventoriaNota> notas,
+) {
+  final numerales = numeralesDeAspectosEnActa(tipoActa, categoriaKey);
+  final posicion = <String, int>{
+    for (var i = 0; i < numerales.length; i++)
+      normalizarNumeralActa(numerales[i]): i,
+  };
+  final enumeradas = notas.toList().asMap().entries.toList();
+  enumeradas.sort((a, b) {
+    final ordenA =
+        posicion[numeralDeNotaEnActa(tipoActa, categoriaKey, a.value)] ??
+        1 << 20;
+    final ordenB =
+        posicion[numeralDeNotaEnActa(tipoActa, categoriaKey, b.value)] ??
+        1 << 20;
+    final porNumeral = ordenA.compareTo(ordenB);
+    return porNumeral != 0 ? porNumeral : a.key.compareTo(b.key);
+  });
+  return enumeradas.map((entry) => entry.value).toList();
+}
+
 /// ¿El numeral existe en el acta indicada?
 ///
 /// Se valida antes de guardar una regla: sin esto, un numeral mal escrito
@@ -854,12 +934,14 @@ class InterventoriaItem {
 
 class InterventoriaNota {
   final String aspecto;
+  final String numeralActa;
   final String texto;
   final String fuente;
   final Timestamp? createdAt;
 
   const InterventoriaNota({
     this.aspecto = '',
+    this.numeralActa = '',
     required this.texto,
     this.fuente = 'manual',
     this.createdAt,
@@ -868,6 +950,7 @@ class InterventoriaNota {
   factory InterventoriaNota.fromMap(Map<String, dynamic> data) =>
       InterventoriaNota(
         aspecto: (data['aspecto'] ?? '').toString(),
+        numeralActa: (data['numeralActa'] ?? '').toString(),
         texto: (data['texto'] ?? '').toString(),
         fuente: (data['fuente'] ?? 'manual').toString(),
         createdAt: data['createdAt'] as Timestamp?,
@@ -875,6 +958,7 @@ class InterventoriaNota {
 
   Map<String, dynamic> toMap() => {
     'aspecto': aspecto,
+    'numeralActa': numeralActa,
     'texto': texto,
     'fuente': fuente,
     'createdAt': createdAt ?? Timestamp.now(),
@@ -882,10 +966,12 @@ class InterventoriaNota {
 
   InterventoriaNota copyWith({
     String? aspecto,
+    String? numeralActa,
     String? texto,
     String? fuente,
   }) => InterventoriaNota(
     aspecto: aspecto ?? this.aspecto,
+    numeralActa: numeralActa ?? this.numeralActa,
     texto: texto ?? this.texto,
     fuente: fuente ?? this.fuente,
     createdAt: createdAt,

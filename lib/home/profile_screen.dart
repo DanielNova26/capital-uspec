@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../talento_humano/hoja_de_vida_screen.dart';
+import '../talento_humano/mis_documentos_finalizacion_screen.dart';
 
 const Color _profilePrimary = Color(0xFF3F6696);
 const String _kFont = 'Arial';
@@ -211,11 +212,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    // No es un módulo: todo el personal puede descargar sus
+                    // propios papeles de salida sin que nadie se los asigne.
+                    OutlinedButton.icon(
+                      onPressed: _openDocumentosFinalizacion,
+                      icon: const Icon(Icons.folder_zip_outlined),
+                      label: const Text(
+                        'Documentos de finalización de contrato',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _profilePrimary,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 16,
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: _kFont,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  void _openDocumentosFinalizacion() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MisDocumentosFinalizacionScreen(
+          userId: widget.userId,
+          empresaId: _empresaId ?? '',
         ),
       ),
     );

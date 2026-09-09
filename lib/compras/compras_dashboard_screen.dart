@@ -10638,6 +10638,89 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     setState(() => _entries[idx].lotes.removeAt(loteIdx));
   }
 
+  String _comentarioFichaCargadaEnRecepcion() {
+    final oc = _ordenCtrl.text.trim();
+    final vinculada = widget.abastecimientosIniciales.isNotEmpty;
+    final origen = vinculada
+        ? 'durante la recepción vinculada al abastecimiento'
+        : 'durante el registro de la recepción';
+    return 'Ficha técnica cargada por Bodega $origen'
+        '${oc.isEmpty ? '' : ' de la OC $oc'}. '
+        'Pendiente de revisión por Calidad.';
+  }
+
+  Future<DocAdjunto> _prepararDocumentoRecepcion({
+    required int idx,
+    required String key,
+    required DocAdjunto archivo,
+    required DateTime? vigencia,
+  }) async {
+    final comentario = key == 'fichaTecnica'
+        ? _comentarioFichaCargadaEnRecepcion()
+        : _entries[idx].observacionesCtrl.text.trim();
+    final documento = archivo.copyWith(
+      subidoPor: widget.userId,
+      estadoCalidad: estadoInicialDocumentoRecepcion(key),
+      observacionCalidad: '',
+      observacionActualizacion: comentario,
+      fechaVencimiento: vigencia == null ? null : Timestamp.fromDate(vigencia),
+      clearFechaVencimiento: vigencia == null,
+    );
+
+    if (key != 'fichaTecnica') return documento;
+
+    final proveedor = _proveedor;
+    final producto = _entries[idx].producto;
+    final marca = _entries[idx].marcaSeleccionada;
+    if (proveedor == null || producto == null || marca == null) {
+      throw StateError(
+        'Selecciona proveedor, producto y marca antes de cargar la ficha técnica.',
+      );
+    }
+
+    FichaTecnicaDoc? fichaExistente;
+    for (final candidate in _fichasTecnicas) {
+      if (candidate.proveedorId == proveedor.id &&
+          candidate.productoId == producto.id &&
+          candidate.marcaId == marca.id) {
+        fichaExistente = candidate;
+        break;
+      }
+    }
+    final ficha = FichaTecnicaDoc(
+      id: fichaExistente?.id ?? '',
+      empresaId: widget.empresaId,
+      proveedorId: proveedor.id,
+      proveedorNombre: proveedor.razonSocial,
+      productoId: producto.id,
+      productoNombre: producto.nombre,
+      productoCategoria: producto.categoria,
+      marcaId: marca.id,
+      marcaNombre: marca.descripcion,
+      documentoActual: documento,
+      documentoAprobado: fichaExistente?.documentoAprobado,
+      historial: fichaExistente?.historial ?? const [],
+      creadoPor: fichaExistente?.creadoPor ?? widget.userId,
+      createdAt: fichaExistente?.createdAt ?? Timestamp.now(),
+    );
+    final fichaId = await widget.svc.guardarFichaTecnica(
+      ficha,
+      isNew: fichaExistente == null,
+      observacion: comentario,
+      actualizadoPor: widget.userId,
+    );
+    if (mounted) {
+      setState(() {
+        _fichasTecnicas.removeWhere((item) => item.id == fichaId);
+        _fichasTecnicas.add(ficha.copyWith(id: fichaId));
+        if (_entries[idx].observacionesCtrl.text.trim().isEmpty) {
+          _entries[idx].observacionesCtrl.text = comentario;
+        }
+      });
+    }
+    return documento;
+  }
+
   Future<void> _adjuntarDocProducto(int idx, String key) async {
     if (!_puedeEditarDocumento(idx, key)) return;
     final p = _entries[idx].producto;
@@ -10646,7 +10729,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     final doc = await _mostrarEscaneador(
       context,
       empresaId: widget.empresaId,
-      carpeta: 'recepciones',
+      carpeta: key == 'fichaTecnica' ? 'fichas_tecnicas' : 'recepciones',
       nombreSugerido: nombreSug,
       svc: widget.svc,
       userId: widget.userId,
@@ -10661,18 +10744,27 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         );
       }
       if (!mounted) return;
-      // Registrar quién subió el documento (para mostrar el nombre en la
-      // revisión de Calidad y para asignar la tarea de corrección si se rechaza).
-      final docFinal = doc.copyWith(
-        subidoPor: widget.userId,
-        estadoCalidad: estadoInicialDocumentoRecepcion(key),
-        observacionCalidad: '',
-        observacionActualizacion: _entries[idx].observacionesCtrl.text.trim(),
-        fechaVencimiento: vigencia == null
-            ? null
-            : Timestamp.fromDate(vigencia),
-        clearFechaVencimiento: vigencia == null,
-      );
+      // Registrar quién subió el documento. Si es una ficha faltante, también
+      // se crea el expediente proveedor-producto-marca para revisión de Calidad.
+      final DocAdjunto docFinal;
+      try {
+        docFinal = await _prepararDocumentoRecepcion(
+          idx: idx,
+          key: key,
+          archivo: doc,
+          vigencia: vigencia,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No fue posible registrar el documento: $e'),
+            backgroundColor: kComprasRed,
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
       setState(() {
         _entries[idx].documentos[key] = docFinal;
         if (_modoCorreccion) {
@@ -11103,7 +11195,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                         final doc = await widget.svc.subirBytes(
                           bytes: bytes,
                           empresaId: widget.empresaId,
-                          carpeta: 'recepciones',
+                          carpeta: key == 'fichaTecnica'
+                              ? 'fichas_tecnicas'
+                              : 'recepciones',
                           nombre: name,
                           contentType: ct,
                         );
@@ -11117,20 +11211,29 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           );
                         }
                         if (!mounted) return;
-                        // Todo documento reemplazado entra a revisión de Calidad.
-                        final docFinal = doc.copyWith(
-                          subidoPor: widget.userId,
-                          estadoCalidad: estadoInicialDocumentoRecepcion(key),
-                          observacionCalidad: '',
-                          observacionActualizacion: _entries[idx]
-                              .observacionesCtrl
-                              .text
-                              .trim(),
-                          fechaVencimiento: vigencia == null
-                              ? null
-                              : Timestamp.fromDate(vigencia),
-                          clearFechaVencimiento: vigencia == null,
-                        );
+                        // La ficha faltante se registra además en su expediente
+                        // maestro y queda pendiente de revisión de Calidad.
+                        final DocAdjunto docFinal;
+                        try {
+                          docFinal = await _prepararDocumentoRecepcion(
+                            idx: idx,
+                            key: key,
+                            archivo: doc,
+                            vigencia: vigencia,
+                          );
+                        } catch (e) {
+                          if (!mounted) return;
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'No fue posible registrar el documento: $e',
+                              ),
+                              backgroundColor: kComprasRed,
+                            ),
+                          );
+                          return;
+                        }
+                        if (!mounted) return;
                         setState(() {
                           _entries[idx].documentos[key] = docFinal;
                           if (_modoCorreccion) {
@@ -11997,6 +12100,50 @@ class _ProductoEntryCard extends StatelessWidget {
                                 ],
                               ),
                             ),
+                            if ((canEditDocument?.call('fichaTecnica') ??
+                                !readOnlyStructure)) ...[
+                              const SizedBox(height: 8),
+                              _DocAttachButton(
+                                label:
+                                    'Cargar ficha técnica desde esta recepción',
+                                doc: entry.documentos['fichaTecnica'],
+                                required_: true,
+                                qualityRequired: true,
+                                editable: true,
+                                onAttach: () => onAdjuntarDoc('fichaTecnica'),
+                                onView:
+                                    entry
+                                            .documentos['fichaTecnica']
+                                            ?.tieneDoc ==
+                                        true
+                                    ? () => onVerDoc('fichaTecnica')
+                                    : null,
+                                onWebUpload: onWebUploadDoc == null
+                                    ? null
+                                    : (bytes, name) => onWebUploadDoc!(
+                                        'fichaTecnica',
+                                        bytes,
+                                        name,
+                                      ),
+                                showCalendar: true,
+                                onDateChanged: (date) => onDateChangedDoc?.call(
+                                  'fichaTecnica',
+                                  date,
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 6),
+                                child: Text(
+                                  'Bodega puede continuar con la recepción. La ficha quedará identificada con el usuario que la cargó y pendiente de revisión por Calidad.',
+                                  style: TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 11,
+                                    color: Color(0xFF64748B),
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 12),
                           ],
                         );

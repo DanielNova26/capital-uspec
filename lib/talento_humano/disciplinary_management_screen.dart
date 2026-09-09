@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../widgets/internal_module_layout.dart';
+import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
 import 'disciplinary_service.dart';
 
@@ -13,6 +14,9 @@ const _ink = Color(0xFF17212B);
 const _muted = Color(0xFF64748B);
 const _border = Color(0xFFE2E8F0);
 const _surface = Color(0xFFF8FAFC);
+const _danger = Color(0xFFB91C1C);
+const _warning = Color(0xFFD97706);
+const _success = Color(0xFF15803D);
 const _font = 'Arial';
 
 class DisciplinaryManagementScreen extends StatefulWidget {
@@ -90,7 +94,7 @@ class _DisciplinaryManagementScreenState
       userId: widget.userId,
       empresaId: widget.empresaId,
       title: 'Proceso disciplinario',
-      subtitle: 'Carpeta disciplinaria, descargos, seguimiento y cierre',
+      subtitle: 'Solicitud, citación a descargos, diligencia y resultado',
       accentColor: _primary,
       child: StreamBuilder<List<DisciplinaryRecord>>(
         stream: _service.watchCompany(widget.empresaId),
@@ -190,6 +194,10 @@ class _DisciplinaryManagementScreenState
     final counts = <String, int>{};
     for (final record in records) {
       counts.update(record.cedula, (value) => value + 1, ifAbsent: () => 1);
+    }
+    final alerts = <String, int>{};
+    for (final record in records.where((item) => item.isOverdue)) {
+      alerts.update(record.cedula, (value) => value + 1, ifAbsent: () => 1);
     }
 
     return ColoredBox(
@@ -291,20 +299,25 @@ class _DisciplinaryManagementScreenState
           Expanded(
             child: filtered.isEmpty
                 ? const Center(child: Text('No se encontró personal.'))
-                : ListView.separated(
+                : SingleChildScrollView(
                     padding: EdgeInsets.all(mobile ? 12 : 10),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 7),
-                    itemBuilder: (context, index) {
-                      final person = filtered[index];
-                      final selected = _selected?.cedula == person.cedula;
-                      return _PersonFolderTile(
+                    child: PagedListSection<DisciplinaryPerson>(
+                      // La clave lleva el filtro: al cambiar la búsqueda o el
+                      // segmento la lista se vuelve a montar en la página 1.
+                      // Sin esto, quien venía en la página 4 y teclea un
+                      // nombre se queda mirando una página vacía.
+                      key: ValueKey('$term|$_peopleFilter'),
+                      items: filtered,
+                      etiqueta: 'personas',
+                      separator: const SizedBox(height: 7),
+                      itemBuilder: (context, person, _) => _PersonFolderTile(
                         person: person,
                         count: counts[person.cedula] ?? 0,
-                        selected: selected,
+                        overdue: alerts[person.cedula] ?? 0,
+                        selected: _selected?.cedula == person.cedula,
                         onTap: () => setState(() => _selected = person),
-                      );
-                    },
+                      ),
+                    ),
                   ),
           ),
         ],
@@ -326,10 +339,9 @@ class _DisciplinaryManagementScreenState
         .toList();
     final metrics = DisciplinaryMetrics.fromRecords(allRecords);
     final records = allRecords.where((record) {
-      if (_recordFilter == 'activos') return record.isOpen;
-      if (_recordFilter == 'cerrados') {
-        return record.status == DisciplinaryStatus.closed;
-      }
+      if (_recordFilter == 'tramite') return record.isOpen;
+      if (_recordFilter == 'vencidos') return record.isOverdue;
+      if (_recordFilter == 'cerrados') return record.isClosed;
       return true;
     }).toList();
 
@@ -360,7 +372,7 @@ class _DisciplinaryManagementScreenState
               _PersonFolderHeader(
                 person: person,
                 metrics: metrics,
-                onCreate: () => _showCreateDialog(person),
+                onCreate: () => _showOpenDialog(person),
               ),
               const SizedBox(height: 16),
               _metricsGrid(metrics, mobile),
@@ -385,10 +397,8 @@ class _DisciplinaryManagementScreenState
                         setState(() => _recordFilter = value),
                     itemBuilder: (_) => const [
                       PopupMenuItem(value: 'todos', child: Text('Todos')),
-                      PopupMenuItem(
-                        value: 'activos',
-                        child: Text('En proceso'),
-                      ),
+                      PopupMenuItem(value: 'tramite', child: Text('En trámite')),
+                      PopupMenuItem(value: 'vencidos', child: Text('Vencidos')),
                       PopupMenuItem(value: 'cerrados', child: Text('Cerrados')),
                     ],
                     child: _FilterButton(label: _recordFilterLabel),
@@ -397,22 +407,27 @@ class _DisciplinaryManagementScreenState
               ),
               const SizedBox(height: 10),
               if (records.isEmpty)
-                _NoRecords(onCreate: () => _showCreateDialog(person))
+                _NoRecords(onCreate: () => _showOpenDialog(person))
               else
-                for (final record in records) ...[
-                  _RecordCard(
+                PagedListSection<DisciplinaryRecord>(
+                  // Una carpeta antigua acumula años de procesos. La clave
+                  // incluye persona y filtro para que al cambiarlos se
+                  // empiece por la página 1.
+                  key: ValueKey('${person.cedula}|$_recordFilter'),
+                  items: records,
+                  etiqueta: 'procesos',
+                  separator: const SizedBox(height: 10),
+                  itemBuilder: (context, record, _) => _RecordCard(
                     record: record,
                     onDetails: () => _showDetails(record),
-                    onEvidence: () => _attachEvidence(record),
-                    onResponse: record.status == DisciplinaryStatus.closed
+                    onAdvance: record.isClosed
                         ? null
-                        : () => _showResponseDialog(record),
-                    onClose: record.status == DisciplinaryStatus.closed
-                        ? () => _showReopenDialog(record)
-                        : () => _showCloseDialog(record),
+                        : () => _advanceStage(record),
+                    onDiscard: record.stage == DisciplinaryStage.solicitud
+                        ? () => _showDiscardDialog(record)
+                        : null,
                   ),
-                  const SizedBox(height: 10),
-                ],
+                ),
             ],
           ),
         ),
@@ -422,8 +437,10 @@ class _DisciplinaryManagementScreenState
 
   String get _recordFilterLabel {
     switch (_recordFilter) {
-      case 'activos':
-        return 'En proceso';
+      case 'tramite':
+        return 'En trámite';
+      case 'vencidos':
+        return 'Vencidos';
       case 'cerrados':
         return 'Cerrados';
       default:
@@ -435,23 +452,18 @@ class _DisciplinaryManagementScreenState
     final cards = [
       _MetricData('Total', metrics.total, Icons.folder_copy_outlined, _navy),
       _MetricData(
-        'Pendientes',
-        metrics.pendingResponse,
-        Icons.mark_unread_chat_alt_outlined,
-        const Color(0xFFD97706),
+        'En trámite',
+        metrics.inProgress,
+        Icons.pending_actions_rounded,
+        _warning,
       ),
       _MetricData(
-        'Seguimiento',
-        metrics.followUp,
-        Icons.track_changes_rounded,
-        const Color(0xFF7C3AED),
+        'Vencidos',
+        metrics.overdue,
+        Icons.notification_important_rounded,
+        _danger,
       ),
-      _MetricData(
-        'Cerrados',
-        metrics.closed,
-        Icons.task_alt_rounded,
-        const Color(0xFF15803D),
-      ),
+      _MetricData('Cerrados', metrics.closed, Icons.task_alt_rounded, _success),
     ];
     return GridView.builder(
       shrinkWrap: true,
@@ -467,15 +479,10 @@ class _DisciplinaryManagementScreenState
     );
   }
 
-  Future<void> _showCreateDialog(DisciplinaryPerson person) async {
-    final subject = TextEditingController();
-    final description = TextEditingController();
-    final reference = TextEditingController();
-    final expected = TextEditingController();
-    var type = 'escrito';
-    var severity = 'leve';
-    var incidentDate = DateTime.now();
-    DateTime? responseDeadline;
+  /// Paso 1. Solo se radica lo que llegó: nunca se pide describir la falta.
+  Future<void> _showOpenDialog(DisciplinaryPerson person) async {
+    var receivedAt = DateTime.now();
+    DisciplinaryUpload? document;
     var saving = false;
 
     await showDialog<void>(
@@ -486,151 +493,41 @@ class _DisciplinaryManagementScreenState
           titlePadding: EdgeInsets.zero,
           contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
           title: _DialogTitle(
-            icon: Icons.record_voice_over_rounded,
-            title: 'Nuevo proceso disciplinario',
+            icon: Icons.markunread_mailbox_outlined,
+            title: 'Apertura de proceso disciplinario',
             subtitle: '${person.name} · CC ${person.cedula}',
           ),
           content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680),
+            constraints: const BoxConstraints(maxWidth: 620),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: type,
-                          decoration: const InputDecoration(labelText: 'Tipo'),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'verbal',
-                              child: Text('Verbal'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'escrito',
-                              child: Text('Escrito'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'descargos',
-                              child: Text('Citación a descargos'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'compromiso',
-                              child: Text('Compromiso de mejora'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'otro',
-                              child: Text('Otro'),
-                            ),
-                          ],
-                          onChanged: (value) => type = value ?? type,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: severity,
-                          decoration: const InputDecoration(
-                            labelText: 'Gravedad',
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'leve',
-                              child: Text('Leve'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'media',
-                              child: Text('Media'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'alta',
-                              child: Text('Alta'),
-                            ),
-                          ],
-                          onChanged: (value) => severity = value ?? severity,
-                        ),
-                      ),
-                    ],
+                  const _DialogHint(
+                    'Se recibe la solicitud de apertura del proceso. Adjunta el '
+                    'documento tal como llegó y registra la fecha de recibido.',
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: subject,
-                    decoration: const InputDecoration(
-                      labelText: 'Asunto',
-                      hintText: 'Motivo principal del proceso',
-                    ),
+                  const SizedBox(height: 16),
+                  _DateField(
+                    label: 'Fecha de recibido',
+                    value: receivedAt,
+                    icon: Icons.event_available_rounded,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now(),
+                    onChanged: (value) =>
+                        setDialogState(() => receivedAt = value),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: description,
-                    minLines: 4,
-                    maxLines: 7,
-                    decoration: const InputDecoration(
-                      labelText: 'Descripción de los hechos',
-                      hintText:
-                          'Describe qué ocurrió, cuándo y en qué contexto.',
-                      alignLabelWithHint: true,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: reference,
-                    decoration: const InputDecoration(
-                      labelText: 'Referencia normativa o interna (opcional)',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: expected,
-                    minLines: 2,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'Acción o mejora esperada (opcional)',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      _DateButton(
-                        label: 'Hecho: ${_formatDate(incidentDate)}',
-                        icon: Icons.event_note_rounded,
-                        onPressed: () async {
-                          final value = await showDatePicker(
-                            context: context,
-                            initialDate: incidentDate,
-                            firstDate: DateTime(2000),
-                            lastDate: DateTime.now(),
-                          );
-                          if (value != null) {
-                            setDialogState(() => incidentDate = value);
-                          }
-                        },
-                      ),
-                      _DateButton(
-                        label: responseDeadline == null
-                            ? 'Fecha límite de respuesta'
-                            : 'Respuesta: ${_formatDate(responseDeadline!)}',
-                        icon: Icons.schedule_rounded,
-                        onPressed: () async {
-                          final value = await showDatePicker(
-                            context: context,
-                            initialDate:
-                                responseDeadline ??
-                                DateTime.now().add(const Duration(days: 3)),
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(
-                              const Duration(days: 365),
-                            ),
-                          );
-                          if (value != null) {
-                            setDialogState(() => responseDeadline = value);
-                          }
-                        },
-                      ),
-                    ],
+                  const SizedBox(height: 14),
+                  _DocumentField(
+                    label: 'Solicitud de apertura',
+                    document: document,
+                    onPick: () async {
+                      final picked = await _pickDocument();
+                      if (picked != null) {
+                        setDialogState(() => document = picked);
+                      }
+                    },
                   ),
                 ],
               ),
@@ -645,196 +542,583 @@ class _DisciplinaryManagementScreenState
               onPressed: saving
                   ? null
                   : () async {
-                      if (subject.text.trim().isEmpty ||
-                          description.text.trim().isEmpty) {
+                      final upload = document;
+                      if (upload == null) {
                         _message(
-                          'Completa el asunto y la descripción de los hechos.',
+                          'Adjunta el documento de la solicitud de apertura.',
                           error: true,
                         );
                         return;
                       }
                       setDialogState(() => saving = true);
                       try {
-                        await _service.createRecord(
+                        await _service.abrirProceso(
                           empresaId: widget.empresaId,
                           person: person,
-                          type: type,
-                          severity: severity,
-                          subject: subject.text,
-                          description: description.text,
-                          incidentDate: incidentDate,
-                          responseDeadline: responseDeadline,
-                          policyReference: reference.text,
-                          expectedAction: expected.text,
+                          receivedAt: receivedAt,
+                          document: upload,
                           createdBy: widget.userId,
                         );
                         if (!dialogContext.mounted) return;
                         Navigator.pop(dialogContext);
                         _message(
-                          'Proceso registrado en la carpeta del colaborador.',
+                          'Proceso abierto. Sigue la citación a descargos.',
                         );
                       } catch (error) {
                         setDialogState(() => saving = false);
                         _message('No fue posible guardar: $error', error: true);
                       }
                     },
-              icon: saving
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_outlined),
-              label: const Text('Registrar'),
+              icon: _saveIcon(saving),
+              label: const Text('Registrar apertura'),
             ),
           ],
         ),
       ),
     );
-    subject.dispose();
-    description.dispose();
-    reference.dispose();
-    expected.dispose();
   }
 
-  Future<void> _showResponseDialog(DisciplinaryRecord record) async {
-    final controller = TextEditingController(text: record.employeeResponse);
-    final value = await _textDialog(
-      title: 'Registrar respuesta o descargos',
-      subtitle: record.subject,
-      label: 'Respuesta del colaborador',
-      controller: controller,
-      action: 'Guardar respuesta',
+  /// Paso 2. La fecha de la diligencia se propone a 5 días hábiles y es la que
+  /// después dispara la alerta.
+  Future<void> _showSummonDialog(DisciplinaryRecord record) async {
+    var deliveredAt = DateTime.now();
+    var hearingDate = DisciplinaryService.fechaDiligenciaSugerida(deliveredAt);
+    var manualHearingDate = false;
+    DisciplinaryUpload? document;
+    var saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+          title: _DialogTitle(
+            icon: Icons.mark_email_read_outlined,
+            title: 'Citación a descargos',
+            subtitle: '${record.personName} · CC ${record.cedula}',
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _DialogHint(
+                    'Adjunta la citación entregada al colaborador. La fecha de '
+                    'la diligencia se propone a $kDiasHabilesDescargos días '
+                    'hábiles y es la que genera la alerta.',
+                  ),
+                  const SizedBox(height: 16),
+                  _DateField(
+                    label: 'Entrega de la citación',
+                    value: deliveredAt,
+                    icon: Icons.outgoing_mail,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now(),
+                    onChanged: (value) => setDialogState(() {
+                      deliveredAt = value;
+                      // Mientras nadie la mueva a mano, la fecha de la
+                      // diligencia sigue a la citación.
+                      if (!manualHearingDate) {
+                        hearingDate =
+                            DisciplinaryService.fechaDiligenciaSugerida(value);
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 14),
+                  _DateField(
+                    label: 'Fecha de la diligencia',
+                    value: hearingDate,
+                    icon: Icons.event_busy_rounded,
+                    firstDate: deliveredAt,
+                    lastDate: deliveredAt.add(const Duration(days: 365)),
+                    helper: manualHearingDate
+                        ? 'Fecha ajustada manualmente.'
+                        : '$kDiasHabilesDescargos días hábiles desde la '
+                              'entrega.',
+                    onChanged: (value) => setDialogState(() {
+                      hearingDate = value;
+                      manualHearingDate = true;
+                    }),
+                  ),
+                  const SizedBox(height: 14),
+                  _DocumentField(
+                    label: 'Citación entregada',
+                    document: document,
+                    onPick: () async {
+                      final picked = await _pickDocument();
+                      if (picked != null) {
+                        setDialogState(() => document = picked);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final upload = document;
+                      if (upload == null) {
+                        _message(
+                          'Adjunta la citación entregada al colaborador.',
+                          error: true,
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      try {
+                        await _service.registrarCitacion(
+                          record: record,
+                          deliveredAt: deliveredAt,
+                          hearingDate: hearingDate,
+                          document: upload,
+                          performedBy: widget.userId,
+                        );
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        _message(
+                          'Citación registrada. Alerta programada para el '
+                          '${_formatDate(hearingDate)}.',
+                        );
+                      } catch (error) {
+                        setDialogState(() => saving = false);
+                        _message('No fue posible guardar: $error', error: true);
+                      }
+                    },
+              icon: _saveIcon(saving),
+              label: const Text('Registrar citación'),
+            ),
+          ],
+        ),
+      ),
     );
-    if (value == null) return;
-    try {
-      await _service.registerResponse(
-        record: record,
-        response: value,
-        performedBy: widget.userId,
-      );
-      _message('Respuesta registrada. El caso pasó a seguimiento.');
-    } catch (error) {
-      _message('No fue posible registrar la respuesta: $error', error: true);
+  }
+
+  /// Paso 3. Llegado el día de la diligencia se monta el acta y se fija cuándo
+  /// debe salir el resultado.
+  Future<void> _showHearingDialog(DisciplinaryRecord record) async {
+    var heldAt = record.hearingDate ?? DateTime.now();
+    if (heldAt.isAfter(DateTime.now())) heldAt = DateTime.now();
+    var resultDeadline = DisciplinaryService.fechaDiligenciaSugerida(heldAt);
+    var manualDeadline = false;
+    DisciplinaryUpload? document;
+    var saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+          title: _DialogTitle(
+            icon: Icons.record_voice_over_outlined,
+            title: 'Diligencia de descargos',
+            subtitle: '${record.personName} · CC ${record.cedula}',
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _DialogHint(
+                    'Adjunta el acta de la diligencia y fija la fecha para dar '
+                    'respuesta. Esa fecha genera la alerta del resultado.',
+                  ),
+                  const SizedBox(height: 16),
+                  _DateField(
+                    label: 'Fecha de la diligencia',
+                    value: heldAt,
+                    icon: Icons.event_note_rounded,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime.now(),
+                    onChanged: (value) => setDialogState(() {
+                      heldAt = value;
+                      if (!manualDeadline) {
+                        resultDeadline =
+                            DisciplinaryService.fechaDiligenciaSugerida(value);
+                      }
+                    }),
+                  ),
+                  const SizedBox(height: 14),
+                  _DateField(
+                    label: 'Fecha límite del resultado',
+                    value: resultDeadline,
+                    icon: Icons.schedule_rounded,
+                    firstDate: heldAt,
+                    lastDate: heldAt.add(const Duration(days: 365)),
+                    helper: manualDeadline
+                        ? 'Fecha ajustada manualmente.'
+                        : 'Propuesta: $kDiasHabilesDescargos días hábiles '
+                              'después de la diligencia.',
+                    onChanged: (value) => setDialogState(() {
+                      resultDeadline = value;
+                      manualDeadline = true;
+                    }),
+                  ),
+                  const SizedBox(height: 14),
+                  _DocumentField(
+                    label: 'Acta de la diligencia',
+                    document: document,
+                    onPick: () async {
+                      final picked = await _pickDocument();
+                      if (picked != null) {
+                        setDialogState(() => document = picked);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final upload = document;
+                      if (upload == null) {
+                        _message(
+                          'Adjunta el acta de la diligencia de descargos.',
+                          error: true,
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      try {
+                        await _service.registrarDiligencia(
+                          record: record,
+                          heldAt: heldAt,
+                          resultDeadline: resultDeadline,
+                          document: upload,
+                          performedBy: widget.userId,
+                        );
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        _message(
+                          'Diligencia registrada. El resultado vence el '
+                          '${_formatDate(resultDeadline)}.',
+                        );
+                      } catch (error) {
+                        setDialogState(() => saving = false);
+                        _message('No fue posible guardar: $error', error: true);
+                      }
+                    },
+              icon: _saveIcon(saving),
+              label: const Text('Registrar diligencia'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Paso 4. El resultado cierra el proceso, y solo con una de las cuatro
+  /// sanciones.
+  Future<void> _showResultDialog(DisciplinaryRecord record) async {
+    var resultAt = DateTime.now();
+    String? sanction;
+    String? severity;
+    DisciplinaryUpload? document;
+    var saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+          title: _DialogTitle(
+            icon: Icons.gavel_rounded,
+            title: 'Resultado de la diligencia',
+            subtitle: '${record.personName} · CC ${record.cedula}',
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _DialogHint(
+                    'Con el resultado se cierra el proceso. Aquí sí se '
+                    'califica la gravedad: hasta ahora nadie sabía qué tan '
+                    'grave era el caso.',
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: sanction,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Resultado',
+                      hintText: 'Selecciona el resultado',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final value in DisciplinarySanction.values)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(DisciplinarySanction.label(value)),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => sanction = value),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: severity,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Gravedad',
+                      hintText: 'Cómo se califica la diligencia',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final value in DisciplinarySeverity.values)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(DisciplinarySeverity.label(value)),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => severity = value),
+                  ),
+                  const SizedBox(height: 14),
+                  _DateField(
+                    label: 'Fecha del resultado',
+                    value: resultAt,
+                    icon: Icons.event_available_rounded,
+                    firstDate: record.hearingHeldAt ?? DateTime(2000),
+                    lastDate: DateTime.now(),
+                    onChanged: (value) => setDialogState(() => resultAt = value),
+                  ),
+                  const SizedBox(height: 14),
+                  _DocumentField(
+                    label: 'Documento del resultado',
+                    document: document,
+                    onPick: () async {
+                      final picked = await _pickDocument();
+                      if (picked != null) {
+                        setDialogState(() => document = picked);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      final upload = document;
+                      final chosen = sanction;
+                      final grade = severity;
+                      if (chosen == null) {
+                        _message(
+                          'Elige el resultado con el que se cierra el proceso.',
+                          error: true,
+                        );
+                        return;
+                      }
+                      if (grade == null) {
+                        _message(
+                          'Califica la gravedad del caso.',
+                          error: true,
+                        );
+                        return;
+                      }
+                      if (upload == null) {
+                        _message(
+                          'Adjunta el documento del resultado.',
+                          error: true,
+                        );
+                        return;
+                      }
+                      setDialogState(() => saving = true);
+                      try {
+                        await _service.cerrarConResultado(
+                          record: record,
+                          sanction: chosen,
+                          severity: grade,
+                          resultAt: resultAt,
+                          document: upload,
+                          performedBy: widget.userId,
+                        );
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        _message(
+                          'Proceso cerrado: '
+                          '${DisciplinarySanction.label(chosen)}.',
+                        );
+                      } catch (error) {
+                        setDialogState(() => saving = false);
+                        _message('No fue posible cerrar: $error', error: true);
+                      }
+                    },
+              icon: _saveIcon(saving),
+              label: const Text('Cerrar proceso'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Salida temprana. Al evaluar la solicitud, Talento Humano puede concluir
+  /// que el caso no da para proceso disciplinario y cerrarlo sin citar a
+  /// nadie. No se pide sanción ni gravedad: no hubo diligencia que calificar.
+  Future<void> _showDiscardDialog(DisciplinaryRecord record) async {
+    DisciplinaryUpload? document;
+    var saving = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          titlePadding: EdgeInsets.zero,
+          contentPadding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
+          title: _DialogTitle(
+            icon: Icons.block_rounded,
+            title: 'La solicitud no corresponde',
+            subtitle: '${record.personName} · CC ${record.cedula}',
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _DialogHint(
+                    'El caso se cierra sin citación a descargos. Queda en la '
+                    'carpeta con quién y cuándo lo evaluó, pero sin sanción '
+                    'ni gravedad: no hubo diligencia que calificar.',
+                  ),
+                  const SizedBox(height: 16),
+                  _DocumentField(
+                    label: 'Soporte de la evaluación (opcional)',
+                    document: document,
+                    optional: true,
+                    onPick: () async {
+                      final picked = await _pickDocument();
+                      if (picked != null) {
+                        setDialogState(() => document = picked);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      setDialogState(() => saving = true);
+                      try {
+                        await _service.descartarSolicitud(
+                          record: record,
+                          document: document,
+                          performedBy: widget.userId,
+                        );
+                        if (!dialogContext.mounted) return;
+                        Navigator.pop(dialogContext);
+                        _message('Solicitud cerrada: no corresponde.');
+                      } catch (error) {
+                        setDialogState(() => saving = false);
+                        _message('No fue posible cerrar: $error', error: true);
+                      }
+                    },
+              icon: _saveIcon(saving),
+              label: const Text('Cerrar sin proceso'),
+              style: FilledButton.styleFrom(backgroundColor: _muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Un solo botón por tarjeta: el proceso solo avanza al paso que sigue.
+  Future<void> _advanceStage(DisciplinaryRecord record) async {
+    switch (record.stage) {
+      case DisciplinaryStage.solicitud:
+        return _showSummonDialog(record);
+      case DisciplinaryStage.citacion:
+        return _showHearingDialog(record);
+      case DisciplinaryStage.diligencia:
+        return _showResultDialog(record);
     }
   }
 
-  Future<void> _attachEvidence(DisciplinaryRecord record) async {
+  Future<void> _replaceDocument(
+    DisciplinaryRecord record,
+    String stage,
+  ) async {
+    final picked = await _pickDocument();
+    if (picked == null) return;
+    try {
+      _message('Subiendo ${picked.fileName}…');
+      await _service.reemplazarDocumento(
+        record: record,
+        stage: stage,
+        document: picked,
+        performedBy: widget.userId,
+      );
+      _message('Documento reemplazado.');
+    } catch (error) {
+      _message('No fue posible reemplazar el documento: $error', error: true);
+    }
+  }
+
+  Future<DisciplinaryUpload?> _pickDocument() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg', 'docx', 'xlsx'],
         withData: true,
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.files.isEmpty) return null;
       final file = result.files.first;
       final bytes = file.bytes;
       if (bytes == null) {
         throw StateError('El navegador no entregó el contenido del archivo.');
       }
-      _message('Subiendo ${file.name}…');
-      await _service.addEvidence(
-        record: record,
-        bytes: bytes,
-        fileName: file.name,
-        performedBy: widget.userId,
-      );
-      _message('Evidencia agregada a la carpeta disciplinaria.');
+      return DisciplinaryUpload(bytes: bytes, fileName: file.name);
     } catch (error) {
-      _message('No fue posible adjuntar la evidencia: $error', error: true);
+      _message('No fue posible leer el archivo: $error', error: true);
+      return null;
     }
-  }
-
-  Future<void> _showCloseDialog(DisciplinaryRecord record) async {
-    final controller = TextEditingController(text: record.conclusion);
-    final value = await _textDialog(
-      title: 'Cerrar proceso',
-      subtitle: record.subject,
-      label: 'Conclusión, decisión y compromisos',
-      controller: controller,
-      action: 'Cerrar proceso',
-    );
-    if (value == null) return;
-    try {
-      await _service.closeRecord(
-        record: record,
-        conclusion: value,
-        performedBy: widget.userId,
-      );
-      _message('Proceso cerrado y conservado en el historial.');
-    } catch (error) {
-      _message('No fue posible cerrar el proceso: $error', error: true);
-    }
-  }
-
-  Future<void> _showReopenDialog(DisciplinaryRecord record) async {
-    final controller = TextEditingController();
-    final value = await _textDialog(
-      title: 'Reabrir seguimiento',
-      subtitle: record.subject,
-      label: 'Motivo de reapertura',
-      controller: controller,
-      action: 'Reabrir',
-    );
-    if (value == null) return;
-    try {
-      await _service.reopenRecord(
-        record: record,
-        reason: value,
-        performedBy: widget.userId,
-      );
-      _message('El proceso volvió a seguimiento.');
-    } catch (error) {
-      _message('No fue posible reabrir el proceso: $error', error: true);
-    }
-  }
-
-  Future<String?> _textDialog({
-    required String title,
-    required String subtitle,
-    required String label,
-    required TextEditingController controller,
-    required String action,
-  }) async {
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        titlePadding: EdgeInsets.zero,
-        title: _DialogTitle(
-          icon: Icons.fact_check_outlined,
-          title: title,
-          subtitle: subtitle,
-        ),
-        content: SizedBox(
-          width: 560,
-          child: TextField(
-            controller: controller,
-            minLines: 5,
-            maxLines: 9,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: label,
-              alignLabelWithHint: true,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isEmpty) return;
-              Navigator.pop(context, value);
-            },
-            child: Text(action),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
   }
 
   Future<void> _showDetails(DisciplinaryRecord record) async {
@@ -845,9 +1129,8 @@ class _DisciplinaryManagementScreenState
         contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
         title: _DialogTitle(
           icon: Icons.folder_shared_outlined,
-          title: record.subject,
-          subtitle:
-              '${record.personName} · ${DisciplinaryStatus.label(record.status)}',
+          title: 'Proceso disciplinario',
+          subtitle: '${record.personName} · ${record.statusLabel}',
         ),
         content: SizedBox(
           width: 680,
@@ -855,67 +1138,90 @@ class _DisciplinaryManagementScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _DetailRow('Tipo', _typeLabel(record.type)),
-                _DetailRow('Gravedad', _capitalize(record.severity)),
-                _DetailRow(
-                  'Fecha de los hechos',
-                  _formatDate(record.incidentDate),
+                _StageTrack(record: record),
+                const SizedBox(height: 18),
+                _StageBlock(
+                  step: 1,
+                  title: 'Solicitud de apertura',
+                  done: true,
+                  rows: [('Fecha de recibido', _formatDate(record.receivedAt))],
+                  document: record.requestDocument,
+                  onReplace: () => _replaceDocument(
+                    record,
+                    DisciplinaryStage.solicitud,
+                  ),
                 ),
-                if (record.responseDeadline != null)
-                  _DetailRow(
-                    'Límite de respuesta',
-                    _formatDate(record.responseDeadline!),
-                  ),
-                const Divider(height: 26),
-                _DetailBlock('Descripción de los hechos', record.description),
-                if (record.policyReference.isNotEmpty)
-                  _DetailBlock('Referencia normativa', record.policyReference),
-                if (record.expectedAction.isNotEmpty)
-                  _DetailBlock('Acción esperada', record.expectedAction),
-                if (record.employeeResponse.isNotEmpty)
-                  _DetailBlock(
-                    'Respuesta o descargos del colaborador',
-                    record.employeeResponse,
-                    color: const Color(0xFFEFF6FF),
-                  ),
-                if (record.conclusion.isNotEmpty)
-                  _DetailBlock(
-                    'Conclusión y decisión',
-                    record.conclusion,
-                    color: const Color(0xFFECFDF5),
-                  ),
-                if (record.attachments.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Evidencias y documentos',
-                    style: TextStyle(fontWeight: FontWeight.w800, color: _ink),
-                  ),
-                  const SizedBox(height: 6),
-                  for (final attachment in record.attachments)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
-                        backgroundColor: Color(0xFFFFF7ED),
-                        child: Icon(Icons.attach_file_rounded, color: _primary),
+                _StageBlock(
+                  step: 2,
+                  title: 'Citación a descargos',
+                  done: record.summonDocument != null,
+                  skipped: record.closedWithoutProcess,
+                  rows: [
+                    if (record.summonDeliveredAt != null)
+                      (
+                        'Entrega de la citación',
+                        _formatDate(record.summonDeliveredAt!),
                       ),
-                      title: Text(attachment.name),
-                      subtitle: Text(
-                        attachment.uploadedAt == null
-                            ? 'Documento adjunto'
-                            : 'Subido ${_formatDate(attachment.uploadedAt!)}',
+                    if (record.hearingDate != null)
+                      ('Fecha de la diligencia', _formatDate(record.hearingDate!)),
+                  ],
+                  document: record.summonDocument,
+                  onReplace: record.summonDocument == null
+                      ? null
+                      : () => _replaceDocument(
+                          record,
+                          DisciplinaryStage.citacion,
+                        ),
+                ),
+                _StageBlock(
+                  step: 3,
+                  title: 'Diligencia de descargos',
+                  done: record.hearingDocument != null,
+                  skipped: record.closedWithoutProcess,
+                  rows: [
+                    if (record.hearingHeldAt != null)
+                      ('Diligencia realizada', _formatDate(record.hearingHeldAt!)),
+                    if (record.resultDeadline != null)
+                      (
+                        'Límite del resultado',
+                        _formatDate(record.resultDeadline!),
                       ),
-                      trailing: IconButton(
-                        tooltip: 'Abrir documento',
-                        onPressed: attachment.url.isEmpty
-                            ? null
-                            : () => launchUrl(
-                                Uri.parse(attachment.url),
-                                mode: LaunchMode.externalApplication,
-                              ),
-                        icon: const Icon(Icons.open_in_new_rounded),
+                  ],
+                  document: record.hearingDocument,
+                  onReplace: record.hearingDocument == null
+                      ? null
+                      : () => _replaceDocument(
+                          record,
+                          DisciplinaryStage.diligencia,
+                        ),
+                ),
+                _StageBlock(
+                  step: 4,
+                  title: record.closedWithoutProcess
+                      ? 'Cierre sin proceso'
+                      : 'Resultado y cierre',
+                  done: record.isClosed,
+                  rows: [
+                    if (record.sanction.isNotEmpty)
+                      (
+                        record.closedWithoutProcess ? 'Decisión' : 'Resultado',
+                        DisciplinarySanction.label(record.sanction),
                       ),
-                    ),
-                ],
+                    if (record.severity.isNotEmpty)
+                      ('Gravedad', DisciplinarySeverity.label(record.severity)),
+                    if (record.resultAt != null)
+                      (
+                        record.closedWithoutProcess
+                            ? 'Fecha del cierre'
+                            : 'Fecha del resultado',
+                        _formatDate(record.resultAt!),
+                      ),
+                  ],
+                  document: record.resultDocument,
+                  onReplace: record.resultDocument == null
+                      ? null
+                      : () => _replaceDocument(record, 'resultado'),
+                ),
                 const SizedBox(height: 8),
                 _RecordTimeline(service: _service, record: record),
               ],
@@ -932,12 +1238,19 @@ class _DisciplinaryManagementScreenState
     );
   }
 
+  Widget _saveIcon(bool saving) => saving
+      ? const SizedBox.square(
+          dimension: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+      : const Icon(Icons.save_outlined);
+
   void _message(String text, {bool error = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(text),
-        backgroundColor: error ? const Color(0xFFB91C1C) : _navy,
+        backgroundColor: error ? _danger : _navy,
       ),
     );
   }
@@ -946,12 +1259,14 @@ class _DisciplinaryManagementScreenState
 class _PersonFolderTile extends StatelessWidget {
   final DisciplinaryPerson person;
   final int count;
+  final int overdue;
   final bool selected;
   final VoidCallback onTap;
 
   const _PersonFolderTile({
     required this.person,
     required this.count,
+    required this.overdue,
     required this.selected,
     required this.onTap,
   });
@@ -1018,12 +1333,16 @@ class _PersonFolderTile extends StatelessWidget {
                   _CountBadge(count: count),
                   const SizedBox(height: 4),
                   Icon(
-                    person.isActive
+                    overdue > 0
+                        ? Icons.notification_important_rounded
+                        : person.isActive
                         ? Icons.check_circle_rounded
                         : Icons.archive_rounded,
                     size: 15,
-                    color: person.isActive
-                        ? const Color(0xFF15803D)
+                    color: overdue > 0
+                        ? _danger
+                        : person.isActive
+                        ? _success
                         : const Color(0xFFB45309),
                   ),
                 ],
@@ -1152,20 +1471,22 @@ class _PersonFolderHeader extends StatelessWidget {
 class _RecordCard extends StatelessWidget {
   final DisciplinaryRecord record;
   final VoidCallback onDetails;
-  final VoidCallback onEvidence;
-  final VoidCallback? onResponse;
-  final VoidCallback onClose;
+  final VoidCallback? onAdvance;
+
+  /// Solo existe mientras el proceso está en la solicitud: una vez citado el
+  /// colaborador, ya no se puede decir que el caso no correspondía.
+  final VoidCallback? onDiscard;
 
   const _RecordCard({
     required this.record,
     required this.onDetails,
-    required this.onEvidence,
-    required this.onResponse,
-    required this.onClose,
+    required this.onAdvance,
+    required this.onDiscard,
   });
 
   @override
   Widget build(BuildContext context) {
+    final color = _stageColor(record);
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
@@ -1175,7 +1496,10 @@ class _RecordCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            border: Border.all(color: _border),
+            border: Border.all(
+              color: record.isOverdue ? _danger : _border,
+              width: record.isOverdue ? 1.4 : 1,
+            ),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(
@@ -1188,15 +1512,10 @@ class _RecordCard extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: _severityColor(
-                        record.severity,
-                      ).withValues(alpha: 0.1),
+                      color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(
-                      Icons.record_voice_over_outlined,
-                      color: _severityColor(record.severity),
-                    ),
+                    child: Icon(_stageIcon(record.stage), color: color),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1204,7 +1523,7 @@ class _RecordCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          record.subject,
+                          'Proceso disciplinario',
                           style: const TextStyle(
                             fontFamily: _font,
                             fontWeight: FontWeight.w900,
@@ -1214,7 +1533,8 @@ class _RecordCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${_typeLabel(record.type)} · ${_formatDate(record.incidentDate)}',
+                          'Solicitud recibida el '
+                          '${_formatDate(record.receivedAt)}',
                           style: const TextStyle(
                             fontFamily: _font,
                             fontSize: 11,
@@ -1225,105 +1545,308 @@ class _RecordCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _RecordStatusBadge(status: record.status),
+                  _StageBadge(record: record),
                 ],
               ),
-              const SizedBox(height: 11),
-              Text(
-                record.description,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontFamily: _font,
-                  fontSize: 12,
-                  height: 1.4,
-                  color: Color(0xFF475569),
-                ),
-              ),
-              if (record.employeeResponse.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(11),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(11),
-                  ),
-                  child: Text(
-                    'Respuesta: ${record.employeeResponse}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontFamily: _font,
-                      fontSize: 11,
-                      color: Color(0xFF1D4ED8),
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
+              _StageTrack(record: record),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  _SmallTag(
-                    label: 'Gravedad ${_capitalize(record.severity)}',
-                    color: _severityColor(record.severity),
-                  ),
-                  if (record.responseDeadline != null)
+                  if (record.isClosed) ...[
                     _SmallTag(
-                      label:
-                          'Respuesta ${_formatDate(record.responseDeadline!)}',
-                      color: _muted,
+                      label: DisciplinarySanction.label(record.sanction),
+                      color: record.closedWithoutProcess ? _muted : _success,
                     ),
+                    if (record.severity.isNotEmpty)
+                      _SmallTag(
+                        label:
+                            'Gravedad '
+                            '${DisciplinarySeverity.label(record.severity)}',
+                        color: _severityColor(record.severity),
+                      ),
+                  ] else
+                    _SmallTag(
+                      label: DisciplinaryStage.pendingLabel(record.stage),
+                      color: _warning,
+                    ),
+                  if (record.currentDeadline != null)
+                    _DeadlineTag(record: record),
+                  _SmallTag(
+                    label: '${record.attachments.length} documento(s)',
+                    color: _muted,
+                  ),
                   const SizedBox(width: 4),
                   TextButton.icon(
                     onPressed: onDetails,
                     icon: const Icon(Icons.visibility_outlined, size: 17),
                     label: const Text('Detalle'),
                   ),
-                  TextButton.icon(
-                    onPressed: onEvidence,
-                    icon: const Icon(Icons.attach_file_rounded, size: 17),
-                    label: Text(
-                      record.attachments.isEmpty
-                          ? 'Adjuntar evidencia'
-                          : '${record.attachments.length} adjunto(s)',
-                    ),
-                  ),
-                  if (onResponse != null)
+                  if (onDiscard != null)
                     TextButton.icon(
-                      onPressed: onResponse,
-                      icon: const Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 17,
-                      ),
+                      onPressed: onDiscard,
+                      icon: const Icon(Icons.block_rounded, size: 17),
+                      label: const Text('No corresponde'),
+                      style: TextButton.styleFrom(foregroundColor: _muted),
+                    ),
+                  if (onAdvance != null)
+                    FilledButton.icon(
+                      onPressed: onAdvance,
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 17),
                       label: Text(
-                        record.employeeResponse.isEmpty
-                            ? 'Registrar respuesta'
-                            : 'Actualizar respuesta',
+                        DisciplinaryStage.nextActionLabel(record.stage),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _primary,
+                        foregroundColor: Colors.white,
+                        visualDensity: VisualDensity.compact,
                       ),
                     ),
-                  TextButton.icon(
-                    onPressed: onClose,
-                    icon: Icon(
-                      record.status == DisciplinaryStatus.closed
-                          ? Icons.refresh_rounded
-                          : Icons.task_alt_rounded,
-                      size: 17,
-                    ),
-                    label: Text(
-                      record.status == DisciplinaryStatus.closed
-                          ? 'Reabrir'
-                          : 'Cerrar proceso',
-                    ),
-                  ),
                 ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Los cuatro pasos del proceso, con el que va en curso resaltado. Es la única
+/// forma de que en la carpeta se vea de un vistazo qué falta.
+class _StageTrack extends StatelessWidget {
+  final DisciplinaryRecord record;
+  const _StageTrack({required this.record});
+
+  static const _steps = <(String, String)>[
+    (DisciplinaryStage.solicitud, 'Solicitud'),
+    (DisciplinaryStage.citacion, 'Citación'),
+    (DisciplinaryStage.diligencia, 'Diligencia'),
+    (DisciplinaryStage.cerrado, 'Resultado'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    // Un caso descartado se cerró en la solicitud: pintarle los cuatro pasos
+    // completos diría que hubo citación y diligencia, y no las hubo.
+    if (record.closedWithoutProcess) {
+      return Row(
+        children: [
+          const _TrackStep(label: 'Solicitud', done: true, current: false),
+          Expanded(
+            child: Container(
+              height: 2,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              color: _border,
+            ),
+          ),
+          const _TrackStep(
+            label: 'No corresponde',
+            done: true,
+            current: true,
+            color: _muted,
+          ),
+        ],
+      );
+    }
+    final current = _steps.indexWhere((step) => step.$1 == record.stage);
+    return Row(
+      children: [
+        for (var index = 0; index < _steps.length; index++) ...[
+          if (index > 0)
+            Expanded(
+              child: Container(
+                height: 2,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                color: index <= current ? _primary : _border,
+              ),
+            ),
+          _TrackStep(
+            label: _steps[index].$2,
+            done: index <= current,
+            current: index == current,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Un paso del recorrido. Vive aparte porque el descarte temprano lo reusa con
+/// otro texto y otro color.
+class _TrackStep extends StatelessWidget {
+  final String label;
+  final bool done;
+  final bool current;
+  final Color color;
+
+  const _TrackStep({
+    required this.label,
+    required this.done,
+    required this.current,
+    this.color = _primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(
+          color: done ? color.withValues(alpha: 0.12) : _surface,
+          border: Border.all(
+            color: current ? color : _border,
+            width: current ? 1.4 : 1,
+          ),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              done
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 13,
+              color: done ? color : _muted,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontFamily: _font,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: done ? color : _muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bloque de una etapa dentro del detalle: fechas, documento y reemplazo.
+class _StageBlock extends StatelessWidget {
+  final int step;
+  final String title;
+  final bool done;
+  final List<(String, String)> rows;
+  final DisciplinaryAttachment? document;
+  final VoidCallback? onReplace;
+
+  /// La etapa nunca va a ocurrir porque el caso se cerró antes. No es lo
+  /// mismo que "pendiente": nadie la está esperando.
+  final bool skipped;
+
+  const _StageBlock({
+    required this.step,
+    required this.title,
+    required this.done,
+    required this.rows,
+    required this.document,
+    required this.onReplace,
+    this.skipped = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: done ? Colors.white : _surface,
+        border: Border.all(color: done ? _border : const Color(0xFFEDF2F7)),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: done ? _primary : _border,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  '$step',
+                  style: TextStyle(
+                    fontFamily: _font,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: done ? Colors.white : _muted,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontFamily: _font,
+                    fontWeight: FontWeight.w800,
+                    color: done ? _ink : _muted,
+                  ),
+                ),
+              ),
+              if (!done)
+                Text(
+                  skipped ? 'No aplica' : 'Pendiente',
+                  style: const TextStyle(fontSize: 10, color: _muted),
+                ),
+            ],
+          ),
+          if (done) ...[
+            const SizedBox(height: 10),
+            for (final row in rows) _DetailRow(row.$1, row.$2),
+            if (document != null)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFFFFF7ED),
+                  child: Icon(Icons.attach_file_rounded, color: _primary),
+                ),
+                title: Text(document!.name),
+                subtitle: Text(
+                  document!.uploadedAt == null
+                      ? 'Documento adjunto'
+                      : 'Subido ${_formatDate(document!.uploadedAt!)}',
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (onReplace != null)
+                      IconButton(
+                        tooltip: 'Reemplazar documento',
+                        onPressed: onReplace,
+                        icon: const Icon(Icons.upload_file_rounded),
+                      ),
+                    IconButton(
+                      tooltip: 'Abrir documento',
+                      onPressed: document!.url.isEmpty
+                          ? null
+                          : () => launchUrl(
+                              Uri.parse(document!.url),
+                              mode: LaunchMode.externalApplication,
+                            ),
+                      icon: const Icon(Icons.open_in_new_rounded),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }
@@ -1478,7 +2001,8 @@ class _EmptyFolderState extends StatelessWidget {
               ),
               SizedBox(height: 7),
               Text(
-                'Aquí verás procesos, respuestas, seguimientos y cierres del colaborador.',
+                'Aquí verás la solicitud, la citación, la diligencia y el '
+                'resultado de cada proceso del colaborador.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontFamily: _font, color: _muted),
               ),
@@ -1525,7 +2049,7 @@ class _NoRecords extends StatelessWidget {
           OutlinedButton.icon(
             onPressed: onCreate,
             icon: const Icon(Icons.add_rounded),
-            label: const Text('Registrar primer proceso'),
+            label: const Text('Registrar apertura'),
           ),
         ],
       ),
@@ -1592,6 +2116,192 @@ class _DialogTitle extends StatelessWidget {
   }
 }
 
+/// Explica en una línea qué se está radicando. Reemplaza los campos de texto
+/// que antes obligaban a Talento Humano a redactar la falta.
+class _DialogHint extends StatelessWidget {
+  final String text;
+  const _DialogHint(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF1D4ED8)),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontFamily: _font,
+                fontSize: 11.5,
+                height: 1.4,
+                color: Color(0xFF1D4ED8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Selector de fecha con aspecto de campo, no de botón suelto: en el flujo
+/// anterior las fechas parecían opcionales y se dejaban vacías.
+class _DateField extends StatelessWidget {
+  final String label;
+  final DateTime value;
+  final IconData icon;
+  final DateTime firstDate;
+  final DateTime lastDate;
+  final String? helper;
+  final ValueChanged<DateTime> onChanged;
+
+  const _DateField({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.firstDate,
+    required this.lastDate,
+    required this.onChanged,
+    this.helper,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () async {
+        final initial = value.isBefore(firstDate)
+            ? firstDate
+            : value.isAfter(lastDate)
+            ? lastDate
+            : value;
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: firstDate,
+          lastDate: lastDate,
+        );
+        if (picked != null) onChanged(picked);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helper,
+          helperMaxLines: 2,
+          prefixIcon: Icon(icon, size: 19),
+          border: const OutlineInputBorder(),
+        ),
+        child: Text(
+          _formatDate(value),
+          style: const TextStyle(fontFamily: _font, fontSize: 14),
+        ),
+      ),
+    );
+  }
+}
+
+/// Adjunto obligatorio de la etapa. Sin documento no se avanza: es el requisito
+/// que pidió Talento Humano para cada paso.
+class _DocumentField extends StatelessWidget {
+  final String label;
+  final DisciplinaryUpload? document;
+  final Future<void> Function() onPick;
+  final bool optional;
+
+  const _DocumentField({
+    required this.label,
+    required this.document,
+    required this.onPick,
+    this.optional = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chosen = document;
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: chosen != null
+            ? const Color(0xFFECFDF5)
+            : optional
+            ? _surface
+            : const Color(0xFFFFFBEB),
+        border: Border.all(
+          color: chosen != null
+              ? const Color(0xFFA7F3D0)
+              : optional
+              ? _border
+              : const Color(0xFFFDE68A),
+        ),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            chosen == null
+                ? Icons.upload_file_rounded
+                : Icons.check_circle_rounded,
+            color: chosen != null
+                ? _success
+                : optional
+                ? _muted
+                : _warning,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontFamily: _font,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                    color: _ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  chosen != null
+                      ? chosen.fileName
+                      : optional
+                      ? 'Opcional · PDF, imagen, Word o Excel (máx. 10 MB)'
+                      : 'Obligatorio · PDF, imagen, Word o Excel (máx. 10 MB)',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: _font,
+                    fontSize: 11,
+                    color: chosen != null
+                        ? _success
+                        : optional
+                        ? _muted
+                        : _warning,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: onPick,
+            child: Text(chosen == null ? 'Adjuntar' : 'Cambiar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
@@ -1617,61 +2327,6 @@ class _DetailRow extends StatelessWidget {
           Expanded(child: Text(value)),
         ],
       ),
-    );
-  }
-}
-
-class _DetailBlock extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  const _DetailBlock(
-    this.label,
-    this.value, {
-    this.color = const Color(0xFFF8FAFC),
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.w800, color: _ink),
-          ),
-          const SizedBox(height: 5),
-          Text(value, style: const TextStyle(height: 1.4)),
-        ],
-      ),
-    );
-  }
-}
-
-class _DateButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-  const _DateButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
     );
   }
 }
@@ -1719,20 +2374,24 @@ class _StatusPill extends StatelessWidget {
           fontFamily: _font,
           fontSize: 9,
           fontWeight: FontWeight.w900,
-          color: active ? const Color(0xFF15803D) : const Color(0xFFB45309),
+          color: active ? _success : const Color(0xFFB45309),
         ),
       ),
     );
   }
 }
 
-class _RecordStatusBadge extends StatelessWidget {
-  final String status;
-  const _RecordStatusBadge({required this.status});
+class _StageBadge extends StatelessWidget {
+  final DisciplinaryRecord record;
+  const _StageBadge({required this.record});
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(status);
+    final color = record.closedWithoutProcess
+        ? _muted
+        : record.isClosed
+        ? _success
+        : _warning;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
@@ -1740,7 +2399,7 @@ class _RecordStatusBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        DisciplinaryStatus.label(status),
+        record.statusLabel.toUpperCase(),
         style: TextStyle(
           fontFamily: _font,
           fontSize: 9,
@@ -1749,6 +2408,31 @@ class _RecordStatusBadge extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Traduce el plazo de la etapa en curso al lenguaje de la operación: la
+/// alerta llega el mismo día, pero la carpeta debe mostrar el vencido.
+class _DeadlineTag extends StatelessWidget {
+  final DisciplinaryRecord record;
+  const _DeadlineTag({required this.record});
+
+  @override
+  Widget build(BuildContext context) {
+    final days = record.daysToDeadline;
+    final deadline = record.currentDeadline;
+    if (days == null || deadline == null) return const SizedBox.shrink();
+    final label = days < 0
+        ? 'Vencido hace ${-days} día(s) · ${_formatDate(deadline)}'
+        : days == 0
+        ? 'Vence hoy · ${_formatDate(deadline)}'
+        : 'Faltan $days día(s) · ${_formatDate(deadline)}';
+    final color = days < 0
+        ? _danger
+        : days == 0
+        ? _warning
+        : _muted;
+    return _SmallTag(label: label, color: color);
   }
 }
 
@@ -1855,42 +2539,35 @@ String _capitalize(String value) {
   return '${text[0].toUpperCase()}${text.substring(1)}';
 }
 
-String _typeLabel(String value) {
-  switch (value) {
-    case 'verbal':
-      return 'Llamado verbal';
-    case 'descargos':
-      return 'Citación a descargos';
-    case 'compromiso':
-      return 'Compromiso de mejora';
-    case 'otro':
-      return 'Otro proceso';
+IconData _stageIcon(String stage) {
+  switch (stage) {
+    case DisciplinaryStage.citacion:
+      return Icons.mark_email_read_outlined;
+    case DisciplinaryStage.diligencia:
+      return Icons.record_voice_over_outlined;
+    case DisciplinaryStage.cerrado:
+      return Icons.gavel_rounded;
     default:
-      return 'Llamado escrito';
+      return Icons.markunread_mailbox_outlined;
   }
 }
 
+/// La gravedad solo existe en procesos cerrados, así que este color nunca
+/// pinta un caso en trámite: es la calificación final, no una alarma.
 Color _severityColor(String severity) {
-  switch (severity.toLowerCase()) {
-    case 'alta':
-      return const Color(0xFFB91C1C);
-    case 'media':
-      return const Color(0xFFD97706);
+  switch (severity.trim()) {
+    case DisciplinarySeverity.gravisima:
+      return _danger;
+    case DisciplinarySeverity.grave:
+      return _warning;
     default:
       return const Color(0xFF2563EB);
   }
 }
 
-Color _statusColor(String status) {
-  switch (DisciplinaryStatus.normalize(status)) {
-    case DisciplinaryStatus.closed:
-      return const Color(0xFF15803D);
-    case DisciplinaryStatus.followUp:
-    case DisciplinaryStatus.inReview:
-      return const Color(0xFF7C3AED);
-    case DisciplinaryStatus.cancelled:
-      return _muted;
-    default:
-      return const Color(0xFFD97706);
-  }
+Color _stageColor(DisciplinaryRecord record) {
+  if (record.isClosed) return _success;
+  if (record.isOverdue) return _danger;
+  if (record.isDueToday) return _warning;
+  return _navy;
 }
