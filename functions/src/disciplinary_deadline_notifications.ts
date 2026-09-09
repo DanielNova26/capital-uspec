@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
+import {sendWhatsAppDirect} from "./whatsapp";
 
 /**
  * Alertas de los plazos del proceso disciplinario.
@@ -283,5 +284,188 @@ export const thNotificarPlazosDisciplinarios = functions
       created,
       withoutTeam,
       scheduleDate: dateKey(now),
+    });
+  });
+
+/* -------------------------------------------------------------------------
+ * Aviso al colaborador de su citación a descargos.
+ *
+ * Hasta ahora el proceso avisaba a Talento Humano pero no a la persona citada,
+ * que es justamente quien tiene que presentarse. Se dispara al entrar en la
+ * etapa "citacion" y sale por los canales que la app tiene montados.
+ * ---------------------------------------------------------------------- */
+
+interface ContactoColaborador {
+  telefono: string;
+  correo: string;
+  nombre: string;
+}
+
+/**
+ * Teléfono y correo del colaborador. La ficha guarda cada dato con varios
+ * nombres según la época en que se creó, y parte vive en la hoja de vida, así
+ * que hay que mirar en todos: un campo vacío aquí es una citación sin avisar.
+ *
+ * @param {string} cedula Documento del colaborador, que es el id del usuario.
+ * @return {Promise<ContactoColaborador>} Datos de contacto, vacíos si no hay.
+ */
+async function contactoDelColaborador(
+  cedula: string
+): Promise<ContactoColaborador> {
+  const vacio: ContactoColaborador = {telefono: "", correo: "", nombre: ""};
+  if (!cedula) return vacio;
+
+  let snapshot = await db().collection("TBL_USUARIOS").doc(cedula).get();
+  if (!snapshot.exists) {
+    const porCedula = await db()
+      .collection("TBL_USUARIOS")
+      .where("cedula", "==", cedula)
+      .limit(1)
+      .get();
+    if (porCedula.empty) return vacio;
+    snapshot = porCedula.docs[0];
+  }
+
+  const data = (snapshot.data() || {}) as JsonMap;
+  const hoja = data.hojaDeVida && typeof data.hojaDeVida === "object" ?
+    data.hojaDeVida as JsonMap :
+    {};
+
+  const primero = (...valores: unknown[]): string =>
+    valores.map(text).find(Boolean) || "";
+
+  return {
+    telefono: primero(
+      data.celular, data.telefono, data.numeroCelular, data.phone,
+      hoja.celular, hoja.telefono
+    ),
+    correo: primero(data.correo, data.email, hoja.correo, hoja.email),
+    nombre: primero(data.nombreCompleto, data.nombre, hoja.nombreCompleto),
+  };
+}
+
+/**
+ * Escribe la notificación dentro de la app para el colaborador citado.
+ *
+ * @param {string} cedula Destinatario.
+ * @param {string} recordId Proceso disciplinario.
+ * @param {string} empresaId Empresa dueña del proceso.
+ * @param {Date} diligencia Fecha de la diligencia de descargos.
+ * @param {Date} now Momento del disparo.
+ * @return {Promise<boolean>} true si la notificación se creó.
+ */
+async function avisarEnApp(
+  cedula: string,
+  recordId: string,
+  empresaId: string,
+  diligencia: Date,
+  now: Date
+): Promise<boolean> {
+  const notificationId = safeId(`disciplinario_citacion_${recordId}`);
+  const reference = db()
+    .collection("TBL_NOTIFICACIONES")
+    .doc(cedula)
+    .collection("notifications")
+    .doc(notificationId);
+  try {
+    await reference.create({
+      id: notificationId,
+      title: "Citación a descargos",
+      description:
+        "Fuiste citado a diligencia de descargos el " +
+        `${formatDate(diligencia)}. Revisa con Talento Humano el documento ` +
+        "de la citación.",
+      taskId: `disciplinario:${recordId}`,
+      type: "disciplinario_citacion",
+      module: "talento_humano",
+      empresaId,
+      disciplinarioId: recordId,
+      fechaLimite: admin.firestore.Timestamp.fromDate(diligencia),
+      fromId: "system",
+      fromName: "Talento Humano",
+      createdAt: admin.firestore.Timestamp.fromDate(now),
+      read: false,
+    });
+    return true;
+  } catch (error) {
+    const code = (error as {code?: number | string}).code;
+    if (code === 6 || code === "already-exists") return false;
+    throw error;
+  }
+}
+
+export const thNotificarCitacionDescargos = functions
+  .region(REGION)
+  .firestore.document("TBL_LLAMADOS_ATENCION/{procesoId}")
+  .onUpdate(async (change, context) => {
+    const antes = text(change.before.data().etapa).toLowerCase();
+    const ahora = text(change.after.data().etapa).toLowerCase();
+    // Solo al cruzar a "citacion": un guardado posterior sobre el mismo
+    // proceso no puede volver a citar a nadie.
+    if (antes === ahora || ahora !== "citacion") return;
+
+    const data = change.after.data() as JsonMap;
+    const recordId = context.params.procesoId as string;
+    const empresaId = text(data.empresaId);
+    const cedula = text(data.cedula);
+    const diligencia = asDate(data.fechaDiligencia);
+    if (!empresaId || !cedula || !diligencia) {
+      console.warn("[disciplinary_citacion] Proceso incompleto", {
+        recordId, empresaId, cedula, tieneFecha: Boolean(diligencia),
+      });
+      return;
+    }
+
+    const contacto = await contactoDelColaborador(cedula);
+    const nombre = contacto.nombre || text(data.nombre) || "el colaborador";
+
+    const enApp = await avisarEnApp(
+      cedula,
+      recordId,
+      empresaId,
+      diligencia,
+      new Date()
+    );
+
+    let whatsapp = "omitido";
+    if (contacto.telefono) {
+      const resultado = await sendWhatsAppDirect({
+        empresaId,
+        moduleId: "talentohumanodashboard",
+        telefono: contacto.telefono,
+        mensaje:
+          "📄 *Citación a descargos*\n" +
+          `Hola ${nombre}, fuiste citado a diligencia de descargos el ` +
+          `*${formatDate(diligencia)}*.\n` +
+          "Talento Humano te entregará el documento de la citación.",
+        metadata: {
+          type: "disciplinario_citacion",
+          disciplinarioId: recordId,
+          cedula,
+        },
+      });
+      whatsapp = resultado.sent ? "enviado" : `omitido:${resultado.reason}`;
+    } else {
+      whatsapp = "omitido:sin_telefono";
+    }
+
+    // El correo queda anotado para cuando exista envío saliente: hoy el
+    // proyecto solo LEE correo (imapflow), no manda.
+    await db()
+      .collection("TBL_LLAMADOS_ATENCION")
+      .doc(recordId)
+      .set({
+        avisoCitacion: {
+          app: enApp,
+          whatsapp,
+          correo: contacto.correo ?
+            "pendiente:sin_envio_saliente" :
+            "omitido:sin_correo",
+          fecha: admin.firestore.Timestamp.now(),
+        },
+      }, {merge: true});
+
+    console.log("[disciplinary_citacion] Aviso procesado", {
+      recordId, cedula, app: enApp, whatsapp,
     });
   });

@@ -66,6 +66,79 @@ y `firebase_options.dart`, que es el caso.
 
 ---
 
+## Sesión 2026-09-09 — Amonestaciones del reglamento y aviso al citado
+
+### El cierre pasó de 4 resultados a 12, en dos grupos
+
+El reglamento Capital USPEC 2025 separa dos cosas que antes estaban en el mismo
+cajón, y la distinción **no es de redacción**: llamar sanción a un plan de
+mejora tiene efectos laborales.
+
+**Grupo A — medidas preventivas, correctivas o administrativas, expresamente NO
+sancionatorias:** retroalimentación verbal, reinducción o capacitación,
+requerimiento preventivo, acta de compromiso, plan de mejora, seguimiento
+especial, corrección operativa o documental.
+
+**Grupo B — sanciones disciplinarias:** amonestación escrita con carácter
+disciplinario, suspensión hasta por ocho (8) días en la primera sanción,
+suspensión hasta por dos (2) meses en caso de reincidencia, terminación del
+contrato con justa causa.
+
+Más `Exonerado`, que no es ninguno de los dos: no hubo falta.
+
+Por eso el grupo viaja **con el valor** (`DisciplinaryOutcomeKind`) y no se
+deduce en la pantalla. `isSanction()` responde la pregunta que de verdad
+importa, y un informe que cuente sanciones no puede sumar un acta de
+compromiso.
+
+Las dos suspensiones son valores distintos a propósito: ocho días y dos meses
+no se pueden colapsar en un "suspensión" genérico porque el plazo lo fija la
+ley y depende de la reincidencia.
+
+Los valores viejos (`llamado_escrito`, `suspension`) se siguen entendiendo en
+`label()` para que un proceso cerrado antes no aparezca como "—", pero ya no se
+ofrecen al cerrar.
+
+### Exonerar dejó de pedir gravedad
+
+Calificar la gravedad de algo de lo que se exonera es contradictorio. El campo
+desaparece del formulario al elegir Exonerado, y el servicio lo rechaza si
+llega lleno.
+
+### El citado ahora sí se entera
+
+`thNotificarCitacionDescargos` — disparador de Firestore sobre
+`TBL_LLAMADOS_ATENCION`, que corre al cruzar a la etapa `citacion`. Antes el
+proceso avisaba a Talento Humano pero no a la persona citada, que es justamente
+quien tiene que presentarse.
+
+Sale por dos canales:
+
+- **Notificación en la app**, al centro único (`TBL_NOTIFICACIONES/{cedula}`).
+  El id es determinista (`disciplinario_citacion_{procesoId}`) y se escribe con
+  `create()`: un guardado posterior sobre el mismo proceso no vuelve a citar a
+  nadie.
+- **WhatsApp** al número registrado, con `sendWhatsAppDirect`.
+
+Sobre el teléfono: la ficha guarda el dato con varios nombres según la época
+(`celular`, `telefono`, `numeroCelular`, `phone`) y parte vive en la hoja de
+vida. Hay que mirar en todos — un campo vacío aquí es una citación sin avisar.
+
+El resultado de cada canal queda escrito en el proceso (`avisoCitacion`), para
+poder responder después "¿le avisamos o no?" sin adivinar.
+
+### El correo NO se envió, y no es un olvido
+
+**El proyecto no tiene envío de correo saliente.** `imapflow` y `mailparser`
+solo *leen* IMAP; no hay `nodemailer`, ni SMTP, ni SendGrid, ni la extensión
+Trigger Email. Se revisó `functions/src`, `lib/` y `package.json`.
+
+El disparador deja el canal anotado como `pendiente:sin_envio_saliente` en vez
+de fingir que salió. Habilitarlo es una decisión aparte: hay que elegir la
+cuenta emisora y sus credenciales.
+
+---
+
 ## Sesión 2026-09-08 (ronda 5) — El deploy de functions fallaba por el antivirus
 
 `firebase deploy --only functions:...` fallaba de dos formas encadenadas y

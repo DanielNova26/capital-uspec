@@ -36,17 +36,76 @@ void main() {
     );
   });
 
-  test('solo las cuatro sanciones definidas cierran el proceso', () {
-    expect(DisciplinarySanction.values, hasLength(4));
+  test('el cierre ofrece los resultados del reglamento, y solo esos', () {
+    // 1 exoneración + 7 medidas no sancionatorias + 4 sanciones.
+    expect(DisciplinarySanction.values, hasLength(12));
     for (final value in DisciplinarySanction.values) {
       expect(DisciplinarySanction.isValid(value), isTrue);
       expect(DisciplinarySanction.label(value), isNot('—'));
     }
     expect(DisciplinarySanction.isValid('llamado_verbal'), isFalse);
     expect(DisciplinarySanction.isValid(''), isFalse);
+  });
+
+  test('las medidas correctivas no se cuentan como sanción', () {
+    // El reglamento las llama expresamente "no sancionatorias": tratarlas
+    // como sanción tendría efectos laborales que no corresponden.
     expect(
-      DisciplinarySanction.label(DisciplinarySanction.terminacion),
-      'Terminación de contrato por justa causa',
+      DisciplinarySanction.ofKind(DisciplinaryOutcomeKind.medida),
+      hasLength(7),
+    );
+    expect(
+      DisciplinarySanction.ofKind(DisciplinaryOutcomeKind.sancion),
+      hasLength(4),
+    );
+    expect(DisciplinarySanction.isSanction(DisciplinarySanction.planMejora),
+        isFalse);
+    expect(
+      DisciplinarySanction.isSanction(DisciplinarySanction.actaCompromiso),
+      isFalse,
+    );
+    expect(
+      DisciplinarySanction.isSanction(DisciplinarySanction.suspensionOchoDias),
+      isTrue,
+    );
+    expect(DisciplinarySanction.isSanction(DisciplinarySanction.terminacion),
+        isTrue);
+    // Exonerar tampoco es sancionar.
+    expect(DisciplinarySanction.isSanction(DisciplinarySanction.exonerado),
+        isFalse);
+  });
+
+  test('las dos suspensiones son resultados distintos', () {
+    // Ocho días en la primera sanción y dos meses por reincidencia no pueden
+    // colapsarse en un solo "suspensión": el plazo lo fija la ley.
+    expect(
+      DisciplinarySanction.suspensionOchoDias,
+      isNot(DisciplinarySanction.suspensionDosMeses),
+    );
+    expect(
+      DisciplinarySanction.label(DisciplinarySanction.suspensionOchoDias),
+      contains('ocho (8) días'),
+    );
+    expect(
+      DisciplinarySanction.label(DisciplinarySanction.suspensionDosMeses),
+      contains('dos (2) meses'),
+    );
+  });
+
+  test('los resultados viejos se siguen entendiendo', () {
+    // Un proceso cerrado antes del reglamento no puede aparecer como "—".
+    expect(
+      DisciplinarySanction.label(DisciplinarySanction.llamadoEscrito),
+      'Llamado de Atención Escrito',
+    );
+    expect(
+      DisciplinarySanction.label(DisciplinarySanction.suspension),
+      'Suspensión del contrato',
+    );
+    // Pero ya no se ofrecen al cerrar.
+    expect(
+      DisciplinarySanction.values,
+      isNot(contains(DisciplinarySanction.llamadoEscrito)),
     );
   });
 
@@ -56,6 +115,10 @@ void main() {
     expect(
       DisciplinarySanction.values,
       isNot(contains(DisciplinarySanction.noCorresponde)),
+    );
+    expect(
+      DisciplinarySanction.kindOf(DisciplinarySanction.noCorresponde),
+      DisciplinaryOutcomeKind.noCorresponde,
     );
     expect(
       DisciplinarySanction.isValid(DisciplinarySanction.noCorresponde),

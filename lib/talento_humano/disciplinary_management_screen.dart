@@ -872,35 +872,80 @@ class _DisciplinaryManagementScreenState
                       hintText: 'Selecciona el resultado',
                       border: OutlineInputBorder(),
                     ),
+                    // Agrupado como el reglamento: quien cierra tiene que ver
+                    // que un plan de mejora no está en el mismo cajón que una
+                    // suspensión.
                     items: [
-                      for (final value in DisciplinarySanction.values)
-                        DropdownMenuItem(
-                          value: value,
-                          child: Text(DisciplinarySanction.label(value)),
+                      for (final grupo in const [
+                        (
+                          DisciplinaryOutcomeKind.exonerado,
+                          'SIN FALTA',
                         ),
+                        (
+                          DisciplinaryOutcomeKind.medida,
+                          'MEDIDAS NO SANCIONATORIAS',
+                        ),
+                        (
+                          DisciplinaryOutcomeKind.sancion,
+                          'SANCIONES DISCIPLINARIAS',
+                        ),
+                      ]) ...[
+                        DropdownMenuItem(
+                          enabled: false,
+                          child: Text(
+                            grupo.$2,
+                            style: const TextStyle(
+                              fontFamily: _font,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              color: _muted,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ),
+                        for (final outcome
+                            in DisciplinarySanction.ofKind(grupo.$1))
+                          DropdownMenuItem(
+                            value: outcome.value,
+                            child: Text(
+                              outcome.label,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                      ],
                     ],
-                    onChanged: (value) =>
-                        setDialogState(() => sanction = value),
+                    onChanged: (value) => setDialogState(() {
+                      sanction = value;
+                      // Exonerar es decir que no hubo falta: calificarle una
+                      // gravedad sería contradictorio.
+                      if (value == DisciplinarySanction.exonerado) {
+                        severity = null;
+                      }
+                    }),
                   ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<String>(
-                    initialValue: severity,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Gravedad',
-                      hintText: 'Cómo se califica la diligencia',
-                      border: OutlineInputBorder(),
+                  // La gravedad no se pide al exonerar: no hay nada que
+                  // calificar cuando se concluye que no hubo falta.
+                  if (sanction != DisciplinarySanction.exonerado) ...[
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      initialValue: severity,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Gravedad',
+                        hintText: 'Cómo se califica la conducta',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (final value in DisciplinarySeverity.values)
+                          DropdownMenuItem(
+                            value: value,
+                            child: Text(DisciplinarySeverity.label(value)),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => severity = value),
                     ),
-                    items: [
-                      for (final value in DisciplinarySeverity.values)
-                        DropdownMenuItem(
-                          value: value,
-                          child: Text(DisciplinarySeverity.label(value)),
-                        ),
-                    ],
-                    onChanged: (value) =>
-                        setDialogState(() => severity = value),
-                  ),
+                  ],
                   const SizedBox(height: 14),
                   _DateField(
                     label: 'Fecha del resultado',
@@ -944,7 +989,9 @@ class _DisciplinaryManagementScreenState
                         );
                         return;
                       }
-                      if (grade == null) {
+                      final exonera =
+                          chosen == DisciplinarySanction.exonerado;
+                      if (grade == null && !exonera) {
                         _message(
                           'Califica la gravedad del caso.',
                           error: true,
@@ -963,7 +1010,7 @@ class _DisciplinaryManagementScreenState
                         await _service.cerrarConResultado(
                           record: record,
                           sanction: chosen,
-                          severity: grade,
+                          severity: exonera ? '' : grade!,
                           resultAt: resultAt,
                           document: upload,
                           performedBy: widget.userId,

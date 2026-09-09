@@ -100,6 +100,7 @@ export {
 // resultado del proceso disciplinario.
 export {
   thNotificarPlazosDisciplinarios,
+  thNotificarCitacionDescargos,
 } from "./disciplinary_deadline_notifications";
 export {
   interventoriaSolicitarEliminacion,

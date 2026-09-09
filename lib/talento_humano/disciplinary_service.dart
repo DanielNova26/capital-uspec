@@ -79,43 +79,184 @@ class DisciplinaryStage {
   }
 }
 
-/// Las cuatro únicas formas de cerrar un proceso disciplinario **después de la
-/// diligencia**, más el descarte temprano.
+/// Naturaleza del resultado con el que se cierra un proceso.
 ///
-/// Es una lista cerrada por decisión de Talento Humano: el cierre no admite
-/// conclusiones redactadas a mano porque la sanción tiene efectos laborales.
+/// La separación no es cosmética: el reglamento distingue las medidas
+/// **preventivas o correctivas** de las **sanciones disciplinarias**, y llamar
+/// sanción a un plan de mejora tiene consecuencias laborales. Por eso el grupo
+/// viaja con el valor y no se deduce en la pantalla.
+enum DisciplinaryOutcomeKind {
+  /// No hubo falta que reprochar.
+  exonerado,
+
+  /// Grupo A del reglamento: preventivas, correctivas o administrativas, y
+  /// expresamente **no sancionatorias**.
+  medida,
+
+  /// Grupo B del reglamento: sanciones disciplinarias.
+  sancion,
+
+  /// Cierre en la evaluación de la solicitud, sin citar a nadie.
+  noCorresponde,
+}
+
+/// Un resultado posible del proceso, tal como lo nombra el reglamento
+/// Capital USPEC 2025.
+class DisciplinaryOutcome {
+  final String value;
+  final String label;
+  final DisciplinaryOutcomeKind kind;
+
+  const DisciplinaryOutcome(this.value, this.label, this.kind);
+}
+
+/// Los resultados con los que se puede cerrar un proceso disciplinario.
+///
+/// Lista cerrada por decisión de Talento Humano: el cierre no admite
+/// conclusiones redactadas a mano porque el resultado tiene efectos laborales.
 class DisciplinarySanction {
+  // Sin falta.
   static const exonerado = 'exonerado';
-  static const llamadoEscrito = 'llamado_escrito';
-  static const suspension = 'suspension';
+
+  // Grupo A — medidas preventivas, correctivas o administrativas.
+  static const retroalimentacionVerbal = 'retroalimentacion_verbal';
+  static const reinduccion = 'reinduccion_capacitacion';
+  static const requerimientoPreventivo = 'requerimiento_preventivo';
+  static const actaCompromiso = 'acta_compromiso';
+  static const planMejora = 'plan_mejora';
+  static const seguimientoEspecial = 'seguimiento_especial';
+  static const correccionOperativa = 'correccion_operativa';
+
+  // Grupo B — sanciones disciplinarias.
+  static const amonestacionEscrita = 'amonestacion_escrita';
+  static const suspensionOchoDias = 'suspension_8_dias';
+  static const suspensionDosMeses = 'suspension_2_meses';
   static const terminacion = 'terminacion_justa_causa';
 
-  /// Cierre sin proceso: al evaluar la solicitud se concluye que el caso no
-  /// da para disciplinario. No es una sanción y por eso no entra en [values]:
-  /// solo puede aplicarse desde la etapa de solicitud, antes de citar a nadie.
+  /// Cierre sin proceso: al evaluar la solicitud se concluye que el caso no da
+  /// para disciplinario. No es un resultado del cierre y por eso no entra en
+  /// [outcomes]: solo se aplica desde la etapa de solicitud, antes de citar.
   static const noCorresponde = 'no_corresponde';
+
+  /// Valores anteriores al reglamento de 2025. No se ofrecen al cerrar, pero
+  /// se siguen entendiendo para que un proceso viejo no aparezca como "—".
+  static const llamadoEscrito = 'llamado_escrito';
+  static const suspension = 'suspension';
+
+  /// Lo que se puede elegir al cerrar, en el orden del reglamento.
+  static const outcomes = <DisciplinaryOutcome>[
+    DisciplinaryOutcome(
+      exonerado,
+      'Exonerado',
+      DisciplinaryOutcomeKind.exonerado,
+    ),
+    DisciplinaryOutcome(
+      retroalimentacionVerbal,
+      'Retroalimentación verbal',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      reinduccion,
+      'Reinducción o capacitación',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      requerimientoPreventivo,
+      'Requerimiento preventivo',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      actaCompromiso,
+      'Acta de compromiso',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      planMejora,
+      'Plan de mejora',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      seguimientoEspecial,
+      'Seguimiento especial',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      correccionOperativa,
+      'Corrección operativa o documental',
+      DisciplinaryOutcomeKind.medida,
+    ),
+    DisciplinaryOutcome(
+      amonestacionEscrita,
+      'Amonestación escrita con carácter disciplinario',
+      DisciplinaryOutcomeKind.sancion,
+    ),
+    DisciplinaryOutcome(
+      suspensionOchoDias,
+      'Suspensión disciplinaria hasta por ocho (8) días en la primera '
+          'sanción',
+      DisciplinaryOutcomeKind.sancion,
+    ),
+    DisciplinaryOutcome(
+      suspensionDosMeses,
+      'Suspensión disciplinaria hasta por dos (2) meses en caso de '
+          'reincidencia',
+      DisciplinaryOutcomeKind.sancion,
+    ),
+    DisciplinaryOutcome(
+      terminacion,
+      'Terminación del contrato de trabajo con justa causa',
+      DisciplinaryOutcomeKind.sancion,
+    ),
+  ];
 
   static const values = <String>[
     exonerado,
-    llamadoEscrito,
-    suspension,
+    retroalimentacionVerbal,
+    reinduccion,
+    requerimientoPreventivo,
+    actaCompromiso,
+    planMejora,
+    seguimientoEspecial,
+    correccionOperativa,
+    amonestacionEscrita,
+    suspensionOchoDias,
+    suspensionDosMeses,
     terminacion,
   ];
 
   static bool isValid(String value) => values.contains(value.trim());
 
+  /// Los resultados de un grupo, para agrupar el desplegable del cierre.
+  static List<DisciplinaryOutcome> ofKind(DisciplinaryOutcomeKind kind) =>
+      outcomes.where((item) => item.kind == kind).toList();
+
+  static DisciplinaryOutcomeKind kindOf(String value) {
+    final target = value.trim();
+    if (target == noCorresponde) return DisciplinaryOutcomeKind.noCorresponde;
+    for (final item in outcomes) {
+      if (item.value == target) return item.kind;
+    }
+    // Los valores viejos eran todos sancionatorios.
+    return DisciplinaryOutcomeKind.sancion;
+  }
+
+  /// Si el resultado implica reproche disciplinario. Un plan de mejora no lo
+  /// implica, y por eso no puede contarse como sanción en ningún informe.
+  static bool isSanction(String value) =>
+      kindOf(value) == DisciplinaryOutcomeKind.sancion;
+
   static String label(String value) {
-    switch (value.trim()) {
-      case exonerado:
-        return 'Exonerado';
+    final target = value.trim();
+    for (final item in outcomes) {
+      if (item.value == target) return item.label;
+    }
+    switch (target) {
+      case noCorresponde:
+        return 'No corresponde a proceso disciplinario';
       case llamadoEscrito:
         return 'Llamado de Atención Escrito';
       case suspension:
         return 'Suspensión del contrato';
-      case terminacion:
-        return 'Terminación de contrato por justa causa';
-      case noCorresponde:
-        return 'No corresponde a proceso disciplinario';
       default:
         return '—';
     }
@@ -781,8 +922,14 @@ class DisciplinaryService {
     if (!DisciplinarySanction.isValid(sanction)) {
       throw ArgumentError('La sanción registrada no es válida.');
     }
-    if (!DisciplinarySeverity.isValid(severity)) {
+    // Exonerar no lleva gravedad: no hubo falta que calificar. Cualquier otro
+    // resultado sí, porque de ahí sale la lectura del reglamento.
+    final exonera = sanction.trim() == DisciplinarySanction.exonerado;
+    if (!exonera && !DisciplinarySeverity.isValid(severity)) {
       throw ArgumentError('La gravedad registrada no es válida.');
+    }
+    if (exonera && severity.trim().isNotEmpty) {
+      throw ArgumentError('Un proceso exonerado no lleva gravedad.');
     }
     final attachment = await _uploadDocument(
       empresaId: record.empresaId,
@@ -811,11 +958,13 @@ class DisciplinaryService {
         empresaId: record.empresaId,
         cedula: record.cedula,
         event: 'resultado',
-        detail:
-            'Se cerró el proceso con la sanción: '
-            '${DisciplinarySanction.label(sanction)}. '
-            'Gravedad calificada: ${DisciplinarySeverity.label(severity)} '
-            '(${_formatDate(resultAt)}).',
+        detail: exonera
+            ? 'Se cerró el proceso: exonerado (${_formatDate(resultAt)}).'
+            : 'Se cerró el proceso con el resultado: '
+                  '${DisciplinarySanction.label(sanction)}. '
+                  'Gravedad calificada: '
+                  '${DisciplinarySeverity.label(severity)} '
+                  '(${_formatDate(resultAt)}).',
         performedBy: performedBy,
       ),
     );
