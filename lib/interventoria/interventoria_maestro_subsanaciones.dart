@@ -226,22 +226,24 @@ class _InterventoriaMaestroSubsanacionesState
             );
           }
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ...contenido,
-              Expanded(
-                child: filas.isEmpty
-                    ? const _SinResultados()
-                    : _TablaMaestro(
-                        key: ValueKey(
-                          '${_buscarCtrl.text}|$_seccion|$_responsable',
-                        ),
-                        filas: filas,
-                        onEditar: widget.canEdit ? _editarRegla : null,
-                      ),
-              ),
-            ],
+          // La cabecera y los filtros salen de la pantalla al bajar la tabla.
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ...contenido,
+                if (filas.isEmpty)
+                  const _SinResultados()
+                else
+                  _TablaMaestro(
+                    key: ValueKey(
+                      '${_buscarCtrl.text}|$_seccion|$_responsable',
+                    ),
+                    filas: filas,
+                    onEditar: widget.canEdit ? _editarRegla : null,
+                  ),
+              ],
+            ),
           );
         },
       ),
@@ -816,99 +818,97 @@ class _TablaMaestro extends StatelessWidget {
         return Card(
           margin: EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
-          child: SingleChildScrollView(
-            child: BarraHorizontal(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: PagedDataTable(
-                  etiqueta: 'numerales',
-                  tabla: DataTable(
-                    headingRowColor: WidgetStateProperty.all(
-                      const Color(0xFFF1F5F9),
-                    ),
-                    headingTextStyle: const TextStyle(
-                      fontFamily: _kFont,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF334155),
-                    ),
-                    dataRowMinHeight: 70,
-                    dataRowMaxHeight: 104,
-                    columnSpacing: 24,
-                    columns: [
-                      const DataColumn(label: Text('Numeral')),
-                      const DataColumn(label: Text('Sección')),
-                      const DataColumn(
-                        label: Text('Subsanación / aspecto del acta'),
-                      ),
-                      const DataColumn(label: Text('Asignado a')),
-                      const DataColumn(label: Text('Aprueba')),
-                      if (onEditar != null)
-                        const DataColumn(label: Text('Acciones')),
-                    ],
-                    rows: filas
-                        .map(
-                          (fila) => DataRow(
-                            cells: [
-                              DataCell(_NumeralBadge(numeral: fila.numeral)),
-                              DataCell(
-                                SizedBox(
-                                  width: anchoSeccion,
-                                  child: Text(
-                                    '${fila.seccion}. ${fila.seccionNombre}',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF475569),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              DataCell(
-                                SizedBox(
-                                  width: anchoDescripcion,
-                                  child: Text(
-                                    fila.descripcion,
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontFamily: _kFont,
-                                      fontSize: 12.5,
-                                      height: 1.35,
-                                      color: Color(0xFF1E293B),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              DataCell(
-                                _CargoChip(
-                                  icon: Icons.assignment_ind_outlined,
-                                  texto: fila.responsablesTexto,
-                                  destacado: true,
-                                ),
-                              ),
-                              DataCell(
-                                _CargoChip(
-                                  icon: Icons.verified_user_outlined,
-                                  texto: fila.aprobadoresTexto,
-                                ),
-                              ),
-                              if (onEditar != null)
-                                DataCell(
-                                  IconButton(
-                                    tooltip: 'Editar responsable y aprobador',
-                                    onPressed: () => onEditar!(fila),
-                                    icon: const Icon(Icons.edit_outlined),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        )
-                        .toList(),
+          child: BarraHorizontal(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: PagedDataTable(
+                etiqueta: 'numerales',
+                tabla: DataTable(
+                  headingRowColor: WidgetStateProperty.all(
+                    const Color(0xFFF1F5F9),
                   ),
+                  headingTextStyle: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF334155),
+                  ),
+                  dataRowMinHeight: 70,
+                  dataRowMaxHeight: 104,
+                  columnSpacing: 24,
+                  columns: [
+                    const DataColumn(label: Text('Numeral')),
+                    const DataColumn(label: Text('Sección')),
+                    const DataColumn(
+                      label: Text('Subsanación / aspecto del acta'),
+                    ),
+                    const DataColumn(label: Text('Asignado a')),
+                    const DataColumn(label: Text('Aprueba')),
+                    if (onEditar != null)
+                      const DataColumn(label: Text('Acciones')),
+                  ],
+                  rows: filas
+                      .map(
+                        (fila) => DataRow(
+                          cells: [
+                            DataCell(_NumeralBadge(numeral: fila.numeral)),
+                            DataCell(
+                              SizedBox(
+                                width: anchoSeccion,
+                                child: Text(
+                                  '${fila.seccion}. ${fila.seccionNombre}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            DataCell(
+                              SizedBox(
+                                width: anchoDescripcion,
+                                child: Text(
+                                  fila.descripcion,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontFamily: _kFont,
+                                    fontSize: 12.5,
+                                    height: 1.35,
+                                    color: Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            DataCell(
+                              _CargoChip(
+                                icon: Icons.assignment_ind_outlined,
+                                texto: fila.responsablesTexto,
+                                destacado: true,
+                              ),
+                            ),
+                            DataCell(
+                              _CargoChip(
+                                icon: Icons.verified_user_outlined,
+                                texto: fila.aprobadoresTexto,
+                              ),
+                            ),
+                            if (onEditar != null)
+                              DataCell(
+                                IconButton(
+                                  tooltip: 'Editar responsable y aprobador',
+                                  onPressed: () => onEditar!(fila),
+                                  icon: const Icon(Icons.edit_outlined),
+                                ),
+                              ),
+                          ],
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
             ),
