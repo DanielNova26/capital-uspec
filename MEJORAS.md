@@ -8,8 +8,77 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ## Reparto de trabajo — reunión 9 sep 2026 (Claude ↔ Codex)
 
-**Estado: ACORDADO PARA EJECUCIÓN.** Propuesto por Claude y revisado por Codex
-el 10 sep 2026. Los cambios de alcance o de dueño se registran aquí antes de
+**Estado: EJECUTADO EN SU MAYOR PARTE.** Ver el traspaso justo debajo.
+
+## Traspaso a Codex — 10 sep 2026, tarde
+
+Codex se quedó sin créditos a media mañana con su P0 a medias. Con permiso del
+usuario, Claude **tomó la línea de Codex** además de la suya. Todo está en
+`main`, versión `2.5.0+12`, 595 pruebas verdes y sin errores del analizador.
+
+### Codex tenía razón dos veces, y quedó como él dijo
+
+- **Fichas técnicas: era QUITAR la vigencia, no agregarla.** Claude lo había
+  leído al revés en el reparto original. La transcripción dice literal "fichas
+  técnicas no tienen vigencia… quitar eso". Está quitado.
+- **El viernes era el plazo para RECIBIR el archivo plano**, no para entregar el
+  módulo. Y en la transcripción Oscar dice del plano: "no es de mis grandes
+  urgentes". Claude lo había priorizado por una fecha mal leída.
+
+La lección para los dos: **el resumen de Gemini no es la fuente.** Ha fallado en
+las dos cosas que se han verificado contra la transcripción. Ante cualquier duda,
+buscar la frase en el texto de la reunión.
+
+### Lo que Codex NO tiene que rehacer
+
+Todo lo de la lista de Codex está hecho salvo Tokens DIAN:
+
+- Compras: vigencia quitada, registro sanitario al proveedor, mensaje de marca,
+  fila de producto, **reversión de documentos rechazados**, **botón Aprobar
+  fuera de lo ya aprobado**.
+- Facturación: **filtro de mes** (el acta lo describía mal: el conteo sí
+  filtraba, mentía la etiqueta), semáforo con verde solo al 100 %, el ZIP ya
+  existía, **observaciones por mes**, **el chat acumula el historial**.
+- Tareas: reasignación a otro departamento.
+
+**Queda solo: Tokens DIAN** — filtro por empresa y habilitar F&C. Es P2 y no
+bloquea a nadie: la transcripción dice que Mari gestiona los accesos sin
+incidentes.
+
+### Lo que hay que saber antes de tocar nada
+
+- **Hay un deploy de backend pendiente que no es de Claude.** En el árbol hay
+  cambios sin commitear en `functions/src/correo.ts` (la validación del tipo
+  documental de 3 caracteres), `functions/src/whatsapp.ts` y `firestore.rules`
+  (reglas nuevas de `TBL_INTERVENTORIA_ROLES`, `TBL_INTERVENTORIA_CONFIG` y
+  `TBL_CORREO_ROLES`). Necesitan
+  `firebase deploy --only functions,firestore:rules`. **Las reglas no viajan con
+  el hosting.**
+- **`TBL_NOMINA_CUENTAS` no tiene reglas de Firestore.** El maestro de datos
+  bancarios está modelado con permisos por campo (Talento Humano pone el banco y
+  no ve el número; Tesorería ve todo), pero eso es de la interfaz. **No importar
+  las 176 cuentas reales hasta que la regla lo respalde.**
+- **`lib/utils/excel_download.dart`** reexporta el descargador que vivía solo en
+  Compras. Si se mueve o renombra `compras_excel_download_*`, hay que actualizar
+  ese archivo: ahora lo usa Interventoría.
+- **La matriz de permisos de Interventoría está fijada en**
+  `test/interventoria/interventoria_permisos_test.dart`. Si hay que moverla, se
+  cambia ahí también y con su comentario; no se borra la prueba.
+- **Pendiente de dato, no de código:** en el panel de administración hay que
+  poner a Kary como **Revisor** y mover a quien corresponda al perfil nuevo
+  **Calidad**. Hasta entonces Calidad existe vacío.
+
+### Preguntas abiertas para el usuario
+
+1. El pantallazo del docx del error al ver la ficha técnica: se corrigieron los
+   dos `return` silenciosos de `_abrirUrl`, pero si el fallo era el archivo
+   borrado de Storage con el enlace vivo en Firestore, hace falta comprobar la
+   existencia del objeto antes de abrirlo.
+2. Facturación: "limpieza de la interfaz, quitar campos operativos" — falta que
+   digan cuáles.
+3. Archivo plano: confirmar con el banco si quiere los importes con coma de
+   miles. Ya es un interruptor (`conSeparadorDeMiles`), pero hay que preguntarlo
+   antes del primer pago real.
 editar código compartido.
 
 Fuentes: notas de Gemini del 9 sep 2026, `Correciones COMPRAS.docx`,
@@ -198,7 +267,7 @@ año/mes/día, importe y hasta cuatro conceptos.
 **P2 · Tokens DIAN**
 
 - [ ] Filtro por empresa y habilitar el módulo para F&C. Hoy solo lo usa
-      Capital.
+      Capital. **← lo único que queda de toda la reunión.**
 
 **Cierre de Codex**
 
