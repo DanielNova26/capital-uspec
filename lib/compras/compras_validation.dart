@@ -131,3 +131,25 @@ String? validarRangoFechasCompras(
   }
   return null;
 }
+
+/// Aviso que ve Bodega cuando una entrada de recepción no encuentra ficha
+/// técnica para la marca elegida.
+///
+/// El texto anterior decía "Este producto no tiene ficha técnica cargada para
+/// el proveedor y la marca seleccionados", y estaba mal por dos razones:
+///
+/// - **El sujeto.** Quien acaba de elegir —o de crear— algo es la marca. Decir
+///   "este producto" justo después de crear una marca hace pensar que el
+///   problema está en el producto, cuando la ficha que falta es la de la marca
+///   nueva. Fue el reclamo textual del 9 sep 2026: "si yo estoy creando una
+///   marca, no me tiene que salir este producto".
+/// - **La afirmación.** El aviso solo aparece cuando NO hay ficha por
+///   proveedor+producto+marca, ni ficha de la marca, ni ficha del producto. O
+///   sea: no existe en ninguna parte. Culpar a "el proveedor y la marca
+///   seleccionados" mandaba a buscarla bajo otro proveedor, donde tampoco está.
+String avisoFichaTecnicaFaltante({required String marcaNombre}) {
+  final marca = marcaNombre.trim();
+  return marca.isEmpty
+      ? 'Todavía no hay ficha técnica para este producto. Puedes cargarla aquí.'
+      : 'La marca $marca todavía no tiene ficha técnica. Puedes cargarla aquí.';
+}

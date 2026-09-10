@@ -4415,18 +4415,34 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
   }
 }
 
+/// Abre el documento adjunto, y si no puede, lo dice.
+///
+/// Los dos `return` silenciosos de antes eran el sintoma reportado el
+/// 9 sep 2026 al ver el detalle de una ficha tecnica: el boton estaba ahi, se
+/// pulsaba y no pasaba absolutamente nada. Sin mensaje no hay forma de saber si
+/// el documento falta, si el enlace quedo roto o si la aplicacion se colgo, y
+/// quien lo usa acaba pensando que el modulo no sirve.
 void _abrirUrl(BuildContext context, String? url) async {
-  if (url == null || url.isEmpty) return;
-  final uri = Uri.tryParse(url);
-  if (uri == null) return;
+  void avisar(String mensaje) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(mensaje), backgroundColor: kComprasRed),
+    );
+  }
+
+  if (url == null || url.trim().isEmpty) {
+    avisar('El documento no tiene archivo cargado.');
+    return;
+  }
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null || !uri.hasScheme) {
+    avisar('El enlace del documento esta dañado. Vuelve a cargarlo.');
+    return;
+  }
   if (await canLaunchUrl(uri)) {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   } else {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir el documento')),
-      );
-    }
+    avisar('No se pudo abrir el documento.');
   }
 }
 
@@ -12012,12 +12028,12 @@ class _ProductoEntryCard extends StatelessWidget {
                                     color: Color(0xFFB45309),
                                   ),
                                   const SizedBox(width: 8),
-                                  const Expanded(
+                                  Expanded(
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
+                                        const Text(
                                           'Ficha técnica',
                                           style: TextStyle(
                                             fontFamily: _kFont,
@@ -12026,9 +12042,14 @@ class _ProductoEntryCard extends StatelessWidget {
                                           ),
                                         ),
                                         Text(
-                                          'Este producto no tiene ficha técnica cargada '
-                                          'para el proveedor y la marca seleccionados.',
-                                          style: TextStyle(
+                                          avisoFichaTecnicaFaltante(
+                                            marcaNombre:
+                                                entry
+                                                    .marcaSeleccionada
+                                                    ?.descripcion ??
+                                                '',
+                                          ),
+                                          style: const TextStyle(
                                             fontFamily: _kFont,
                                             fontSize: 11,
                                             color: Color(0xFFB45309),

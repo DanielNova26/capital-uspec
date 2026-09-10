@@ -146,9 +146,13 @@ año/mes/día, importe y hasta cuatro conceptos.
 - [ ] **Quitar** de la ficha técnica el campo, validación, bloqueo y alerta de
       `Vigente hasta`. La transcripción dice literalmente “quitar eso”; no se
       pidió agregar vigencia.
-- [ ] Creación de marca: el mensaje de error es incorrecto.
-- [ ] Error al ver el detalle de una ficha técnica durante la entrada de
-      producto.
+- [x] Creación de marca: el mensaje de error es incorrecto. Hecho por Claude:
+      hablaba del producto cuando lo que falta es la ficha de la marca, y
+      culpaba al proveedor de un documento que no existe en ninguna parte.
+- [x] Error al ver el detalle de una ficha técnica durante la entrada de
+      producto. Hecho por Claude: `_abrirUrl` tenía dos `return` silenciosos,
+      así que el botón se pulsaba y no pasaba nada. **Falta confirmar con el
+      pantallazo del docx que era eso y no otra cosa.**
 - [ ] **Registro sanitario no va en el producto, va en el proveedor.** Hoy
       vive en `documentosAsociados` de la marca
       (`compras_dashboard_screen.dart`, ~12 usos; `compras_models.dart:171`;
@@ -3747,3 +3751,52 @@ puede arreglar.
 que es literalmente "una vez que todos los documentos sean cargados". No hacía
 falta escribir nada. El cambio de Codex en `facDocumentosCompletos` incluso lo
 apretó: un establecimiento sin documentos configurados ya no ofrece el ZIP.
+
+---
+
+## Compras — los dos mensajes de la reunión (10 sep 2026)
+
+### "Si yo estoy creando una marca, no me tiene que salir este producto"
+
+El aviso decía: *"Este producto no tiene ficha técnica cargada para el proveedor
+y la marca seleccionados"*. Estaba mal en dos cosas distintas, y solo una es de
+redacción.
+
+**El sujeto.** Sale justo después de elegir o crear una marca. Quien acaba de
+crear algo es la marca, así que la ficha que falta es la de esa marca nueva —
+decir "este producto" manda a revisar el producto, que no tiene nada malo.
+
+**La afirmación.** Ese aviso solo aparece cuando no hay ficha por
+proveedor+producto+marca, **ni** ficha de la marca, **ni** ficha del producto.
+Es decir: no existe en ninguna parte. Nombrar "el proveedor y la marca
+seleccionados" como la condición mandaba a buscarla bajo otro proveedor, donde
+tampoco iba a estar. El código nunca comprobó lo que el mensaje afirmaba.
+
+Ahora el texto sale de `avisoFichaTecnicaFaltante` en `compras_validation.dart`,
+con pruebas, en vez de estar incrustado en un `const Text` a 12.000 líneas de
+profundidad.
+
+### El botón de ver la ficha no hacía nada
+
+`_abrirUrl` empezaba así:
+
+```dart
+if (url == null || url.isEmpty) return;
+final uri = Uri.tryParse(url);
+if (uri == null) return;
+```
+
+Dos salidas silenciosas. Con un documento sin archivo o con el enlace dañado, el
+botón estaba visible, se pulsaba y no ocurría nada: ni se abría, ni avisaba, ni
+fallaba. Desde fuera es indistinguible de que la aplicación se haya colgado, y
+es exactamente lo que se reportó al ver el detalle de una ficha técnica durante
+la entrada de producto.
+
+Ahora los tres caminos que no abren el documento dicen cuál es: no hay archivo
+cargado, el enlace está dañado, o el sistema no pudo abrirlo.
+
+**Pendiente de confirmar:** el docx trae un pantallazo de este error que no
+pude ver. Si el fallo era otro (por ejemplo el archivo borrado de Storage con el
+enlace todavía en Firestore, que abre una pestaña con un error de Google),
+hace falta comprobar la existencia del objeto antes de abrirlo. El arreglo de
+arriba es correcto en cualquier caso, pero puede no ser el único que hace falta.

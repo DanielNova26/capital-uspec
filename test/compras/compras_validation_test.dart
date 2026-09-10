@@ -300,38 +300,72 @@ void main() {
     });
   });
 
-  test('el motor conserva registro sanitario de proveedor y oculta ficha de recepción', () {
-    ReqDocumentoDoc regla(String key, String nivel) => ReqDocumentoDoc(
-      empresaId: 'empresa',
-      categoriaApp: 'Todas',
-      origen: 'AMBOS',
-      nivel: nivel,
-      etapa: nivel == 'PROVEEDOR' ? 'INICIAL' : 'CADA_PEDIDO',
-      keyApp: key,
-      documentoRequerido: key,
-      obligatorio: 'SI',
+  test(
+    'el motor conserva registro sanitario de proveedor y oculta ficha de recepción',
+    () {
+      ReqDocumentoDoc regla(String key, String nivel) => ReqDocumentoDoc(
+        empresaId: 'empresa',
+        categoriaApp: 'Todas',
+        origen: 'AMBOS',
+        nivel: nivel,
+        etapa: nivel == 'PROVEEDOR' ? 'INICIAL' : 'CADA_PEDIDO',
+        keyApp: key,
+        documentoRequerido: key,
+        obligatorio: 'SI',
+      );
+
+      final engine = ReqEngine([
+        regla('rut', 'PROVEEDOR'),
+        regla('soporteRegistroInvima', 'PROVEEDOR'),
+        regla('fichaTecnica', 'RECEPCION'),
+        regla('certCalidad', 'RECEPCION'),
+      ]);
+
+      expect(engine.docsProveedor(const ['Todas']).map((doc) => doc.keyApp), [
+        'rut',
+        'soporteRegistroInvima',
+      ]);
+      expect(
+        engine
+            .docsRecepcion(
+              categoriaProducto: 'Todas',
+              origenProducto: 'NACIONAL',
+              etapa: 'CADA_PEDIDO',
+            )
+            .map((doc) => doc.keyApp),
+        ['certCalidad'],
+      );
+    },
+  );
+
+  group('aviso de ficha técnica faltante', () {
+    // Reclamo textual del 9 sep 2026: "si yo estoy creando una marca, no me
+    // tiene que salir este producto".
+    test('habla de la marca, no del producto', () {
+      final aviso = avisoFichaTecnicaFaltante(marcaNombre: 'COLANTA');
+
+      expect(aviso, contains('COLANTA'));
+      expect(aviso.toLowerCase(), isNot(contains('este producto')));
+    });
+
+    test(
+      'no culpa al proveedor de un documento que no existe en ninguna parte',
+      () {
+        // El aviso solo sale cuando no hay ficha por proveedor+producto+marca,
+        // ni de la marca, ni del producto. Nombrar al proveedor mandaba a
+        // buscarla bajo otro, donde tampoco está.
+        expect(
+          avisoFichaTecnicaFaltante(marcaNombre: 'ZENÚ').toLowerCase(),
+          isNot(contains('proveedor')),
+        );
+      },
     );
 
-    final engine = ReqEngine([
-      regla('rut', 'PROVEEDOR'),
-      regla('soporteRegistroInvima', 'PROVEEDOR'),
-      regla('fichaTecnica', 'RECEPCION'),
-      regla('certCalidad', 'RECEPCION'),
-    ]);
+    test('sin marca elegida no deja un hueco en la frase', () {
+      final aviso = avisoFichaTecnicaFaltante(marcaNombre: '   ');
 
-    expect(engine.docsProveedor(const ['Todas']).map((doc) => doc.keyApp), [
-      'rut',
-      'soporteRegistroInvima',
-    ]);
-    expect(
-      engine
-          .docsRecepcion(
-            categoriaProducto: 'Todas',
-            origenProducto: 'NACIONAL',
-            etapa: 'CADA_PEDIDO',
-          )
-          .map((doc) => doc.keyApp),
-      ['certCalidad'],
-    );
+      expect(aviso, isNot(contains('  ')));
+      expect(aviso, contains('producto'));
+    });
   });
 }
