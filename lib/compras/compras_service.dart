@@ -945,12 +945,12 @@ class ComprasService {
     if (docActual == null || !docActual.tieneDoc) {
       throw StateError('El documento ya no existe en la recepción.');
     }
-    if (!docActual.aprobado) {
-      throw StateError(
-        'Solo se puede revertir un documento aprobado. '
-        'Estado actual: ${docActual.estadoCalidad}',
-      );
-    }
+    final impedimento = validarReversionDocumento(
+      aprobado: docActual.aprobado,
+      rechazado: docActual.rechazado,
+      rechazar: rechazar,
+    );
+    if (impedimento != null) throw StateError(impedimento);
 
     // Al volver a revisión respetamos la naturaleza del documento: los
     // transitorios regresan a 'consulta_calidad' y los permanentes a
@@ -2984,12 +2984,12 @@ class ComprasService {
     if (docActual == null || !docActual.tieneDoc) {
       throw StateError('El documento ya no existe en el proveedor.');
     }
-    if (!docActual.aprobado) {
-      throw StateError(
-        'Solo se puede revertir un documento aprobado. '
-        'Estado actual: ${docActual.estadoCalidad}',
-      );
-    }
+    final impedimento = validarReversionDocumento(
+      aprobado: docActual.aprobado,
+      rechazado: docActual.rechazado,
+      rechazar: rechazar,
+    );
+    if (impedimento != null) throw StateError(impedimento);
 
     final actualizado = Map<String, DocAdjunto>.from(prov.documentos)
       ..[docKey] = docActual.copyWith(
@@ -3062,12 +3062,12 @@ class ComprasService {
     if (actual == null || !actual.tieneDoc) {
       throw StateError('La ficha técnica ya no tiene un documento vigente.');
     }
-    if (!actual.aprobado) {
-      throw StateError(
-        'Solo se puede revertir una ficha aprobada. '
-        'Estado actual: ${actual.estadoCalidad}',
-      );
-    }
+    final impedimento = validarReversionDocumento(
+      aprobado: actual.aprobado,
+      rechazado: actual.rechazado,
+      rechazar: rechazar,
+    );
+    if (impedimento != null) throw StateError(impedimento);
 
     final revertido = actual.copyWith(
       estadoCalidad: rechazar ? 'rechazado' : 'pendiente_revision_calidad',

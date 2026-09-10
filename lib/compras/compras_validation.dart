@@ -153,3 +153,52 @@ String avisoFichaTecnicaFaltante({required String marcaNombre}) {
       ? 'Todavía no hay ficha técnica para este producto. Puedes cargarla aquí.'
       : 'La marca $marca todavía no tiene ficha técnica. Puedes cargarla aquí.';
 }
+
+/// ¿Se puede devolver este documento a la cola de Calidad?
+///
+/// Devuelve `null` si se puede, o el motivo por el que no.
+///
+/// Antes solo se podía revertir lo **aprobado**: un documento rechazado se
+/// quedaba rechazado para siempre y no había forma de moverlo. Eso obligaba a
+/// borrar el archivo y volverlo a subir para que entrara otra vez a la cola,
+/// perdiendo por el camino el historial de quién lo subió y por qué se rechazó.
+///
+/// Una aprobación y un rechazo son la misma cosa —una decisión de Calidad— y
+/// las dos se pueden haber tomado por error. Lo que no tiene sentido es
+/// revertir lo que todavía nadie decidió.
+///
+/// Un documento rechazado vuelve a la cola de revisión; **no salta a
+/// aprobado**. Aprobar sin que Calidad lo mire otra vez sería saltarse el
+/// control, no arreglar un error: quien lo devuelve a la cola lo aprueba
+/// después por el camino de siempre.
+String? validarReversionDocumento({
+  required bool aprobado,
+  required bool rechazado,
+  required bool rechazar,
+}) {
+  if (!aprobado && !rechazado) {
+    return 'El documento sigue pendiente de revisión: no hay ninguna decisión '
+        'que revertir.';
+  }
+  if (rechazado && rechazar) {
+    return 'El documento ya está rechazado.';
+  }
+  return null;
+}
+
+/// Estado al que queda un documento devuelto a la cola de Calidad.
+String estadoTrasReversion({required bool rechazar}) =>
+    rechazar ? 'rechazado' : 'pendiente_revision_calidad';
+
+/// Etiqueta del botón, según lo que haya que deshacer.
+///
+/// "Revertir aprobación" sobre algo rechazado no se entiende. El botón dice lo
+/// que va a pasar.
+String etiquetaReversionDocumento({
+  required bool aprobado,
+  required bool rechazado,
+}) {
+  if (rechazado) return 'Devolver a revisión';
+  if (aprobado) return 'Revertir aprobación';
+  return 'Devolver a revisión';
+}

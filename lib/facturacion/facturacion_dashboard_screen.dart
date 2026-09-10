@@ -2418,11 +2418,7 @@ class _DetalleEstablecimientoScreenState
           },
         );
     _listenRevisiones();
-    _obsSub = widget.svc
-        .streamObservaciones(widget.empresaId, widget.estId)
-        .listen((obs) {
-          if (mounted) setState(() => _observaciones = obs);
-        });
+    _suscribirObservaciones();
     _loadAutor();
   }
 
@@ -2524,6 +2520,23 @@ class _DetalleEstablecimientoScreenState
     }
   }
 
+  String get _activeMes => normalizeFacMesKey(_selectedMes ?? widget.mes);
+
+  /// (Re)suscribe las observaciones al mes que se está mirando.
+  ///
+  /// Se vuelve a suscribir al cambiar de mes, no solo en `initState`: la
+  /// suscripción lleva el mes dentro, así que dejarla fija mostraría las
+  /// observaciones del mes con el que se entró aunque se cambie el filtro.
+  void _suscribirObservaciones() {
+    _obsSub?.cancel();
+    _observaciones = [];
+    _obsSub = widget.svc
+        .streamObservaciones(widget.empresaId, widget.estId, mes: _activeMes)
+        .listen((obs) {
+          if (mounted) setState(() => _observaciones = obs);
+        });
+  }
+
   Future<void> _cambiarMes(String? mes) async {
     if (mes == null) return;
     final normalizedMes = normalizeFacMesKey(mes);
@@ -2534,6 +2547,7 @@ class _DetalleEstablecimientoScreenState
       _revisiones = {};
     });
     _listenRevisiones();
+    _suscribirObservaciones();
     final archivos = await widget.svc.listArchivos(
       widget.empresaId,
       widget.estId,
@@ -2602,6 +2616,7 @@ class _DetalleEstablecimientoScreenState
                   estId: widget.estId,
                   estNombre: widget.estNombre,
                   svc: widget.svc,
+                  mes: _activeMes,
                 ),
               ),
             ),
@@ -3036,6 +3051,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
             setState(() => _est = est);
             if (!_loading && !_uploading && previousMes != _activeMes) {
               _cargar();
+              _suscribirObservaciones();
             }
           },
           onError: (Object error) {
@@ -3062,11 +3078,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
             },
           );
     }
-    _obsSub = widget.svc
-        .streamObservaciones(widget.empresaId, widget.estId)
-        .listen((obs) {
-          if (mounted) setState(() => _observaciones = obs);
-        });
+    _suscribirObservaciones();
     _loadAutorNombre();
   }
 
@@ -3117,6 +3129,21 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
           '', // establecimiento responde, se notificará a facturación si se desea
       docTipo: doc,
     );
+  }
+
+  /// (Re)suscribe las observaciones al mes que se está mirando.
+  ///
+  /// Se vuelve a suscribir al cambiar de mes, no solo en `initState`: la
+  /// suscripción lleva el mes dentro, así que dejarla fija mostraría las
+  /// observaciones del mes con el que se entró aunque se cambie el filtro.
+  void _suscribirObservaciones() {
+    _obsSub?.cancel();
+    _observaciones = [];
+    _obsSub = widget.svc
+        .streamObservaciones(widget.empresaId, widget.estId, mes: _activeMes)
+        .listen((obs) {
+          if (mounted) setState(() => _observaciones = obs);
+        });
   }
 
   Future<void> _cargar({String? mesSeleccionado}) async {
@@ -3202,6 +3229,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
       return;
     }
     await _cargar(mesSeleccionado: mes);
+    if (mounted) _suscribirObservaciones();
   }
 
   void _showError(String message) {
@@ -3449,9 +3477,12 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
               children: [
                 // Botón de observaciones con badge
                 StreamBuilder<List<FacObservacion>>(
+                  // El contador es del mes activo. Contando todos los meses
+                  // marcaba un número que no correspondía con lo que se abría.
                   stream: widget.svc.streamObservaciones(
                     widget.empresaId,
                     widget.estId,
+                    mes: _activeMes,
                   ),
                   builder: (ctx, snap) {
                     final count = snap.data?.length ?? 0;
@@ -3473,6 +3504,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
                                 estId: widget.estId,
                                 estNombre: _est?.nombre ?? widget.estId,
                                 svc: widget.svc,
+                                mes: _activeMes,
                               ),
                             ),
                           ),
@@ -5037,12 +5069,16 @@ class _ObservacionesScreen extends StatelessWidget {
   final String estNombre;
   final FacturacionService svc;
 
+  /// Mes que se estaba mirando al abrir. Vacío = todas.
+  final String mes;
+
   const _ObservacionesScreen({
     required this.userId,
     required this.empresaId,
     required this.estId,
     required this.estNombre,
     required this.svc,
+    this.mes = '',
   });
 
   @override
@@ -5053,7 +5089,9 @@ class _ObservacionesScreen extends StatelessWidget {
         backgroundColor: _kPrimary,
         foregroundColor: Colors.white,
         title: Text(
-          'Observaciones — $estNombre',
+          mes.isEmpty
+              ? 'Observaciones — $estNombre'
+              : 'Observaciones ${facMesLabel(mes)} — $estNombre',
           style: const TextStyle(
             fontFamily: _kFont,
             fontWeight: FontWeight.w700,
@@ -5062,7 +5100,7 @@ class _ObservacionesScreen extends StatelessWidget {
         ),
       ),
       body: StreamBuilder<List<FacObservacion>>(
-        stream: svc.streamObservaciones(empresaId, estId),
+        stream: svc.streamObservaciones(empresaId, estId, mes: mes),
         builder: (ctx, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(

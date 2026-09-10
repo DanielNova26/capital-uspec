@@ -380,4 +380,54 @@ void main() {
       expect(progreso.establecimiento.mes, 'Julio_2026');
     });
   });
+
+  group('qué observaciones se ven', () {
+    FacObservacion obs({String mes = 'Agosto_2026', String? docTipo}) =>
+        FacObservacion.fromMap('x', {
+          'empresaId': 'e',
+          'establecimientoId': 'est',
+          'texto': 'falta la firma',
+          'mes': mes,
+          if (docTipo != null) 'docTipo': docTipo,
+          'autorId': 'a',
+          'autorNombre': 'A',
+        });
+
+    test('no se mezclan los meses', () {
+      // Sin filtro salían las de todos los meses juntas, cada una con su
+      // etiqueta "Mes: …", y parecía que se estuvieran creando de más.
+      expect(coincideObservacion(obs(), 'Agosto_2026', ''), isTrue);
+      expect(
+        coincideObservacion(obs(mes: 'Julio_2026'), 'Agosto_2026', ''),
+        isFalse,
+      );
+    });
+
+    test('da igual cómo esté escrito el mes', () {
+      // Firestore usa "Agosto_2026" y Storage "agosto_2026".
+      expect(
+        coincideObservacion(obs(mes: 'agosto_2026'), 'Agosto_2026', ''),
+        isTrue,
+      );
+    });
+
+    test('una observación sin mes es general y se ve siempre', () {
+      // No pertenece a ningún periodo: esconderla bajo uno sería perderla.
+      expect(coincideObservacion(obs(mes: ''), 'Agosto_2026', ''), isTrue);
+    });
+
+    test('el chat de un documento solo trae lo de ese documento', () {
+      final o = obs(docTipo: 'Cuadro de raciones');
+
+      expect(
+        coincideObservacion(o, 'Agosto_2026', 'Cuadro de raciones'),
+        isTrue,
+      );
+      expect(coincideObservacion(o, 'Agosto_2026', 'Servicio de gas'), isFalse);
+    });
+
+    test('sin filtros se ve todo', () {
+      expect(coincideObservacion(obs(mes: 'Julio_2026'), '', ''), isTrue);
+    });
+  });
 }

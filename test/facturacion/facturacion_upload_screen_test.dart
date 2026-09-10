@@ -87,8 +87,10 @@ class _FacturacionServiceFake implements FacturacionService {
   @override
   Stream<List<FacObservacion>> streamObservaciones(
     String empresaId,
-    String estId,
-  ) => Stream.value([]);
+    String estId, {
+    String? mes,
+    String? docTipo,
+  }) => Stream.value([]);
 
   @override
   Stream<Map<String, FacRevision>> streamRevisiones(

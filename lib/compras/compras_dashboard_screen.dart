@@ -3905,10 +3905,17 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
     );
   }
 
-  /// Acceso directo del Admin Documental para corregir una aprobación dada por
-  /// error, sin tener que ir a la pestaña "Aprobados" de Calidad.
+  /// Acceso directo del Admin Documental para corregir una decisión de Calidad
+  /// tomada por error, sin tener que ir a la pestaña "Aprobados".
+  ///
+  /// Vale igual para lo aprobado y para lo **rechazado**. Antes solo salía
+  /// sobre lo aprobado, así que un documento rechazado se quedaba rechazado
+  /// para siempre: la única salida era borrar el archivo y volverlo a subir,
+  /// perdiendo el historial de quién lo subió y por qué se rechazó.
   Widget _buildRevertirAprobacion() {
-    if (widget.onRevertir == null || widget.doc?.aprobado != true) {
+    final doc = widget.doc;
+    final reversible = doc != null && (doc.aprobado || doc.rechazado);
+    if (widget.onRevertir == null || !reversible) {
       return const SizedBox.shrink();
     }
     return Padding(
@@ -3918,9 +3925,12 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
         child: TextButton.icon(
           onPressed: widget.onRevertir,
           icon: const Icon(Icons.undo, size: 15),
-          label: const Text(
-            'Revertir aprobación',
-            style: TextStyle(
+          label: Text(
+            etiquetaReversionDocumento(
+              aprobado: doc.aprobado,
+              rechazado: doc.rechazado,
+            ),
+            style: const TextStyle(
               fontFamily: _kFont,
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -5776,7 +5786,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
   /// Solo llega aquí el Admin Documental sobre un proveedor ya existente.
   Future<void> _revertirAprobacion(String key) async {
     final anterior = _documentos[key];
-    if (anterior == null || !anterior.aprobado) return;
+    if (anterior == null || !(anterior.aprobado || anterior.rechazado)) return;
 
     final decision = await _pedirMotivoReversion(
       context,
@@ -5784,6 +5794,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
       contexto: _razonCtrl.text.trim().isEmpty
           ? 'Proveedor'
           : _razonCtrl.text.trim(),
+      yaRechazado: anterior.rechazado,
     );
     if (decision == null || !mounted) return;
 
@@ -5820,7 +5831,7 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
           content: Text(
             decision.rechazar
                 ? 'Aprobación revertida. El documento quedó rechazado y se notificó a quien lo subió.'
-                : 'Aprobación revertida. El documento volvió a la cola de Calidad.',
+                : 'El documento volvió a la cola de Calidad.',
             style: const TextStyle(fontFamily: _kFont),
           ),
         ),
@@ -6185,7 +6196,8 @@ class _ProveedorFormScreenState extends State<_ProveedorFormScreen> {
                             onRevertir:
                                 (widget.esAdmin &&
                                     !isNew &&
-                                    _documentos[key]?.aprobado == true)
+                                    (_documentos[key]?.aprobado == true ||
+                                        _documentos[key]?.rechazado == true))
                                 ? () => _revertirAprobacion(key)
                                 : null,
                             showCalendar: documentoRequiereVigencia(key),
@@ -20140,10 +20152,15 @@ class _ReversionDecision {
 }
 
 /// Pide el motivo y el destino de la reversión. Devuelve null si se cancela.
+///
+/// [yaRechazado] cambia el dialogo entero: sobre un documento rechazado no hay
+/// aprobacion que revertir ni tiene sentido ofrecer "Rechazar" otra vez. Solo
+/// queda un destino, la cola de Calidad, asi que no se pregunta.
 Future<_ReversionDecision?> _pedirMotivoReversion(
   BuildContext context, {
   required String docLabel,
   required String contexto,
+  bool yaRechazado = false,
 }) async {
   final ctrl = TextEditingController();
   var rechazar = false;
@@ -20153,9 +20170,12 @@ Future<_ReversionDecision?> _pedirMotivoReversion(
     context: context,
     builder: (dialogCtx) => StatefulBuilder(
       builder: (dialogCtx, setLocal) => AlertDialog(
-        title: const Text(
-          'Revertir aprobación',
-          style: TextStyle(fontFamily: _kFont, fontWeight: FontWeight.bold),
+        title: Text(
+          yaRechazado ? 'Devolver a revisión' : 'Revertir aprobación',
+          style: const TextStyle(
+            fontFamily: _kFont,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         content: SingleChildScrollView(
           child: Column(
@@ -20179,45 +20199,57 @@ Future<_ReversionDecision?> _pedirMotivoReversion(
                 ),
               ),
               const SizedBox(height: 14),
-              const Text(
-                '¿Qué debe pasar con el documento?',
-                style: TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              if (yaRechazado)
+                const Text(
+                  'El documento vuelve a la cola de Calidad para que lo '
+                  'revisen otra vez. No queda aprobado por esto.',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                )
+              else ...[
+                const Text(
+                  '¿Qué debe pasar con el documento?',
+                  style: TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              RadioListTile<bool>(
-                value: false,
-                groupValue: rechazar,
-                onChanged: (v) => setLocal(() => rechazar = v ?? false),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Volver a revisión',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                RadioListTile<bool>(
+                  value: false,
+                  groupValue: rechazar,
+                  onChanged: (v) => setLocal(() => rechazar = v ?? false),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Volver a revisión',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                  ),
+                  subtitle: const Text(
+                    'Se aprobó por error. Regresa a la cola de Calidad.',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 11),
+                  ),
                 ),
-                subtitle: const Text(
-                  'Se aprobó por error. Regresa a la cola de Calidad.',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 11),
+                RadioListTile<bool>(
+                  value: true,
+                  groupValue: rechazar,
+                  onChanged: (v) => setLocal(() => rechazar = v ?? true),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Rechazar',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 13),
+                  ),
+                  subtitle: const Text(
+                    'El documento está malo. Se notifica a quien lo subió y se '
+                    'crea la tarea de corrección.',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 11),
+                  ),
                 ),
-              ),
-              RadioListTile<bool>(
-                value: true,
-                groupValue: rechazar,
-                onChanged: (v) => setLocal(() => rechazar = v ?? true),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'Rechazar',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 13),
-                ),
-                subtitle: const Text(
-                  'El documento está malo. Se notifica a quien lo subió y se '
-                  'crea la tarea de corrección.',
-                  style: TextStyle(fontFamily: _kFont, fontSize: 11),
-                ),
-              ),
+              ],
               const SizedBox(height: 10),
               TextField(
                 controller: ctrl,
@@ -20261,7 +20293,11 @@ Future<_ReversionDecision?> _pedirMotivoReversion(
               );
             },
             child: Text(
-              rechazar ? 'Revertir y rechazar' : 'Revertir a revisión',
+              rechazar
+                  ? 'Revertir y rechazar'
+                  : (yaRechazado
+                        ? 'Devolver a revisión'
+                        : 'Revertir a revisión'),
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.bold,

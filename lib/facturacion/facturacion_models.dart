@@ -825,3 +825,28 @@ class FacUserInfo {
 
   const FacUserInfo({required this.rol, this.establecimientoId});
 }
+
+/// ¿Esta observación pertenece al mes y al documento que se están mirando?
+///
+/// Función aparte para poder probarla: es la regla que decide qué se ve en el
+/// chat de un documento, y equivocarla o deja fuera lo que hace falta o mezcla
+/// meses.
+///
+/// [mesBuscado] y [docBuscado] vacíos significan "sin filtrar". Una observación
+/// **sin mes** es general del establecimiento y pasa siempre: no pertenece a
+/// ningún periodo, así que esconderla bajo uno sería perderla.
+bool coincideObservacion(
+  FacObservacion obs,
+  String mesBuscado,
+  String docBuscado,
+) {
+  if (mesBuscado.isNotEmpty) {
+    final mesObs = normalizeFacMesKey(obs.mes.trim());
+    if (mesObs.isNotEmpty && mesObs != mesBuscado) return false;
+  }
+  if (docBuscado.isNotEmpty) {
+    final docObs = (obs.docTipo ?? '').trim();
+    if (docObs.isNotEmpty && docObs != docBuscado) return false;
+  }
+  return true;
+}

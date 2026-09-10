@@ -3954,3 +3954,72 @@ a mano sobre la hoja.
 Lo de la notación científica no es teórico: `toString()` sobre una cuenta de
 doce dígitos leída como decimal devuelve `1.1161004988e11`. Por eso el parser
 trata cada tipo de celda por separado en vez de confiar en `toString()`.
+
+---
+
+## Tres reportes del 10 sep 2026
+
+### Compras: lo rechazado ya se puede mover
+
+Solo se podía revertir un documento **aprobado**. Uno rechazado se quedaba
+rechazado para siempre: la única salida era borrar el archivo y volverlo a
+subir, y por el camino se perdía el historial de quién lo había subido y por
+qué se rechazó.
+
+Una aprobación y un rechazo son la misma cosa —una decisión de Calidad— y las
+dos se pueden haber tomado por error. La regla quedó en
+`validarReversionDocumento`: se puede devolver a la cola lo que ya tiene
+decisión, y no se puede revertir lo que nadie ha decidido todavía. Se aplica
+igual a documentos de proveedor, de recepción y a fichas técnicas, que eran tres
+guardas separadas diciendo lo mismo.
+
+**Un documento rechazado vuelve a la cola de revisión; no salta a aprobado.**
+Aprobar sin que Calidad lo mire otra vez sería saltarse el control, no arreglar
+un error: quien lo devuelve a la cola lo aprueba después por el camino de
+siempre.
+
+El diálogo cambia según lo que haya que deshacer: sobre algo rechazado no
+ofrece "Rechazar" otra vez ni habla de revertir una aprobación que no existe.
+
+### Bodega: ya estaba corregido, falta publicarlo
+
+El error de la ficha técnica que no dejaba completar la recepción era el campo
+"Vigente hasta" obligatorio, que bloqueaba el guardado. Está quitado en el
+árbol —`kDocumentosConVigenciaObligatoria` ya no incluye `fichaTecnica`— pero
+`pubspec.yaml` sigue en `2.4.6+11`, que es la versión que ya está publicada.
+
+Mientras no se suba la versión, quien esté en la tienda sigue con el error. Y
+sin subir el número de versión las tiendas rechazan el envío.
+
+### Facturación: las observaciones se veían de todos los meses
+
+`streamObservaciones` filtraba por empresa y establecimiento y **no por mes**.
+Las cuatro pantallas que la usan mostraban las observaciones de todos los
+periodos juntas, cada una con su etiqueta "Mes: …". No se estaban creando de
+más: se estaban pintando de más. El contador del botón también las sumaba
+todas, así que marcaba un número que no correspondía con lo que se abría.
+
+Ahora la consulta acepta `mes` y `docTipo`. Filtran **en memoria** y no en el
+`where`: llevarlos a la consulta obligaría a un índice compuesto nuevo y a
+desplegarlo antes de que la pantalla funcione, y el número de observaciones de
+un establecimiento es pequeño.
+
+Dos detalles que no son obvios:
+
+- La suscripción lleva el mes dentro, así que **se rehace al cambiar de mes**.
+  Dejarla fija en `initState` mostraba las del mes con el que se entró aunque
+  después se cambiara el filtro.
+- Una observación **sin mes** es general del establecimiento y se ve siempre. No
+  pertenece a ningún periodo, así que esconderla bajo uno sería perderla.
+
+También se normaliza el mes al escribir la observación: la tarea ya guardaba
+`facMes` normalizado y tener las dos formas conviviendo obligaba a comparar con
+cuidado en cada lector.
+
+**Queda pendiente** la otra mitad del reporte: que la observación del rechazo se
+vea "en el chat de ese documento" y en Mis tareas. El motivo ya se guarda en la
+tarea, en la observación y en el historial de la revisión, así que el dato está;
+falta confirmar en qué pantalla lo están buscando. Hay además un detalle a
+revisar: cuando se rechaza dos veces el mismo documento y la tarea sigue
+abierta, el segundo motivo **sobrescribe** el texto de la observación en vez de
+añadirse, así que el chat no acumula el historial de rechazos.

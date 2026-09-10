@@ -368,4 +368,71 @@ void main() {
       expect(aviso, contains('producto'));
     });
   });
+
+  group('devolver un documento a la cola de Calidad', () {
+    test('lo rechazado ya se puede mover, no solo lo aprobado', () {
+      // Antes un documento rechazado se quedaba rechazado para siempre: la
+      // unica salida era borrar el archivo y volverlo a subir, perdiendo el
+      // historial de quien lo subio y por que se rechazo.
+      expect(
+        validarReversionDocumento(
+          aprobado: false,
+          rechazado: true,
+          rechazar: false,
+        ),
+        isNull,
+      );
+      expect(
+        validarReversionDocumento(
+          aprobado: true,
+          rechazado: false,
+          rechazar: false,
+        ),
+        isNull,
+      );
+    });
+
+    test('lo pendiente no tiene nada que revertir', () {
+      expect(
+        validarReversionDocumento(
+          aprobado: false,
+          rechazado: false,
+          rechazar: false,
+        ),
+        contains('pendiente'),
+      );
+    });
+
+    test('rechazar lo que ya está rechazado no hace nada', () {
+      expect(
+        validarReversionDocumento(
+          aprobado: false,
+          rechazado: true,
+          rechazar: true,
+        ),
+        contains('ya está rechazado'),
+      );
+    });
+
+    test('devolver a revisión nunca deja el documento aprobado', () {
+      // Aprobar sin que Calidad lo mire otra vez seria saltarse el control.
+      expect(
+        estadoTrasReversion(rechazar: false),
+        'pendiente_revision_calidad',
+      );
+      expect(estadoTrasReversion(rechazar: true), 'rechazado');
+    });
+
+    test('el botón dice lo que va a pasar', () {
+      expect(
+        etiquetaReversionDocumento(aprobado: true, rechazado: false),
+        'Revertir aprobación',
+      );
+      // "Revertir aprobación" sobre algo rechazado no se entiende.
+      expect(
+        etiquetaReversionDocumento(aprobado: false, rechazado: true),
+        'Devolver a revisión',
+      );
+    });
+  });
 }

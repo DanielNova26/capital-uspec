@@ -1129,20 +1129,42 @@ class FacturacionService {
 
   // ─── Observaciones ────────────────────────────────────────────────────────
 
+  /// Observaciones de un establecimiento, opcionalmente acotadas.
+  ///
+  /// [mes] y [docTipo] filtran **en memoria**, no en la consulta. Es a
+  /// propósito: llevarlos al `where` obligaría a un índice compuesto nuevo y a
+  /// desplegarlo antes de que la pantalla funcione, y el número de
+  /// observaciones de un establecimiento es pequeño. Si algún día deja de
+  /// serlo, se cambia aquí y en ningún otro sitio.
+  ///
+  /// Sin [mes] la pantalla mostraba las observaciones de **todos** los meses
+  /// juntas, cada una con su etiqueta "Mes: …", y parecía que se estuvieran
+  /// creando en todos los meses. No se creaban de más: se pintaban de más.
+  ///
+  /// Una observación sin mes es general del establecimiento y se muestra
+  /// siempre: no pertenece a ningún periodo, así que esconderla bajo uno sería
+  /// perderla.
   Stream<List<FacObservacion>> streamObservaciones(
     String empresaId,
-    String estId,
-  ) => _db
-      .collection(_colObs)
-      .where('empresaId', isEqualTo: empresaId)
-      .where('establecimientoId', isEqualTo: estId)
-      .orderBy('fecha', descending: true)
-      .snapshots()
-      .map(
-        (snap) => snap.docs
-            .map((d) => FacObservacion.fromMap(d.id, d.data()))
-            .toList(),
-      );
+    String estId, {
+    String? mes,
+    String? docTipo,
+  }) {
+    final mesBuscado = normalizeFacMesKey((mes ?? '').trim());
+    final docBuscado = (docTipo ?? '').trim();
+    return _db
+        .collection(_colObs)
+        .where('empresaId', isEqualTo: empresaId)
+        .where('establecimientoId', isEqualTo: estId)
+        .orderBy('fecha', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => FacObservacion.fromMap(d.id, d.data()))
+              .where((o) => coincideObservacion(o, mesBuscado, docBuscado))
+              .toList(),
+        );
+  }
 
   Future<FacRecipient?> findEstablishmentRecipient(
     String empresaId,
@@ -1349,7 +1371,10 @@ class FacturacionService {
       'empresaId': empresaId,
       'establecimientoId': estId,
       'texto': texto,
-      'mes': mes,
+      // Normalizado al escribir: la tarea ya guarda `facMes` normalizado y
+      // tener las dos formas conviviendo obliga a comparar con cuidado en cada
+      // lector.
+      'mes': normalizeFacMesKey(mes),
       if (docTipo != null) 'docTipo': docTipo,
       'autorId': autorId,
       'autorNombre': autorNombre,
