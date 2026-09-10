@@ -597,6 +597,122 @@ class ComprasService {
     return ref.id;
   }
 
+  /// Completa una recepción que aún está en revisión de Calidad.
+  ///
+  /// Conserva el encabezado y la fecha originales. La transacción impide que
+  /// una recepción ya finalizada o rechazada sea reabierta desde una pantalla
+  /// que quedó abierta, y tampoco permite retirar productos existentes.
+  Future<void> completarRecepcionEnRevision({
+    required RecepcionDoc recepcion,
+    required String userId,
+  }) async {
+    final recepcionId = recepcion.id.trim();
+    if (recepcionId.isEmpty) {
+      throw StateError('No se encontró la recepción para completar.');
+    }
+    final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
+    late RecepcionDoc original;
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists || snap.data() == null) {
+        throw StateError('No se encontró la recepción para completar.');
+      }
+      original = RecepcionDoc.fromMap(snap.id, snap.data()!);
+      if (original.empresaId.trim() != recepcion.empresaId.trim()) {
+        throw StateError('La recepción no pertenece a la empresa activa.');
+      }
+      final error = validarAmpliacionRecepcionPendiente(
+        original: original,
+        productosActualizados: recepcion.productos,
+      );
+      if (error != null) throw StateError(error);
+
+      tx.update(ref, {
+        'productos': recepcion.productos
+            .map((producto) => producto.toMap())
+            .toList(),
+        'productoIds': recepcion.productos
+            .map((producto) => producto.productoId.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList(),
+        'ultimaEdicionPor': userId.trim(),
+        'ultimaEdicionAt': FieldValue.serverTimestamp(),
+        'lastEventText': 'Recepción completada durante revisión de Calidad',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+
+    // Si el producto agregado venía de Abastecimiento, conserva el vínculo de
+    // la OC y marca esa entrega como recibida igual que en la captura inicial.
+    final abastecimientoSnapshot = await _db
+        .collection(kAbastecimientoCollection)
+        .where('empresaId', isEqualTo: recepcion.empresaId.trim())
+        .get();
+    final matches = abastecimientoSnapshot.docs
+        .map(
+          (snapshot) => (
+            snapshot: snapshot,
+            entrega: AbastecimientoDoc.fromMap(snapshot.id, snapshot.data()),
+          ),
+        )
+        .where(
+          (item) => abastecimientoCoincideConRecepcion(item.entrega, recepcion),
+        )
+        .take(400)
+        .toList();
+    if (matches.isEmpty) return;
+
+    final ids = <String>{...original.abastecimientoIds};
+    ids.addAll(matches.map((item) => item.entrega.id));
+    final now = Timestamp.now();
+    final batch = _db.batch();
+    batch.update(ref, {'abastecimientoIds': ids.toList(), 'updatedAt': now});
+    for (final item in matches) {
+      final actual = item.entrega;
+      if (actual.estado == AbastecimientoEstado.recibido &&
+          actual.recepcionId == ref.id) {
+        continue;
+      }
+      final history = [
+        ...actual.historial,
+        if (actual.estado != AbastecimientoEstado.recibido)
+          AbastecimientoCambio(
+            campo: 'estado',
+            anterior: actual.estado.value,
+            nuevo: AbastecimientoEstado.recibido.value,
+            origen: 'recepcion_completada',
+            usuarioId: userId.trim(),
+            fecha: now,
+          ),
+        if (actual.recepcionId != ref.id)
+          AbastecimientoCambio(
+            campo: 'recepcionId',
+            anterior: actual.recepcionId,
+            nuevo: ref.id,
+            origen: 'recepcion_completada',
+            usuarioId: userId.trim(),
+            fecha: now,
+          ),
+      ];
+      batch.update(item.snapshot.reference, {
+        'estado': AbastecimientoEstado.recibido.value,
+        if (actual.estado != AbastecimientoEstado.recibido)
+          'estadoAntesRecepcion': actual.estado.value,
+        'recepcionId': ref.id,
+        'fechaRecibido': original.fecha,
+        'novedadEstado': 'Recepción ${ref.id} completada desde Compras.',
+        'actualizadoPor': userId.trim(),
+        'updatedAt': now,
+        'historial': history
+            .skip(history.length > 100 ? history.length - 100 : 0)
+            .map((item) => item.toMap())
+            .toList(),
+      });
+    }
+    await batch.commit();
+  }
+
   /// Reabre de forma controlada una recepción cerrada únicamente para
   /// reemplazar los documentos que Calidad rechazó. Encabezado, productos,
   /// marcas, lotes y documentos no rechazados permanecen intactos.

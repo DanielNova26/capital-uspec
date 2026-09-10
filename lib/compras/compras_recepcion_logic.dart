@@ -62,6 +62,41 @@ EstadoRecepcionCompras estadoRecepcionCompras(RecepcionDoc recepcion) {
       : EstadoRecepcionCompras.historico;
 }
 
+/// Valida una ampliación operativa mientras la recepción sigue en revisión.
+///
+/// El bloqueo anterior impedía corregir una captura incompleta después de
+/// cerrarla. Se permite agregar productos y completar sus soportes, pero no
+/// retirar silenciosamente productos que ya formaban parte de la recepción.
+String? validarAmpliacionRecepcionPendiente({
+  required RecepcionDoc original,
+  required List<RecepcionProducto> productosActualizados,
+}) {
+  if (estadoRecepcionCompras(original) != EstadoRecepcionCompras.pendiente) {
+    return 'Solo se puede completar una recepción mientras está en revisión de Calidad.';
+  }
+  if (productosActualizados.isEmpty) {
+    return 'La recepción debe conservar al menos un producto.';
+  }
+
+  if (productosActualizados.length < original.productos.length) {
+    return 'No se pueden retirar productos que ya estaban registrados en la recepción.';
+  }
+  for (final producto in productosActualizados) {
+    final id = producto.productoId.trim();
+    if (id.isEmpty) {
+      return 'Todos los productos de la recepción deben estar identificados.';
+    }
+  }
+  for (var i = 0; i < original.productos.length; i++) {
+    final originalId = original.productos[i].productoId.trim();
+    final actualizadoId = productosActualizados[i].productoId.trim();
+    if (originalId.isNotEmpty && originalId != actualizadoId) {
+      return 'No se pueden retirar productos que ya estaban registrados en la recepción.';
+    }
+  }
+  return null;
+}
+
 /// Documentos de uso permanente que pertenecen al expediente del producto y
 /// continúan sujetos a aprobación de Calidad.
 const Set<String> kDocumentosPermanentesRecepcion = {

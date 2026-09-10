@@ -218,6 +218,63 @@ void main() {
         isNull,
       );
     });
+
+    test('permite agregar un producto mientras sigue en revisión', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://pendiente',
+          estadoCalidad: 'consulta_calidad',
+        ),
+      });
+      final agregado = const RecepcionProducto(
+        productoId: 'prod-2',
+        nombre: 'Producto faltante',
+      );
+
+      expect(
+        validarAmpliacionRecepcionPendiente(
+          original: original,
+          productosActualizados: [...original.productos, agregado],
+        ),
+        isNull,
+      );
+    });
+
+    test('no permite retirar un producto ya registrado', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://pendiente',
+          estadoCalidad: 'consulta_calidad',
+        ),
+      });
+
+      expect(
+        validarAmpliacionRecepcionPendiente(
+          original: original,
+          productosActualizados: const [
+            RecepcionProducto(productoId: 'prod-2'),
+          ],
+        ),
+        contains('retirar'),
+      );
+    });
+
+    test('una recepción finalizada no se puede reabrir', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://consultado',
+          estadoCalidad: 'consultado',
+        ),
+      });
+
+      expect(
+        validarAmpliacionRecepcionPendiente(
+          original: original,
+          productosActualizados: original.productos,
+        ),
+        contains('mientras está en revisión'),
+      );
+    });
   });
 
   group('bodegasLegacyParaEmpresa', () {

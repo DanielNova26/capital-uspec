@@ -986,6 +986,11 @@ class ComprasDashboardScreen extends StatelessWidget {
                 svc: svc,
                 userId: userId,
                 puedeEliminar: _esAdmin,
+                puedeEditarPendientes:
+                    _esAdmin ||
+                    _esBodega ||
+                    _esCompras ||
+                    _rolNormalizado == null,
               ),
             ),
           ),
@@ -9174,12 +9179,14 @@ class _RecepcionesScreen extends StatefulWidget {
   final ComprasService svc;
   final String userId;
   final bool puedeEliminar;
+  final bool puedeEditarPendientes;
 
   const _RecepcionesScreen({
     required this.empresaId,
     required this.svc,
     required this.userId,
     this.puedeEliminar = false,
+    this.puedeEditarPendientes = false,
   });
 
   @override
@@ -9537,6 +9544,7 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
               svc: widget.svc,
               existing: recepcion,
               userId: widget.userId,
+              puedeEditarPendiente: widget.puedeEditarPendientes,
             ),
           ),
         ),
@@ -9639,6 +9647,9 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                     Text(
                       estado == EstadoRecepcionCompras.rechazada
                           ? 'Corregir documentos'
+                          : estado == EstadoRecepcionCompras.pendiente &&
+                                widget.puedeEditarPendientes
+                          ? 'Completar recepción'
                           : 'Ver detalle',
                       style: TextStyle(
                         fontFamily: _kFont,
@@ -9759,6 +9770,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
   final String? correccionTaskId;
   final String? correccionDocKey;
   final String? correccionProductoId;
+  final bool puedeEditarPendiente;
   final List<AbastecimientoDoc> abastecimientosIniciales;
 
   const _NuevaRecepcionScreen({
@@ -9769,6 +9781,7 @@ class _NuevaRecepcionScreen extends StatefulWidget {
     this.correccionTaskId,
     this.correccionDocKey,
     this.correccionProductoId,
+    this.puedeEditarPendiente = false,
     this.abastecimientosIniciales = const [],
   });
 
@@ -9819,11 +9832,22 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       widget.existing != null &&
       estadoRecepcionCompras(widget.existing!) ==
           EstadoRecepcionCompras.rechazada;
+  bool get _esRecepcionPendiente =>
+      widget.existing != null &&
+      estadoRecepcionCompras(widget.existing!) ==
+          EstadoRecepcionCompras.pendiente;
   bool get _modoCorreccion =>
       !isNew && (_esRecepcionRechazada || _esCorreccionDirigida);
-  bool get _modoLectura => !isNew && !_modoCorreccion;
+  bool get _modoEdicionPendiente =>
+      !isNew &&
+      !_esCorreccionDirigida &&
+      widget.puedeEditarPendiente &&
+      _esRecepcionPendiente;
+  bool get _modoLectura => !isNew && !_modoCorreccion && !_modoEdicionPendiente;
   bool get _mostrarAccionGuardar =>
-      isNew || (!_esCorreccionDirigida && _modoCorreccion);
+      isNew ||
+      _modoEdicionPendiente ||
+      (!_esCorreccionDirigida && _modoCorreccion);
 
   bool _esDocumentoCorreccion(int idx, String key) {
     if (!_esCorreccionDirigida || key != widget.correccionDocKey!.trim()) {
@@ -9835,6 +9859,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
 
   bool _puedeEditarDocumento(int idx, String key) {
     if (isNew) return true;
+    if (_modoEdicionPendiente) return true;
     if (!_modoCorreccion || idx < 0 || idx >= _entries.length) return false;
     final productoId =
         _entries[idx].producto?.id ??
@@ -10299,23 +10324,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         return;
       }
     }
-    // Ficha técnica obligatoria por producto
-    final sinFicha = _entries.any(
-      (e) =>
-          e.producto != null && e.documentos['fichaTecnica']?.tieneDoc != true,
-    );
-    if (sinFicha) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Cada producto debe tener una ficha técnica cargada antes de guardar.',
-          ),
-          backgroundColor: kComprasRed,
-          duration: Duration(seconds: 4),
-        ),
-      );
-      return;
-    }
+    // La ficha técnica es deseable, pero no puede impedir la recepción física
+    // de la mercancía. Si falta, la recepción se guarda y el aviso permanece.
 
     setState(() => _guardando = true);
     try {
@@ -10359,6 +10369,11 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       );
       if (isNew) {
         await widget.svc.guardarRecepcion(r);
+      } else if (_modoEdicionPendiente) {
+        await widget.svc.completarRecepcionEnRevision(
+          recepcion: r,
+          userId: widget.userId,
+        );
       } else {
         final correcciones = <String, DocAdjunto>{};
         for (var idx = 0; idx < _entries.length; idx++) {
@@ -10389,6 +10404,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             content: Text(
               isNew
                   ? 'Recepción guardada y cerrada. Quedó enviada a Calidad.'
+                  : _modoEdicionPendiente
+                  ? 'Recepción completada. Los cambios quedaron en revisión de Calidad.'
                   : 'Correcciones enviadas. La recepción volvió a revisión de Calidad.',
             ),
             backgroundColor: kComprasGreen,
@@ -10805,7 +10822,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         color: kComprasPrimary,
         title: '1. Registra y revisa la recepción',
         message:
-            'Al guardar, la recepción se cerrará y quedará enviada a Calidad. Después no podrás agregar ni cambiar documentos.',
+            'La ficha técnica no bloquea la recepción. Al guardar quedará enviada a Calidad y podrás completarla mientras siga en revisión.',
         steps: const ['Captura', 'Revisión de Calidad', 'Finalizada'],
         activeStep: 0,
       );
@@ -10819,6 +10836,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             ? 'Reemplaza únicamente el documento señalado en rojo. Al cargarlo, la recepción se cerrará y volverá automáticamente a Calidad.'
             : 'Los datos, productos y lotes están bloqueados. Reemplaza todos los documentos señalados en rojo y envía las correcciones.',
         steps: const ['Recepción cerrada', 'Corrección', 'Nueva revisión'],
+        activeStep: 1,
+      );
+    }
+    if (_modoEdicionPendiente) {
+      return _RecepcionFlowBanner(
+        icon: Icons.playlist_add_rounded,
+        color: const Color(0xFFB45309),
+        title: 'Recepción en revisión · se puede completar',
+        message:
+            'Agrega los productos que hayan faltado y completa sus soportes. Los productos ya registrados no se pueden retirar.',
+        steps: const ['Captura cerrada', 'Revisión de Calidad', 'Finalizada'],
         activeStep: 1,
       );
     }
@@ -10886,6 +10914,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         title: Text(
           isNew
               ? 'Nueva recepción'
+              : _modoEdicionPendiente
+              ? 'Completar recepción'
               : _modoCorreccion
               ? 'Corregir recepción'
               : 'Detalle de recepción',
@@ -10913,7 +10943,11 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
             TextButton(
               onPressed: _guardar,
               child: Text(
-                isNew ? 'Guardar y cerrar' : 'Enviar correcciones',
+                isNew
+                    ? 'Guardar y cerrar'
+                    : _modoEdicionPendiente
+                    ? 'Guardar cambios'
+                    : 'Enviar correcciones',
                 style: const TextStyle(
                   color: Colors.white,
                   fontFamily: _kFont,
@@ -11161,6 +11195,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                   ..._entries.asMap().entries.map((entry) {
                     final idx = entry.key;
                     final e = entry.value;
+                    final esProductoAgregado =
+                        _modoEdicionPendiente &&
+                        idx >= (widget.existing?.productos.length ?? 0);
                     return _ProductoEntryCard(
                       idx: idx,
                       entry: e,
@@ -11295,18 +11332,18 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               }
                             }
                           : null,
-                      onWebDeleteDoc: isNew
+                      onWebDeleteDoc: isNew || esProductoAgregado
                           ? (key) => setState(
                               () => _entries[idx].documentos.remove(key),
                             )
                           : null,
                       onDateChangedDoc: (key, date) =>
                           _onDateChangedDoc(idx, key, date),
-                      readOnlyStructure: !isNew,
+                      readOnlyStructure: !isNew && !esProductoAgregado,
                       canEditDocument: (key) => _puedeEditarDocumento(idx, key),
                     );
                   }),
-                  if (isNew) ...[
+                  if (isNew || _modoEdicionPendiente) ...[
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
@@ -11350,6 +11387,8 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               ? 'Procesando...'
                               : isNew
                               ? 'Guardar, cerrar y enviar a Calidad'
+                              : _modoEdicionPendiente
+                              ? 'Guardar cambios y mantener en revisión'
                               : 'Enviar correcciones a Calidad',
                           style: const TextStyle(fontFamily: _kFont),
                         ),
@@ -11813,7 +11852,7 @@ class _ProductoEntryCard extends StatelessWidget {
                                                 ? kComprasGreen.withValues(
                                                     alpha: 0.08,
                                                   )
-                                                : kComprasRed.withValues(
+                                                : Colors.amber.withValues(
                                                     alpha: 0.08,
                                                   ),
                                             borderRadius: BorderRadius.circular(
@@ -11824,9 +11863,8 @@ class _ProductoEntryCard extends StatelessWidget {
                                                   ? kComprasGreen.withValues(
                                                       alpha: 0.4,
                                                     )
-                                                  : kComprasRed.withValues(
-                                                      alpha: 0.4,
-                                                    ),
+                                                  : Colors.amber.shade700
+                                                        .withValues(alpha: 0.4),
                                             ),
                                           ),
                                           child: Row(
@@ -11839,7 +11877,7 @@ class _ProductoEntryCard extends StatelessWidget {
                                                 size: 10,
                                                 color: tieneFicha
                                                     ? kComprasGreen
-                                                    : kComprasRed,
+                                                    : Colors.amber.shade800,
                                               ),
                                               const SizedBox(width: 3),
                                               Text(
@@ -11850,7 +11888,7 @@ class _ProductoEntryCard extends StatelessWidget {
                                                   fontWeight: FontWeight.w600,
                                                   color: tieneFicha
                                                       ? kComprasGreen
-                                                      : kComprasRed,
+                                                      : Colors.amber.shade800,
                                                 ),
                                               ),
                                             ],
@@ -12103,10 +12141,9 @@ class _ProductoEntryCard extends StatelessWidget {
                                 !readOnlyStructure)) ...[
                               const SizedBox(height: 8),
                               _DocAttachButton(
-                                label:
-                                    'Cargar ficha técnica desde esta recepción',
+                                label: 'Cargar ficha técnica (opcional)',
                                 doc: entry.documentos['fichaTecnica'],
-                                required_: true,
+                                required_: false,
                                 qualityRequired: true,
                                 editable: true,
                                 onAttach: () => onAdjuntarDoc('fichaTecnica'),
@@ -12133,7 +12170,7 @@ class _ProductoEntryCard extends StatelessWidget {
                               const Padding(
                                 padding: EdgeInsets.only(top: 6),
                                 child: Text(
-                                  'Bodega puede continuar con la recepción. La ficha quedará identificada con el usuario que la cargó y pendiente de revisión por Calidad.',
+                                  'La recepción puede guardarse sin ficha técnica. Si la cargas, quedará identificada con tu usuario y pendiente de revisión por Calidad.',
                                   style: TextStyle(
                                     fontFamily: _kFont,
                                     fontSize: 11,

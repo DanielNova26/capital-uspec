@@ -367,6 +367,12 @@ void main() {
       expect(aviso, isNot(contains('  ')));
       expect(aviso, contains('producto'));
     });
+
+    test('aclara que la ficha no bloquea la recepción', () {
+      final aviso = avisoFichaTecnicaFaltante(marcaNombre: 'COLANTA');
+
+      expect(aviso.toLowerCase(), contains('continuar la recepción'));
+    });
   });
 
   group('devolver un documento a la cola de Calidad', () {

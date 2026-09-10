@@ -150,8 +150,8 @@ String? validarRangoFechasCompras(
 String avisoFichaTecnicaFaltante({required String marcaNombre}) {
   final marca = marcaNombre.trim();
   return marca.isEmpty
-      ? 'Todavía no hay ficha técnica para este producto. Puedes cargarla aquí.'
-      : 'La marca $marca todavía no tiene ficha técnica. Puedes cargarla aquí.';
+      ? 'Todavía no hay ficha técnica para este producto. Puedes continuar la recepción o cargarla aquí.'
+      : 'La marca $marca todavía no tiene ficha técnica. Puedes continuar la recepción o cargarla aquí.';
 }
 
 /// ¿Se puede devolver este documento a la cola de Calidad?
