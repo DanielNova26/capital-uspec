@@ -13,12 +13,22 @@ const String kRolInterventoriaGerente = 'gerente_interventoria';
 const String kRolInterventoriaDirectivo = 'directivo_interventoria';
 const String kRolInterventoriaConsulta = 'consulta_interventoria';
 
+/// Calidad. Vigila sin tocar el acta.
+///
+/// Se creó el 10 sep 2026 porque no había forma de dar "ver todo y analizar"
+/// sin dar también "revisar el acta": el único rol con visión completa era
+/// Directivo, y Directivo acababa de perder la revisión. Calidad ve el
+/// histórico, las subsanaciones en solo lectura y el análisis; no entra a "Por
+/// revisar" ni mueve responsables.
+const String kRolInterventoriaCalidad = 'calidad_interventoria';
+
 /// Roles activos asignables desde el panel de administración.
 /// consulta_interventoria deshabilitado por ahora.
 const List<String> kInterventoriaRoles = [
   kRolInterventoriaAdmin,
   kRolInterventoriaRegistrador,
   kRolInterventoriaRevisor,
+  kRolInterventoriaCalidad,
   kRolInterventoriaGerente,
   kRolInterventoriaDirectivo,
 ];
@@ -28,6 +38,7 @@ const Map<String, String> kInterventoriaRoleLabels = {
   kRolInterventoriaRegistrador: 'Registrador',
   kRolInterventoriaRevisor: 'Revisor',
   kRolInterventoriaGerente: 'Gerente',
+  kRolInterventoriaCalidad: 'Calidad',
   kRolInterventoriaDirectivo: 'Directivo',
   kRolInterventoriaConsulta: 'Consulta', // deshabilitado
 };
@@ -47,10 +58,15 @@ const Set<String> kInterventoriaRolesEscritura = {
   kRolInterventoriaDirectivo,
 };
 
+/// Quién ve la pestaña Análisis.
+///
+/// Calidad entra aquí y Revisor no: el análisis es para quien mira el
+/// desempeño de los establecimientos, no para quien está corrigiendo un acta.
 const Set<String> kInterventoriaRolesDirectivos = {
   kRolInterventoriaAdmin,
   kRolInterventoriaGerente,
   kRolInterventoriaDirectivo,
+  kRolInterventoriaCalidad,
 };
 
 const Set<String> kInterventoriaRolesAprobadoresEliminacion = {
@@ -93,10 +109,16 @@ const Set<String> kInterventoriaRolesReasignan = {
 bool puedeReasignarResponsable(String rol) =>
     kInterventoriaRolesReasignan.contains(rol);
 
-/// El maestro contiene la matriz completa de responsabilidades y se reserva
-/// al administrador funcional del módulo.
+/// El maestro contiene la matriz completa de responsabilidades: quién responde
+/// por cada uno de los 141 numerales. Cambiarlo mueve el trabajo de todo el
+/// mundo, así que se reserva a la administración del módulo y a gerencia.
+const Set<String> kInterventoriaRolesMaestro = {
+  kRolInterventoriaAdmin,
+  kRolInterventoriaGerente,
+};
+
 bool puedeConsultarMaestroSubsanaciones(String rol) =>
-    rol == kRolInterventoriaAdmin;
+    kInterventoriaRolesMaestro.contains(rol);
 
 /// La aprobación pertenece a la persona resuelta por la regla del numeral,
 /// no al rol genérico ni a quien creó la tarea.

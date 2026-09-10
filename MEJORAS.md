@@ -4187,3 +4187,52 @@ En esa ventana **"Sin dato" no se pinta como cero**. Un cero es una evaluación
 pésima; la ausencia de dato es que esa categoría no se evaluó en la última acta.
 Confundirlos en un tablero de indicadores es exactamente el error que hace que
 nadie se fíe del tablero.
+
+---
+
+## Interventoría — el perfil Calidad y la matriz de permisos (10 sep 2026)
+
+Antes de esto el módulo tenía cinco roles y las decisiones de la reunión no
+cabían en ellos: el único rol con visión completa era Directivo, y Directivo
+acababa de perder la revisión. No había forma de dar "ver todo y analizar" sin
+dar también "revisar el acta".
+
+Se creó **Calidad** (`calidad_interventoria`), asignable desde el panel de
+administración como los demás.
+
+| Rol | Histórico | Por revisar | Subsanaciones | Maestro | Análisis |
+|---|---|---|---|---|---|
+| Administrador | sí | sí | sí + reasigna | **sí** | sí |
+| Registrador | su sede | no | sí | no | no |
+| **Revisor** (Kary) | sí | **sí** | sí, sin reasignar | **no** | **no** |
+| **Calidad** (nuevo) | sí | **no** | **solo lectura** | no | **sí** |
+| Gerente | sí | **sí** | sí + reasigna | **sí** | sí |
+| Directivo | sí | **no** | solo lectura | no | sí |
+
+Los tres cambios respecto a lo que había esta mañana:
+
+- **Gerencia entra al Maestro.** El maestro decide quién responde por cada uno
+  de los 141 numerales; cambiarlo mueve el trabajo de todo el mundo, y esa es
+  una decisión de gerencia tanto como de administración.
+- **Kary (Revisor) sale de Análisis.** Ella corrige actas; el análisis es de
+  quien mira el desempeño de los establecimientos.
+- **Calidad entra a Análisis y no a "Por revisar".** Vigila sin reescribir.
+
+### Por qué la matriz está en pruebas y no solo aquí
+
+`test/interventoria/interventoria_permisos_test.dart` fija las seis filas. Un
+permiso que se mueve sin querer **no rompe la compilación**: se descubre cuando
+alguien no puede entrar a trabajar, o peor, cuando entra alguien que no debía.
+
+Una prueba anterior afirmaba que el maestro era solo del administrador. Se
+actualizó en vez de borrarse: la regla cambió, y el comentario dice cuándo y por
+qué.
+
+### Lo que hay que hacer a mano
+
+El código define qué puede cada rol; **quién tiene cada rol es dato**. En el
+panel de administración, pestaña Interventoría, hay que revisar:
+
+1. Que Kary esté como **Revisor**.
+2. Que quien deba analizar sin revisar quede como **Calidad**.
+3. Que nadie más siga como **Directivo** esperando entrar a "Por revisar".

@@ -4,15 +4,21 @@ import 'package:todo/interventoria/interventoria_numerales_catalogo.dart';
 
 void main() {
   group('acceso al maestro de subsanaciones', () {
-    test('solo lo concede al administrador del módulo', () {
+    // Gerencia entró el 10 sep 2026: el maestro decide quién responde por cada
+    // numeral, y esa es una decisión de gerencia tanto como de administración.
+    test('solo lo conceden administración y gerencia', () {
       expect(
         puedeConsultarMaestroSubsanaciones(kRolInterventoriaAdmin),
+        isTrue,
+      );
+      expect(
+        puedeConsultarMaestroSubsanaciones(kRolInterventoriaGerente),
         isTrue,
       );
       for (final rol in [
         kRolInterventoriaRegistrador,
         kRolInterventoriaRevisor,
-        kRolInterventoriaGerente,
+        kRolInterventoriaCalidad,
         kRolInterventoriaDirectivo,
         kRolInterventoriaConsulta,
         '',

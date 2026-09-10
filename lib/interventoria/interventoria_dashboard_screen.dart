@@ -221,6 +221,10 @@ class _InterventoriaDashboardScreenState
     // role:'desarrollador' global pueden reabrir actas ya completadas.
     final esAdminDesarrollo =
         _esAdminDesarrollo || rol == kRolInterventoriaAdmin;
+    // El maestro es aparte de "ser admin": tambien entra gerencia, y no por
+    // ello puede reabrir actas.
+    final canMaestro =
+        _esAdminDesarrollo || puedeConsultarMaestroSubsanaciones(rol);
 
     final centroEfectivo = esRegistrador
         ? _centroFijoId
@@ -246,7 +250,7 @@ class _InterventoriaDashboardScreenState
         label: 'Subsanaciones',
         icon: Icons.grid_on_rounded,
       ),
-      if (esAdminDesarrollo)
+      if (canMaestro)
         const InternalModuleTabItem(
           label: 'Maestro',
           icon: Icons.local_library_outlined,
@@ -443,12 +447,12 @@ class _InterventoriaDashboardScreenState
                 ),
                 // Tab: Maestro — biblioteca de los 141 numerales y su regla
                 // de asignación. Solo la consulta el administrador del módulo.
-                if (esAdminDesarrollo)
+                if (canMaestro)
                   InterventoriaMaestroSubsanaciones(
                     service: _svc,
                     empresaId: widget.empresaId,
                     userId: widget.userId,
-                    canEdit: esAdminDesarrollo,
+                    canEdit: canMaestro,
                   ),
                 if (canApproveDeletion)
                   _SolicitudesEliminacionTab(
