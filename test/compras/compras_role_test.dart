@@ -26,6 +26,15 @@ void main() {
       expect(comprasRolPuedeVerAbastecimiento(kRolAdmin), isTrue);
     });
 
+    test('solo Bodega y Admin pueden completar una recepción cerrada', () {
+      expect(comprasRolPuedeCompletarRecepcion(kRolBodega), isTrue);
+      expect(comprasRolPuedeCompletarRecepcion(kRolAdmin), isTrue);
+      expect(comprasRolPuedeCompletarRecepcion(kRolCompras), isFalse);
+      expect(comprasRolPuedeCompletarRecepcion(kRolCalidad), isFalse);
+      expect(comprasRolPuedeCompletarRecepcion(kRolConsultas), isFalse);
+      expect(comprasRolPuedeCompletarRecepcion(null), isFalse);
+    });
+
     test('la consulta de fichas solo admite documentos aprobados', () {
       FichaTecnicaDoc ficha(String estado) => FichaTecnicaDoc(
         empresaId: 'EMP1',

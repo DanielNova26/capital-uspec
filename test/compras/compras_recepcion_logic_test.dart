@@ -235,6 +235,7 @@ void main() {
         validarAmpliacionRecepcionPendiente(
           original: original,
           productosActualizados: [...original.productos, agregado],
+          motivo: 'Faltó registrar el producto de la orden.',
         ),
         isNull,
       );
@@ -254,6 +255,7 @@ void main() {
           productosActualizados: const [
             RecepcionProducto(productoId: 'prod-2'),
           ],
+          motivo: 'Se detectó una diferencia en la orden.',
         ),
         contains('retirar'),
       );
@@ -271,8 +273,27 @@ void main() {
         validarAmpliacionRecepcionPendiente(
           original: original,
           productosActualizados: original.productos,
+          motivo: 'Se detectó una diferencia en la orden.',
         ),
         contains('mientras está en revisión'),
+      );
+    });
+
+    test('exige explicar por qué se edita la recepción', () {
+      final original = recepcionConDocumentos({
+        'certCalidad': const DocAdjunto(
+          url: 'https://pendiente',
+          estadoCalidad: 'consulta_calidad',
+        ),
+      });
+
+      expect(
+        validarAmpliacionRecepcionPendiente(
+          original: original,
+          productosActualizados: original.productos,
+          motivo: '   ',
+        ),
+        contains('motivo'),
       );
     });
   });

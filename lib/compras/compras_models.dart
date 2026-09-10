@@ -253,6 +253,13 @@ String labelComprasRol(String? raw) {
 bool comprasRolPuedeVerAbastecimiento(String? raw) =>
     normalizeComprasRol(raw) != kRolConsultas;
 
+/// Solo Bodega completa una recepción ya cerrada; Admin conserva el acceso de
+/// soporte. Compras y Calidad no alteran la captura durante la revisión.
+bool comprasRolPuedeCompletarRecepcion(String? raw) {
+  final rol = normalizeComprasRol(raw);
+  return rol == kRolBodega || rol == kRolAdmin;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // MarcaRef  (referencia liviana incrustada en ProductoDoc.marcas)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1124,6 +1131,35 @@ class RecepcionProducto {
 // RecepcionDoc
 // ══════════════════════════════════════════════════════════════════════════════
 
+class RecepcionEdicionNota {
+  final String motivo;
+  final String usuarioId;
+  final String usuarioNombre;
+  final Timestamp fecha;
+
+  const RecepcionEdicionNota({
+    required this.motivo,
+    required this.usuarioId,
+    required this.usuarioNombre,
+    required this.fecha,
+  });
+
+  factory RecepcionEdicionNota.fromMap(Map<String, dynamic> m) =>
+      RecepcionEdicionNota(
+        motivo: (m['motivo'] ?? '').toString(),
+        usuarioId: (m['usuarioId'] ?? '').toString(),
+        usuarioNombre: (m['usuarioNombre'] ?? '').toString(),
+        fecha: m['fecha'] as Timestamp? ?? Timestamp.now(),
+      );
+
+  Map<String, dynamic> toMap() => {
+    'motivo': motivo.trim(),
+    'usuarioId': usuarioId.trim(),
+    'usuarioNombre': usuarioNombre.trim(),
+    'fecha': fecha,
+  };
+}
+
 class RecepcionDoc {
   final String id;
   final String empresaId;
@@ -1143,6 +1179,10 @@ class RecepcionDoc {
   final List<String> abastecimientoIds;
   final String creadoPor; // userId de quien creó la recepción
   final Timestamp createdAt;
+  final String ultimaEdicionPor;
+  final String ultimaEdicionMotivo;
+  final Timestamp? ultimaEdicionAt;
+  final List<RecepcionEdicionNota> historialEdiciones;
 
   const RecepcionDoc({
     this.id = '',
@@ -1160,6 +1200,10 @@ class RecepcionDoc {
     this.abastecimientoIds = const [],
     this.creadoPor = '',
     required this.createdAt,
+    this.ultimaEdicionPor = '',
+    this.ultimaEdicionMotivo = '',
+    this.ultimaEdicionAt,
+    this.historialEdiciones = const [],
   });
 
   factory RecepcionDoc.fromMap(String id, Map<String, dynamic> m) =>
@@ -1184,6 +1228,16 @@ class RecepcionDoc {
         ),
         creadoPor: m['creadoPor'] as String? ?? '',
         createdAt: m['createdAt'] as Timestamp? ?? Timestamp.now(),
+        ultimaEdicionPor: (m['ultimaEdicionPor'] ?? '').toString(),
+        ultimaEdicionMotivo: (m['ultimaEdicionMotivo'] ?? '').toString(),
+        ultimaEdicionAt: m['ultimaEdicionAt'] as Timestamp?,
+        historialEdiciones: ((m['historialEdiciones'] as List?) ?? const [])
+            .whereType<Map>()
+            .map(
+              (nota) =>
+                  RecepcionEdicionNota.fromMap(nota.cast<String, dynamic>()),
+            )
+            .toList(),
       );
 
   Map<String, dynamic> toMap() => {
@@ -1201,6 +1255,14 @@ class RecepcionDoc {
     'abastecimientoIds': abastecimientoIds,
     'creadoPor': creadoPor,
     'createdAt': FieldValue.serverTimestamp(),
+    if (ultimaEdicionPor.isNotEmpty) 'ultimaEdicionPor': ultimaEdicionPor,
+    if (ultimaEdicionMotivo.isNotEmpty)
+      'ultimaEdicionMotivo': ultimaEdicionMotivo,
+    if (ultimaEdicionAt != null) 'ultimaEdicionAt': ultimaEdicionAt,
+    if (historialEdiciones.isNotEmpty)
+      'historialEdiciones': historialEdiciones
+          .map((nota) => nota.toMap())
+          .toList(),
   };
 }
 

@@ -605,10 +605,17 @@ class ComprasService {
   Future<void> completarRecepcionEnRevision({
     required RecepcionDoc recepcion,
     required String userId,
+    required String motivo,
   }) async {
     final recepcionId = recepcion.id.trim();
     if (recepcionId.isEmpty) {
       throw StateError('No se encontró la recepción para completar.');
+    }
+    final actor = await resolveRolUsuario(recepcion.empresaId, userId);
+    if (actor == null || !comprasRolPuedeCompletarRecepcion(actor.rol)) {
+      throw StateError(
+        'Solo el perfil de Bodega puede completar una recepción en revisión.',
+      );
     }
     final ref = _db.collection('TBL_COMPRAS_RECEPCIONES').doc(recepcionId);
     late RecepcionDoc original;
@@ -624,8 +631,25 @@ class ComprasService {
       final error = validarAmpliacionRecepcionPendiente(
         original: original,
         productosActualizados: recepcion.productos,
+        motivo: motivo,
       );
       if (error != null) throw StateError(error);
+
+      final now = Timestamp.now();
+      final historial = [
+        ...original.historialEdiciones,
+        RecepcionEdicionNota(
+          motivo: motivo.trim(),
+          usuarioId: userId.trim(),
+          usuarioNombre: actor.nombre.trim().isEmpty
+              ? userId.trim()
+              : actor.nombre.trim(),
+          fecha: now,
+        ),
+      ];
+      final historialAcotado = historial.length > 100
+          ? historial.sublist(historial.length - 100)
+          : historial;
 
       tx.update(ref, {
         'productos': recepcion.productos
@@ -637,7 +661,11 @@ class ComprasService {
             .toSet()
             .toList(),
         'ultimaEdicionPor': userId.trim(),
-        'ultimaEdicionAt': FieldValue.serverTimestamp(),
+        'ultimaEdicionMotivo': motivo.trim(),
+        'ultimaEdicionAt': now,
+        'historialEdiciones': historialAcotado
+            .map((nota) => nota.toMap())
+            .toList(),
         'lastEventText': 'Recepción completada durante revisión de Calidad',
         'updatedAt': FieldValue.serverTimestamp(),
       });

@@ -46,4 +46,35 @@ void main() {
     expect(recepcion.grupoId, 'grupo-6');
     expect(recepcion.grupoNombre, 'Grupo 6');
   });
+
+  test('la recepción conserva las notas del histórico de ediciones', () {
+    final fecha = Timestamp.fromDate(DateTime(2026, 9, 10, 16, 30));
+    final recepcion = RecepcionDoc.fromMap('r2', {
+      'empresaId': 'empresa',
+      'fecha': fecha,
+      'proveedorId': 'p1',
+      'nit': '9001',
+      'razonSocial': 'Proveedor',
+      'productos': <Map<String, dynamic>>[],
+      'createdAt': fecha,
+      'historialEdiciones': [
+        {
+          'motivo': 'Faltó registrar un producto de la orden.',
+          'usuarioId': '123',
+          'usuarioNombre': 'Persona de Bodega',
+          'fecha': fecha,
+        },
+      ],
+    });
+
+    expect(recepcion.historialEdiciones, hasLength(1));
+    expect(
+      recepcion.historialEdiciones.single.motivo,
+      'Faltó registrar un producto de la orden.',
+    );
+    expect(
+      recepcion.toMap()['historialEdiciones'],
+      isA<List<Map<String, dynamic>>>(),
+    );
+  });
 }

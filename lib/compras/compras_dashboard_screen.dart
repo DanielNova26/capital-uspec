@@ -986,11 +986,9 @@ class ComprasDashboardScreen extends StatelessWidget {
                 svc: svc,
                 userId: userId,
                 puedeEliminar: _esAdmin,
-                puedeEditarPendientes:
-                    _esAdmin ||
-                    _esBodega ||
-                    _esCompras ||
-                    _rolNormalizado == null,
+                puedeEditarPendientes: comprasRolPuedeCompletarRecepcion(
+                  _rolNormalizado,
+                ),
               ),
             ),
           ),
@@ -9793,6 +9791,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   ProveedorDoc? _proveedor;
   final _provCtrl = TextEditingController();
   final _ordenCtrl = TextEditingController();
+  final _motivoEdicionCtrl = TextEditingController();
   List<_RecepcionEntry> _entries = [];
   List<ProveedorDoc> _proveedores = [];
   List<ProductoDoc> _productos = [];
@@ -10166,6 +10165,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   void dispose() {
     _provCtrl.dispose();
     _ordenCtrl.dispose();
+    _motivoEdicionCtrl.dispose();
     for (final e in _entries) {
       e.dispose();
     }
@@ -10233,6 +10233,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
           content: Text(
             'Esta recepción está cerrada. Solo se habilita si Calidad rechaza un documento.',
           ),
+        ),
+      );
+      return;
+    }
+    if (_modoEdicionPendiente && _motivoEdicionCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Indica el motivo por el cual se está editando la recepción.',
+          ),
+          backgroundColor: kComprasRed,
         ),
       );
       return;
@@ -10373,6 +10384,7 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
         await widget.svc.completarRecepcionEnRevision(
           recepcion: r,
           userId: widget.userId,
+          motivo: _motivoEdicionCtrl.text,
         );
       } else {
         final correcciones = <String, DocAdjunto>{};
@@ -10902,6 +10914,70 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     );
   }
 
+  Widget _buildHistorialEdiciones() {
+    final historial = widget.existing?.historialEdiciones ?? const [];
+    if (historial.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(
+          'Histórico de ediciones',
+          Icons.history_rounded,
+          const Color(0xFF7C3AED),
+        ),
+        const SizedBox(height: 10),
+        ...historial.reversed.map(
+          (nota) => Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F3FF),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFDDD6FE)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.edit_note_rounded,
+                  size: 20,
+                  color: Color(0xFF7C3AED),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nota.motivo,
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF312E81),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${nota.usuarioNombre} · ${_fmtFechaHora(nota.fecha)}',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 11,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final fechaDisplay = widget.existing != null
@@ -11183,6 +11259,27 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                                 setState(() => _grupoSeleccionado = value)
                           : null,
                     ),
+                  ],
+                  if (_modoEdicionPendiente) ...[
+                    const SizedBox(height: 18),
+                    TextField(
+                      controller: _motivoEdicionCtrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: _inputDecoration('Motivo de la edición *').copyWith(
+                        hintText:
+                            'Ej.: Faltó registrar un producto de la orden de compra.',
+                        prefixIcon: const Icon(Icons.edit_note_rounded),
+                        helperText:
+                            'Este motivo quedará visible en el histórico de la recepción.',
+                      ),
+                    ),
+                  ],
+                  if (widget.existing?.historialEdiciones.isNotEmpty ==
+                      true) ...[
+                    const SizedBox(height: 24),
+                    _buildHistorialEdiciones(),
                   ],
                   const SizedBox(height: 24),
                   // ── Productos ────────────────────────────

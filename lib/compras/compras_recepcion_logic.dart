@@ -70,12 +70,16 @@ EstadoRecepcionCompras estadoRecepcionCompras(RecepcionDoc recepcion) {
 String? validarAmpliacionRecepcionPendiente({
   required RecepcionDoc original,
   required List<RecepcionProducto> productosActualizados,
+  required String motivo,
 }) {
   if (estadoRecepcionCompras(original) != EstadoRecepcionCompras.pendiente) {
     return 'Solo se puede completar una recepción mientras está en revisión de Calidad.';
   }
   if (productosActualizados.isEmpty) {
     return 'La recepción debe conservar al menos un producto.';
+  }
+  if (motivo.trim().isEmpty) {
+    return 'Indica el motivo por el cual se está editando la recepción.';
   }
 
   if (productosActualizados.length < original.productos.length) {
