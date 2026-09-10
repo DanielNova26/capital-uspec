@@ -278,4 +278,53 @@ void main() {
       expect(puntos.single.valor, 95.0);
     });
   });
+
+  group('detalle por sección de la barra', () {
+    test('trae las secciones del acta, no las de la regular', () {
+      final ep = InterventoriaVisita.fromMap(
+        'v20',
+        actaCon(kActaEstacionPolicia, {
+          'seccion1': {'valor': 100},
+          'seccion2': {'valor': 60},
+        }),
+      );
+      final detalle = detalleSeccionesDeVisita(ep);
+
+      expect(detalle, hasLength(categoriasDeActa(kActaEstacionPolicia).length));
+      expect(detalle.first.valor, 100);
+    });
+
+    test('una sección sin evaluar queda en null, no en cero', () {
+      // Un cero es una evaluación pésima; sin dato es que nadie la evaluó.
+      final ep = InterventoriaVisita.fromMap(
+        'v21',
+        actaCon(kActaEstacionPolicia, {
+          'seccion1': {'valor': 100},
+        }),
+      );
+      final detalle = detalleSeccionesDeVisita(ep);
+
+      expect(detalle.any((d) => d.valor == null), isTrue);
+      expect(detalle.any((d) => d.valor == 0), isFalse);
+    });
+
+    test('el comparativo lleva el detalle de la misma acta de la barra', () {
+      // Si se volviera a buscar al hacer clic, la barra podría decir una cosa
+      // y el detalle otra.
+      final puntos = compararUltimaActaPorEstablecimiento([
+        InterventoriaVisita.fromMap(
+          'v22',
+          actaCon(kActaRegular, {
+            'horario': {'valor': 90},
+          }),
+        ),
+      ]);
+
+      expect(puntos.single.detalle, isNotEmpty);
+      final horario = puntos.single.detalle.firstWhere(
+        (d) => d.label.toLowerCase().contains('horario'),
+      );
+      expect(horario.valor, 90);
+    });
+  });
 }

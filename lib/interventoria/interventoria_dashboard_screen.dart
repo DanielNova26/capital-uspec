@@ -6099,6 +6099,69 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
               '${DateFormat('dd/MM/yyyy').format(punto.fecha)}',
               style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
             ),
+            // El desglose por sección: "el detalle de los indicadores" que se
+            // pidió. Con solo el total general hay que salir al histórico para
+            // saber qué sección lo está bajando, que es lo que esta ventana
+            // venía a evitar.
+            if (punto.detalle.isNotEmpty) ...[
+              const Divider(height: 20),
+              const Text(
+                'Por sección',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF334155),
+                ),
+              ),
+              const SizedBox(height: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final sec in punto.detalle)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 5),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  sec.label,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                // "Sin dato" no se pinta como cero: son cosas
+                                // distintas y confundirlas hunde el promedio
+                                // de una sección que nadie evaluó.
+                                sec.valor == null
+                                    ? 'Sin dato'
+                                    : '${sec.valor!.toStringAsFixed(1)}%',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: sec.valor == null
+                                      ? const Color(0xFF94A3B8)
+                                      : (sec.valor! >= 90
+                                            ? _kOk
+                                            : (sec.valor! >= 70
+                                                  ? _kWarning
+                                                  : _kDanger)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         actions: [

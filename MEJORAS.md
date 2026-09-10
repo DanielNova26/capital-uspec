@@ -4648,3 +4648,24 @@ de color porque el color solo no se lee en una captura ni en un listado impreso.
 Con esto queda cerrado el documento `Correciones COMPRAS`. Los dos puntos que
 quedaban —"marcar pendientes por calidad" y "revisar los numerales"— el usuario
 los descartó el 10 sep: no hacen falta.
+
+---
+
+## La ventana de la barra muestra todos los porcentajes (10 sep 2026)
+
+La primera versión enseñaba solo el total general. "El detalle de los
+indicadores" que se pidió es el **desglose por sección**: con el total a secas
+hay que salir al histórico para saber qué sección está bajando la nota, que es
+justo lo que la ventana venía a evitar.
+
+Ahora lista cada sección con su porcentaje y su color, con las secciones **del
+tipo de acta** —un acta de Estación de Policía trae sus cinco, no las doce de la
+regular— y en el orden en que van impresas.
+
+Dos detalles:
+
+- El desglose **viaja dentro del punto del comparativo**, no se recalcula al
+  abrir. Volver a buscar el acta al hacer clic abriría la puerta a que la barra
+  diga una cosa y el detalle otra.
+- Una sección sin evaluar dice **"Sin dato"**, no 0 %. Un cero es una evaluación
+  pésima; que nadie la haya evaluado no lo es.

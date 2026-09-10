@@ -1229,6 +1229,16 @@ class InterventoriaVisita {
 
 /// Punto del comparativo directivo: representa exclusivamente la acta más
 /// reciente de un establecimiento dentro del rango filtrado.
+/// Una sección del acta con su puntaje, para el detalle de la barra.
+class InterventoriaDetalleSeccion {
+  final String label;
+
+  /// `null` = no evaluada. No es cero: un cero es una evaluación pésima.
+  final double? valor;
+
+  const InterventoriaDetalleSeccion(this.label, this.valor);
+}
+
 class InterventoriaComparativoActa {
   final String visitaId;
   final String centroCostoId;
@@ -1237,6 +1247,14 @@ class InterventoriaComparativoActa {
   final DateTime fecha;
   final double? valor;
 
+  /// Puntaje de cada sección de esa acta, en el orden del papel.
+  ///
+  /// Va dentro del punto y no se recalcula al abrir la ventana: el detalle
+  /// tiene que ser el de **la misma acta** que produjo la barra. Volver a
+  /// buscarla al hacer clic abre la puerta a que la barra diga una cosa y el
+  /// detalle otra.
+  final List<InterventoriaDetalleSeccion> detalle;
+
   const InterventoriaComparativoActa({
     required this.visitaId,
     required this.centroCostoId,
@@ -1244,6 +1262,7 @@ class InterventoriaComparativoActa {
     required this.centroCostoNombre,
     required this.fecha,
     required this.valor,
+    this.detalle = const [],
   });
 }
 
@@ -1307,6 +1326,7 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
       centroCostoNombre: nombreComparativo(visita),
       fecha: visita.fechaVisita.toDate(),
       valor: valor,
+      detalle: detalleSeccionesDeVisita(visita),
     );
   }).toList();
 
@@ -1917,3 +1937,18 @@ String etiquetaCategoriaAnalisis(String valorFiltro) {
   }
   return descomponerCategoriaAnalisis(valorFiltro).clave;
 }
+
+/// Puntajes por sección de un acta, en el orden en que van impresas.
+///
+/// Usa las categorías **del tipo de acta**, así que un acta de Estación de
+/// Policía trae sus cinco secciones y no las doce de la regular.
+List<InterventoriaDetalleSeccion> detalleSeccionesDeVisita(
+  InterventoriaVisita visita,
+) => [
+  for (final cat in categoriasOrdenadasDeActa(visita.tipoActa))
+    InterventoriaDetalleSeccion(cat.label, () {
+      final item = visita.items[cat.key];
+      if (item == null || item.noEvaluado || item.valor == null) return null;
+      return item.valor!.clamp(0, 100).toDouble();
+    }()),
+];
