@@ -79,11 +79,13 @@ configuración de datos, no un permiso hardcodeado.
    dos `return` silenciosos de `_abrirUrl`, pero si el fallo era el archivo
    borrado de Storage con el enlace vivo en Firestore, hace falta comprobar la
    existencia del objeto antes de abrirlo.
-2. Facturación: "limpieza de la interfaz, quitar campos operativos" — falta que
-   digan cuáles.
-3. Archivo plano: confirmar con el banco si quiere los importes con coma de
-   miles. Ya es un interruptor (`conSeparadorDeMiles`), pero hay que preguntarlo
-   antes del primer pago real.
+2. ~~Facturación: qué campos operativos sobran.~~ **Resuelto el 10 sep: no
+   sobra ninguno.** No hay nada que quitar.
+3. ~~Archivo plano: si el banco quiere los importes con coma de miles.~~
+   **Resuelto el 10 sep: sí.** El usuario confirmó que el CSV que envía
+   Tesorería —el que trae "3,868,695.00"— es el que recibe el banco. El
+   generador ya lo reproduce campo por campo, así que `conSeparadorDeMiles`
+   se queda en `true`, que es el valor por defecto.
 
 Fuentes: notas de Gemini del 9 sep 2026, `Correciones COMPRAS.docx`,
 `NUEVOS MODULOS.xlsx`, `ARCHIVO PLANO COTA ADMINISTRATIVA AGOSTO 2026.csv`.
@@ -257,8 +259,9 @@ año/mes/día, importe y hasta cuatro conceptos.
 - [x] Exportar en `.zip` cuando todos los documentos estén cargados. **Ya
       estaba hecho**: `_descargarZip` existe y el botón sale solo con
       `_todoCompleto`. No hacía falta tocar nada.
-- [ ] Limpieza de la interfaz: quitar campos operativos que no se usan y
-      mejorar la presentación de los filtros.
+- [x] Limpieza de la interfaz. **Cerrado sin cambios**: preguntado el 10 sep,
+      no sobra ningún campo. Lo que molestaba de los filtros era el mes que no
+      correspondía, y eso ya está.
 
 **P1 · Tareas**
 
@@ -3952,12 +3955,12 @@ no los datos.
 - El servicio de lectura/escritura del maestro contra Firestore, y las reglas
   de `firestore.rules` que respalden los permisos por campo.
 - El maestro de datos bancarios **ya está modelado** (ver la entrada siguiente).
-- **Confirmar el formato de salida con el banco.** El ejemplo trae los importes
-  con coma de miles ("3,868,695.00") porque es lo que produce Excel al exportar
-  la hoja. No consta que el cargador del banco quiera esas comas: puede que
-  espere el archivo sin separadores o de ancho fijo. `importePlano` ya recibe
-  `conSeparadorDeMiles`, así que es un interruptor, pero hay que preguntarlo
-  antes del primer pago de verdad.
+- ~~Confirmar el formato de salida con el banco.~~ **Confirmado el 10 sep de
+  2026: el CSV con comas de miles es el que recibe el banco**, no un artefacto
+  de Excel. El generador ya lo reproduce campo por campo —las 15 filas, las 18
+  columnas y el total—, así que el formato queda cerrado y
+  `conSeparadorDeMiles` se queda en `true`. El interruptor se conserva por si
+  algún día cambia el canal, no porque haya duda hoy.
 
 ---
 
