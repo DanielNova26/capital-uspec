@@ -583,3 +583,95 @@ String aLatin1Seguro(String texto) {
   }
   return buffer.toString();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// El maestro completa lo que al archivo subido le falta
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Datos bancarios que el maestro puede aportar a una fila incompleta.
+///
+/// Es una vista mínima a propósito: este archivo no conoce `CuentaBancaria` ni
+/// Firestore, y así el cruce se puede probar sin levantar nada. Quien llame
+/// arma el mapa desde el maestro.
+class DatosBeneficiario {
+  final String nombre;
+  final String banco;
+  final String tipoCuenta;
+  final String numeroCuenta;
+  final String digitoVerificacion;
+  final String tipoId;
+  final String email;
+
+  const DatosBeneficiario({
+    this.nombre = '',
+    this.banco = '',
+    this.tipoCuenta = '',
+    this.numeroCuenta = '',
+    this.digitoVerificacion = '',
+    this.tipoId = '',
+    this.email = '',
+  });
+}
+
+/// Completa las filas del archivo subido con lo que falte, tomándolo del
+/// maestro por identificación.
+///
+/// Es lo que evita que generar el plano sea un trabajo manual: el Excel que
+/// sube Tesorería trae el pago —a quién y cuánto— pero no siempre trae la
+/// cuenta ni el banco, sobre todo cuando el beneficiario ya es conocido. El
+/// maestro pone esa parte.
+///
+/// **El archivo manda sobre el maestro.** Si la fila trae un dato, ese se
+/// respeta: puede ser un pago excepcional a otra cuenta, y sustituirlo por "lo
+/// de siempre" mandaría el dinero a donde el archivo no dijo. El maestro solo
+/// rellena huecos.
+///
+/// Lo que no esté en ninguno de los dos se queda vacío y lo reporta
+/// [validarPlanoPagos] con nombre y apellido; inventarlo sería peor.
+List<PlanoPagoFila> completarConMaestro(
+  List<PlanoPagoFila> filas,
+  Map<String, DatosBeneficiario> maestro,
+) {
+  String elegir(String delArchivo, String delMaestro) =>
+      delArchivo.trim().isNotEmpty ? delArchivo.trim() : delMaestro.trim();
+
+  return [
+    for (final f in filas)
+      () {
+        final m = maestro[f.identificacion.trim()];
+        if (m == null) return f;
+        return PlanoPagoFila(
+          identificacion: f.identificacion,
+          tipoId: elegir(f.tipoId, m.tipoId),
+          digitoVerificacion: elegir(
+            f.digitoVerificacion,
+            m.digitoVerificacion,
+          ),
+          nombre: elegir(f.nombre, m.nombre),
+          formaPago: f.formaPago,
+          banco: elegir(f.banco, m.banco),
+          tipoCuenta: elegir(f.tipoCuenta, m.tipoCuenta),
+          numeroCuenta: elegir(f.numeroCuenta, m.numeroCuenta),
+          codigoOficina: f.codigoOficina,
+          fechaLimite: f.fechaLimite,
+          importeCentavos: f.importeCentavos,
+          conceptos: f.conceptos,
+          email: elegir(f.email, m.email),
+        );
+      }(),
+  ];
+}
+
+/// Identificaciones de las filas que **no** están en el maestro.
+///
+/// Sirve para decirle a quien genera el plano a quién hay que dar de alta antes
+/// de volver a intentarlo, en vez de dejarle deducirlo de una lista de errores.
+List<String> beneficiariosSinMaestro(
+  List<PlanoPagoFila> filas,
+  Map<String, DatosBeneficiario> maestro,
+) => [
+  for (final f in filas)
+    if (f.identificacion.trim().isNotEmpty &&
+        !maestro.containsKey(f.identificacion.trim()))
+      f.identificacion.trim(),
+];

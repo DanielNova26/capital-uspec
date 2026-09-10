@@ -4739,3 +4739,65 @@ lo rechaza el banco **entero**, y enterarse allí cuesta un día de pagos.
 `TBL_NOMINA_CUENTAS` está modelado y probado, con su importador de Excel, pero
 **no tiene pantalla ni reglas de Firestore**. Eso es lo que falta para la nómina;
 para los anticipos a proveedores no hace falta.
+
+---
+
+## El maestro es de beneficiarios de pago, no de nómina (10 sep 2026)
+
+`TBL_NOMINA_CUENTAS` pasó a `TBL_PAGOS_BENEFICIARIOS`. **Se renombró antes de
+que hubiera un solo dato dentro**, que es la única ventana en que sale gratis:
+después es una migración, como la cédula.
+
+Un beneficiario es cualquiera a quien la empresa le paga —un empleado por cédula
+o un proveedor por NIT—. La nómina y los anticipos usan el mismo archivo plano
+y las mismas columnas: dos maestros obligarían a mantener dos veces la misma
+tabla y a que el generador supiera de cuál leer.
+
+## Reglas de Firestore: el corte tiene que ser real
+
+**Firestore no tiene seguridad por campo.** Una regla decide si se lee el
+documento entero, no una parte. Con todo en un solo documento, "Talento Humano
+ve el banco y no la cuenta" era una cortesía de la interfaz: bastaba abrir la
+consola.
+
+Por eso son **dos colecciones**, con el mismo id:
+
+- `TBL_PAGOS_BENEFICIARIOS` — nombre, banco, tipo y forma de pago. La lee
+  Talento Humano y Tesorería, y Talento Humano puede corregir el banco.
+- `TBL_PAGOS_BENEFICIARIOS_CUENTA` — solo el número. Tesorería y administración
+  documental. Talento Humano **no entra**.
+
+La regla del maestro rechaza además cualquier escritura que traiga
+`numeroCuenta`: si se colara ahí, quedaría legible para Talento Humano y el
+corte no serviría de nada.
+
+### El punto de partida era peor de lo que parecía
+
+La regla comodín del final del archivo es
+`allow read, write: if isSignedIn()` con una lista de excepciones. Estas dos
+colecciones no estaban en esa lista, así que **cualquiera con una cuenta podía
+leerlas y escribirlas**, de cualquier empresa. Ahora están excluidas del comodín
+y tienen regla propia.
+
+### No pude probarlas en el emulador
+
+`functions/test/nomina_cuentas.rules.js` fija los ocho casos —incluido el que
+importa: Talento Humano lee el maestro y **falla** al leer el número—. No se
+pudo ejecutar: `firebase-tools` exige Java 21 y esta máquina tiene la 17. La
+prueba queda escrita para cuando se actualice; mientras tanto, el despliegue
+rechaza reglas que no compilen, pero no comprueba que denieguen lo que se cree.
+
+## El maestro completa el archivo, no lo sustituye
+
+`completarConMaestro` cruza las filas del Excel subido con el maestro por
+identificación y **rellena solo los huecos**. Es lo que evita que generar el
+plano sea un trabajo manual: el Excel trae el pago —a quién y cuánto— y el
+maestro pone la cuenta y el banco cuando el beneficiario ya es conocido.
+
+**El archivo manda sobre el maestro.** Si la fila trae un dato, ese se respeta:
+puede ser un pago excepcional a otra cuenta, y sustituirlo por "lo de siempre"
+mandaría el dinero a donde el archivo no dijo.
+
+Lo que no esté en ninguno de los dos se queda vacío y lo reporta la validación
+con nombre y apellido. Y `beneficiariosSinMaestro` dice a quién hay que dar de
+alta antes de reintentar, en vez de dejarlo deducir de una lista de errores.

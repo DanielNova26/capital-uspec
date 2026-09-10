@@ -51,6 +51,23 @@ service cloud.firestore {
         && get(interventoriaRolePath(empresaId)).data.rol in allowedRoles;
     }
 
+    // Rol del módulo de Planillas de Pago para la empresa activa.
+    //
+    // Vive en el propio usuario (`empresasDetalle[empresa].rolPlanillas`, o
+    // `rolPlanillas` en la raíz), que es donde lo lee la aplicación.
+    function planillasRole(empresaId) {
+      return isSignedIn() && currentUser().empresasDetalle is map
+          && empresaId in currentUser().empresasDetalle
+          && currentUser().empresasDetalle[empresaId].rolPlanillas is string
+        ? currentUser().empresasDetalle[empresaId].rolPlanillas
+        : (currentUser().rolPlanillas is string ? currentUser().rolPlanillas : '');
+    }
+
+    function hasPlanillasRole(empresaId, allowedRoles) {
+      return belongsToCompany(empresaId)
+        && (isDeveloper() || planillasRole(empresaId) in allowedRoles);
+    }
+
     function correoRolePath(empresaId) {
       return /databases/$(database)/documents/TBL_CORREO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
     }
@@ -177,6 +194,52 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ── Maestro de datos bancarios de beneficiarios de pago ──────────────
+    //
+    // Son DOS colecciones y no dos campos porque Firestore no tiene seguridad
+    // por campo: una regla decide si se lee el documento entero. Si Talento
+    // Humano pudiera leer el documento para ver el banco, leería el número de
+    // cuenta con él, y el enmascarado de la pantalla no lo impediría — basta
+    // con abrir la consola.
+    //
+    // Aquí va todo MENOS el número: nombre, banco, tipo y forma de pago.
+    // Talento Humano lo lee y puede corregir el banco, que es el dato que
+    // ellos reciben del empleado.
+    match /TBL_PAGOS_BENEFICIARIOS/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId)
+        && hasPlanillasRole(resource.data.empresaId, [
+          'tesoreria', 'admin_doc', 'desarrollador', 'talento_humano'
+        ]);
+      allow create, update: if belongsToCompany(request.resource.data.empresaId)
+        && hasPlanillasRole(request.resource.data.empresaId, [
+          'tesoreria', 'admin_doc', 'desarrollador', 'talento_humano'
+        ])
+        // El número de cuenta no puede colarse aquí ni por descuido ni a
+        // propósito: si se admitiera, quedaría legible para Talento Humano y
+        // el corte entre las dos colecciones no serviría de nada.
+        && !('numeroCuenta' in request.resource.data);
+      allow delete: if hasPlanillasRole(resource.data.empresaId, [
+        'tesoreria', 'admin_doc', 'desarrollador'
+      ]);
+    }
+
+    // Y aquí, solo el número de cuenta. Tesorería y la administración
+    // documental. Talento Humano NO entra: no le hace falta para su trabajo, y
+    // un dato que no se necesita no se expone.
+    match /TBL_PAGOS_BENEFICIARIOS_CUENTA/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId)
+        && hasPlanillasRole(resource.data.empresaId, [
+          'tesoreria', 'admin_doc', 'desarrollador'
+        ]);
+      allow create, update: if belongsToCompany(request.resource.data.empresaId)
+        && hasPlanillasRole(request.resource.data.empresaId, [
+          'tesoreria', 'admin_doc', 'desarrollador'
+        ]);
+      allow delete: if hasPlanillasRole(resource.data.empresaId, [
+        'tesoreria', 'admin_doc', 'desarrollador'
+      ]);
+    }
+
     match /TBL_CORREO_ROLES/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);
       allow create: if isDeveloper() || isCorreoAdmin(request.resource.data.empresaId);
@@ -258,7 +321,9 @@ service cloud.firestore {
         && collection != 'TBL_AUTH_CREDENTIALS'
         && collection != 'TBL_AUTH_LOGIN_ATTEMPTS'
         && collection != 'TBL_AUTH_RECOVERY_CHALLENGES'
-        && collection != 'TBL_AUTH_ADMIN_AUDIT';
+        && collection != 'TBL_AUTH_ADMIN_AUDIT'
+        && collection != 'TBL_PAGOS_BENEFICIARIOS'
+        && collection != 'TBL_PAGOS_BENEFICIARIOS_CUENTA';
     }
   }
 }

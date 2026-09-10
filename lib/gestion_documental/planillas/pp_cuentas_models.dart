@@ -1,10 +1,16 @@
-/// Maestro de datos bancarios del personal.
+/// Maestro de datos bancarios de **beneficiarios de pago**.
 ///
-/// Es la hoja `CUENTAS` del Excel de Tesorería convertida en colección. Vive
-/// **aparte de `TBL_USUARIOS`** a propósito: el número de cuenta de una persona
-/// no puede quedar en el mismo documento que su nombre y su foto, porque ese
-/// documento lo lee media aplicación para pintar avatares. Separarlo es lo que
-/// permite que la regla de Firestore sea distinta.
+/// No es un maestro de nómina. Un beneficiario es cualquiera a quien la empresa
+/// le paga: un empleado por cédula o un proveedor por NIT. La nómina y los
+/// anticipos a proveedores usan el mismo archivo plano y las mismas columnas,
+/// así que separarlos en dos maestros obligaría a mantener dos veces la misma
+/// tabla y a que el generador supiera de cuál leer.
+///
+/// Arrancó siendo la hoja `CUENTAS` del Excel de Tesorería. Vive **aparte de
+/// `TBL_USUARIOS`** a propósito: el número de cuenta no puede quedar en el
+/// mismo documento que el nombre y la foto, porque ese documento lo lee media
+/// aplicación para pintar avatares. Separarlo es lo que permite que la regla de
+/// Firestore sea distinta.
 ///
 /// ## Quién ve qué
 ///
@@ -30,8 +36,27 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'pp_archivo_plano.dart';
 
-/// Colección del maestro.
-const String kCuentasBancariasCol = 'TBL_NOMINA_CUENTAS';
+/// Colección del maestro, **sin el número de cuenta**.
+///
+/// Nombre, banco, tipo y forma de pago. La lee Talento Humano y Tesorería.
+const String kCuentasBancariasCol = 'TBL_PAGOS_BENEFICIARIOS';
+
+/// Colección aparte donde vive **solo el número de cuenta**.
+///
+/// ## Por qué son dos colecciones y no dos campos
+///
+/// **Firestore no tiene seguridad por campo.** Una regla decide si se puede
+/// leer un documento entero, no una parte. Si Talento Humano puede leer el
+/// documento para ver el banco, puede leer el número de cuenta con él, y el
+/// enmascarado de la pantalla no lo impide: basta con abrir la consola.
+///
+/// La única forma de que "TH ve el banco y no la cuenta" sea cierta de verdad
+/// —y no una cortesía de la interfaz— es que el número esté en otro documento
+/// con otra regla. De ahí el corte.
+///
+/// El id es el mismo en las dos, así que una cuenta y su número se emparejan
+/// sin buscar nada.
+const String kCuentasNumeroCol = 'TBL_PAGOS_BENEFICIARIOS_CUENTA';
 
 /// Rol de Talento Humano para este maestro.
 ///
@@ -93,11 +118,15 @@ String normalizarCodigoBanco(String codigo) => rellenarCodigoPlano(codigo);
 
 /// Id del documento en el maestro.
 ///
-/// Lleva la empresa además de la cédula porque el permiso es por empresa: la
-/// Tesorería de una no debe leer las cuentas del personal de la otra. El precio
-/// es que alguien que trabaja en las dos queda con dos registros y hay que
-/// actualizar ambos si cambia de banco; se prefiere ese trabajo a que un
-/// maestro global quede legible para todas las tesorerías.
+/// Lleva la empresa además de la identificación porque el permiso es por
+/// empresa: la Tesorería de una no debe leer las cuentas de los beneficiarios
+/// de la otra. El precio es que alguien que trabaja —o factura— en las dos
+/// queda con dos registros y hay que actualizar ambos si cambia de banco; se
+/// prefiere ese trabajo a que un maestro global quede legible para todas las
+/// tesorerías.
+///
+/// La identificación es la cédula de un empleado o el NIT de un proveedor, sin
+/// puntos ni guiones: es la misma clave con la que llegan las filas del Excel.
 String cuentaBancariaDocId(String empresaId, String cedula) =>
     '${empresaId}_${cedula.trim()}';
 
@@ -151,48 +180,67 @@ class CuentaBancaria {
     this.updatedAt,
   }) : bancoCodigo = normalizarCodigoBanco(bancoCodigo);
 
-  factory CuentaBancaria.fromMap(String docId, Map<String, dynamic> d) =>
-      CuentaBancaria(
-        cedula: (d['cedula'] ?? '').toString(),
-        empresaId: (d['empresaId'] ?? '').toString(),
-        nombre: (d['nombre'] ?? '').toString(),
-        // Se normaliza AL LEER, no solo al escribir: los documentos que entren
-        // por una importación vieja o por consola traen "13" y tienen que
-        // comportarse igual que los que traen "0013".
-        bancoCodigo: (d['bancoCodigo'] ?? '').toString(),
-        numeroCuenta: (d['numeroCuenta'] ?? '').toString(),
-        tipoId: (d['tipoId'] ?? '1').toString(),
-        digitoVerificacion: (d['digitoVerificacion'] ?? '0').toString(),
-        formaPago: (d['formaPago'] ?? '1').toString(),
-        tipoCuenta: (d['tipoCuenta'] ?? '2').toString(),
-        codigoOficina: (d['codigoOficina'] ?? '0').toString(),
-        email: (d['email'] ?? '').toString(),
-        numeroActualizadoPor: d['numeroActualizadoPor']?.toString(),
-        numeroActualizadoEn: d['numeroActualizadoEn'] is Timestamp
-            ? d['numeroActualizadoEn'] as Timestamp
-            : null,
-        actualizadoPor: d['actualizadoPor']?.toString(),
-        updatedAt: d['updatedAt'] is Timestamp
-            ? d['updatedAt'] as Timestamp
-            : null,
-      );
+  /// Reconstruye la cuenta a partir de las dos piezas.
+  ///
+  /// [numero] llega vacío cuando quien lee no tiene permiso sobre la colección
+  /// reservada, que es lo normal en Talento Humano. No es un error: es que ese
+  /// dato no le corresponde.
+  factory CuentaBancaria.fromMap(
+    String docId,
+    Map<String, dynamic> d, {
+    Map<String, dynamic>? numero,
+  }) => CuentaBancaria(
+    cedula: (d['cedula'] ?? '').toString(),
+    empresaId: (d['empresaId'] ?? '').toString(),
+    nombre: (d['nombre'] ?? '').toString(),
+    // Se normaliza AL LEER, no solo al escribir: los documentos que entren
+    // por una importación vieja o por consola traen "13" y tienen que
+    // comportarse igual que los que traen "0013".
+    bancoCodigo: (d['bancoCodigo'] ?? '').toString(),
+    numeroCuenta: (numero?['numeroCuenta'] ?? d['numeroCuenta'] ?? '')
+        .toString(),
+    tipoId: (d['tipoId'] ?? '1').toString(),
+    digitoVerificacion: (d['digitoVerificacion'] ?? '0').toString(),
+    formaPago: (d['formaPago'] ?? '1').toString(),
+    tipoCuenta: (d['tipoCuenta'] ?? '2').toString(),
+    codigoOficina: (d['codigoOficina'] ?? '0').toString(),
+    email: (d['email'] ?? '').toString(),
+    numeroActualizadoPor:
+        (numero?['numeroActualizadoPor'] ?? d['numeroActualizadoPor'])
+            ?.toString(),
+    numeroActualizadoEn:
+        (numero?['numeroActualizadoEn'] ?? d['numeroActualizadoEn'])
+            is Timestamp
+        ? (numero?['numeroActualizadoEn'] ?? d['numeroActualizadoEn'])
+              as Timestamp
+        : null,
+    actualizadoPor: d['actualizadoPor']?.toString(),
+    updatedAt: d['updatedAt'] is Timestamp ? d['updatedAt'] as Timestamp : null,
+  );
 
-  Map<String, dynamic> toMap() => {
+  /// Lo que va en el maestro: todo **menos** el número de cuenta.
+  Map<String, dynamic> toMapPublico() => {
     'cedula': cedula,
     'empresaId': empresaId,
     'nombre': nombre,
     'bancoCodigo': bancoCodigo,
-    'numeroCuenta': numeroCuenta,
     'tipoId': tipoId,
     'digitoVerificacion': digitoVerificacion,
     'formaPago': formaPago,
     'tipoCuenta': tipoCuenta,
     'codigoOficina': codigoOficina,
     'email': email,
+    if (actualizadoPor != null) 'actualizadoPor': actualizadoPor,
+  };
+
+  /// Lo que va en la colección reservada: el número y su rastro.
+  Map<String, dynamic> toMapNumero() => {
+    'cedula': cedula,
+    'empresaId': empresaId,
+    'numeroCuenta': numeroCuenta,
     if (numeroActualizadoPor != null)
       'numeroActualizadoPor': numeroActualizadoPor,
     if (numeroActualizadoEn != null) 'numeroActualizadoEn': numeroActualizadoEn,
-    if (actualizadoPor != null) 'actualizadoPor': actualizadoPor,
   };
 
   CuentaBancaria copyWith({
@@ -387,4 +435,57 @@ ImportacionCuentas analizarImportacionCuentas(
   }
 
   return ImportacionCuentas(listas: listas, conflictos: conflictos);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catálogo de bancos
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Códigos ACH y su nombre, copiados de la hoja "Bancos" del Excel de
+/// Tesorería.
+///
+/// Está aquí para que Talento Humano elija "BBVA" y no teclee "0013": el código
+/// es un dato del banco, no algo que alguien deba recordar, y un dígito mal
+/// escrito manda un sueldo a otra entidad.
+///
+/// **Está incompleto a propósito, y no pasa nada.** En el maestro real hay
+/// personas cobrando en 0507, 0551 y 0809, que esta tabla no tiene: son
+/// entidades más nuevas que el Excel. Por eso el catálogo *sugiere* y no
+/// *restringe* — un código que no esté aquí se acepta igual, porque el que está
+/// viejo es el catálogo, no los datos.
+const Map<String, String> kBancosAch = {
+  '0001': 'BANCO DE BOGOTA',
+  '0002': 'BANCO POPULAR',
+  '0006': 'BANCO CORPBANCA',
+  '0007': 'BANCOLOMBIA',
+  '0008': 'SCOTIA BANK',
+  '0009': 'CITIBANK',
+  '0010': 'HSBC COLOMBIA',
+  '0012': 'BANCO GNB SUDAMERIS',
+  '0013': 'BBVA',
+  '0014': 'HELM BANK',
+  '0019': 'BANCO COLPATRIA',
+  '0023': 'BANCO DE OCCIDENTE',
+  '0028': 'BANCO MERCANTIL',
+  '0032': 'CAJA SOCIAL',
+  '0035': 'INTERCONTINENTAL',
+  '0040': 'BANCO AGRARIO',
+  '0051': 'DAVIVIENDA',
+  '0052': 'BANCO AV VILLAS',
+  '0055': 'FINANDINA',
+  '0058': 'PROCREDIT',
+  '0060': 'PICHINCHA',
+  '0061': 'BANCOOMEVA',
+  '0062': 'FALABELLA',
+  '0076': 'COOP. CENTRAL',
+};
+
+/// Nombre del banco, o el código si no está en el catálogo.
+///
+/// Nunca devuelve vacío: un código desconocido se muestra tal cual, que es más
+/// útil que una casilla en blanco y deja ver cuál hay que añadir.
+String nombreBanco(String codigo) {
+  final c = normalizarCodigoBanco(codigo);
+  if (c.replaceAll('0', '').isEmpty) return 'Sin banco';
+  return kBancosAch[c] ?? 'Código $c';
 }

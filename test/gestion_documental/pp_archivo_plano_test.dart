@@ -365,4 +365,95 @@ void main() {
       expect(aLatin1Seguro('emoji \u{1F600}'), 'emoji ?');
     });
   });
+
+  group('el maestro completa lo que al archivo le falta', () {
+    const maestro = {
+      '860046201': DatosBeneficiario(
+        nombre: 'PROVEEDOR DEL MAESTRO',
+        banco: '0013',
+        tipoCuenta: '2',
+        numeroCuenta: '999888777',
+        digitoVerificacion: '5',
+      ),
+    };
+
+    PlanoPagoFila filaDeArchivo({
+      String banco = '',
+      String cuenta = '',
+      String nombre = '',
+    }) => PlanoPagoFila(
+      identificacion: '860046201',
+      tipoId: '2',
+      nombre: nombre,
+      banco: banco,
+      tipoCuenta: '',
+      numeroCuenta: cuenta,
+      importeCentavos: 100000,
+      fechaLimite: DateTime(2026, 9, 4),
+    );
+
+    test('rellena la cuenta y el banco que el archivo no traía', () {
+      // Es lo que evita que generar el plano sea un trabajo manual.
+      final completadas = completarConMaestro([filaDeArchivo()], maestro);
+
+      expect(completadas.single.numeroCuenta, '999888777');
+      expect(completadas.single.banco, '0013');
+      expect(completadas.single.nombre, 'PROVEEDOR DEL MAESTRO');
+      expect(completadas.single.tipoCuenta, '2');
+    });
+
+    test('el archivo manda sobre el maestro', () {
+      // Puede ser un pago excepcional a otra cuenta: sustituirlo por "lo de
+      // siempre" mandaria el dinero a donde el archivo no dijo.
+      final completadas = completarConMaestro([
+        filaDeArchivo(banco: '0007', cuenta: '111', nombre: 'OTRO NOMBRE'),
+      ], maestro);
+
+      expect(completadas.single.numeroCuenta, '111');
+      expect(completadas.single.banco, '0007');
+      expect(completadas.single.nombre, 'OTRO NOMBRE');
+    });
+
+    test('un beneficiario que no está en el maestro se queda igual', () {
+      final fila = PlanoPagoFila(
+        identificacion: '999999999',
+        tipoId: '1',
+        nombre: 'DESCONOCIDO',
+        banco: '',
+        tipoCuenta: '',
+        numeroCuenta: '',
+        importeCentavos: 5000,
+        fechaLimite: DateTime(2026, 9, 4),
+      );
+      final completadas = completarConMaestro([fila], maestro);
+
+      // No se inventa nada: la validación dirá qué le falta y de quién es.
+      expect(completadas.single.numeroCuenta, isEmpty);
+      expect(validarPlanoPagos(completadas), isNotEmpty);
+    });
+
+    test('dice a quién hay que dar de alta antes de reintentar', () {
+      final faltan = beneficiariosSinMaestro([
+        filaDeArchivo(),
+        PlanoPagoFila(
+          identificacion: '999999999',
+          tipoId: '1',
+          nombre: 'NUEVO',
+          banco: '',
+          tipoCuenta: '',
+          numeroCuenta: '',
+          importeCentavos: 1,
+          fechaLimite: DateTime(2026, 9, 4),
+        ),
+      ], maestro);
+
+      expect(faltan, ['999999999']);
+    });
+
+    test('sin maestro las filas pasan tal cual', () {
+      final completadas = completarConMaestro([filaDeArchivo(cuenta: '5')], {});
+
+      expect(completadas.single.numeroCuenta, '5');
+    });
+  });
 }
