@@ -96,6 +96,53 @@ void main() {
     });
   });
 
+  group('avance documental', () {
+    const archivo = FacArchivo(
+      nombre: 'soporte.pdf',
+      fullPath: 'facturacion/empresa/sede/Agosto_2026/soporte.pdf',
+      downloadUrl: 'https://example.invalid/soporte.pdf',
+    );
+
+    test('solo marca completo cuando existe una lista y llega al 100 %', () {
+      expect(
+        facDocumentosCompletos(documentos: const [], archivos: const {}),
+        isFalse,
+      );
+      expect(
+        facDocumentosCompletos(
+          documentos: const ['A', 'B'],
+          archivos: const {
+            'A': [archivo],
+          },
+        ),
+        isFalse,
+      );
+      expect(
+        facDocumentosCompletos(
+          documentos: const ['A', 'B'],
+          archivos: const {
+            'A': [archivo],
+            'B': [archivo],
+          },
+        ),
+        isTrue,
+      );
+    });
+
+    test('un documento marcado no aplica cuenta como resuelto', () {
+      expect(
+        facDocumentosCompletados(
+          documentos: const ['A', 'B'],
+          archivos: const {
+            'A': [archivo],
+          },
+          ignorados: const {'B': true},
+        ),
+        2,
+      );
+    });
+  });
+
   group('maestro de obligaciones', () {
     test('genera códigos estables sin tildes ni espacios', () {
       expect(facObligacionCodigo('Servicio de Energía'), 'servicio_de_energia');

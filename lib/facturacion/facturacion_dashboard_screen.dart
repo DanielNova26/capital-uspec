@@ -2534,15 +2534,17 @@ class _DetalleEstablecimientoScreenState
     }
   }
 
-  bool get _todoCompleto => widget.documentos.every((doc) {
-    if (_est?.ignoredDocs[doc] == true) return true;
-    return _archivos[doc]?.isNotEmpty ?? false;
-  });
+  bool get _todoCompleto => facDocumentosCompletos(
+    documentos: widget.documentos,
+    archivos: _archivos,
+    ignorados: _est?.ignoredDocs ?? const {},
+  );
 
-  int get _completados => widget.documentos.where((doc) {
-    if (_est?.ignoredDocs[doc] == true) return true;
-    return _archivos[doc]?.isNotEmpty ?? false;
-  }).length;
+  int get _completados => facDocumentosCompletados(
+    documentos: widget.documentos,
+    archivos: _archivos,
+    ignorados: _est?.ignoredDocs ?? const {},
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -3210,17 +3212,17 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     }
   }
 
-  bool get _todoCompleto =>
-      _visibleDocs.isNotEmpty &&
-      _visibleDocs.every((doc) {
-        if (_est?.ignoredDocs[doc] == true) return true;
-        return _archivos[doc]?.isNotEmpty ?? false;
-      });
+  bool get _todoCompleto => facDocumentosCompletos(
+    documentos: _visibleDocs,
+    archivos: _archivos,
+    ignorados: _est?.ignoredDocs ?? const {},
+  );
 
-  int get _completados => _visibleDocs.where((doc) {
-    if (_est?.ignoredDocs[doc] == true) return true;
-    return _archivos[doc]?.isNotEmpty ?? false;
-  }).length;
+  int get _completados => facDocumentosCompletados(
+    documentos: _visibleDocs,
+    archivos: _archivos,
+    ignorados: _est?.ignoredDocs ?? const {},
+  );
 
   @override
   Widget build(BuildContext context) {

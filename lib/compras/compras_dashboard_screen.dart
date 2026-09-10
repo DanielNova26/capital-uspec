@@ -4890,7 +4890,7 @@ class _DocumentosAsociadosSheetState extends State<_DocumentosAsociadosSheet> {
             const SizedBox(height: 8),
             Text(
               widget.requiredForCompletion
-                  ? 'La ficha técnica y el registro sanitario son obligatorios para esta marca. Todo archivo nuevo o reemplazado queda pendiente de revisión de Calidad.'
+                  ? 'La ficha técnica es obligatoria para esta marca. Todo archivo nuevo o reemplazado queda pendiente de revisión de Calidad.'
                   : 'Carga o reemplaza los archivos de la marca. Quedarán pendientes hasta que Calidad los apruebe.',
               style: const TextStyle(
                 fontFamily: _kFont,
@@ -7625,11 +7625,6 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                                 'Ficha técnica',
                                 fichasProveedor: fichasProveedor,
                               ),
-                              _documentoMarcaEstado(
-                                marca,
-                                'registroSanitario',
-                                'Registro sanitario',
-                              ),
                             ],
                           ),
                           _resumenFichasProveedor(fichasProveedor),
@@ -8403,7 +8398,6 @@ class _SubirFichaSheet extends StatefulWidget {
 class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   final _obsCtrl = TextEditingController();
   bool get isUpdate => widget.fichaExistente != null;
-  DateTime? _vigenteHasta;
 
   // Proveedor seleccionado (sólo para fichas nuevas)
   ProveedorDoc? _proveedor;
@@ -8423,8 +8417,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
   @override
   void initState() {
     super.initState();
-    _vigenteHasta = widget.fichaExistente?.documentoActual?.fechaVencimiento
-        ?.toDate();
     _cargarProveedores();
     if (kIsWeb) {
       WebDragDrop.instance.enable();
@@ -8478,7 +8470,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       _fileName = f.name;
       _fileBytes = f.bytes;
     });
-    await _pedirVigenciaTrasSeleccionarArchivo();
   }
 
   // Recibe archivo arrastrado vía dart:html (stream global)
@@ -8516,7 +8507,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       _fileName = name;
       _fileBytes = file.bytes;
     });
-    await _pedirVigenciaTrasSeleccionarArchivo();
   }
 
   /// Maneja el drop desde el DropTarget nativo de desktop_drop.
@@ -8559,20 +8549,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
         _fileBytes = bytes;
       });
     }
-    await _pedirVigenciaTrasSeleccionarArchivo();
-  }
-
-  Future<bool> _pedirVigenciaTrasSeleccionarArchivo() async {
-    if (!mounted || _fileBytes == null) return false;
-    final selected = await _solicitarVigenciaDespuesDeCargar(
-      context,
-      docKey: 'fichaTecnica',
-      labels: kDocumentosAsociadosLabels,
-      initialDate: _vigenteHasta,
-    );
-    if (selected == null) return false;
-    if (mounted) setState(() => _vigenteHasta = selected);
-    return true;
   }
 
   Widget _buildFileZone() {
@@ -8783,11 +8759,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       );
       return;
     }
-    if (_vigenteHasta == null &&
-        !await _pedirVigenciaTrasSeleccionarArchivo()) {
-      return;
-    }
-
     setState(() => _subiendo = true);
     try {
       final ext = _fileName?.split('.').last.toLowerCase() ?? 'pdf';
@@ -8805,9 +8776,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
       final doc = prepararDocumentoPendienteCalidad(
         docSubido,
         subidoPor: widget.userId,
-        fechaVencimiento: _vigenteHasta == null
-            ? null
-            : Timestamp.fromDate(_vigenteHasta!),
       );
 
       final prov = isUpdate
@@ -9011,19 +8979,6 @@ class _SubirFichaSheetState extends State<_SubirFichaSheet> {
           const SizedBox(height: 12),
           // Archivo (botón normal en móvil, zona drag-and-drop en web)
           _buildFileZone(),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _fileBytes == null
-                ? null
-                : _pedirVigenciaTrasSeleccionarArchivo,
-            icon: const Icon(Icons.event_available_outlined, size: 17),
-            label: Text(
-              _vigenteHasta == null
-                  ? 'Falta indicar “Vigente hasta”'
-                  : 'Vigente hasta: ${DateFormat('dd/MM/yyyy').format(_vigenteHasta!)}',
-              style: const TextStyle(fontFamily: _kFont, fontSize: 12),
-            ),
-          ),
           const SizedBox(height: 14),
           SizedBox(
             width: double.infinity,
@@ -10425,6 +10380,17 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
   }
 
   void _agregarProducto() {
+    if (_entries.isNotEmpty) {
+      final error = validarNuevaFilaProductoRecepcion(
+        filaAnteriorTieneProducto: _entries.last.producto != null,
+      );
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: kComprasRed),
+        );
+        return;
+      }
+    }
     setState(() => _entries.add(_RecepcionEntry()));
   }
 
@@ -12125,7 +12091,7 @@ class _ProductoEntryCard extends StatelessWidget {
                                         bytes,
                                         name,
                                       ),
-                                showCalendar: true,
+                                showCalendar: false,
                                 onDateChanged: (date) => onDateChangedDoc?.call(
                                   'fichaTecnica',
                                   date,
@@ -14573,13 +14539,7 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
           ).label ==
           'Completo',
     );
-    final registroCompleto =
-        _estadoDocumentoConsulta(
-          'registroSanitario',
-          marca.documentosAsociados['registroSanitario'],
-        ).label ==
-        'Completo';
-    return (fichaGeneralCompleta || fichaProveedorCompleta) && registroCompleto;
+    return fichaGeneralCompleta || fichaProveedorCompleta;
   }
 
   String _resumenDocumentoPorMarca(ProductoDoc producto, String key) {
@@ -14628,7 +14588,6 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         'Marcas',
         'Estado documental por marca',
         'Ficha técnica por marca',
-        'Registro sanitario por marca',
         'Fichas técnicas por proveedor',
       ];
       final filas = exportados
@@ -14646,7 +14605,6 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                   ? 'Completo'
                   : 'Pendiente',
               _resumenDocumentoPorMarca(p, 'fichaTecnica'),
-              _resumenDocumentoPorMarca(p, 'registroSanitario'),
               _resumenFichasProveedor(p),
             ],
           )
@@ -14902,12 +14860,6 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                                     respaldoMarca: marca
                                         ?.documentosAsociados['fichaTecnica'],
                                   ),
-                                  _consultaDocumentoChip(
-                                    'registroSanitario',
-                                    'Registro',
-                                    marca
-                                        ?.documentosAsociados['registroSanitario'],
-                                  ),
                                 ];
                               }).toList(),
                             ),
@@ -15081,30 +15033,19 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           )
           .toList();
       final fmt = DateFormat('dd/MM/yyyy HH:mm', 'es');
-      String vence(DocAdjunto? doc) => doc?.fechaVencimiento == null
-          ? '—'
-          : DateFormat('dd/MM/yyyy').format(doc!.fechaVencimiento!.toDate());
       final columnas = [
         'Código',
         'Descripción',
         'Fecha Creación',
         'Estado ficha técnica',
-        'Vigencia ficha técnica',
         'Requerimiento ficha técnica',
         'Fecha límite requerimiento ficha técnica',
         'Soportes ficha técnica',
         'URL ficha técnica',
-        'Estado registro sanitario',
-        'Vigencia registro sanitario',
-        'Requerimiento registro sanitario',
-        'Fecha límite requerimiento registro sanitario',
-        'Soportes registro sanitario',
-        'URL registro sanitario',
       ];
       final filas = exportadas.map((m) {
         final fichas = _fichasDeMarca(m);
         final fichaGeneral = m.documentosAsociados['fichaTecnica'];
-        final registro = m.documentosAsociados['registroSanitario'];
         final fichasVisibles = fichas
             .map(documentoVisibleFichaTecnica)
             .whereType<DocAdjunto>()
@@ -15114,7 +15055,6 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           m.descripcion,
           fmt.format(m.createdAt.toDate()),
           _resumenFichasMarca(m),
-          fichasVisibles.isEmpty ? vence(fichaGeneral) : '—',
           fichasVisibles.isEmpty
               ? fichaGeneral?.requerimientoNota ?? '—'
               : fichasVisibles
@@ -15133,16 +15073,6 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           fichasVisibles.isEmpty
               ? fichaGeneral?.url ?? 'Sin cargar'
               : fichasVisibles.map((doc) => doc.url).join(' | '),
-          _estadoDocumentoConsulta('registroSanitario', registro).label,
-          vence(registro),
-          registro?.requerimientoNota ?? '—',
-          registro?.requerimientoFechaLimite == null
-              ? '—'
-              : DateFormat(
-                  'dd/MM/yyyy',
-                ).format(registro!.requerimientoFechaLimite!.toDate()),
-          '${registro?.soportesRequerimiento.length ?? 0}',
-          registro?.url ?? 'Sin cargar',
         ];
       }).toList();
       await _exportarExcel(
@@ -15228,12 +15158,6 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
                               m.documentosAsociados['fichaTecnica'],
                             ).label ==
                             'Completo';
-                    final registroCompleto =
-                        _estadoDocumentoConsulta(
-                          'registroSanitario',
-                          m.documentosAsociados['registroSanitario'],
-                        ).label ==
-                        'Completo';
                     return Card(
                       margin: const EdgeInsets.only(bottom: 6),
                       shape: RoundedRectangleBorder(
@@ -15275,12 +15199,6 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
                                         m.documentosAsociados['fichaTecnica'],
                                     compacto: true,
                                   ),
-                                  const SizedBox(width: 6),
-                                  _consultaDocumentoChip(
-                                    'registroSanitario',
-                                    'Registro',
-                                    m.documentosAsociados['registroSanitario'],
-                                  ),
                                   const SizedBox(width: 4),
                                   const Icon(
                                     Icons.chevron_right,
@@ -15291,7 +15209,7 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
                             : Icon(
                                 Icons.circle,
                                 size: 14,
-                                color: fichaCompleta && registroCompleto
+                                color: fichaCompleta
                                     ? kComprasGreen
                                     : kComprasRed,
                               ),
@@ -20037,7 +19955,7 @@ class _ResumenCalidadTab extends StatelessWidget {
                   _ResumenStatCard(
                     valor: '${d.marcasIncompletas.length}',
                     label: 'Marcas por completar',
-                    detalle: 'Ficha técnica y Registro sanitario',
+                    detalle: 'Ficha técnica',
                     icon: Icons.label_important_outline,
                     color: const Color(0xFF7B3F00),
                     tooltip: _resumenTooltip([

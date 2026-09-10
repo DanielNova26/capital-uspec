@@ -443,8 +443,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         .whereType<Map<String, String>>()
         .toList();
 
-    final selectedAreaId = taskAreaId;
-    final selectedAreaName = areaNameById(taskAreaId);
+    if (areas.every((area) => area['id'] != taskAreaId)) {
+      areas.add({'id': taskAreaId, 'nombre': _areaLabelFor(taskAreaId)});
+      areas.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
+    }
+    String selectedAreaId = taskAreaId;
+    String selectedAreaName = areaNameById(taskAreaId);
     String? selectedCargoId;
     String search = '';
     Map<String, String>? pickedUser;
@@ -490,17 +494,35 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    InputDecorator(
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedAreaId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
-                        labelText: 'Área de la tarea',
+                        labelText: 'Área de destino',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.account_tree_outlined),
                       ),
-                      child: Text(
-                        selectedAreaName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      items: areas
+                          .map(
+                            (area) => DropdownMenuItem<String>(
+                              value: area['id'],
+                              child: Text(
+                                area['nombre']!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null || value == selectedAreaId) return;
+                        setDialogState(() {
+                          selectedAreaId = value;
+                          selectedAreaName = areaNameById(value);
+                          selectedCargoId = null;
+                          pickedUser = null;
+                        });
+                      },
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(

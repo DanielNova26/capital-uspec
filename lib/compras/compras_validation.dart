@@ -13,8 +13,7 @@ const Set<String> kDocumentosConVigenciaObligatoria = {
   'actaIvcVehiculo',
   'examenMedico',
   'cursoManipulacion',
-  'fichaTecnica',
-  'registroSanitario',
+  'soporteRegistroInvima',
 };
 
 bool documentoRequiereVigencia(String docKey) =>
@@ -23,6 +22,13 @@ bool documentoRequiereVigencia(String docKey) =>
 String? validarMarcasNuevoProducto(List<MarcaRef> marcas) {
   if (marcas.isNotEmpty) return null;
   return 'Asocia al menos una marca antes de crear el producto.';
+}
+
+String? validarNuevaFilaProductoRecepcion({
+  required bool filaAnteriorTieneProducto,
+}) {
+  if (filaAnteriorTieneProducto) return null;
+  return 'Selecciona el producto de la fila actual antes de agregar otro.';
 }
 
 String? validarDocumentosMarcasProducto(

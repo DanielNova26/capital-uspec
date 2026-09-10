@@ -95,7 +95,6 @@ const String kDocFichaTecnicaProv = 'fichaTecnicaProv';
 const Set<String> kDocProveedorOcultos = {
   kDocFichaTecnicaProv,
   'autorizacionSanitaria',
-  'soporteRegistroInvima',
   'fichaTecnicaDosificacion',
 };
 
@@ -117,8 +116,8 @@ const Map<String, String> kDocProveedorLabels = {
   'examenMedico': 'Examen médico ocupacional',
   'cursoManipulacion':
       'Certificado/curso de manipulación de alimentos del conductor/manipulador',
+  'soporteRegistroInvima': 'Registro sanitario',
   'autorizacionSanitaria': 'Autorización sanitaria',
-  'soporteRegistroInvima': 'Soporte de registro sanitario INVIMA',
   'fichaTecnicaDosificacion':
       'Ficha técnica con registro sanitario y dosificaciones',
 };
@@ -168,7 +167,6 @@ const Map<String, String> kDocRecepcionLabels = {
 /// una marca o de un producto, sin depender de una recepción o proveedor.
 const Map<String, String> kDocumentosAsociadosLabels = {
   'fichaTecnica': 'Ficha técnica',
-  'registroSanitario': 'Registro sanitario',
 };
 
 /// Roles de usuario en el módulo Compras/Bodega.

@@ -448,6 +448,30 @@ class FacArchivo {
   });
 }
 
+int facDocumentosCompletados({
+  required Iterable<String> documentos,
+  required Map<String, List<FacArchivo>> archivos,
+  Map<String, bool> ignorados = const {},
+}) => documentos.where((doc) {
+  if (ignorados[doc] == true) return true;
+  return archivos[doc]?.isNotEmpty ?? false;
+}).length;
+
+bool facDocumentosCompletos({
+  required Iterable<String> documentos,
+  required Map<String, List<FacArchivo>> archivos,
+  Map<String, bool> ignorados = const {},
+}) {
+  final requeridos = documentos.toList(growable: false);
+  return requeridos.isNotEmpty &&
+      facDocumentosCompletados(
+            documentos: requeridos,
+            archivos: archivos,
+            ignorados: ignorados,
+          ) ==
+          requeridos.length;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelo: revisión documental
 // ─────────────────────────────────────────────────────────────────────────────

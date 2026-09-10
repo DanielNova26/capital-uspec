@@ -121,7 +121,7 @@ void main() {
     });
 
     test(
-      'exige vigencia para documentos generales y de producto por marca',
+      'la ficha no vence y el registro sanitario vigente pertenece al proveedor',
       () {
         expect(kDocumentosConVigenciaObligatoria, {
           'rut',
@@ -130,17 +130,16 @@ void main() {
           'actaIvcVehiculo',
           'examenMedico',
           'cursoManipulacion',
-          'fichaTecnica',
-          'registroSanitario',
+          'soporteRegistroInvima',
         });
-        expect(documentoRequiereVigencia('fichaTecnica'), isTrue);
-        expect(documentoRequiereVigencia('registroSanitario'), isTrue);
+        expect(documentoRequiereVigencia('fichaTecnica'), isFalse);
+        expect(documentoRequiereVigencia('soporteRegistroInvima'), isTrue);
         expect(documentoRequiereVigencia('autorizacionSanitaria'), isFalse);
         expect(documentoRequiereVigencia('certSanitariaImport'), isFalse);
       },
     );
 
-    test('proveedor ignora soportes retirados o exclusivos del producto', () {
+    test('proveedor ignora soportes legacy retirados', () {
       final vigencia = Timestamp.fromDate(DateTime(2027, 7, 28));
       expect(
         validarVigenciasDocumentalesProveedor({
@@ -154,6 +153,7 @@ void main() {
           ),
           'soporteRegistroInvima': const DocAdjunto(
             url: 'https://example.test/invima.pdf',
+            fechaVencimiento: null,
           ),
           'fichaTecnicaDosificacion': const DocAdjunto(
             url: 'https://example.test/ficha.pdf',
@@ -162,7 +162,7 @@ void main() {
             url: 'https://example.test/autorizacion.pdf',
           ),
         }),
-        isNull,
+        contains('Registro sanitario'),
       );
     });
   });
@@ -179,6 +179,18 @@ void main() {
         'fechaVencimiento': vigencia,
       },
     };
+
+    test(
+      'la captura activa ubica cada documento en su expediente correcto',
+      () {
+        expect(kDocumentosAsociadosLabels.keys, ['fichaTecnica']);
+        expect(
+          kDocProveedorLabels['soporteRegistroInvima'],
+          'Registro sanitario',
+        );
+        expect(kDocProveedorOcultos, isNot(contains('soporteRegistroInvima')));
+      },
+    );
 
     test('MarcaDoc conserva ficha y registro sanitario', () {
       final marca = MarcaDoc.fromMap('marca', {
@@ -222,7 +234,7 @@ void main() {
       );
     });
 
-    test('un producto nuevo exige ficha y registro asociados a cada marca', () {
+    test('un producto nuevo exige ficha asociada a cada marca', () {
       const ref = MarcaRef(
         marcaId: 'marca',
         codigo: 'MRC-0001',
@@ -239,7 +251,7 @@ void main() {
 
       expect(
         validarDocumentosMarcasProducto(const [ref], [marcaCon(const {})]),
-        allOf(contains('Ficha técnica'), contains('Registro sanitario')),
+        contains('Ficha técnica'),
       );
       expect(
         validarDocumentosMarcasProducto(
@@ -253,9 +265,8 @@ void main() {
             }),
           ],
         ),
-        contains('Registro sanitario'),
+        isNull,
       );
-      final vigencia = Timestamp.fromDate(DateTime(2027, 7, 28));
       expect(
         validarDocumentosMarcasProducto(
           const [ref],
@@ -263,12 +274,6 @@ void main() {
             marcaCon({
               'fichaTecnica': DocAdjunto(
                 url: 'https://example.test/ficha.pdf',
-                fechaVencimiento: vigencia,
-                estadoCalidad: 'pendiente_revision_calidad',
-              ),
-              'registroSanitario': DocAdjunto(
-                url: 'https://example.test/registro.pdf',
-                fechaVencimiento: vigencia,
                 estadoCalidad: 'pendiente_revision_calidad',
               ),
             }),
@@ -279,7 +284,23 @@ void main() {
     });
   });
 
-  test('el motor oculta soportes retirados de proveedor y recepción', () {
+  group('filas de producto en recepción', () {
+    test('impide agregar otra fila mientras la actual siga vacía', () {
+      expect(
+        validarNuevaFilaProductoRecepcion(filaAnteriorTieneProducto: false),
+        contains('fila actual'),
+      );
+    });
+
+    test('permite agregar al seleccionar el producto anterior', () {
+      expect(
+        validarNuevaFilaProductoRecepcion(filaAnteriorTieneProducto: true),
+        isNull,
+      );
+    });
+  });
+
+  test('el motor conserva registro sanitario de proveedor y oculta ficha de recepción', () {
     ReqDocumentoDoc regla(String key, String nivel) => ReqDocumentoDoc(
       empresaId: 'empresa',
       categoriaApp: 'Todas',
@@ -300,6 +321,7 @@ void main() {
 
     expect(engine.docsProveedor(const ['Todas']).map((doc) => doc.keyApp), [
       'rut',
+      'soporteRegistroInvima',
     ]);
     expect(
       engine
