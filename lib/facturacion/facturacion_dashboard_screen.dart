@@ -4310,29 +4310,40 @@ class _DocCardState extends State<_DocCard> {
               widget.onUpload!,
             ),
           ],
+          // Sobre un documento ya aprobado no se ofrece aprobarlo otra vez: no
+          // cambia el estado y le quita el sitio al único botón que sirve ahí.
+          // Si hay que devolverlo, se rechaza.
           if (hasFiles && widget.canReview && !widget.isIgnored) ...[
             const SizedBox(height: 5),
-            Row(
-              children: [
-                Expanded(
-                  child: _tinyBtn(
-                    'Aprobar',
-                    Icons.check_rounded,
-                    _kGreen,
-                    widget.onApprove ?? () {},
+            if (widget.revision?.estado == FacEstadoRevision.aprobado)
+              _tinyBtn(
+                'Rechazar',
+                Icons.close_rounded,
+                _kRed,
+                () => _requestReject(context),
+              )
+            else
+              Row(
+                children: [
+                  Expanded(
+                    child: _tinyBtn(
+                      'Aprobar',
+                      Icons.check_rounded,
+                      _kGreen,
+                      widget.onApprove ?? () {},
+                    ),
                   ),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: _tinyBtn(
-                    'Rechazar',
-                    Icons.close_rounded,
-                    _kRed,
-                    () => _requestReject(context),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _tinyBtn(
+                      'Rechazar',
+                      Icons.close_rounded,
+                      _kRed,
+                      () => _requestReject(context),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
           ],
           // Ignorar
           if (widget.onToggleIgnore != null && !widget.isIgnored) ...[

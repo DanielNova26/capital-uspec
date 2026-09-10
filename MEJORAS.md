@@ -4357,3 +4357,29 @@ repartida entre las dos. Se avisa con el código concreto y se para.
 - **No cambia la empresa activa de quien la crea.** Sigue trabajando donde
   estaba y entra a la nueva cuando quiera. Moverlo por haber pulsado "crear" lo
   saca de lo que estaba haciendo.
+
+---
+
+## Dos huecos del mismo cambio, encontrados probando (10 sep 2026)
+
+Los dos son fallos de la misma tanda: se habilitó una regla y no se llevó a
+todas las pantallas donde hace falta.
+
+### El botón "Aprobar" seguía en Facturación
+
+Se quitó de Compras (`_CalidadDecisionButtons`) y se dio por hecho que era el
+único sitio. **Facturación tiene sus propios botones**, en `_DocCard`, y ahí
+seguía saliendo "Aprobar" sobre un documento ya aprobado. Corregido: sobre lo
+aprobado queda solo "Rechazar", que es la salida si hay que devolverlo.
+
+La lección: "quitar el botón X" casi nunca es un sitio. Antes de darlo por
+hecho hay que buscar el texto del botón en todo el módulo **y en los demás**.
+
+### En "Rechazados" de Compras no había ninguna acción
+
+Se hizo reversible el rechazo, pero la pestaña **Rechazados** envuelve todas
+sus acciones en `if (!showRejectedOnly)`: era una lista para mirar. O sea que
+la acción existía y **la pantalla donde uno busca un documento rechazado no la
+ofrecía**; había que entrar al expediente del proveedor a buscarla.
+
+Ahora las fichas rechazadas traen ahí su "Devolver a revisión".

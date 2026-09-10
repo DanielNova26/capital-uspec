@@ -21007,6 +21007,43 @@ class _FichaCalidadCard extends StatelessWidget {
     }
   }
 
+  /// Devuelve una ficha rechazada a la cola de Calidad.
+  Future<void> _devolverARevision(BuildContext context) async {
+    final decision = await _pedirMotivoReversion(
+      context,
+      docLabel: 'Ficha técnica',
+      contexto: [
+        ficha.productoNombre,
+        ficha.marcaNombre,
+        ficha.proveedorNombre,
+      ].where((v) => v.trim().isNotEmpty).join(' · '),
+      yaRechazado: true,
+    );
+    if (decision == null || !context.mounted) return;
+    try {
+      await svc.revertirAprobacionFichaTecnica(
+        fichaId: ficha.id,
+        motivo: decision.motivo,
+        revertidoPor: userId,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: kComprasGreen,
+          content: Text('La ficha volvió a la cola de Calidad.'),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: kComprasRed,
+          content: Text('No se pudo devolver: $error'),
+        ),
+      );
+    }
+  }
+
   Future<void> _rechazar(BuildContext context) async {
     final motivoCtrl = TextEditingController();
     final ok = await showDialog<bool>(
@@ -21282,6 +21319,29 @@ class _FichaCalidadCard extends StatelessWidget {
                   ),
                 ),
               ),
+            // En "Rechazados" no había ninguna acción: era una lista para
+            // mirar. Con el rechazo ya reversible, esa es la pantalla donde
+            // uno busca el documento que hay que devolver a la cola, así que
+            // el botón tiene que estar aquí y no solo dentro del expediente.
+            if (showRejectedOnly && doc?.rechazado == true) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => _devolverARevision(context),
+                  icon: const Icon(Icons.undo, size: 16),
+                  label: const Text(
+                    'Devolver a revisión',
+                    style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFB45309),
+                    side: const BorderSide(color: Color(0xFFB45309)),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ),
+            ],
             if (!showRejectedOnly) ...[
               if (doc?.tieneDoc == true) const SizedBox(height: 10),
               if (doc?.aprobadoConRequerimientos == true)
