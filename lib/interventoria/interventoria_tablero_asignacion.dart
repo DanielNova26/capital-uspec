@@ -192,9 +192,7 @@ class _InterventoriaTableroAsignacionState
         // a mano, con nombre y apellido, no en lote.
         final asignablesEnSede = _cargandoUsuarios
             ? const <InterventoriaHallazgo>[]
-            : sinAsignar
-                  .where((h) => _responsableEnSede(h) != null)
-                  .toList();
+            : sinAsignar.where((h) => _responsableEnSede(h) != null).toList();
 
         final secciones = <Widget>[
           _seccion(

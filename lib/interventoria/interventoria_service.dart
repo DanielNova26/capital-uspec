@@ -340,6 +340,106 @@ class InterventoriaService {
     });
   }
 
+  /// Resultado de devolver un acta: a quién le quedó la corrección.
+  ///
+  /// Se devuelve en vez de tragárselo porque quien devuelve el acta tiene que
+  /// saber si alguien se enteró. Con [responsable] en null el acta volvió igual
+  /// —eso no es negociable— pero no hay tarea y hay que asignarla a mano.
+
+  /// Calidad devuelve un acta con errores al administrador del
+  /// establecimiento.
+  ///
+  /// Hace tres cosas que van juntas: regresa el acta a "Por revisar" (editable
+  /// desde el histórico), deja constancia de quién la devolvió y por qué, y
+  /// crea la tarea de corrección para quien responde por esa sede.
+  ///
+  /// **El acta vuelve aunque no haya a quién asignarle la tarea.** Si en el
+  /// establecimiento no hay nadie con el cargo de administrador, dejar el acta
+  /// como buena por un problema de nuestro maestro de personal sería lo peor
+  /// de las dos opciones: se devuelve igual y se avisa de que la tarea quedó
+  /// sin dueño.
+  Future<InterventoriaPersona?> devolverActaParaCorreccion({
+    required InterventoriaVisita visita,
+    required String motivo,
+    required String devueltoPorId,
+    required String devueltoPorNombre,
+    DateTime? fechaLimite,
+  }) async {
+    final problema = validarDevolucionActa(motivo);
+    if (problema != null) throw ArgumentError(problema);
+    if (visita.id.isEmpty) {
+      throw StateError('El acta todavía no se ha guardado.');
+    }
+    final motivoLimpio = motivo.trim();
+
+    await _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id).update({
+      'faseActa': kFaseActaDevuelta,
+      'devolucionMotivo': motivoLimpio,
+      'devolucionPorId': devueltoPorId,
+      'devolucionPorNombre': devueltoPorNombre,
+      'devolucionEn': FieldValue.serverTimestamp(),
+      // Cada devolución queda en el historial: el acta puede volver varias
+      // veces y saber cuántas es parte de la evaluación del establecimiento.
+      'devoluciones': FieldValue.arrayUnion([
+        {
+          'motivo': motivoLimpio,
+          'porId': devueltoPorId,
+          'porNombre': devueltoPorNombre,
+          'fecha': Timestamp.now(),
+        },
+      ]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final usuarios = await _usuariosDeEmpresa(visita.empresaId);
+    final responsable = resolverPrimerCargoQueResuelva(
+      kInterventoriaCargosCorreccionActa,
+      visita.centroCostoId,
+      usuarios,
+    );
+    // Alguien de otra sede no responde por esta acta: es el mismo criterio que
+    // el tablero de asignación.
+    if (responsable == null || !responsable.delCentro) return null;
+
+    final taskSvc = TaskService();
+    await taskSvc.createTaskEs(
+      titulo: tituloTareaDevolucionActa(
+        centroNombre: visita.centroCostoNombre,
+        tipoActa: visita.tipoActa,
+      ),
+      descripcion: descripcionTareaDevolucionActa(
+        motivo: motivoLimpio,
+        devueltoPorNombre: devueltoPorNombre,
+        fechaVisita: visita.fechaVisita.toDate(),
+      ),
+      estado: 'pendiente',
+      prioridad: 'alta',
+      asignadoUid: responsable.id,
+      asignadoNombre: responsable.nombre,
+      creadorUid: devueltoPorId,
+      creadorNombre: devueltoPorNombre,
+      centroId: visita.centroCostoId.isNotEmpty
+          ? visita.centroCostoId
+          : 'global',
+      empresaId: visita.empresaId,
+      fechaLimite: fechaLimite,
+      extra: {
+        'visitaId': visita.id,
+        'centroCostoId': visita.centroCostoId,
+        'origen': 'interventoria',
+        'sourceModule': 'interventoria',
+        'sourceType': 'devolucion_acta',
+        'sourceEntityId': visita.id,
+        'sourceEntityCollection': 'TBL_INTERVENTORIA_VISITAS',
+        'notify': true,
+        'empresas': [visita.empresaId],
+        'cargoResponsable': responsable.cargoMatriz,
+        'permite_reasignacion_director': true,
+      },
+    );
+    return responsable;
+  }
+
   /// Fase 2 — el revisor completa el acta con observaciones y conclusiones.
   Future<void> completarActa({
     required InterventoriaVisita visita,

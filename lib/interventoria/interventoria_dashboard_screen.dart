@@ -301,6 +301,7 @@ class _InterventoriaDashboardScreenState
                   centroFijoId: centroEfectivo,
                   onRegistrar: () => _abrirRegistrarActa(context),
                   esAdminDesarrollo: esAdminDesarrollo,
+                  rol: rol,
                 ),
                 // Tab: Por revisar — índice coincide con tabs list
                 if (canRevisarActas)
@@ -4162,6 +4163,9 @@ class _VisitasTab extends StatefulWidget {
   final VoidCallback onRegistrar;
   final bool esAdminDesarrollo;
 
+  /// Rol en el módulo. Decide quién puede devolver un acta con errores.
+  final String rol;
+
   /// Si no es null, filtra visitas solo para este centro (rol Registrador).
   final String? centroFijoId;
 
@@ -4173,6 +4177,7 @@ class _VisitasTab extends StatefulWidget {
     required this.onRegistrar,
     this.centroFijoId,
     this.esAdminDesarrollo = false,
+    this.rol = '',
   });
 
   @override
@@ -4386,6 +4391,7 @@ class _VisitasTabState extends State<_VisitasTab> {
                           service: widget.service,
                           esAdminDesarrollo: widget.esAdminDesarrollo,
                           userId: widget.userId,
+                          rol: widget.rol,
                         ),
                       ),
               ),
@@ -4404,12 +4410,16 @@ class _VisitaCard extends StatefulWidget {
   final bool esAdminDesarrollo;
   final String userId;
 
+  /// Rol en el módulo. Decide quién puede devolver un acta con errores.
+  final String rol;
+
   const _VisitaCard({
     required this.visita,
     required this.canWrite,
     required this.service,
     this.esAdminDesarrollo = false,
     this.userId = '',
+    this.rol = '',
   });
 
   @override
@@ -4469,6 +4479,19 @@ class _VisitaCardState extends State<_VisitaCard> {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Devolver un acta con errores. Es lo que hace calidad, y por
+                // eso no está detrás de `esAdminDesarrollo`: reabrir es
+                // deshacer un clic propio, devolver es una decisión sobre el
+                // trabajo del establecimiento y crea la tarea de corrección.
+                if (puedeRevisarActas(widget.rol) && v.faseActa == 'completa')
+                  IconButton(
+                    tooltip: 'Devolver acta con errores',
+                    icon: Icon(
+                      Icons.assignment_return_outlined,
+                      color: Colors.red.shade400,
+                    ),
+                    onPressed: () => _devolverActa(context, v),
+                  ),
                 if (widget.esAdminDesarrollo && v.faseActa == 'completa')
                   IconButton(
                     tooltip: 'Reabrir para revisión (admin)',
@@ -4583,6 +4606,115 @@ class _VisitaCardState extends State<_VisitaCard> {
           SnackBar(content: Text(error.message ?? 'No se pudo enviar.')),
         );
       }
+    }
+  }
+
+  /// Devuelve el acta al administrador del establecimiento con un motivo.
+  Future<void> _devolverActa(
+    BuildContext context,
+    InterventoriaVisita visita,
+  ) async {
+    final ctrl = TextEditingController();
+    var intentoVacio = false;
+
+    final motivo = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx, setLocal) => AlertDialog(
+          title: const Text('Devolver acta con errores'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${visita.centroCostoNombre} · '
+                '${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'El acta vuelve a "Por revisar" y se le crea la tarea de '
+                'corrección al administrador del establecimiento.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                maxLines: 4,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Qué debe corregirse',
+                  hintText: 'Lo lee quien tiene que arreglarlo.',
+                  border: const OutlineInputBorder(),
+                  errorText: intentoVacio
+                      ? validarDevolucionActa(ctrl.text)
+                      : null,
+                ),
+                onChanged: (_) {
+                  if (intentoVacio) setLocal(() => intentoVacio = false);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red.shade400,
+              ),
+              onPressed: () {
+                if (validarDevolucionActa(ctrl.text) != null) {
+                  setLocal(() => intentoVacio = true);
+                  return;
+                }
+                Navigator.pop(dialogCtx, ctrl.text.trim());
+              },
+              child: const Text('Devolver'),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (motivo == null || !context.mounted) return;
+
+    try {
+      final responsable = await widget.service.devolverActaParaCorreccion(
+        visita: visita,
+        motivo: motivo,
+        devueltoPorId: widget.userId,
+        devueltoPorNombre: widget.userId,
+      );
+      if (!context.mounted) return;
+      // Se distingue el caso sin responsable: el acta volvió igual, pero nadie
+      // recibió la tarea y hay que asignarla a mano.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: responsable == null ? Colors.orange.shade800 : _kOk,
+          content: Text(
+            responsable == null
+                ? 'Acta devuelta, pero nadie en '
+                      '${visita.centroCostoNombre} tiene el cargo de '
+                      'administrador: asigna la corrección a mano.'
+                : 'Acta devuelta. La corrección quedó en '
+                      '${responsable.nombre}.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      final mensaje = error is ArgumentError
+          ? '${error.message}'
+          : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade400,
+          content: Text('No se pudo devolver: $mensaje'),
+        ),
+      );
     }
   }
 

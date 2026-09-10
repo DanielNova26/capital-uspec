@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:todo/interventoria/interventoria_models.dart';
 import 'package:todo/interventoria/interventoria_service.dart';
 
 /// Regresión del 9 sep 2026: "Ojo con los responsables: Adriana Rojas es de
@@ -188,6 +189,60 @@ void main() {
     test('la regla generica "Administrador" sigue cubriendo a los dos', () {
       expect(afinidadCargo('Administrador', 'Administrador tipo 1'), isNotNull);
       expect(afinidadCargo('Administrador', 'Administrador tipo 2'), isNotNull);
+    });
+  });
+
+  group('devolución de un acta', () {
+    test('el motivo es obligatorio y con contenido', () {
+      // Un acta que vuelve sin decir qué está mal obliga a adivinar, y lo
+      // normal es que la devuelvan igual.
+      expect(validarDevolucionActa(''), isNotNull);
+      expect(validarDevolucionActa('   '), isNotNull);
+      expect(validarDevolucionActa('mal'), isNotNull);
+      expect(
+        validarDevolucionActa('Los puntajes de la sección 3 no cuadran'),
+        isNull,
+      );
+    });
+
+    test('vuelve al estado que ya existe, no a uno inventado', () {
+      // 'puntajes' es "pendiente de revisión": reaparece en Por revisar y es
+      // editable desde el histórico, que es justo lo que se pidió.
+      expect(kFaseActaDevuelta, 'puntajes');
+    });
+
+    test('el título nombra el establecimiento', () {
+      expect(
+        tituloTareaDevolucionActa(centroNombre: 'Buen Pastor'),
+        contains('Buen Pastor'),
+      );
+      // Sin nombre no queda un hueco en la frase.
+      expect(
+        tituloTareaDevolucionActa(centroNombre: '  '),
+        isNot(contains('—  ')),
+      );
+    });
+
+    test('la descripción empieza por el motivo', () {
+      final d = descripcionTareaDevolucionActa(
+        motivo: 'Falta la firma del supervisor',
+        devueltoPorNombre: 'Kary',
+        fechaVisita: DateTime(2026, 9, 3),
+      );
+
+      expect(d, startsWith('Falta la firma del supervisor'));
+      expect(d, contains('03/09/2026'));
+      expect(d, contains('Kary'));
+    });
+
+    test('sin fecha ni autor la descripción sigue teniendo sentido', () {
+      final d = descripcionTareaDevolucionActa(
+        motivo: 'Corregir los gramajes',
+        devueltoPorNombre: '',
+      );
+
+      expect(d, startsWith('Corregir los gramajes'));
+      expect(d, contains('histórico'));
     });
   });
 }

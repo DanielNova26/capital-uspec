@@ -79,7 +79,7 @@ Fronteras compartidas que **sí** hay que negociar antes de tocar:
 - [x] Maestro de responsabilidades: separar `Administrador tipo 1` de
       `Administrador tipo 2` para que la tarea caiga en el rol correcto según
       el establecimiento.
-- [ ] Rechazo de acta por calidad → genera automáticamente la tarea de
+- [x] Rechazo de acta por calidad → genera automáticamente la tarea de
       corrección al administrador del establecimiento, editable desde el
       histórico.
 - [ ] Exportar la tabla de subsanaciones.
@@ -4094,3 +4094,44 @@ chat. Cuando hay más de un mensaje lo dice ("3 mensajes").
 4. **Mis tareas**: la descripción de la tarea es el motivo, a tamaño 14.
 5. **La notificación**, que desde ahora también sale en el segundo rechazo y
    siguientes.
+
+---
+
+## Interventoría — devolver un acta con errores (10 sep 2026)
+
+Lo que se pidió: que calidad pueda rechazar un acta y que eso genere sola la
+tarea de corrección para el administrador del establecimiento, quedando el acta
+editable desde el histórico.
+
+Ya existía `reabrirActaParaRevision`, pero es otra cosa: es el admin deshaciendo
+un clic propio. No pide motivo, no deja constancia y no avisa a nadie. Devolver
+un acta es una decisión sobre el trabajo del establecimiento, no un deshacer.
+
+`devolverActaParaCorreccion` hace las tres cosas que van juntas:
+
+1. Regresa el acta a `puntajes`, que es el estado que ya significa "pendiente de
+   revisión": reaparece en "Por revisar" y es editable desde el histórico. No se
+   inventó un estado nuevo porque el que hacía falta ya existía y todas las
+   pantallas saben leerlo.
+2. Deja constancia: motivo, quién y cuándo. Y **acumula** en `devoluciones`, no
+   sobrescribe: un acta puede volver varias veces y saber cuántas es parte de
+   evaluar al establecimiento.
+3. Crea la tarea para quien responde por esa sede, resuelta con el mismo motor
+   del maestro — así que hereda la corrección de esta mañana y no se la manda a
+   alguien de otra ciudad.
+
+### El acta vuelve aunque no haya a quién asignarle la tarea
+
+Si en el establecimiento no hay nadie con el cargo de administrador, la función
+devuelve el acta igual y avisa de que la tarea quedó sin dueño. Dejar un acta
+mala como buena por un problema de nuestro maestro de personal sería lo peor de
+las dos opciones; el aviso dice a la cara que hay que asignarla a mano.
+
+Por lo mismo se exige un motivo de al menos diez caracteres: un acta que vuelve
+sin decir qué está mal obliga a adivinar, y lo normal es que la devuelvan igual.
+
+### Quién puede
+
+`puedeRevisarActas`: calidad, gerencia y la administración del módulo. El botón
+de devolver **no** está detrás de `esAdminDesarrollo` como el de reabrir,
+precisamente porque no son la misma acción.

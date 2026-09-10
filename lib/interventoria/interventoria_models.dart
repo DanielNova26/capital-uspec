@@ -1681,3 +1681,66 @@ double calcularScoreHallazgos(List<InterventoriaHallazgo> hallazgos) {
   final subsanados = hallazgos.where((h) => h.isSubsanado).length;
   return double.parse((subsanados / hallazgos.length * 100).toStringAsFixed(2));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Devolución de un acta con errores
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Cargo que responde por corregir un acta devuelta.
+///
+/// Uno solo y genérico: `afinidadCargo` hace que "Administrador" resuelva
+/// también a "Administrador tipo 1" y "tipo 2", y quién de los dos es el de esa
+/// sede lo decide el establecimiento, no una lista escrita a mano aquí.
+const List<String> kInterventoriaCargosCorreccionActa = ['Administrador'];
+
+/// Estado al que vuelve un acta devuelta.
+///
+/// `puntajes` es "Fase 1 completa, pendiente de revisión": el acta reaparece en
+/// "Por revisar" y se puede editar desde el histórico, que es lo que se pidió.
+/// No se inventa un estado nuevo porque el que hace falta ya existe y todas las
+/// pantallas saben leerlo.
+const String kFaseActaDevuelta = 'puntajes';
+
+/// El motivo de la devolución es obligatorio.
+///
+/// Un acta que vuelve sin decir qué está mal obliga al administrador a
+/// adivinar, y lo normal es que la devuelva igual.
+String? validarDevolucionActa(String motivo) {
+  final limpio = motivo.trim();
+  if (limpio.isEmpty) return 'Indica qué debe corregirse en el acta.';
+  if (limpio.length < 10) {
+    return 'Explica un poco más: con menos de diez caracteres nadie sabe qué '
+        'corregir.';
+  }
+  return null;
+}
+
+/// Título de la tarea de corrección.
+String tituloTareaDevolucionActa({
+  required String centroNombre,
+  String? tipoActa,
+}) {
+  final sede = centroNombre.trim().isEmpty
+      ? 'el establecimiento'
+      : centroNombre.trim();
+  return 'Corregir ${etiquetaTipoActa(tipoActa).toLowerCase()} — $sede';
+}
+
+/// Descripción de la tarea: el motivo primero, porque es lo que hay que hacer.
+String descripcionTareaDevolucionActa({
+  required String motivo,
+  required String devueltoPorNombre,
+  DateTime? fechaVisita,
+}) {
+  final quien = devueltoPorNombre.trim();
+  final partes = <String>[
+    motivo.trim(),
+    '',
+    if (fechaVisita != null)
+      'Acta del ${fechaVisita.day.toString().padLeft(2, '0')}/'
+          '${fechaVisita.month.toString().padLeft(2, '0')}/${fechaVisita.year}.',
+    if (quien.isNotEmpty) 'Devuelta por $quien.',
+    'El acta volvió a "Por revisar" y se puede editar desde el histórico.',
+  ];
+  return partes.join('\n').trim();
+}
