@@ -4,7 +4,6 @@
 // Ejecuta el matching automático y presenta los resultados al usuario
 // antes de confirmar la creación del lote.
 
-
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -93,8 +92,8 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     );
     if (result == null) return;
 
-    final conBytes  = result.files.where((f) => f.bytes != null).toList();
-    final sinBytes  = result.files.length - conBytes.length;
+    final conBytes = result.files.where((f) => f.bytes != null).toList();
+    final sinBytes = result.files.length - conBytes.length;
 
     final nuevos = conBytes
         .map((f) => (nombre: f.name, bytes: f.bytes!))
@@ -109,7 +108,7 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
       }
       _error = sinBytes > 0
           ? 'No se pudieron leer $sinBytes archivo(s). '
-            'Inténtalo de nuevo o selecciona archivos más pequeños.'
+                'Inténtalo de nuevo o selecciona archivos más pequeños.'
           : null;
     });
     _runMatching();
@@ -121,9 +120,9 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
   }
 
   Future<void> _addDroppedPdfs(DropDoneDetails detail) async {
-    final pdfFiles = detail.files.where(
-      (f) => f.name.toLowerCase().endsWith('.pdf'),
-    ).toList();
+    final pdfFiles = detail.files
+        .where((f) => f.name.toLowerCase().endsWith('.pdf'))
+        .toList();
     if (pdfFiles.isEmpty) return;
 
     final nuevos = <({String nombre, Uint8List bytes})>[];
@@ -192,7 +191,9 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
         excelNombre: _excelNombre,
         pdfs: _pdfs,
         matchResults: _matches,
-        descripcion: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+        descripcion: _descCtrl.text.trim().isEmpty
+            ? null
+            : _descCtrl.text.trim(),
       );
 
       if (!mounted) return;
@@ -232,7 +233,13 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
             TextButton.icon(
               onPressed: _canSubmit ? _submit : null,
               icon: const Icon(Icons.cloud_upload_outlined),
-              label: const Text('SUBIR LOTE', style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800)),
+              label: const Text(
+                'SUBIR LOTE',
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
           const SizedBox(width: 8),
         ],
@@ -247,7 +254,10 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                     children: [
                       CircularProgressIndicator(),
                       SizedBox(height: 16),
-                      Text('Subiendo archivos y creando planillas…', style: TextStyle(fontFamily: kArial)),
+                      Text(
+                        'Subiendo archivos y creando planillas…',
+                        style: TextStyle(fontFamily: kArial),
+                      ),
                     ],
                   ),
                 )
@@ -257,14 +267,16 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                     _buildSection(
                       icon: Icons.table_chart_outlined,
                       title: 'Archivo Excel (opcional)',
-                      subtitle: 'Si lo subes, permite cruzar PDFs con datos del Excel (nombre, fecha, valor).',
+                      subtitle:
+                          'Si lo subes, permite cruzar PDFs con datos del Excel (nombre, fecha, valor).',
                       child: _buildExcelPicker(),
                     ),
                     const SizedBox(height: 20),
                     _buildSection(
                       icon: Icons.picture_as_pdf_outlined,
                       title: 'Archivos PDF',
-                      subtitle: 'Múltiples PDFs. Cada uno se convierte en una planilla individual.',
+                      subtitle:
+                          'Múltiples PDFs. Cada uno se convierte en una planilla individual.',
                       child: _buildPdfPicker(),
                     ),
                     if (_matches.isNotEmpty) ...[
@@ -279,7 +291,8 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                         controller: _descCtrl,
                         maxLines: 2,
                         decoration: const InputDecoration(
-                          hintText: 'Ej: Planillas de nómina quincena 1 abril 2026',
+                          hintText:
+                              'Ej: Planillas de nómina quincena 1 abril 2026',
                           border: OutlineInputBorder(),
                           hintStyle: TextStyle(fontFamily: kArial),
                         ),
@@ -295,7 +308,15 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                           children: [
                             const Icon(Icons.error_outline, color: Colors.red),
                             const SizedBox(width: 12),
-                            Expanded(child: Text(_error!, style: const TextStyle(fontFamily: kArial, color: Colors.red))),
+                            Expanded(
+                              child: Text(
+                                _error!,
+                                style: const TextStyle(
+                                  fontFamily: kArial,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -305,17 +326,26 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: _canSubmit ? _submit : null,
-                        icon: const Icon(Icons.cloud_upload_outlined, color: Colors.white),
+                        icon: const Icon(
+                          Icons.cloud_upload_outlined,
+                          color: Colors.white,
+                        ),
                         label: Text(
                           _pdfs.isEmpty
                               ? 'CREAR LOTE (solo Excel)'
                               : 'CREAR LOTE (${_pdfs.length} PDF${_pdfs.length == 1 ? '' : 's'})',
-                          style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900, color: Colors.white),
+                          style: const TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: GdPalette.accent,
                           padding: const EdgeInsets.symmetric(vertical: 18),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                       ),
                     ),
@@ -326,7 +356,8 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     );
   }
 
-  bool get _canSubmit => (_excelBytes != null || _pdfs.isNotEmpty) && !_uploading;
+  bool get _canSubmit =>
+      (_excelBytes != null || _pdfs.isNotEmpty) && !_uploading;
 
   Widget _buildSection({
     required IconData icon,
@@ -344,13 +375,27 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
               children: [
                 Icon(icon, color: GdPalette.accent, size: 20),
                 const SizedBox(width: 10),
-                Text(title,
-                    style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 15, color: GdPalette.primary)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: GdPalette.primary,
+                  ),
+                ),
               ],
             ),
             if (subtitle != null) ...[
               const SizedBox(height: 4),
-              Text(subtitle, style: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted)),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: GdPalette.muted,
+                ),
+              ),
             ],
             const SizedBox(height: 16),
             child,
@@ -374,19 +419,32 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
         _buildFileChip(
           icon: Icons.table_chart,
           name: _excelNombre!,
-          onRemove: () => setState(() { _excelBytes = null; _excelNombre = null; _excelResult = null; _runMatching(); }),
+          onRemove: () => setState(() {
+            _excelBytes = null;
+            _excelNombre = null;
+            _excelResult = null;
+            _runMatching();
+          }),
         ),
         if (_excelResult != null) ...[
           const SizedBox(height: 8),
           Text(
             '${_excelResult!.filas.length} filas leídas · ${_excelResult!.filasOmitidas} omitidas',
-            style: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: GdPalette.muted,
+            ),
           ),
           if (_excelResult!.columnas.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               'Columnas: ${_excelResult!.columnas.join(", ")}',
-              style: const TextStyle(fontFamily: kArial, fontSize: 11, color: GdPalette.muted),
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 11,
+                color: GdPalette.muted,
+              ),
             ),
           ],
         ],
@@ -398,7 +456,7 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     return DropTarget(
       onDragDone: _addDroppedPdfs,
       onDragEntered: (_) => setState(() => _isDragging = true),
-      onDragExited:  (_) => setState(() => _isDragging = false),
+      onDragExited: (_) => setState(() => _isDragging = false),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -438,7 +496,9 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
                 ),
                 const SizedBox(height: 12),
                 _buildPickButton(
-                  label: _pdfs.isEmpty ? 'Seleccionar PDFs' : 'Agregar más PDFs',
+                  label: _pdfs.isEmpty
+                      ? 'Seleccionar PDFs'
+                      : 'Agregar más PDFs',
                   icon: Icons.add_circle_outline,
                   onTap: _pickPdfs,
                 ),
@@ -448,23 +508,27 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
           // Lista de PDFs cargados
           if (_pdfs.isNotEmpty) ...[
             const SizedBox(height: 10),
-            ..._pdfs.map((p) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: _buildFileChip(
-                icon: Icons.picture_as_pdf,
-                name: p.nombre,
-                onRemove: () => _removePdf(p.nombre),
-                matchEstado: _excelBytes == null
-                    ? null
-                    : _matches.firstWhere(
-                        (m) => m.pdfNombre == p.nombre,
-                        orElse: () => PpMatchResult(
-                          pdfNombre: p.nombre,
-                          matchEstado: PpMatchEstado.sin_coincidencia,
-                        ),
-                      ).matchEstado,
+            ..._pdfs.map(
+              (p) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: _buildFileChip(
+                  icon: Icons.picture_as_pdf,
+                  name: p.nombre,
+                  onRemove: () => _removePdf(p.nombre),
+                  matchEstado: _excelBytes == null
+                      ? null
+                      : _matches
+                            .firstWhere(
+                              (m) => m.pdfNombre == p.nombre,
+                              orElse: () => PpMatchResult(
+                                pdfNombre: p.nombre,
+                                matchEstado: PpMatchEstado.sin_coincidencia,
+                              ),
+                            )
+                            .matchEstado,
+                ),
               ),
-            )),
+            ),
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
@@ -482,11 +546,18 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
     );
   }
 
-  Widget _buildPickButton({required String label, required IconData icon, required VoidCallback onTap}) {
+  Widget _buildPickButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
     return OutlinedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
-      label: Text(label, style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700)),
+      label: Text(
+        label,
+        style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w700),
+      ),
       style: OutlinedButton.styleFrom(
         foregroundColor: GdPalette.accent,
         side: const BorderSide(color: GdPalette.border),
@@ -527,7 +598,11 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
           Icon(icon, size: 18, color: GdPalette.accent),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(name, style: const TextStyle(fontFamily: kArial, fontSize: 13), overflow: TextOverflow.ellipsis),
+            child: Text(
+              name,
+              style: const TextStyle(fontFamily: kArial, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           if (matchEstado != null && matchIcon != null) ...[
             Icon(matchIcon, size: 16, color: matchColor),
@@ -546,9 +621,15 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
   }
 
   Widget _buildMatchingReport() {
-    final exactos = _matches.where((m) => m.matchEstado == PpMatchEstado.coincidencia_exacta).length;
-    final parciales = _matches.where((m) => m.matchEstado == PpMatchEstado.coincidencia_parcial).length;
-    final sinMatch = _matches.where((m) => m.matchEstado == PpMatchEstado.sin_coincidencia).length;
+    final exactos = _matches
+        .where((m) => m.matchEstado == PpMatchEstado.coincidencia_exacta)
+        .length;
+    final parciales = _matches
+        .where((m) => m.matchEstado == PpMatchEstado.coincidencia_parcial)
+        .length;
+    final sinMatch = _matches
+        .where((m) => m.matchEstado == PpMatchEstado.sin_coincidencia)
+        .length;
 
     return ModuleCard(
       color: GdPalette.accent.withValues(alpha: 0.04),
@@ -557,8 +638,15 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Resultado del matching Excel ↔ PDF',
-                style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800, fontSize: 13, color: GdPalette.primary)),
+            const Text(
+              'Resultado del matching Excel ↔ PDF',
+              style: TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                color: GdPalette.primary,
+              ),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -573,14 +661,22 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
               const SizedBox(height: 8),
               Text(
                 '${_filasHuerfanas.length} filas del Excel sin PDF correspondiente (requieren conciliación manual tras la carga).',
-                style: const TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
+                style: const TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: GdPalette.muted,
+                ),
               ),
             ],
             if (sinMatch > 0) ...[
               const SizedBox(height: 8),
               const Text(
                 'Los PDFs sin coincidencia se crearán sin datos del Excel. Podrás conciliarlos manualmente dentro del lote.',
-                style: TextStyle(fontFamily: kArial, fontSize: 12, color: GdPalette.muted),
+                style: TextStyle(
+                  fontFamily: kArial,
+                  fontSize: 12,
+                  color: GdPalette.muted,
+                ),
               ),
             ],
           ],
@@ -596,6 +692,14 @@ class _PpLoteUploadScreenState extends State<PpLoteUploadScreen> {
       borderRadius: BorderRadius.circular(20),
       border: Border.all(color: color.withValues(alpha: 0.3)),
     ),
-    child: Text(label, style: TextStyle(fontFamily: kArial, fontSize: 12, color: color, fontWeight: FontWeight.w700)),
+    child: Text(
+      label,
+      style: TextStyle(
+        fontFamily: kArial,
+        fontSize: 12,
+        color: color,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
   );
 }

@@ -126,7 +126,11 @@ void main() {
         '',
         null,
       ]) {
-        expect(GdRolCorrespondencia.desdeTexto(texto), isNull, reason: '$texto');
+        expect(
+          GdRolCorrespondencia.desdeTexto(texto),
+          isNull,
+          reason: '$texto',
+        );
       }
     });
   });

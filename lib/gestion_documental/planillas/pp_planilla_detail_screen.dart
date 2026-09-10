@@ -4,6 +4,7 @@
 // Muestra el PDF, el historial de acciones y permite ejecutar
 // la siguiente transición según el rol del usuario.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,6 +22,7 @@ import '../../utils/url_binary_loader.dart';
 import '../../widgets/internal_module_layout.dart';
 import '../../widgets/user_avatar.dart';
 import 'pp_excel_parser.dart';
+import 'pp_archivo_plano.dart';
 import 'pp_models.dart';
 import 'pp_service.dart';
 
@@ -808,6 +810,115 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     return fileName.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
   }
 
+  /// Filas de la planilla, tal como se guardaron al generarla.
+  ///
+  /// Un consolidado guarda las suyas en `filas_rows`; una planilla individual
+  /// es una sola fila y sus datos están en el propio `datosExcel`.
+  List<Map<String, dynamic>> _filasDePago(PpPlanilla planilla) {
+    final rows = planilla.datosExcel['filas_rows'];
+    if (rows is List && rows.isNotEmpty) {
+      return rows
+          .whereType<Map>()
+          .map((m) => m.cast<String, dynamic>())
+          .toList();
+    }
+    if (planilla.datosExcel.isEmpty) return const [];
+    return [
+      {
+        'valor': planilla.valorDetectado,
+        'extras': planilla.datosExcel.map(
+          (k, v) => MapEntry(k, (v ?? '').toString()),
+        ),
+      },
+    ];
+  }
+
+  /// Descarga el archivo plano de la planilla firmada.
+  ///
+  /// Solo de una planilla **firmada**: el plano es la instrucción que se le
+  /// sube al banco, y bajarlo antes de la firma de gerencia permitiría pagar
+  /// algo que todavía no está aprobado.
+  Future<void> _descargarPlano(PpPlanilla planilla) async {
+    final filas = filasPlanoDesdePlanilla(
+      _filasDePago(planilla),
+      fechaLimite: planilla.firmadoEn?.toDate() ?? DateTime.now(),
+      concepto: (planilla.nombrePlanillaDetectado ?? '').trim(),
+    );
+    final messenger = ScaffoldMessenger.of(context);
+    if (filas.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('La planilla no tiene filas de pago guardadas.'),
+        ),
+      );
+      return;
+    }
+
+    // Se avisa ANTES de descargar, no después: un archivo plano con un dato
+    // malo lo rechaza el banco entero, y enterarse allí cuesta un día de pagos.
+    final errores = validarPlanoPagos(filas);
+    if (errores.isNotEmpty && mounted) {
+      final seguir = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('${errores.length} dato(s) que el banco va a rechazar'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final e in errores.take(12))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text('· $e', style: const TextStyle(fontSize: 12)),
+                    ),
+                  if (errores.length > 12)
+                    Text('… y ${errores.length - 12} más.'),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Descargar igual'),
+            ),
+          ],
+        ),
+      );
+      if (seguir != true) return;
+    }
+
+    try {
+      final csv = generarArchivoPlanoCsv(filas);
+      await FileSaver.instance.saveFile(
+        name: _downloadBaseName(_downloadFileName(planilla)),
+        // latin1 y no UTF-8: el cargador del banco es de los que no entienden
+        // los acentos en UTF-8, y un nombre con tilde mal codificado es una
+        // fila rechazada. Los caracteres que no existan en latin1 se
+        // reemplazan en vez de romper la codificación entera.
+        bytes: Uint8List.fromList(latin1.encode(aLatin1Seguro(csv))),
+        fileExtension: 'csv',
+        mimeType: MimeType.csv,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Archivo plano con ${filas.length} pago(s).')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('No se pudo generar el plano: $error')),
+      );
+    }
+  }
+
   Widget _buildDescargarButton(PpPlanilla planilla) {
     return SizedBox(
       width: double.infinity,
@@ -835,6 +946,30 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           padding: const EdgeInsets.symmetric(vertical: 12),
         ),
         onPressed: _isDownloading ? null : () => _descargarPdf(planilla),
+      ),
+    );
+  }
+
+  /// Botón del archivo plano. Solo aparece con la planilla firmada.
+  Widget _buildDescargarPlanoButton(PpPlanilla planilla) {
+    if (planilla.estado != PpEstado.firmada) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.table_view_outlined, size: 18),
+          label: const Text(
+            'Descargar archivo plano (CSV)',
+            style: TextStyle(fontFamily: 'Arial', fontWeight: FontWeight.w700),
+          ),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: GdPalette.primary,
+            side: const BorderSide(color: GdPalette.primary),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+          ),
+          onPressed: () => _descargarPlano(planilla),
+        ),
       ),
     );
   }
@@ -1074,7 +1209,13 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
         if (planilla.urlPdf != null || planilla.pathPdf != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: _buildDescargarButton(planilla),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildDescargarButton(planilla),
+                _buildDescargarPlanoButton(planilla),
+              ],
+            ),
           ),
 
         // Acciones disponibles

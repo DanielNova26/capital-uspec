@@ -425,3 +425,161 @@ String generarArchivoPlanoCsv(List<PlanoPagoFila> filas) {
     for (final f in filas) linea(f.celdas),
   ].join('\r\n');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// De una planilla firmada al archivo plano
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Busca un valor en `extras` probando varios nombres de columna.
+///
+/// El Excel lo llenan personas y las cabeceras cambian: "No Cuenta", "N CUENTA",
+/// "numero_cuenta". Se buscan todas las formas conocidas en vez de exigir una.
+String _extra(Map<String, String> extras, List<String> alias) {
+  String limpiar(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+  final normalizados = {
+    for (final e in extras.entries) limpiar(e.key): e.value,
+  };
+  for (final a in alias) {
+    final v = normalizados[limpiar(a)];
+    if (v != null && v.trim().isNotEmpty) return v.trim();
+  }
+  return '';
+}
+
+/// Deja solo los dígitos. Los NIT vienen con puntos y guiones del Excel.
+String soloDigitos(String valor) => valor.replaceAll(RegExp(r'[^0-9]'), '');
+
+/// Tipo de cuenta a partir de las columnas CTE / AHO de la planilla.
+///
+/// En el papel se marca con una X en una de las dos columnas, no con un número.
+/// Corriente = 01, Ahorros = 02, que es lo que espera el banco.
+String tipoCuentaDesdePlanilla({
+  required String marcaCorriente,
+  required String marcaAhorros,
+  String valorDirecto = '',
+}) {
+  final directo = valorDirecto.trim().toUpperCase();
+  if (directo.isNotEmpty) {
+    if (directo.startsWith('C')) return '1';
+    if (directo.startsWith('A')) return '2';
+    final soloNum = directo.replaceAll(RegExp(r'[^0-9]'), '');
+    if (soloNum.isNotEmpty) return soloNum;
+  }
+  if (marcaCorriente.trim().isNotEmpty) return '1';
+  if (marcaAhorros.trim().isNotEmpty) return '2';
+  return '';
+}
+
+/// Convierte las filas guardadas de una planilla en líneas del archivo plano.
+///
+/// La planilla ya trae **todo lo que el banco necesita** —NIT, dígito de
+/// verificación, beneficiario, cuenta, si es corriente o de ahorros, banco y
+/// valor—, así que no hace falta el maestro de cuentas para este caso: el
+/// maestro sirve para la nómina, donde el beneficiario es una persona.
+///
+/// [importeEnPesos] indica si los valores vienen en pesos (lo normal) o ya en
+/// centavos.
+List<PlanoPagoFila> filasPlanoDesdePlanilla(
+  List<Map<String, dynamic>> filasRows, {
+  required DateTime? fechaLimite,
+  String concepto = '',
+  String formaPago = '1',
+  bool importeEnPesos = true,
+}) {
+  final salida = <PlanoPagoFila>[];
+  for (final raw in filasRows) {
+    final extras =
+        (raw['extras'] as Map?)?.map(
+          (k, v) => MapEntry(k.toString(), (v ?? '').toString()),
+        ) ??
+        const <String, String>{};
+
+    final nit = soloDigitos(
+      _extra(extras, const ['nit', 'identificacion', 'documento', 'cedula']),
+    );
+    final nombre = _extra(extras, const [
+      'proveedor',
+      'beneficiario',
+      'apellidos y nombres',
+      'nombre',
+    ]);
+    final cuenta = soloDigitos(
+      _extra(extras, const [
+        'no cuenta',
+        'n cuenta',
+        'numero cuenta',
+        'cuenta',
+      ]),
+    );
+    final valorRaw = raw['valor'];
+    final pesos = valorRaw is num
+        ? valorRaw.toDouble()
+        : double.tryParse(
+                _extra(extras, const [
+                  'valor a pagar',
+                  'valor',
+                ]).replaceAll(RegExp(r'[^0-9,.-]'), '').replaceAll(',', ''),
+              ) ??
+              0;
+
+    // Las filas sin cuenta o sin valor no se saltan en silencio: entran, y
+    // `validarPlanoPagos` dirá de quién es el problema. Omitirlas produciría un
+    // archivo que cuadra consigo mismo pero no con la planilla firmada.
+    salida.add(
+      PlanoPagoFila(
+        identificacion: nit,
+        tipoId: nit.length > 10 ? '2' : '1',
+        digitoVerificacion: soloDigitos(
+          _extra(extras, const ['dv', 'digito v', 'digito verificacion']),
+        ),
+        nombre: nombre,
+        formaPago: formaPago,
+        banco: soloDigitos(_extra(extras, const ['banco', 'codigo banco'])),
+        tipoCuenta: tipoCuentaDesdePlanilla(
+          marcaCorriente: _extra(extras, const ['cte', 'corriente']),
+          marcaAhorros: _extra(extras, const ['aho', 'ahorros']),
+          valorDirecto: _extra(extras, const ['tipo de cuenta', 'tipo cuenta']),
+        ),
+        numeroCuenta: cuenta,
+        fechaLimite: fechaLimite,
+        importeCentavos: importeEnPesos ? (pesos * 100).round() : pesos.round(),
+        conceptos: concepto.trim().isEmpty ? const [] : [concepto.trim()],
+      ),
+    );
+  }
+  return salida;
+}
+
+/// Reemplaza lo que latin1 no sabe escribir, sin romper la codificación.
+///
+/// El cargador del banco es de los que no entienden UTF-8: un nombre con tilde
+/// mal codificado es una fila rechazada. Las tildes y la eñe **sí** existen en
+/// latin1 y se conservan; lo que no existe —comillas tipográficas, guiones
+/// largos, emojis que alguien pegó desde Word— se cambia por su equivalente
+/// simple en vez de reventar el archivo entero.
+String aLatin1Seguro(String texto) {
+  const equivalencias = {
+    '‘': "'",
+    '’': "'",
+    '“': '"',
+    '”': '"',
+    '–': '-',
+    '—': '-',
+    '…': '...',
+    ' ': ' ',
+  };
+  final buffer = StringBuffer();
+  for (final rune in texto.runes) {
+    final char = String.fromCharCode(rune);
+    final reemplazo = equivalencias[char];
+    if (reemplazo != null) {
+      buffer.write(reemplazo);
+    } else if (rune <= 0xFF) {
+      buffer.write(char);
+    } else {
+      buffer.write('?');
+    }
+  }
+  return buffer.toString();
+}

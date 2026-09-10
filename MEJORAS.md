@@ -4690,3 +4690,52 @@ sobre una empresa que ya existe es el caso normal.
 sus datos, puestos a propósito; copiarle encima los del origen los borraría en
 silencio. Solo se deja constancia del traslado. Cuando la empresa destino no
 existe, el comportamiento de siempre se conserva intacto.
+
+---
+
+## El archivo plano sale de la planilla firmada (10 sep 2026)
+
+El generador estaba hecho y sin conectar. Ya hay un botón **"Descargar archivo
+plano (CSV)"** en el detalle de la planilla, debajo del de PDF.
+
+### No hace falta el maestro de cuentas para esto
+
+La planilla de anticipos ya trae **todo lo que el banco necesita**: NIT, dígito
+de verificación, beneficiario, número de cuenta, si es corriente o de ahorros,
+banco y valor. El maestro de cuentas es para la **nómina**, donde el
+beneficiario es una persona y esos datos no están en ningún documento.
+
+Las filas ya se guardaban: un consolidado las tiene en
+`datosExcel.filas_rows`, y una planilla individual es una sola fila en su propio
+`datosExcel`.
+
+### Solo con la planilla firmada
+
+El botón no aparece antes. El plano es la instrucción que se le sube al banco:
+bajarlo antes de la firma de gerencia permitiría pagar algo que todavía no está
+aprobado.
+
+### Tres cosas que no son obvias
+
+- **CTE / AHO se marcan con una X**, no con un número. Se traduce a 01 y 02, que
+  es lo que el banco espera.
+- **Las cabeceras del Excel las escriben personas** y cambian entre archivos:
+  "No Cuenta", "N CUENTA", "numero_cuenta". Se buscan todas las formas conocidas
+  en vez de exigir una.
+- **El archivo se escribe en latin1**, no en UTF-8. El cargador del banco es de
+  los que no entienden UTF-8, y un nombre con tilde mal codificado es una fila
+  rechazada. Las tildes y la eñe existen en latin1 y se conservan; lo que no
+  existe —comillas tipográficas, guiones largos pegados desde Word— se cambia
+  por su equivalente simple en vez de reventar el archivo entero.
+
+### Se avisa antes de descargar, no después
+
+Si alguna fila tiene un dato que el banco va a rechazar, se enseña la lista con
+nombre y apellido y se pregunta si se descarga igual. Un plano con un dato malo
+lo rechaza el banco **entero**, y enterarse allí cuesta un día de pagos.
+
+### Sigue faltando el maestro de cuentas
+
+`TBL_NOMINA_CUENTAS` está modelado y probado, con su importador de Excel, pero
+**no tiene pantalla ni reglas de Firestore**. Eso es lo que falta para la nómina;
+para los anticipos a proveedores no hace falta.

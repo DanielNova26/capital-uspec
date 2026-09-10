@@ -270,4 +270,99 @@ void main() {
       expect(pago[17], 'a@b.co');
     });
   });
+
+  group('de la planilla firmada al plano', () {
+    Map<String, dynamic> filaExcel(Map<String, String> extras, double valor) =>
+        {'valor': valor, 'extras': extras};
+
+    test('lee el NIT, la cuenta y el banco de la planilla', () {
+      // La planilla ya trae todo lo que el banco necesita: no hace falta el
+      // maestro de cuentas, que es para la nómina.
+      final filas = filasPlanoDesdePlanilla(
+        [
+          filaExcel(const {
+            'NIT': '860.046.201',
+            'DV': '2',
+            'PROVEEDOR': 'PROVEEDOR DE PRUEBA',
+            'N CUENTA': '019068402',
+            'CTE': 'X',
+            'BANCO': '23',
+          }, 20580830),
+        ],
+        fechaLimite: DateTime(2026, 9, 4),
+        concepto: 'ANTICIPO',
+      );
+
+      expect(filas.single.identificacion, '860046201'); // sin puntos
+      expect(filas.single.celdas[2], '0002'); // relleno a cuatro
+      expect(filas.single.tipoCuenta, '1'); // CTE marcada
+      expect(filas.single.celdas[5], '0023'); // banco relleno
+      expect(filas.single.importeCentavos, 2058083000);
+      expect(filas.single.conceptos, ['ANTICIPO']);
+    });
+
+    test('la X va en AHO y el tipo de cuenta es 02', () {
+      final filas = filasPlanoDesdePlanilla([
+        filaExcel(const {
+          'NIT': '890319193',
+          'No Cuenta': '06049670476',
+          'AHO': 'x',
+          'BANCO': '7',
+        }, 14158178),
+      ], fechaLimite: DateTime(2026, 9, 4));
+
+      expect(filas.single.tipoCuenta, '2');
+      expect(filas.single.celdas[6], '0002');
+    });
+
+    test('acepta los nombres de columna que use el Excel', () {
+      // Las cabeceras las escriben personas y cambian de un archivo a otro.
+      final filas = filasPlanoDesdePlanilla([
+        filaExcel(const {
+          'identificacion': '900123456',
+          'numero_cuenta': '1234',
+          'beneficiario': 'ALGUIEN SAS',
+          'tipo de cuenta': 'AHORROS',
+          'codigo banco': '13',
+        }, 1000),
+      ], fechaLimite: DateTime(2026, 9, 4));
+
+      expect(filas.single.nombre, 'ALGUIEN SAS');
+      expect(filas.single.numeroCuenta, '1234');
+      expect(filas.single.tipoCuenta, '2');
+    });
+
+    test('una fila incompleta entra y la validación dice de quién es', () {
+      // Omitirla produciría un archivo que cuadra consigo mismo pero no con la
+      // planilla firmada.
+      final filas = filasPlanoDesdePlanilla([
+        filaExcel(const {'PROVEEDOR': 'SIN CUENTA SAS'}, 500),
+      ], fechaLimite: DateTime(2026, 9, 4));
+
+      expect(filas, hasLength(1));
+      final errores = validarPlanoPagos(filas);
+      expect(errores, isNotEmpty);
+      expect(errores.first.toString(), contains('SIN CUENTA SAS'));
+    });
+
+    test('un NIT largo se marca como tipo 2', () {
+      final filas = filasPlanoDesdePlanilla([
+        filaExcel(const {'NIT': '12345678901', 'N CUENTA': '1'}, 100),
+      ], fechaLimite: DateTime(2026, 9, 4));
+
+      expect(filas.single.tipoId, '2');
+    });
+  });
+
+  group('codificación del archivo', () {
+    test('conserva tildes y eñes, que sí existen en latin1', () {
+      expect(aLatin1Seguro('NUTRICIÓN Y COMPAÑÍA'), 'NUTRICIÓN Y COMPAÑÍA');
+    });
+
+    test('cambia lo que latin1 no sabe escribir', () {
+      // Comillas y guiones que alguien pegó desde Word.
+      expect(aLatin1Seguro('PAGO – “X”'), 'PAGO - "X"');
+      expect(aLatin1Seguro('emoji \u{1F600}'), 'emoji ?');
+    });
+  });
 }

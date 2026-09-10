@@ -697,8 +697,10 @@ class PpExcelParseResult {
   final int headerRowNumber; // fila real del encabezado en Excel (1-based)
   final int filasOmitidas;
   final String? error;
-  final String? sheetTitle; // título del bloque de portada (ej. "ANTICIPO ALIMENTAR CAPITAL")
-  final String? acConsecutivo; // N° CONSECUTIVO del bloque de portada (formato AC)
+  final String?
+  sheetTitle; // título del bloque de portada (ej. "ANTICIPO ALIMENTAR CAPITAL")
+  final String?
+  acConsecutivo; // N° CONSECUTIVO del bloque de portada (formato AC)
 
   const PpExcelParseResult({
     required this.filas,
