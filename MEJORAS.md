@@ -82,8 +82,8 @@ Fronteras compartidas que **sí** hay que negociar antes de tocar:
 - [x] Rechazo de acta por calidad → genera automáticamente la tarea de
       corrección al administrador del establecimiento, editable desde el
       histórico.
-- [ ] Exportar la tabla de subsanaciones.
-- [ ] GUI del reporte: poder "recoger" el acta para ganar espacio, y ventana
+- [x] Exportar la tabla de subsanaciones.
+- [x] GUI del reporte: poder "recoger" el acta para ganar espacio, y ventana
       flotante con el detalle al tocar una barra del indicador.
 - [ ] Mostrar de forma visible los elementos pendientes de revisión por
       Calidad. Esta observación pertenece a Interventoría, no al semáforo de
@@ -4135,3 +4135,55 @@ sin decir qué está mal obliga a adivinar, y lo normal es que la devuelvan igua
 `puedeRevisarActas`: calidad, gerencia y la administración del módulo. El botón
 de devolver **no** está detrás de `esAdminDesarrollo` como el de reabrir,
 precisamente porque no son la misma acción.
+
+---
+
+## Interventoría — exportar subsanaciones y la GUI del reporte (10 sep 2026)
+
+### Se exporta lo que se está viendo
+
+El botón descarga `sorted`, la lista **ya filtrada y ordenada**, no todos los
+hallazgos. Un archivo que no coincide con lo que había en pantalla obliga a
+rehacer el filtro en Excel y a explicarle a quien lo recibe por qué sobran
+filas. El botón dice cuántas van a salir.
+
+Las columnas son las mismas de la tabla y en el mismo orden, por lo mismo: si se
+separan, quien recibe el archivo no puede cruzarlo con lo que ve el que se lo
+mandó.
+
+**Todo sale como texto**, y no es pereza. Los numerales del acta son "1.1",
+"1.10", "10.20": si Excel los toma por números, **1.10 se convierte en 1.1** y
+deja de existir un numeral. Igual con las fechas, que cambian de formato según
+la configuración regional de quien abra el archivo.
+
+Dos cosas que la tabla resuelve con color y el Excel no puede:
+
+- El estado va en palabras ("Subsanado" / "Pendiente de aprobación" /
+  "Abierto"). En blanco y negro, tres colores son tres celdas iguales.
+- "Sin tarea" se escribe. Una casilla vacía se lee como un dato que faltó
+  exportar.
+
+La descarga reutiliza el ayudante que ya existía en Compras, ahora accesible
+desde `lib/utils/excel_download.dart`. Duplicar el código de plataforma habría
+garantizado que un día se arregle una copia y no la otra.
+
+### Recoger el reporte
+
+En una tablet el gráfico se come la pantalla y la matriz queda en una rendija.
+Ahora se pliega. Arranca **desplegado**: lo que hacía falta era poder quitarlo
+de en medio, no esconderlo por defecto.
+
+### La ventana flotante del indicador
+
+Tocar una barra salía directamente al histórico del establecimiento. En una
+tablet eso es perder el gráfico para leer un dato y tener que volver — y si te
+equivocaste de barra, que en pantalla estrecha pasa, el viaje era en balde.
+
+Ahora el detalle se lee **encima del propio gráfico**: establecimiento, código,
+el porcentaje con su color, la fecha de la última acta, y el histórico a un
+botón.
+
+En esa ventana **"Sin dato" no se pinta como cero**. Un cero es una evaluación
+pésima; la ausencia de dato es que esa categoría no se evaluó en la última acta.
+Confundirlos en un tablero de indicadores es exactamente el error que hace que
+nadie se fíe del tablero.

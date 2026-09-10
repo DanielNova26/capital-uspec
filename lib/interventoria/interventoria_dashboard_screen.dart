@@ -29,6 +29,8 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'interventoria_hallazgo_panel.dart';
 import 'interventoria_maestro_subsanaciones.dart';
+import 'interventoria_subsanaciones_export.dart';
+import '../utils/excel_download.dart';
 import '../widgets/paged_list.dart';
 import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
@@ -2580,6 +2582,44 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
   /// horizontal para lo esencial y no deja asignar. La tabla se conserva para
   /// revisar todas las columnas de una vez.
   bool _tablero = true;
+  bool _exportando = false;
+
+  /// Descarga la tabla tal como se está viendo.
+  ///
+  /// Se exporta `sorted`, que es la lista ya filtrada y ordenada, y no todos
+  /// los hallazgos: un archivo que no coincide con lo que había en pantalla
+  /// obliga a rehacer el filtro en Excel y a explicar la diferencia.
+  Future<void> _exportar(
+    BuildContext context,
+    List<InterventoriaHallazgo> hallazgos,
+  ) async {
+    setState(() => _exportando = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = generarExcelSubsanaciones(hallazgos);
+      await descargarExcelCompras(
+        nombreArchivo: nombreArchivoSubsanaciones(),
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kOk,
+          content: Text('${hallazgos.length} filas exportadas.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: _kDanger,
+          content: Text('No se pudo exportar: $error'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _exportando = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2664,6 +2704,27 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
           onSelectionChanged: (v) => setState(() => _tablero = v.first),
           style: const ButtonStyle(visualDensity: VisualDensity.compact),
         ),
+        const SizedBox(width: 8),
+        // Exporta lo que se está viendo, con los filtros ya aplicados.
+        if (sorted.isNotEmpty)
+          TextButton.icon(
+            onPressed: _exportando ? null : () => _exportar(context, sorted),
+            icon: _exportando
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_rounded, size: 16),
+            label: Text(
+              'Exportar (${sorted.length})',
+              style: const TextStyle(fontSize: 12),
+            ),
+            style: TextButton.styleFrom(
+              foregroundColor: _kAccent,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
       ],
     );
 
@@ -4993,6 +5054,14 @@ class _AnalisisDirectivo extends StatefulWidget {
 }
 
 class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
+  /// Reporte recogido para dejarle el alto a la tabla.
+  ///
+  /// En una tablet el gráfico se come la pantalla y la matriz queda en una
+  /// rendija. Se pidió poder plegarlo (reunión 9 sep 2026). Arranca desplegado
+  /// porque es lo primero que se mira; lo que hacía falta era poder quitarlo de
+  /// en medio, no esconderlo por defecto.
+  bool _reporteRecogido = false;
+
   // _centroId eliminado: usa widget.centroFiltro (compartido entre tabs)
   String _categoriaKey = '';
 
@@ -5437,14 +5506,42 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                             ),
                           );
 
+                    final barraRecoger = Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => setState(
+                          () => _reporteRecogido = !_reporteRecogido,
+                        ),
+                        icon: Icon(
+                          _reporteRecogido
+                              ? Icons.unfold_more_rounded
+                              : Icons.unfold_less_rounded,
+                          size: 16,
+                        ),
+                        label: Text(
+                          _reporteRecogido
+                              ? 'Mostrar el reporte'
+                              : 'Recoger el reporte',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: _kAccent,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    );
+
                     if (esMovil) {
                       // Móvil: scroll continuo — chart + tabla fluyen juntos
                       return SingleChildScrollView(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            chartCard,
-                            const SizedBox(height: 14),
+                            barraRecoger,
+                            if (!_reporteRecogido) ...[
+                              chartCard,
+                              const SizedBox(height: 14),
+                            ],
                             matrizCard,
                             const SizedBox(height: 16),
                           ],
@@ -5455,8 +5552,11 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                     // Web / tablet: chart arriba, tabla abajo con Expanded
                     return Column(
                       children: [
-                        chartCard,
-                        const SizedBox(height: 14),
+                        barraRecoger,
+                        if (!_reporteRecogido) ...[
+                          chartCard,
+                          const SizedBox(height: 14),
+                        ],
                         Expanded(child: matrizCard),
                       ],
                     );
@@ -5867,6 +5967,93 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
     this.onSelected,
   });
 
+  /// Detalle de la barra tocada, en una ventana flotante.
+  ///
+  /// Antes tocar una barra salía directamente al histórico del establecimiento.
+  /// En una tablet eso significa perder el gráfico para leer un dato y tener
+  /// que volver, y si te equivocaste de barra —que en pantalla estrecha pasa—
+  /// el viaje era en balde. Ahora el detalle se lee encima del propio gráfico y
+  /// el histórico sigue a un botón (reunión 9 sep 2026).
+  void _mostrarDetalleBarra(
+    BuildContext context,
+    InterventoriaComparativoActa punto,
+  ) {
+    final valor = punto.valor;
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(
+          punto.centroCostoNombre.trim().isEmpty
+              ? punto.centroCostoCodigo
+              : punto.centroCostoNombre,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (punto.centroCostoCodigo.trim().isNotEmpty)
+              Text(
+                'Código ${punto.centroCostoCodigo}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  // "Sin dato" no es lo mismo que cero: un cero es una
+                  // evaluación pésima y la ausencia de dato es que esa
+                  // categoría no se evaluó en la última acta.
+                  valor == null ? 'Sin dato' : '${valor.toStringAsFixed(1)}%',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    color: valor == null
+                        ? const Color(0xFF94A3B8)
+                        : (valor >= 90
+                              ? _kOk
+                              : (valor >= 70 ? _kWarning : _kDanger)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Última acta: '
+              '${DateFormat('dd/MM/yyyy').format(punto.fecha)}',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text('Cerrar'),
+          ),
+          if (onSelected != null)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                onSelected!(punto.centroCostoId);
+              },
+              icon: const Icon(Icons.history_rounded, size: 16),
+              label: const Text('Ver histórico'),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -5891,7 +6078,7 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Selecciona una barra para abrir el histórico del establecimiento.',
+              'Toca una barra para ver su detalle.',
               style: TextStyle(fontSize: 11, color: Color(0xFF0F766E)),
             ),
             const SizedBox(height: 10),
@@ -5932,8 +6119,9 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
                                       ((details.localPosition.dx - left) / slot)
                                           .floor();
                                   if (index >= 0 && index < points.length) {
-                                    onSelected?.call(
-                                      points[index].centroCostoId,
+                                    _mostrarDetalleBarra(
+                                      context,
+                                      points[index],
                                     );
                                   }
                                 },
