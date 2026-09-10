@@ -811,10 +811,18 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
     return fileName.replaceFirst(RegExp(r'\.pdf$', caseSensitive: false), '');
   }
 
-  /// Filas de la planilla, tal como se guardaron al generarla.
+  /// Filas de la planilla, tal como se guardaron al generar el PDF.
   ///
-  /// Un consolidado guarda las suyas en `filas_rows`; una planilla individual
-  /// es una sola fila y sus datos están en el propio `datosExcel`.
+  /// El Excel que se sube para generar los PDF **ya deja sus filas guardadas**,
+  /// así que el archivo plano sale de ahí sin volver a subir nada:
+  ///
+  /// - un consolidado las guarda todas en `filas_rows`;
+  /// - una planilla individual guarda la suya en `fila_row`.
+  ///
+  /// El tercer camino —armar la fila desde `datosExcel` suelto— es para las
+  /// planillas generadas antes de que existiera `fila_row`. Trae ruido
+  /// (`logo_path`, `tipo_generacion`), pero el extractor busca columnas por
+  /// nombre y lo ignora; es preferible a dejar sin plano a lo ya generado.
   List<Map<String, dynamic>> _filasDePago(PpPlanilla planilla) {
     final rows = planilla.datosExcel['filas_rows'];
     if (rows is List && rows.isNotEmpty) {
@@ -823,6 +831,8 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
           .map((m) => m.cast<String, dynamic>())
           .toList();
     }
+    final fila = planilla.datosExcel['fila_row'];
+    if (fila is Map) return [fila.cast<String, dynamic>()];
     if (planilla.datosExcel.isEmpty) return const [];
     return [
       {

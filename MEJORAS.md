@@ -4843,3 +4843,31 @@ con el maestro por identificación. Si algún beneficiario no está, el aviso di
 
 Si el maestro no se puede leer, se sigue con lo que trae el archivo: quedarse
 sin plano por un permiso sería peor que generarlo incompleto y avisar.
+
+---
+
+## El Excel que ya se sube alimenta el archivo plano (10 sep 2026)
+
+Pregunta del usuario: si el Excel se sube para generar los PDF, ¿se puede
+aprovechar para el archivo plano?
+
+**Ya se estaba guardando**, en las dos formas, desde antes de esta sesión:
+
+- un consolidado guarda todas sus filas en `datosExcel.filas_rows`;
+- una planilla individual guarda la suya en `datosExcel.fila_row`, y además
+  esparce sus columnas en el propio `datosExcel`.
+
+Así que el plano sale de ahí **sin volver a subir nada**. Se afinó la lectura
+para preferir `fila_row` sobre el `datosExcel` suelto: los dos funcionan, pero
+el segundo trae ruido (`logo_path`, `tipo_generacion`) y solo hace falta para
+las planillas generadas antes de que `fila_row` existiera. Se conserva ese
+tercer camino precisamente por ellas: dejar sin plano lo ya generado sería peor
+que leer un mapa con basura que el extractor ignora.
+
+### Lo que NO se guarda, y probablemente esté bien
+
+El archivo `.xlsx` original **no** se conserva; sí sus filas. Para regenerar el
+plano hacen falta los datos, no el archivo. Guardar el original añadiría
+almacenamiento y una copia más de cuentas bancarias que proteger, sin resolver
+nada que las filas no resuelvan ya. Si algún día hace falta el original como
+soporte de auditoría, es otra decisión y otro sitio.
