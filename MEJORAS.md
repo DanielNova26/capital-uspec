@@ -3874,14 +3874,83 @@ no los datos.
 ### Lo que falta
 
 - La pantalla en Planillas de Pago para elegir periodo, personas e importes.
-- El origen de los datos bancarios. La hoja `CUENTAS` del Excel es hoy el
-  maestro (162 personas con banco, tipo y número de cuenta) y ese maestro no
-  existe en la aplicación: hay que decidir si vive en `TBL_USUARIOS` o en una
-  colección aparte, y quién puede verlo. Son datos bancarios de todo el
-  personal.
+- El servicio de lectura/escritura del maestro contra Firestore, y las reglas
+  de `firestore.rules` que respalden los permisos por campo.
+- El maestro de datos bancarios **ya está modelado** (ver la entrada siguiente).
 - **Confirmar el formato de salida con el banco.** El ejemplo trae los importes
   con coma de miles ("3,868,695.00") porque es lo que produce Excel al exportar
   la hoja. No consta que el cargador del banco quiera esas comas: puede que
   espere el archivo sin separadores o de ancho fijo. `importePlano` ya recibe
   `conSeparadorDeMiles`, así que es un interruptor, pero hay que preguntarlo
   antes del primer pago de verdad.
+
+---
+
+## Maestro de datos bancarios del personal (10 sep 2026)
+
+La hoja `CUENTAS` del Excel de Tesorería, convertida en colección
+(`TBL_NOMINA_CUENTAS`). Es lo que alimenta al generador del archivo plano.
+
+### Vive aparte de TBL_USUARIOS, y no por gusto
+
+El número de cuenta no puede quedar en el mismo documento que el nombre y la
+foto, porque ese documento lo lee media aplicación para pintar avatares.
+Separarlo es lo único que permite que la regla de Firestore sea distinta.
+
+### Talento Humano pone el banco; el número es de Tesorería
+
+Es la instrucción recibida, y encaja con cómo trabaja cada área: a Talento
+Humano le llega el dato de en qué banco está la persona cuando entra o cuando lo
+cambia; el número de cuenta no le hace falta para nada, y un dato que no se
+necesita no se muestra.
+
+- `puedeEditarBancoCuenta` → Talento Humano, Tesorería, Admin documental.
+- `puedeVerNumeroCuenta` / `puedeEditarNumeroCuenta` → Tesorería y Admin
+  documental. Talento Humano queda fuera de las dos.
+
+A quien no le compete, el número le llega **enmascarado, no vacío**
+(`•••••7895`). Un campo en blanco y un campo oculto se ven igual, y el primero
+lleva a pedirle a la persona un dato que ya está registrado.
+
+Se guarda `numeroActualizadoPor` / `numeroActualizadoEn` aparte del `updatedAt`
+general: cambiar el banco y cambiar el número de cuenta no son lo mismo, y al
+segundo se le sigue el rastro.
+
+### El código de banco venía escrito de dos formas
+
+En la hoja real hay **21 valores distintos para 14 bancos**: `0013` y `13`,
+`0507` y `507`, `0809` y `809`. Unas celdas están guardadas como texto y otras
+como número con formato `0000`. Comparar `bancoCodigo == '0013'` deja fuera a
+media plantilla del BBVA.
+
+Es el mismo problema que los ids de área, y se resuelve igual: una sola puerta
+de entrada (`normalizarCodigoBanco`), aplicada **también al leer de Firestore**,
+no solo al escribir — porque un documento que entró por consola o por una
+importación vieja trae "13" y tiene que comportarse como los demás.
+
+### Qué se bloquea y qué solo se avisa
+
+La distinción es la parte importante del importador:
+
+- **Bloqueo** (no entra): la misma cédula dos veces. Son dos cuentas para la
+  misma persona y nadie sabe cuál es la vigente; quedarse con la primera sería
+  decidir a dónde va un sueldo. El archivo real trae cuatro casos.
+- **Aviso** (entra y se revisa): dos personas con el mismo número de cuenta.
+  Pasa de verdad —una pareja que cobra en la misma cuenta— pero no puede pasar
+  desapercibido. El archivo real trae dos.
+- **Aviso**, nunca bloqueo: un código de banco que no está en el catálogo. En el
+  maestro real hay once personas cobrando en 0507, 0551 y 0809, que el catálogo
+  del propio Excel no tiene, y esos pagos llevan meses funcionando. **El
+  catálogo está viejo, no los datos.** Bloquear ahí dejaría a once personas sin
+  sueldo por un problema de nuestra tabla.
+
+### Comprobado contra el Excel real
+
+Con un test temporal, ya borrado: 176 filas leídas, los 21 códigos de banco
+colapsan a los 14 reales, ninguna cuenta se leyó en notación científica, y el
+análisis devuelve 172 listas, 4 bloqueos y 2 avisos — los mismos que se cuentan
+a mano sobre la hoja.
+
+Lo de la notación científica no es teórico: `toString()` sobre una cuenta de
+doce dígitos leída como decimal devuelve `1.1161004988e11`. Por eso el parser
+trata cada tipo de celda por separado en vez de confiar en `toString()`.
