@@ -456,4 +456,103 @@ void main() {
       expect(completadas.single.numeroCuenta, '5');
     });
   });
+
+  group('cadena completa: del Excel guardado al CSV', () {
+    // La forma es la de un consolidado real (dos proveedores, uno en corriente
+    // y otro en ahorros); los valores son inventados.
+    final filasGuardadas = [
+      {
+        'rowIndex': 0,
+        'valor': 20580830.0,
+        'extras': {
+          'No': '804',
+          'NIT': '900111222',
+          'DV': '2',
+          'PROVEEDOR': 'PROVEEDOR UNO SAS',
+          'N Factura /Orden de Compra': 'PAGO FACT FE-000001',
+          'N CUENTA': '019068402',
+          'CTE': 'X',
+          'AHO': '',
+          'BANCO': '23',
+        },
+      },
+      {
+        'rowIndex': 1,
+        'valor': 14158178.0,
+        'extras': {
+          'No': '804',
+          'NIT': '900333444',
+          'DV': '3',
+          'PROVEEDOR': 'PROVEEDOR DOS SAS',
+          'N Factura /Orden de Compra': 'PAGO FACT 04IZ-000002',
+          'N CUENTA': '06049670476',
+          'CTE': '',
+          'AHO': 'x',
+          'BANCO': '7',
+        },
+      },
+    ];
+
+    test('sale el archivo que el banco espera, sin volver a subir nada', () {
+      final filas = filasPlanoDesdePlanilla(
+        filasGuardadas,
+        fechaLimite: DateTime(2026, 9, 4),
+        concepto: 'ANTICIPO ALIMENTAR CAPITAL',
+      );
+
+      // Nada que el banco vaya a rechazar.
+      expect(validarPlanoPagos(filas), isEmpty);
+
+      final lineas = generarArchivoPlanoCsv(filas).split('\r\n');
+      final campos = RegExp(r',(?=(?:[^"]*"[^"]*")*[^"]*$)');
+
+      // El total de la cabecera cuadra con la suma de las dos filas.
+      expect(lineas[1], contains('"34,739,008"'));
+
+      final uno = lineas[6].split(campos);
+      expect(uno[0], '900111222');
+      expect(uno[2], '0002'); // DV relleno
+      expect(uno[5], '0023'); // banco relleno
+      expect(uno[6], '0001'); // CTE -> corriente
+      expect(uno[9], '2026');
+      expect(uno[10], '09');
+      expect(uno[11], '04');
+      expect(uno[12], '"20,580,830.00"');
+      expect(uno[13], 'ANTICIPO ALIMENTAR CAPITAL');
+
+      final dos = lineas[7].split(campos);
+      expect(dos[5], '0007'); // banco relleno
+      expect(dos[6], '0002'); // AHO -> ahorros
+    });
+
+    test('el maestro rellena una fila a la que le falta la cuenta', () {
+      // El caso que hace que esto no sea un trabajo manual: el Excel trae el
+      // pago y el maestro pone los datos bancarios del beneficiario conocido.
+      final sinCuenta = [
+        {
+          'valor': 500000.0,
+          'extras': {'NIT': '900111222', 'PROVEEDOR': 'PROVEEDOR UNO SAS'},
+        },
+      ];
+      final filas = filasPlanoDesdePlanilla(
+        sinCuenta,
+        fechaLimite: DateTime(2026, 9, 4),
+        concepto: 'ANTICIPO',
+      );
+      expect(validarPlanoPagos(filas), isNotEmpty); // sin maestro, falla
+
+      final completadas = completarConMaestro(filas, const {
+        '900111222': DatosBeneficiario(
+          nombre: 'PROVEEDOR UNO SAS',
+          banco: '0023',
+          tipoCuenta: '1',
+          numeroCuenta: '019068402',
+          digitoVerificacion: '2',
+        ),
+      });
+
+      expect(validarPlanoPagos(completadas), isEmpty);
+      expect(completadas.single.numeroCuenta, '019068402');
+    });
+  });
 }
