@@ -4062,3 +4062,35 @@ mal en alguna.
 
 Sobre un documento **rechazado** el botón de aprobar sí se mantiene: revisarlo
 otra vez y aprobarlo es la salida normal de un rechazo.
+
+---
+
+## Dónde se ve el motivo de un rechazo (10 sep 2026)
+
+"Que aparezca en todas las partes donde puedan buscarlo, por si se les olvida".
+El dato ya se guardaba en cinco sitios; lo que fallaba era que en el sitio
+principal era ilegible.
+
+### El motivo en la tarjeta del documento
+
+Se pintaba a **tamaño 9**, recortado a dos líneas con puntos suspensivos, y
+solo `if (widget.archivos.isNotEmpty)`. Esa última condición es la peor: se
+rechazaba un documento, el establecimiento borraba el archivo malo para subir
+otro, y **el motivo desaparecía justo cuando hacía falta leerlo**. De ahí el
+"no hay dónde verla".
+
+Ahora es un bloque con su borde, a tamaño 11, hasta cuatro líneas, sin depender
+de que haya archivo, y **se toca para abrir el chat completo del documento** —
+porque lo que se ve en la tarjeta es el último motivo y el historial está en el
+chat. Cuando hay más de un mensaje lo dice ("3 mensajes").
+
+### Los cinco sitios donde queda
+
+1. **La tarjeta del documento**: el último motivo, legible, con el número de
+   mensajes.
+2. **El chat del documento** (el botón de comentarios de esa misma tarjeta): el
+   historial completo, ya acumulado y filtrado por mes y documento.
+3. **Observaciones del establecimiento**: todas las del mes.
+4. **Mis tareas**: la descripción de la tarea es el motivo, a tamaño 14.
+5. **La notificación**, que desde ahora también sale en el segundo rechazo y
+   siguientes.

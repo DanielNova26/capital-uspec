@@ -3888,20 +3888,71 @@ class _DocCardState extends State<_DocCard> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               child: _DeadlineRow(deadline: widget.deadline!),
             ),
-          if (widget.archivos.isNotEmpty &&
-              widget.revision?.estado == FacEstadoRevision.rechazado &&
+          // Motivo del rechazo, a la vista y sin condiciones.
+          //
+          // Estaba a tamaño 9, recortado a dos líneas con puntos suspensivos y
+          // **solo si el documento tenía archivo**: se rechazaba, el
+          // establecimiento borraba el archivo malo para subir otro, y el
+          // motivo desaparecía justo cuando hacía falta leerlo. De ahí el "no
+          // hay dónde verla".
+          //
+          // Se toca para abrir el chat completo del documento, porque el
+          // motivo de la tarjeta es solo el último y el historial está ahí.
+          if (widget.revision?.estado == FacEstadoRevision.rechazado &&
               widget.revision!.motivo.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(9, 2, 9, 3),
-              child: Text(
-                widget.revision!.motivo,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontFamily: _kFont,
-                  fontSize: 9,
-                  color: _kRed,
-                  fontWeight: FontWeight.w600,
+            InkWell(
+              onTap: () => _openComments(context),
+              child: Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(9, 3, 9, 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _kRed.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _kRed.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.error_outline, size: 12, color: _kRed),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Devuelto',
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 10,
+                            color: _kRed,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (widget.observaciones.length > 1)
+                          Text(
+                            '${widget.observaciones.length} mensajes',
+                            style: const TextStyle(
+                              fontFamily: _kFont,
+                              fontSize: 9,
+                              color: _kRed,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.revision!.motivo,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: _kFont,
+                        fontSize: 11,
+                        color: _kRed,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
