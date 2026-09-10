@@ -921,6 +921,34 @@ class FacturacionService {
 
     if (reuseTask) {
       final now = Timestamp.now();
+      // Cada rechazo es un mensaje nuevo del chat, nunca una edición del
+      // anterior.
+      //
+      // Antes se sobrescribía el `texto` de la observación ya existente, así
+      // que al segundo rechazo del mismo documento el primer motivo
+      // desaparecía: el chat solo mostraba el último y no había forma de
+      // reconstruir qué se le había pedido al establecimiento ni cuántas veces.
+      // El chat es el registro de lo ocurrido; un registro que se reescribe no
+      // es un registro.
+      final nuevaObs = _db.collection(_colObs).doc();
+      await nuevaObs.set({
+        'empresaId': empresaId,
+        'establecimientoId': estId,
+        'texto': cleanReason,
+        'mes': normalizeFacMesKey(mes),
+        'docTipo': docTipo,
+        'autorId': revisorId,
+        'autorNombre': revisorNombre,
+        'destinatarioId': recipient.userId,
+        'fecha': FieldValue.serverTimestamp(),
+        'fechaLimite': Timestamp.fromDate(fechaLimite),
+        'tareaId': taskId,
+        'tareaEstado': 'devuelta',
+      });
+      // La observación anterior se deja intacta: es un mensaje ya enviado. Solo
+      // deja de ser la que la tarea señala.
+      obsId = nuevaObs.id;
+
       await _db.collection(TaskService.tasksCol).doc(taskId).set({
         'estado': 'devuelta',
         'status': 'devuelta',
@@ -931,15 +959,25 @@ class FacturacionService {
         'lastEventType': 'finalizacion_devuelta',
         'lastEventAt': now,
         'lastEventText': cleanReason,
+        // La tarea apunta al último mensaje, que es el que hay que atender.
+        'facObservacionId': nuevaObs.id,
+        'sourceEntityId': nuevaObs.id,
         'updatedAt': now,
       }, SetOptions(merge: true));
-      if (obsId.isNotEmpty) {
-        await _db.collection(_colObs).doc(obsId).set({
-          'texto': cleanReason,
-          'fechaLimite': Timestamp.fromDate(fechaLimite),
-          'tareaEstado': 'devuelta',
-        }, SetOptions(merge: true));
-      }
+
+      // Sin esto, el segundo rechazo no le llegaba a nadie: la tarea ya
+      // existía, así que no se creaba y no se notificaba.
+      await _notif.pushNotification(
+        toUserId: recipient.userId,
+        title: 'Documento devuelto · $docTipo — $establecimientoNombre',
+        description: cleanReason.length > 120
+            ? '${cleanReason.substring(0, 120)}…'
+            : cleanReason,
+        type: 'fac_observacion',
+        fromId: revisorId,
+        fromName: revisorNombre,
+        empresaId: empresaId,
+      );
     } else {
       taskId = await addDocumentRequirement(
         empresaId: empresaId,

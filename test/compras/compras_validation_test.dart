@@ -435,4 +435,18 @@ void main() {
       );
     });
   });
+
+  group('botón de aprobar', () {
+    test('desaparece cuando el documento ya está aprobado', () {
+      // Volver a aprobar lo aprobado no cambia el estado, y el boton ocupaba
+      // el sitio del unico que si sirve ahi.
+      expect(muestraBotonAprobar(aprobado: true), isFalse);
+    });
+
+    test('sigue estando sobre lo pendiente y lo rechazado', () {
+      // Revisar otra vez un rechazado y aprobarlo es la salida normal de un
+      // rechazo.
+      expect(muestraBotonAprobar(aprobado: false), isTrue);
+    });
+  });
 }

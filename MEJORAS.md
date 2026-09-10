@@ -4016,10 +4016,49 @@ También se normaliza el mes al escribir la observación: la tarea ya guardaba
 `facMes` normalizado y tener las dos formas conviviendo obligaba a comparar con
 cuidado en cada lector.
 
-**Queda pendiente** la otra mitad del reporte: que la observación del rechazo se
-vea "en el chat de ese documento" y en Mis tareas. El motivo ya se guarda en la
-tarea, en la observación y en el historial de la revisión, así que el dato está;
-falta confirmar en qué pantalla lo están buscando. Hay además un detalle a
-revisar: cuando se rechaza dos veces el mismo documento y la tarea sigue
-abierta, el segundo motivo **sobrescribe** el texto de la observación en vez de
-añadirse, así que el chat no acumula el historial de rechazos.
+**Queda pendiente** confirmar en qué pantalla buscan la observación del rechazo
+("el chat de ese documento" / Mis tareas). El motivo se guarda en la tarea, en
+la observación y en el historial de la revisión, así que el dato está.
+
+---
+
+## El chat no se reescribe, se acumula (10 sep 2026)
+
+Cuando se rechazaba **dos veces** el mismo documento y la tarea seguía abierta,
+el segundo motivo sobrescribía el `texto` de la observación existente. El primer
+motivo desaparecía: el chat mostraba solo el último y no había forma de
+reconstruir qué se le pidió al establecimiento ni cuántas veces se le devolvió.
+
+El chat es el registro de lo ocurrido. Un registro que se reescribe no es un
+registro.
+
+Ahora cada rechazo crea **una observación nueva**. La anterior se deja intacta
+—es un mensaje ya enviado— y solo deja de ser la que la tarea señala: la tarea y
+la revisión pasan a apuntar al último mensaje, que es el que hay que atender.
+
+De paso se arregló algo que nadie había reportado todavía: **el segundo rechazo
+no notificaba a nadie.** Como la tarea ya existía, no se creaba —y la
+notificación salía dentro de la creación—, así que el establecimiento se
+enteraba solo si entraba a mirar. Ahora se notifica en los dos caminos.
+
+### Los demás chats ya acumulaban
+
+Se revisaron antes de tocar nada:
+
+- Planillas de pago usa `arrayUnion` sobre el documento.
+- Compras lleva un registro aparte de aprobaciones y rechazos
+  (`ComprasAprobacion`); lo que se sobrescribe ahí es `observacionCalidad`, que
+  es el **estado actual** del documento, no el historial.
+
+## El botón "Aprobar" sobre lo ya aprobado
+
+Seguía saliendo, y no hacía nada útil: volver a aprobar lo aprobado no cambia el
+estado y le quitaba el sitio al único botón que sirve ahí. Sobre un documento
+aprobado queda solo **Rechazar**, que es la salida si hay que devolverlo.
+
+La condición vive dentro de `_CalidadDecisionButtons`, no en cada sitio que lo
+pinta: son cuatro pantallas distintas y una condición repetida cuatro veces está
+mal en alguna.
+
+Sobre un documento **rechazado** el botón de aprobar sí se mantiene: revisarlo
+otra vez y aprobarlo es la salida normal de un rechazo.

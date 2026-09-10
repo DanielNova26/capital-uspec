@@ -202,3 +202,14 @@ String etiquetaReversionDocumento({
   if (aprobado) return 'Revertir aprobación';
   return 'Devolver a revisión';
 }
+
+/// ¿Tiene sentido ofrecerle a Calidad el botón de aprobar?
+///
+/// No, si el documento **ya está aprobado**. El botón seguía saliendo sobre lo
+/// aprobado y no hacía nada útil: volver a aprobar lo aprobado no cambia el
+/// estado, y ocupaba el sitio del único botón que sí sirve ahí. Si hay que
+/// devolverlo, se rechaza.
+///
+/// Sobre un documento **rechazado** sí se ofrece: Calidad puede revisarlo otra
+/// vez y aprobarlo, y esa es la salida normal de un rechazo.
+bool muestraBotonAprobar({required bool aprobado}) => !aprobado;

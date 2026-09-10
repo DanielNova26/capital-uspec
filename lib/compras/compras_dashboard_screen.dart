@@ -21293,6 +21293,7 @@ class _FichaCalidadCard extends StatelessWidget {
                 )
               else
                 _CalidadDecisionButtons(
+                  aprobado: doc?.aprobado == true,
                   onApprove: () => _aprobar(context),
                   onApproveWithRequirements: () =>
                       _aprobarConRequerimientos(context),
@@ -21306,19 +21307,30 @@ class _FichaCalidadCard extends StatelessWidget {
   }
 }
 
+/// Los botones de decisión de Calidad.
+///
+/// La regla de qué se ofrece vive **aquí dentro** y no en cada sitio que los
+/// pinta: son cuatro pantallas distintas y tener la condición repetida cuatro
+/// veces es tenerla mal en alguna.
 class _CalidadDecisionButtons extends StatelessWidget {
   final VoidCallback onApprove;
   final VoidCallback onApproveWithRequirements;
   final VoidCallback onReject;
 
+  /// Estado actual del documento. Si ya está aprobado no se ofrece aprobarlo
+  /// otra vez: no cambia nada y le quita el sitio al botón que sí sirve.
+  final bool aprobado;
+
   const _CalidadDecisionButtons({
     required this.onApprove,
     required this.onApproveWithRequirements,
     required this.onReject,
+    this.aprobado = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final puedeAprobar = muestraBotonAprobar(aprobado: aprobado);
     final approve = _CalidadActionButton(
       label: 'Aprobar',
       icon: Icons.check_circle,
@@ -21337,6 +21349,11 @@ class _CalidadDecisionButtons extends StatelessWidget {
       color: const Color(0xFFB45309),
       onPressed: onApproveWithRequirements,
     );
+
+    // Aprobado: lo único que queda por hacer es devolverlo.
+    if (!puedeAprobar) {
+      return SizedBox(width: double.infinity, child: reject);
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -22428,6 +22445,7 @@ class _RecepcionCalidadCard extends StatelessWidget {
         ],
         const SizedBox(height: 6),
         _CalidadDecisionButtons(
+          aprobado: doc.aprobado,
           onApprove: () => _aprobarDoc(context, productoIdx, docKey),
           onApproveWithRequirements: () =>
               _aprobarDocConRequerimientos(context, productoIdx, docKey),
@@ -22765,6 +22783,7 @@ class _MarcaCalidadCard extends StatelessWidget {
           ] else if (!showRejectedOnly) ...[
             const SizedBox(height: 6),
             _CalidadDecisionButtons(
+              aprobado: doc.aprobado,
               onApprove: () => _aprobar(context, key),
               onApproveWithRequirements: () =>
                   _aprobarConRequerimientos(context, key, label),
@@ -23335,6 +23354,7 @@ class _ProveedorCalidadCard extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         _CalidadDecisionButtons(
+          aprobado: doc.aprobado,
           onApprove: () => _aprobarDoc(context, docKey),
           onApproveWithRequirements: () =>
               _aprobarDocConRequerimientos(context, docKey),
