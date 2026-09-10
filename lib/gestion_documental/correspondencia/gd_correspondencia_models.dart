@@ -9,6 +9,24 @@ DateTime? _gdDate(dynamic value) {
   return DateTime.tryParse(value?.toString() ?? '');
 }
 
+/// Fecha en que la correspondencia entró al sistema.
+///
+/// Los expedientes actuales guardan `fechaRecepcion`. Los respaldos permiten
+/// que registros creados antes de incorporar ese campo no aparezcan como
+/// "Sin fecha" cuando sí conservan la fecha del correo o de creación.
+DateTime? gdFechaRecepcionDesde(Map<String, dynamic> data) =>
+    _gdDate(data['fechaRecepcion']) ??
+    _gdDate(data['fechaCorreo']) ??
+    _gdDate(data['receivedAt']) ??
+    _gdDate(data['createdAt']);
+
+String gdEtiquetaFechaRecibido(DateTime? value) {
+  if (value == null) return 'Fecha de recibido no disponible';
+  final day = value.day.toString().padLeft(2, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  return 'Recibido $day/$month/${value.year}';
+}
+
 List<Map<String, dynamic>> _gdMapList(dynamic value) {
   if (value is! Iterable) return const [];
   return value
@@ -230,7 +248,7 @@ class GdExpediente {
       ),
       entradaEstado: (data['entradaEstado'] ?? '').toString(),
       entradaError: (data['entradaError'] ?? '').toString(),
-      fechaRecepcion: _gdDate(data['fechaRecepcion']),
+      fechaRecepcion: gdFechaRecepcionDesde(data),
       fechaLimite: _gdDate(data['fechaLimite']),
       requiereAprobacion: data['requiereAprobacion'] == true,
       revisorId: (data['revisorId'] ?? '').toString(),

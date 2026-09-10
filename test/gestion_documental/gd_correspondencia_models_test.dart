@@ -49,6 +49,32 @@ GdExpediente expediente({
 );
 
 void main() {
+  group('fecha de recibido', () {
+    test('prioriza la fecha de recepción del expediente', () {
+      final received = DateTime(2026, 9, 10, 8, 15);
+      final created = DateTime(2026, 9, 9, 17, 30);
+
+      expect(
+        gdFechaRecepcionDesde({
+          'fechaRecepcion': received,
+          'createdAt': created,
+        }),
+        received,
+      );
+      expect(gdEtiquetaFechaRecibido(received), 'Recibido 10/09/2026');
+    });
+
+    test('usa la fecha de creación para expedientes antiguos', () {
+      final created = DateTime(2026, 9, 10, 6, 52);
+
+      expect(gdFechaRecepcionDesde({'createdAt': created}), created);
+      expect(
+        gdEtiquetaFechaRecibido(gdFechaRecepcionDesde({'createdAt': created})),
+        'Recibido 10/09/2026',
+      );
+    });
+  });
+
   test('permite enviar sin aprobación cuando la respuesta está completa', () {
     expect(expediente().puedeEnviar, isTrue);
   });

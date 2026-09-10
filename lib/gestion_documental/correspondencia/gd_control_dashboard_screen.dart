@@ -1465,7 +1465,10 @@ class _MobileProcessCard extends StatelessWidget {
                       ? 'Sin asignar'
                       : row.responsableNombre,
                 ),
-                _TinyMeta(Icons.event_outlined, _formatDate(row.fechaLimite)),
+                _TinyMeta(
+                  Icons.event_available_outlined,
+                  gdEtiquetaFechaRecibido(row.fechaRecepcion),
+                ),
                 if (row.respondido)
                   _TinyMeta(Icons.outgoing_mail, _deliveryChannel(row)),
               ],
