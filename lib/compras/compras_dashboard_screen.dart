@@ -22832,6 +22832,27 @@ class _MarcaCalidadCard extends StatelessWidget {
               ),
             ),
           ],
+          // Mismo criterio que en las fichas: la pestaña "Rechazados" es donde
+          // uno viene a buscar lo que hay que devolver a la cola.
+          if (showRejectedOnly && doc.rechazado) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _devolverARevision(context, key, label),
+                icon: const Icon(Icons.undo, size: 16),
+                label: const Text(
+                  'Devolver a revisión',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFB45309),
+                  side: const BorderSide(color: Color(0xFFB45309)),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+          ],
           if (!showRejectedOnly && doc.aprobadoConRequerimientos) ...[
             const SizedBox(height: 6),
             _RequerimientoCalidadView(
@@ -22909,6 +22930,44 @@ class _MarcaCalidadCard extends StatelessWidget {
           SnackBar(content: Text('No fue posible registrar: $error')),
         );
       }
+    }
+  }
+
+  /// Devuelve a la cola de Calidad un documento de marca rechazado.
+  Future<void> _devolverARevision(
+    BuildContext context,
+    String key,
+    String label,
+  ) async {
+    final decision = await _pedirMotivoReversion(
+      context,
+      docLabel: label,
+      contexto: marca.descripcion,
+      yaRechazado: true,
+    );
+    if (decision == null || !context.mounted) return;
+    try {
+      await svc.revertirAprobacionDocMarca(
+        marcaId: marca.id,
+        docKey: key,
+        motivo: decision.motivo,
+        revertidoPor: userId,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: kComprasGreen,
+          content: Text('El documento volvió a la cola de Calidad.'),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: kComprasRed,
+          content: Text('No se pudo devolver: $error'),
+        ),
+      );
     }
   }
 

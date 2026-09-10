@@ -4383,3 +4383,42 @@ la acción existía y **la pantalla donde uno busca un documento rechazado no la
 ofrecía**; había que entrar al expediente del proveedor a buscarla.
 
 Ahora las fichas rechazadas traen ahí su "Devolver a revisión".
+
+---
+
+## Correspondencia — el administrador del módulo no tenía permisos (10 sep 2026)
+
+Quien administra el módulo veía "No tienes permiso para clasificar ni asignar
+correspondencia. Solicítalo al administrador del módulo" — es decir, el
+administrador pidiéndose permiso a sí mismo.
+
+`gd_permisos` resolvía el rol **de una forma distinta al resto de la
+aplicación**, y fallaba por dos sitios a la vez:
+
+1. **Buscaba una bandera booleana** `desarrollador == true`. El desarrollador de
+   esta aplicación no se marca así: se reconoce por el rol —que puede venir
+   dentro de `empresasDetalle[empresa]`— o por un `roleId` terminado en
+   `_desarrollador`, que es como los crea el sembrado. Ahora usa el mismo
+   `isDeveloperUser` que Interventoría, Gestión Documental y Planillas.
+2. **Leía el rol de la raíz del usuario.** En una aplicación multiempresa el rol
+   vive en `empresasDetalle[empresa]`; la raíz puede estar vacía o traer el de
+   otra empresa. Ahora pasa por `resolveScopedRoleKey` y solo después mira la
+   raíz.
+
+Con los dos fallos, el administrador caía hasta el rol por defecto —`operador`—
+que es exactamente el que no clasifica.
+
+Lo que **no** se cambió: que un rol global de "usuario" no pueda volverse
+clasificador por esta vía, y que un texto no reconocido no conceda nada. Eso
+estaba bien y sigue igual; el problema no era que la puerta fuera estrecha, era
+que no reconocía a quien llamaba.
+
+`test/gestion_documental/gd_permisos_rol_test.dart` fija las dos formas de
+reconocer al desarrollador y la tabla de qué puede cada rol.
+
+## Compras — a los documentos de marca les faltaba la reversión
+
+De los cuatro tipos de documento (recepción, proveedor, ficha técnica y marca),
+**marca era el único sin reversión**. Un documento de marca rechazado no tenía
+más salida que borrarlo y volverlo a subir. Ya la tiene, y aparece en la pestaña
+"Rechazados" igual que la de las fichas.

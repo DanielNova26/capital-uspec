@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../utils/user_company.dart';
+
 /// Roles del módulo de Correspondencia, de menor a mayor alcance.
 ///
 /// El orden importa: los permisos se resuelven por jerarquía, así que un
@@ -160,7 +162,15 @@ class GdPermisosService {
     }
     final usuario = await _db.collection('TBL_USUARIOS').doc(userId).get();
     final data = usuario.data() ?? const <String, dynamic>{};
-    if (data['desarrollador'] == true || data['developer'] == true) {
+    // Se usa el mismo `isDeveloperUser` que el resto de la aplicación en vez de
+    // mirar solo una bandera booleana.
+    //
+    // Antes esto era `data['desarrollador'] == true`, y el desarrollador de
+    // esta aplicación no se marca así: se reconoce por el rol —que puede venir
+    // dentro de `empresasDetalle[empresa]`— o por un `roleId` terminado en
+    // `_desarrollador`. Con la comprobación vieja, quien administra el módulo
+    // caía hasta el rol por defecto y leía "no tienes permiso para clasificar".
+    if (isDeveloperUser(data, empresaId: empresaId)) {
       return GdRolCorrespondencia.administrador;
     }
 
@@ -184,9 +194,19 @@ class GdPermisosService {
     // El rol global solo sirve para reconocer al administrador que configura el
     // módulo por primera vez. Un "usuario" global no puede volverse
     // clasificador por esta vía: eso se asigna explícitamente.
-    final global = GdRolCorrespondencia.desdeTexto(
-      (data['role'] ?? data['rol'] ?? data['tipoUsuario'])?.toString(),
-    );
+    //
+    // El rol se resuelve **por empresa** (`resolveScopedRoleKey`) y solo
+    // después se miran los campos de la raíz. Leer únicamente la raíz era el
+    // otro motivo por el que un administrador quedaba como operador: en una
+    // aplicación multiempresa el rol vive en `empresasDetalle[empresa]`, y la
+    // raíz puede estar vacía o traer el de otra empresa.
+    final global =
+        GdRolCorrespondencia.desdeTexto(
+          resolveScopedRoleKey(data, empresaId: empresaId),
+        ) ??
+        GdRolCorrespondencia.desdeTexto(
+          (data['role'] ?? data['rol'] ?? data['tipoUsuario'])?.toString(),
+        );
     if (global == GdRolCorrespondencia.administrador) {
       return GdRolCorrespondencia.administrador;
     }
@@ -235,8 +255,6 @@ class GdPermisosService {
   }, SetOptions(merge: true));
 
   /// Quita el rol explícito y devuelve al usuario al rol por defecto.
-  Future<void> quitarRol({
-    required String empresaId,
-    required String userId,
-  }) => _db.collection('TBL_CORREO_ROLES').doc('${empresaId}_$userId').delete();
+  Future<void> quitarRol({required String empresaId, required String userId}) =>
+      _db.collection('TBL_CORREO_ROLES').doc('${empresaId}_$userId').delete();
 }

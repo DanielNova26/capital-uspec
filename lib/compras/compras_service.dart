@@ -1314,6 +1314,66 @@ class ComprasService {
     );
   }
 
+  /// Devuelve a la cola de Calidad un documento de marca ya decidido.
+  ///
+  /// Faltaba: marca era el único de los cuatro tipos (recepción, proveedor,
+  /// ficha, marca) sin reversión, así que un documento de marca rechazado no
+  /// tenía salida más que borrarlo y volverlo a subir.
+  Future<void> revertirAprobacionDocMarca({
+    required String marcaId,
+    required String docKey,
+    required String motivo,
+    required String revertidoPor,
+    bool rechazar = false,
+  }) async {
+    final motivoLimpio = motivo.trim();
+    if (motivoLimpio.isEmpty) {
+      throw StateError('Debes indicar el motivo de la reversión.');
+    }
+    final ref = _db.collection('TBL_COMPRAS_MARCAS').doc(marcaId);
+    final snap = await ref.get();
+    if (!snap.exists || snap.data() == null) {
+      throw StateError('La marca ya no existe.');
+    }
+    final marca = MarcaDoc.fromMap(snap.id, snap.data()!);
+    final actual = marca.documentosAsociados[docKey];
+    if (actual == null || !actual.tieneDoc) {
+      throw StateError('El documento ya no existe en la marca.');
+    }
+    final impedimento = validarReversionDocumento(
+      aprobado: actual.aprobado,
+      rechazado: actual.rechazado,
+      rechazar: rechazar,
+    );
+    if (impedimento != null) throw StateError(impedimento);
+
+    final documentos = Map<String, DocAdjunto>.from(marca.documentosAsociados)
+      ..[docKey] = actual.copyWith(
+        estadoCalidad: estadoTrasReversion(rechazar: rechazar),
+        observacionCalidad: rechazar ? motivoLimpio : null,
+        revertidoPor: revertidoPor,
+        fechaReversion: Timestamp.now(),
+        motivoReversion: motivoLimpio,
+        estadoAnteriorReversion: actual.estadoCalidad,
+      );
+    await actualizarDocumentosAsociadosMarca(
+      marcaId: marcaId,
+      documentos: documentos,
+    );
+
+    await _registrarAprobacion(
+      empresaId: marca.empresaId,
+      tipo: 'marca',
+      entidadId: marcaId,
+      accion: ComprasAprobacionAccion.reversion,
+      usuarioId: revertidoPor,
+      productoNombre: marca.descripcion,
+      docKey: docKey,
+      docLabel: kDocumentosAsociadosLabels[docKey] ?? docKey,
+      nota: motivoLimpio,
+    );
+  }
+
   Future<void> rechazarDocMarca({
     required String marcaId,
     required String docKey,
