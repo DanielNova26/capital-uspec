@@ -12,6 +12,7 @@ import '../../gestion_documental/widgets/gd_ui_widgets.dart';
 import '../../utils/user_company.dart';
 import '../../widgets/internal_module_layout.dart';
 import 'pp_generar_desde_excel_screen.dart';
+import 'pp_beneficiarios_screen.dart';
 import 'pp_models.dart';
 import 'pp_subir_pdf_screen.dart';
 import 'pp_planilla_detail_screen.dart';
@@ -266,6 +267,40 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                           fontSize: 11,
                           color: GdPalette.accent,
                           fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  // El maestro de beneficiarios: quien pueda borrar planillas
+                  // es de Tesorería o administración, que es justo quien lo
+                  // gestiona. La regla de Firestore manda de todas formas.
+                  if (canDelete)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: OutlinedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PpBeneficiariosScreen(
+                              empresaId: widget.empresaId,
+                              userId: widget.userId,
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.account_balance_outlined,
+                          size: 18,
+                        ),
+                        label: const Text(
+                          'BENEFICIARIOS',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: GdPalette.primary,
+                          side: const BorderSide(color: GdPalette.border),
                         ),
                       ),
                     ),

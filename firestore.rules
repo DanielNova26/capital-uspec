@@ -203,16 +203,22 @@ service cloud.firestore {
     // con abrir la consola.
     //
     // Aquí va todo MENOS el número: nombre, banco, tipo y forma de pago.
-    // Talento Humano lo lee y puede corregir el banco, que es el dato que
-    // ellos reciben del empleado.
+    //
+    // Hoy solo entra Tesorería, porque el maestro se usa para pagos a
+    // proveedores. Cuando Talento Humano gestione la nómina desde su propio
+    // módulo, darles acceso será añadir 'talento_humano' a ESTA lista y a
+    // ninguna otra: podrán ver y corregir el banco y seguirán sin poder leer el
+    // número. Esa es toda la razón de que sean dos colecciones y no dos campos,
+    // y por eso el corte se hace ahora aunque el segundo lector no exista
+    // todavía: hacerlo después sería una migración.
     match /TBL_PAGOS_BENEFICIARIOS/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId)
         && hasPlanillasRole(resource.data.empresaId, [
-          'tesoreria', 'admin_doc', 'desarrollador', 'talento_humano'
+          'tesoreria', 'admin_doc', 'desarrollador'
         ]);
       allow create, update: if belongsToCompany(request.resource.data.empresaId)
         && hasPlanillasRole(request.resource.data.empresaId, [
-          'tesoreria', 'admin_doc', 'desarrollador', 'talento_humano'
+          'tesoreria', 'admin_doc', 'desarrollador'
         ])
         // El número de cuenta no puede colarse aquí ni por descuido ni a
         // propósito: si se admitiera, quedaría legible para Talento Humano y

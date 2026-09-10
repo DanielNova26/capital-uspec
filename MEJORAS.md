@@ -4801,3 +4801,45 @@ mandaría el dinero a donde el archivo no dijo.
 Lo que no esté en ninguno de los dos se queda vacío y lo reporta la validación
 con nombre y apellido. Y `beneficiariosSinMaestro` dice a quién hay que dar de
 alta antes de reintentar, en vez de dejarlo deducir de una lista de errores.
+
+---
+
+## Pantalla del maestro de beneficiarios (10 sep 2026)
+
+En Planillas de Pago, botón **BENEFICIARIOS**. Listado paginado de 20 con
+buscador, ficha para crear y editar, e importación del Excel de Tesorería.
+
+**Es de proveedores, no de nómina.** La nómina la gestionará Talento Humano
+desde su propio módulo; por eso el rol `talento_humano` se quitó de las reglas:
+dejarlo puesto sería dar acceso a algo que todavía no existe. Cuando llegue, es
+añadir ese rol a **una** lista de **una** regla y nada más — no hay migración,
+porque el corte en dos colecciones ya está hecho.
+
+### Detalles que no son de pantalla
+
+- **El número de cuenta no viaja en el listado.** Se pide uno a uno al abrir la
+  ficha. Traer cientos de números para pintar una lista sería exponer de más y
+  pagar de más en lecturas.
+- **El banco se elige por su nombre**, no por el código. Nadie recuerda que
+  Davivienda es 0051, y un dígito mal escrito manda el dinero a otra entidad. Si
+  el beneficiario ya tiene un código que no está en el catálogo —pasa: 0507,
+  0551, 0809— se conserva y se avisa, en vez de reemplazarlo por uno de la
+  lista.
+- **La identificación no se puede editar** en una ficha existente: es el id del
+  documento, así que cambiarla crearía otro y dejaría el viejo suelto.
+- **Guardar sin permiso sobre el número no borra el que ya estaba**: solo se
+  escribe la colección del número cuando llega con algo.
+- **La importación enseña lo encontrado antes de escribir**, con sus bloqueos y
+  sus avisos. Importar a ciegas un maestro de cuentas bancarias y revisarlo
+  después es al revés.
+- El error de permiso en el listado se muestra como "esto es de Tesorería", no
+  como una pantalla roja: no es una caída.
+
+### El plano ya usa el maestro
+
+Al descargar el archivo plano de una planilla firmada, las filas se completan
+con el maestro por identificación. Si algún beneficiario no está, el aviso dice
+**cuáles** hay que dar de alta, no solo que falta un dato.
+
+Si el maestro no se puede leer, se sigue con lo que trae el archivo: quedarse
+sin plano por un permiso sería peor que generarlo incompleto y avisar.

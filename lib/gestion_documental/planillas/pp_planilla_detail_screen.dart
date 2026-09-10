@@ -23,6 +23,7 @@ import '../../widgets/internal_module_layout.dart';
 import '../../widgets/user_avatar.dart';
 import 'pp_excel_parser.dart';
 import 'pp_archivo_plano.dart';
+import 'pp_beneficiarios_service.dart';
 import 'pp_models.dart';
 import 'pp_service.dart';
 
@@ -839,12 +840,29 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
   /// sube al banco, y bajarlo antes de la firma de gerencia permitiría pagar
   /// algo que todavía no está aprobado.
   Future<void> _descargarPlano(PpPlanilla planilla) async {
-    final filas = filasPlanoDesdePlanilla(
+    final messenger = ScaffoldMessenger.of(context);
+    var filas = filasPlanoDesdePlanilla(
       _filasDePago(planilla),
       fechaLimite: planilla.firmadoEn?.toDate() ?? DateTime.now(),
       concepto: (planilla.nombrePlanillaDetectado ?? '').trim(),
     );
-    final messenger = ScaffoldMessenger.of(context);
+
+    // El maestro completa lo que la planilla no traiga: es lo que evita que
+    // esto sea un trabajo manual. Si no se puede leer —falta de permiso— se
+    // sigue con lo que trae el archivo y la validación dirá qué falta;
+    // quedarse sin plano por eso sería peor.
+    var sinMaestro = const <String>[];
+    try {
+      final maestro = await PpBeneficiariosService().paraArchivoPlano(
+        planilla.empresaId,
+      );
+      if (maestro.isNotEmpty) {
+        sinMaestro = beneficiariosSinMaestro(filas, maestro);
+        filas = completarConMaestro(filas, maestro);
+      }
+    } catch (_) {
+      // Sin maestro se sigue igual.
+    }
     if (filas.isEmpty) {
       messenger.showSnackBar(
         const SnackBar(
@@ -869,6 +887,21 @@ class _PpPlanillaDetailScreenState extends State<PpPlanillaDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Se dice a quién dar de alta, no solo qué falta: es la
+                  // acción concreta que arregla la mayoría de estos
+                  // errores.
+                  if (sinMaestro.isNotEmpty) ...[
+                    Text(
+                      '${sinMaestro.length} beneficiario(s) no están en el '
+                      'maestro: ${sinMaestro.take(6).join(', ')}'
+                      '${sinMaestro.length > 6 ? '…' : ''}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Divider(height: 16),
+                  ],
                   for (final e in errores.take(12))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
