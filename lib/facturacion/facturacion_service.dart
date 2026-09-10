@@ -613,6 +613,7 @@ class FacturacionService {
       final requeridos = docs.length - ignorados;
       return FacProgresoEst(
         establecimiento: est,
+        mes: mes,
         subidos: subidos,
         requeridos: requeridos,
         ignorados: ignorados,

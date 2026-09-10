@@ -32,6 +32,15 @@ const Color _kPrimary = Color(0xFF0369A1); // Sky 700
 const Color _kAccent = Color(0xFF38BDF8); // Sky 400
 const Color _kGreen = Color(0xFF16A34A);
 const Color _kRed = Color(0xFFDC2626);
+
+/// Color del semáforo. La regla vive en `facNivelCumplimiento`; aquí solo se
+/// traduce a color, para que la pantalla no vuelva a tener su propia version.
+Color _colorCumplimiento({required int subidos, required int requeridos}) =>
+    switch (facNivelCumplimiento(subidos: subidos, requeridos: requeridos)) {
+      FacNivelCumplimiento.verde => _kGreen,
+      FacNivelCumplimiento.naranja => Colors.orange,
+      FacNivelCumplimiento.rojo => _kRed,
+    };
 const Color _kGrey = Color(0xFF94A3B8);
 const Color _kBg = Color(0xFFF0F9FF); // Sky 50
 const String _kFont = 'Arial';
@@ -906,7 +915,9 @@ class _FacturacionViewState extends State<_FacturacionView>
           empresaId: widget.empresaId,
           estId: estId,
           estNombre: prog.establecimiento.nombre,
-          mes: prog.establecimiento.mes,
+          // El mes del filtro, no el del establecimiento: al entrar desde una
+          // fila filtrada por agosto se abria julio.
+          mes: prog.mes,
           documentos: _documentos,
           canEdit: widget.canManage,
           svc: widget.svc,
@@ -968,7 +979,10 @@ class _EstCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final e = prog.establecimiento;
     final pct = (prog.progreso * 100).round();
-    final color = prog.completo ? _kGreen : (pct > 50 ? Colors.orange : _kRed);
+    final color = _colorCumplimiento(
+      subidos: prog.subidos,
+      requeridos: prog.requeridos,
+    );
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1014,7 +1028,7 @@ class _EstCard extends StatelessWidget {
                 children: [
                   const SizedBox(width: 16),
                   Text(
-                    '${prog.subidos} de ${prog.requeridos} docs · Mes: ${facMesLabel(e.mes)}',
+                    '${prog.subidos} de ${prog.requeridos} docs · Mes: ${facMesLabel(prog.mes)}',
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
@@ -2620,7 +2634,7 @@ class _DetalleEstablecimientoScreenState
   Widget _buildHeader() {
     final total = widget.documentos.length;
     final pct = total > 0 ? _completados / total : 1.0;
-    final color = _todoCompleto ? _kGreen : (pct > 0.5 ? Colors.orange : _kRed);
+    final color = _colorCumplimiento(subidos: _completados, requeridos: total);
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.all(16),
@@ -3274,7 +3288,7 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   Widget _buildHeader() {
     final total = _visibleDocs.length;
     final pct = total > 0 ? _completados / total : 1.0;
-    final color = _todoCompleto ? _kGreen : (pct > 0.5 ? Colors.orange : _kRed);
+    final color = _colorCumplimiento(subidos: _completados, requeridos: total);
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

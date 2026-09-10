@@ -572,6 +572,18 @@ class FacRevision {
 
 class FacProgresoEst {
   final FacEstablecimiento establecimiento;
+
+  /// Mes al que corresponde este conteo.
+  ///
+  /// Va aquí y no se lee de `establecimiento.mes` porque son cosas distintas:
+  /// `establecimiento.mes` es el mes ASIGNADO al establecimiento (el de la
+  /// última carga), y esto es el mes que el usuario está mirando. Cuando se
+  /// pintaban juntos —"6 de 11 · Mes: julio" con agosto seleccionado en el
+  /// filtro— el conteo era del filtro y la etiqueta del establecimiento, y
+  /// parecía que el filtro no servía. Teniéndolo dentro del resultado, la
+  /// etiqueta no puede contradecir al número que la acompaña.
+  final String mes;
+
   final int subidos;
   final int requeridos;
   final int ignorados;
@@ -582,11 +594,42 @@ class FacProgresoEst {
 
   const FacProgresoEst({
     required this.establecimiento,
+    required this.mes,
     required this.subidos,
     required this.requeridos,
     required this.ignorados,
     required this.docSubido,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Semáforo de cumplimiento
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Nivel del semáforo. Enum y no `Color` para que viva junto al resto de la
+/// lógica, sin arrastrar Flutter a este archivo y sin que haya que levantar un
+/// widget para probarlo.
+enum FacNivelCumplimiento { rojo, naranja, verde }
+
+/// Regla del semáforo, tal como se fijó el 9 sep 2026: **el verde está
+/// reservado al 100 %**.
+///
+/// Estaba en tres copias idénticas dentro de la pantalla, y las tres daban
+/// rojo justo en el 50 % por usar `> 0.5` en vez de `>= 0.5`. Es una sola
+/// regla, así que ahora es una sola función.
+///
+/// [requeridos] en cero significa que no hay nada que cumplir (todos los
+/// documentos están marcados como ignorados): eso es verde, no un 0 %.
+FacNivelCumplimiento facNivelCumplimiento({
+  required int subidos,
+  required int requeridos,
+}) {
+  if (requeridos <= 0) return FacNivelCumplimiento.verde;
+  if (subidos >= requeridos) return FacNivelCumplimiento.verde;
+  if (subidos <= 0) return FacNivelCumplimiento.rojo;
+  return subidos / requeridos >= 0.5
+      ? FacNivelCumplimiento.naranja
+      : FacNivelCumplimiento.rojo;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

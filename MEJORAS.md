@@ -167,13 +167,16 @@ año/mes/día, importe y hasta cuatro conceptos.
 
 **P0 · Facturación**
 
-- [ ] **El filtro por mes toma el mes del último archivo subido, no el del
-      filtro.** Es el bug que hizo que julio mostrara 2 cuadros de raciones y
-      agosto 16. `facturacion_service.dart:307` lee `facData['mes']` del
-      establecimiento; el filtro de la pantalla no manda.
-- [ ] Semáforo: rojo por debajo del 50 %, naranja intermedio, y **verde
-      reservado exclusivamente al 100 %**. Hoy el verde entra antes.
-- [ ] Exportar en `.zip` cuando todos los documentos estén cargados.
+- [x] **El filtro por mes.** El acta lo describía mal: el conteo SÍ usaba el
+      filtro. Lo que mentía era la etiqueta de al lado ("6 de 11 · Mes: julio"
+      con agosto seleccionado) y, peor, abrir esa fila entraba al mes del
+      establecimiento y no al del filtro. Hecho por Claude.
+- [x] Semáforo: rojo por debajo del 50 %, naranja intermedio, verde solo al
+      100 %. Eran tres copias de la regla y las tres daban rojo en el 50 %
+      exacto. Hecho por Claude.
+- [x] Exportar en `.zip` cuando todos los documentos estén cargados. **Ya
+      estaba hecho**: `_descargarZip` existe y el botón sale solo con
+      `_todoCompleto`. No hacía falta tocar nada.
 - [ ] Limpieza de la interfaz: quitar campos operativos que no se usan y
       mejorar la presentación de los filtros.
 
@@ -3696,3 +3699,51 @@ la regla multi-cargo agota la sede antes de mirar afuera, y tipo 1 / tipo 2 no
 se resuelven el uno al otro. Sin ellas los tres defectos vuelven sin ruido:
 ninguno rompe la compilación y el síntoma solo se ve semanas después, cuando a
 alguien le llega una tarea de una cárcel en la que nunca ha estado.
+
+---
+
+## Facturación — el mes que se pintaba no era el que se filtraba (10 sep 2026)
+
+El acta de la reunión decía que "el aplicativo tomaba el mes del último archivo
+subido en lugar del periodo seleccionado". Leída así, el bug estaría en el
+conteo. No lo estaba: `_recargarProgreso` siempre usó `_filtroMes`.
+
+Lo que pasaba está en la transcripción, con nombre propio:
+
+> Oscar Cano: Mira que te sale **Tulua 6 de 11 mes de julio**. Todos julio.
+> …¿por qué sale mes de julio, Dani?
+
+El "6 de 11" se calculaba para agosto y el "mes: julio" salía de
+`establecimiento.mes`, que es el mes **asignado** al establecimiento — el de la
+última carga. Dos datos de distinta procedencia pegados en la misma línea. Y la
+mitad grave no era la etiqueta: `_abrirDetalle` pasaba ese mismo
+`establecimiento.mes`, así que **entrar a una fila filtrada por agosto abría
+julio** y ahí sí se subían archivos al mes equivocado.
+
+La corrección no es cambiar la etiqueta por `_filtroMes`. Es que `FacProgresoEst`
+ahora lleva el `mes` para el que se calculó. El conteo y su etiqueta salen del
+mismo objeto, así que no pueden volver a contradecirse aunque alguien pinte esa
+tarjeta en otra pantalla.
+
+### El semáforo estaba escrito tres veces
+
+`prog.completo ? verde : (pct > 0.5 ? naranja : rojo)`, copiado en la tarjeta
+del establecimiento y en las dos cabeceras de detalle. Las tres tenían el mismo
+defecto: `> 0.5` deja el 50 % exacto en rojo, cuando la instrucción fue rojo por
+**debajo** del 50 %.
+
+Ahora es una función, `facNivelCumplimiento`, que devuelve un enum y vive en
+`facturacion_models.dart` para poder probarse sin levantar un widget. La
+pantalla solo traduce enum a color. El verde queda reservado al 100 %, que era
+la instrucción explícita de la reunión.
+
+`requeridos == 0` (todos los documentos ignorados) sigue siendo verde: no hay
+deuda que pintar en rojo, y marcarlo incompleto dejaría filas rojas que nadie
+puede arreglar.
+
+### El ZIP ya estaba
+
+`_descargarZip` existe desde antes y el botón solo aparece con `_todoCompleto`,
+que es literalmente "una vez que todos los documentos sean cargados". No hacía
+falta escribir nada. El cambio de Codex en `facDocumentosCompletos` incluso lo
+apretó: un establecimiento sin documentos configurados ya no ofrece el ZIP.

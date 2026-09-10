@@ -176,6 +176,7 @@ void main() {
               mes: 'Agosto_2026',
               ignoredDocs: {obligacion.nombre: ignored},
             ),
+            mes: 'Agosto_2026',
             subidos: uploaded ? 1 : 0,
             requeridos: ignored ? 0 : 1,
             ignorados: ignored ? 1 : 0,
@@ -310,6 +311,73 @@ void main() {
       );
       expect(facEstadoRevisionValue(FacEstadoRevision.aprobado), 'aprobado');
       expect(facEstadoRevisionValue(FacEstadoRevision.rechazado), 'rechazado');
+    });
+  });
+
+  group('semáforo de cumplimiento', () {
+    // La instrucción del 9 sep 2026: "el verde debe reservarse exclusivamente
+    // para el cumplimiento total".
+    test('el verde es solo del 100 %', () {
+      expect(
+        facNivelCumplimiento(subidos: 11, requeridos: 11),
+        FacNivelCumplimiento.verde,
+      );
+      expect(
+        facNivelCumplimiento(subidos: 10, requeridos: 11),
+        FacNivelCumplimiento.naranja,
+      );
+    });
+
+    test('el 50 % exacto es naranja, no rojo', () {
+      // Las tres copias de la regla usaban `> 0.5`, así que la mitad justa
+      // salía en rojo.
+      expect(
+        facNivelCumplimiento(subidos: 5, requeridos: 10),
+        FacNivelCumplimiento.naranja,
+      );
+      expect(
+        facNivelCumplimiento(subidos: 4, requeridos: 10),
+        FacNivelCumplimiento.rojo,
+      );
+    });
+
+    test('sin nada subido es rojo', () {
+      expect(
+        facNivelCumplimiento(subidos: 0, requeridos: 11),
+        FacNivelCumplimiento.rojo,
+      );
+    });
+
+    test('sin nada que cumplir es verde, no un cero por ciento', () {
+      // Todos los documentos ignorados: no hay deuda que pintar en rojo.
+      expect(
+        facNivelCumplimiento(subidos: 0, requeridos: 0),
+        FacNivelCumplimiento.verde,
+      );
+    });
+  });
+
+  group('el progreso sabe de qué mes es', () {
+    test('el mes del conteo no sale del establecimiento', () {
+      // El establecimiento tiene julio asignado y se está mirando agosto: la
+      // etiqueta debe decir agosto, que es de donde salieron los números.
+      const est = FacEstablecimiento(
+        id: 'emp_buen_pastor',
+        empresaId: 'emp',
+        nombre: 'Buen Pastor',
+        mes: 'Julio_2026',
+      );
+      const progreso = FacProgresoEst(
+        establecimiento: est,
+        mes: 'Agosto_2026',
+        subidos: 6,
+        requeridos: 11,
+        ignorados: 0,
+        docSubido: {},
+      );
+
+      expect(progreso.mes, 'Agosto_2026');
+      expect(progreso.establecimiento.mes, 'Julio_2026');
     });
   });
 }
