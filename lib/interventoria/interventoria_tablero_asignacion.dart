@@ -179,17 +179,21 @@ class _InterventoriaTableroAsignacionState
             : constraints.maxWidth >= 760
             ? 2
             : 1;
-        // Solo los hallazgos para los que la matriz YA resuelve un responsable.
-        // Si la lista de usuarios aun no cargo se deja vacia: ofrecer
-        // "asignar sugeridos" antes de tener a quien asignar produciria cero
-        // asignaciones y la sensacion de que el boton no hace nada.
-        final sugeridosPendientes = _cargandoUsuarios
+        // Solo los hallazgos para los que la matriz resuelve un responsable
+        // QUE TRABAJA EN EL ESTABLECIMIENTO del hallazgo. Si la lista de
+        // usuarios aun no cargo se deja vacia: ofrecer la asignacion masiva
+        // antes de tener a quien asignar produciria cero asignaciones y la
+        // sensacion de que el boton no hace nada.
+        //
+        // El filtro por establecimiento es lo que se pidio el 9 sep 2026: la
+        // asignacion masiva estaba mandando hallazgos a gente de otra sede
+        // (una responsable de Tunja) solo porque su cargo se parecia mas al de
+        // la matriz. Un cargo corporativo que atiende varias sedes se asigna
+        // a mano, con nombre y apellido, no en lote.
+        final asignablesEnSede = _cargandoUsuarios
             ? const <InterventoriaHallazgo>[]
             : sinAsignar
-                  .where(
-                    (h) =>
-                        widget.service.sugerirResponsable(h, _usuarios) != null,
-                  )
+                  .where((h) => _responsableEnSede(h) != null)
                   .toList();
 
         final secciones = <Widget>[
@@ -200,8 +204,8 @@ class _InterventoriaTableroAsignacionState
             icono: Icons.person_off_outlined,
             rows: sinAsignar,
             columnas: columnas,
-            accion: widget.canWrite && sugeridosPendientes.isNotEmpty
-                ? _botonAsignarTodos(sugeridosPendientes)
+            accion: widget.canWrite && asignablesEnSede.isNotEmpty
+                ? _botonAsignarTodos(asignablesEnSede)
                 : null,
           ),
           _seccion(
@@ -484,21 +488,28 @@ class _InterventoriaTableroAsignacionState
     // el boton de la cabecera contaba 598 sugerencias mientras las 600 tarjetas
     // decian que nadie respondia. Ahora se pregunta de verdad.
     if (!sinNumeral) {
-      // Puede haber mas de uno: cuando nadie con ese cargo pertenece al
-      // establecimiento del hallazgo, responden todos los que lo tengan.
-      final sugeridos = widget.service.sugerirResponsables(h, _usuarios);
-      if (sugeridos.isNotEmpty) {
-        final uno = sugeridos.first;
-        final texto = sugeridos.length == 1
+      // La palabra "sugerido" se quito el 9 sep 2026. No era un matiz de
+      // redaccion: una lista de "sugeridos" que incluia gente de otras sedes
+      // invitaba a aceptarla en bloque, y asi es como una responsable de Tunja
+      // termino con hallazgos de otro establecimiento. Ahora la tarjeta solo
+      // afirma algo cuando la persona trabaja en el establecimiento del
+      // hallazgo; en ese caso no es una sugerencia, es lo que dice el maestro.
+      final delCentro = widget.service
+          .sugerirResponsables(h, _usuarios)
+          .where((p) => p.delCentro)
+          .toList();
+      if (delCentro.isNotEmpty) {
+        final uno = delCentro.first;
+        final texto = delCentro.length == 1
             ? (uno.cargo.trim().isEmpty
-                  ? 'Sugerido: ${uno.nombre}'
-                  : 'Sugerido: ${uno.nombre} · ${uno.cargo}')
-            : 'Sugeridos (${sugeridos.length}): '
-                  '${sugeridos.map((p) => p.nombre).join(', ')}';
+                  ? 'Responde: ${uno.nombre}'
+                  : 'Responde: ${uno.nombre} · ${uno.cargo}')
+            : 'Responden (${delCentro.length}): '
+                  '${delCentro.map((p) => p.nombre).join(', ')}';
         return Row(
           children: [
             Icon(
-              sugeridos.length == 1
+              delCentro.length == 1
                   ? Icons.person_search_outlined
                   : Icons.groups_outlined,
               size: 14,
@@ -526,7 +537,8 @@ class _InterventoriaTableroAsignacionState
           child: Text(
             sinNumeral
                 ? 'No se pudo identificar el numeral: elige tú el responsable'
-                : 'Nadie tiene el cargo que responde por ${h.numeralParaMatriz}',
+                : 'Nadie de este establecimiento tiene el cargo que responde '
+                      'por ${h.numeralParaMatriz}: elige tú',
             maxLines: 2,
             style: const TextStyle(fontSize: 12, color: _warn),
           ),
@@ -594,12 +606,27 @@ class _InterventoriaTableroAsignacionState
     );
   }
 
+  /// Responsable que el maestro resuelve para este hallazgo **dentro de su
+  /// establecimiento**. Devuelve null si el numeral no se identifica, si nadie
+  /// tiene el cargo, o si quien lo tiene trabaja en otra sede.
+  ///
+  /// Esa ultima condicion es la importante: la persona existe, el cargo encaja,
+  /// y aun asi no se propone. Asignar por cargo a alguien de otro
+  /// establecimiento le crea una tarea real y le manda una notificacion por un
+  /// hallazgo que no puede resolver.
+  InterventoriaPersona? _responsableEnSede(InterventoriaHallazgo h) {
+    final persona = widget.service.sugerirResponsable(h, _usuarios);
+    if (persona == null || !persona.delCentro) return null;
+    return persona;
+  }
+
   /// Botón de la cabecera de "Sin asignar": asigna de una sola vez todos los
-  /// hallazgos para los que el acta ya sugiere responsable. No los asigna
-  /// solo, hay que pedirlo, porque cada asignación crea una tarea y dispara
-  /// una notificación real a esa persona — si la sugerencia falla (cargo mal
-  /// leído del OCR, numeral equivocado) el error queda contenido a un clic y
-  /// no se dispara en cuanto el acta entra al tablero.
+  /// hallazgos cuyo responsable resuelve el maestro dentro del propio
+  /// establecimiento. No los asigna solo, hay que pedirlo, porque cada
+  /// asignación crea una tarea y dispara una notificación real a esa persona
+  /// — si la regla falla (cargo mal leído del OCR, numeral equivocado) el
+  /// error queda contenido a un clic y no se dispara en cuanto el acta entra
+  /// al tablero.
   Widget _botonAsignarTodos(List<InterventoriaHallazgo> sugeridos) {
     if (_asignandoMasivo) {
       return const Padding(
@@ -621,7 +648,7 @@ class _InterventoriaTableroAsignacionState
         ),
         icon: const Icon(Icons.done_all_rounded, size: 16),
         label: Text(
-          'Asignar sugeridos (${sugeridos.length})',
+          'Asignar por el maestro (${sugeridos.length})',
           style: const TextStyle(fontSize: 12),
         ),
       ),
@@ -638,8 +665,10 @@ class _InterventoriaTableroAsignacionState
     // hallazgo primero (los que vienen de un acta todavía no son documento) y
     // dos asignaciones a la vez sobre el mismo hallazgo duplicarían la tarea.
     for (final h in sugeridos) {
-      final sugerido = widget.service.sugerirResponsable(h, _usuarios);
-      if (sugerido == null) continue;
+      // Se vuelve a comprobar aqui, no solo al construir la lista: entre el
+      // filtro y el clic la lista de usuarios puede haber cambiado, y una
+      // asignacion fuera de sede no se puede colar por una carrera.
+      if (_responsableEnSede(h) == null) continue;
       final clave = _claveOcupado(h);
       if (_asignando.contains(clave)) continue;
       try {

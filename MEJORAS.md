@@ -5,6 +5,222 @@ Registro de cambios ejecutados por sesión de mejora. Objetivo: app nivel
 con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
+
+## Reparto de trabajo — reunión 9 sep 2026 (Claude ↔ Codex)
+
+**Estado: ACORDADO PARA EJECUCIÓN.** Propuesto por Claude y revisado por Codex
+el 10 sep 2026. Los cambios de alcance o de dueño se registran aquí antes de
+editar código compartido.
+
+Fuentes: notas de Gemini del 9 sep 2026, `Correciones COMPRAS.docx`,
+`NUEVOS MODULOS.xlsx`, `ARCHIVO PLANO COTA ADMINISTRATIVA AGOSTO 2026.csv`.
+
+**Criterio de fuente.** El resumen automático de Gemini sirve como índice, pero
+la transcripción y las capturas mandan cuando hay ambigüedad. El XLSX y el CSV
+del archivo plano son dos representaciones del mismo ejemplo: 15 pagos y el
+mismo total; no son dos requerimientos distintos. Los datos bancarios son
+sensibles y no se copiarán a esta bitácora ni a pruebas del repositorio.
+
+### Regla de convivencia: cada archivo tiene un solo dueño
+
+No es burocracia. `compras_dashboard_screen.dart` tiene 23.788 líneas y
+`interventoria_dashboard_screen.dart` 10.926: si los dos tocamos el mismo
+archivo, el segundo en guardar pisa al primero sin que nadie se entere. El
+reparto está hecho por **módulo completo**, no por tarea, precisamente para
+que nunca coincidamos en un archivo.
+
+| Ruta | Dueño |
+|---|---|
+| `lib/interventoria/**` | Claude |
+| `lib/gestion_documental/correspondencia/**` | Claude |
+| `lib/gestion_documental/gd_*` (Biblioteca existente) | Claude |
+| `lib/core/maestro_formatos/**` (nuevo) | Claude |
+| `lib/mantenimiento/**` (nuevo) | Claude |
+| `lib/gestion_documental/planillas/pp_archivo_plano_*` (nuevo) | Claude |
+| `firestore.rules`, `firestore.indexes.json` y pruebas de reglas | Claude |
+| migración backend de registro sanitario (archivo nuevo bajo `functions/src/`) | Claude |
+| `lib/compras/**` | Codex |
+| `lib/facturacion/**` | Codex |
+| `lib/tokens_dian/**` | Codex |
+| `lib/home/*task*`, `lib/widgets/task_*`, `lib/core/task_*`, `lib/services/task_service.dart` | Codex |
+| `lib/core/app_catalog.dart`, navegación y matriz de acceso a módulos nuevos | Codex |
+
+Fronteras compartidas que **sí** hay que negociar antes de tocar:
+
+- `lib/services/task_service.dart` es de Codex. Claude lo necesita para que el
+  rechazo de un acta cree la tarea de corrección, pero **no lo va a editar**:
+  llama a `createTaskEs(...)`, que ya existe (línea 248). Si hiciera falta un
+  método nuevo, se pide aquí antes de escribirlo.
+- `lib/home/home_screen.dart`, `lib/core/app_catalog.dart` y la matriz de acceso
+  quedan en Codex porque son navegación, roles e integración. Claude entrega el
+  contrato del módulo y no edita esos archivos.
+- `pubspec.yaml`, la versión, la consolidación, las pruebas finales y Git quedan
+  en Codex. Si Claude necesita una dependencia, la propone aquí primero.
+
+---
+
+### Claude — permisos de lo que ya está al aire, más lo nuevo
+
+**P0 · Seguridad transversal antes de publicar módulos sensibles**
+
+- [ ] Cerrar reglas explícitas por empresa, módulo y rol para Biblioteca,
+      formatos, Planillas y datos bancarios. Los permisos de la interfaz no
+      sustituyen las reglas de Firestore.
+- [ ] Añadir pruebas de aislamiento multiempresa y de denegación por rol.
+- [ ] Preservar los cambios locales que ya existen en Interventoría; revisar el
+      diff antes de editar y no rehacer lo que ya esté implementado.
+
+**P0 · Interventoría** (todo el módulo, correcciones del docx + notas)
+
+- [x] Quitar el "sugerido" de la asignación automática de tareas.
+- [x] `Por revisar`: quitar a terceros distintos de Kary y Gerencia.
+- [x] `Subsanaciones`: calidad y demás roles en **solo lectura**, sin poder
+      reasignar responsables.
+- [x] Maestro de responsabilidades: separar `Administrador tipo 1` de
+      `Administrador tipo 2` para que la tarea caiga en el rol correcto según
+      el establecimiento.
+- [ ] Rechazo de acta por calidad → genera automáticamente la tarea de
+      corrección al administrador del establecimiento, editable desde el
+      histórico.
+- [ ] Exportar la tabla de subsanaciones.
+- [ ] GUI del reporte: poder "recoger" el acta para ganar espacio, y ventana
+      flotante con el detalle al tocar una barra del indicador.
+- [ ] Mostrar de forma visible los elementos pendientes de revisión por
+      Calidad. Esta observación pertenece a Interventoría, no al semáforo de
+      fichas técnicas de Compras.
+- [x] Datos maestros: Adriana Rojas es de Tunja. · [ ] Revisar numerales.
+
+**P0 · Correspondencia**
+
+- [ ] El código de tipo documental debe aceptar **exactamente 3 caracteres**.
+      La validación ya existe (`gd_correspondencia_service.dart:139`,
+      `gd_tipos_documentales_screen.dart:412`); lo que falla es la asignación
+      de correos, que se queda a medias. Reproducir y corregir el filtro.
+
+**P1 · Motor de maestro de formatos + Biblioteca Documental**
+
+`NUEVOS MODULOS.xlsx` agrupa seis frentes (Biblioteca, Visitas, Informe Técnico,
+Mantenimiento, Nutrición y Rutas/HSE). Varios comparten el mismo patrón de
+campos, anexos obligatorios, revisión de Calidad y formatos por empresa. Esa
+parte común es un motor y cada frente aporta su configuración; no se deben
+crear seis copias de la misma lógica.
+
+- [ ] Motor: formato = departamento + código + campos fijos + campos variables
+      + restricciones de anexo + flujo de aprobación por calidad.
+- [ ] Extender la Biblioteca Documental existente (`gd_*`), no crear un segundo
+      módulo paralelo: subir formato diligenciado, calidad revisa /
+      aprueba / rechaza, y **solo se descarga lo aprobado y no editable**.
+- [ ] Documentos del contrato: internos (RUT, RIT, cert. bancario, contrato,
+      anexos, otrosí) y externos (circulares). Carga **uno a uno**, nunca
+      masiva — se decidió así en la reunión para evitar confusiones.
+- [ ] Biblioteca queda **separada** de gestión de correspondencia: son módulos
+      distintos (decisión de la reunión).
+
+**P1 · Archivo plano de nómina — validación y prototipo**
+
+El CSV de Alejandra ya llegó. Es un plano bancario por columnas: identificación,
+tipo de id, dígito de verificación, apellidos y nombres, forma de pago, banco,
+tipo de cuenta, número de cuenta, código de oficina, fecha límite partida en
+año/mes/día, importe y hasta cuatro conceptos.
+
+- [ ] Añadir el generador al módulo existente de Planillas de Pago, con modelo,
+      validaciones y exportación CSV compatibles con el ejemplo recibido; no
+      crear un módulo de nómina nuevo.
+- [ ] Conservar códigos y cuentas como texto cuando tengan ceros a la izquierda,
+      fecha separada en año/mes/día, importes con dos decimales y total en la
+      cabecera. Probar sin incluir datos reales de los beneficiarios.
+- [ ] No asumir que el XLSX es una macro funcional: no contiene VBA y conserva
+      varios nombres definidos con `#REF!`. Usarlo como especificación del
+      layout y validar el CSV producido. El viernes de la transcripción era el
+      plazo para recibir el insumo, no una fecha confirmada de entrega del módulo.
+
+**P2 · Mantenimiento** — maquetado sobre el motor de formatos (compromiso de
+"para el día siguiente" de la reunión).
+
+---
+
+### Codex — los dos módulos en producción con más correcciones pendientes
+
+**P0 · Compras** (`Correciones COMPRAS.docx`, todo el módulo)
+
+- [ ] **Quitar** de la ficha técnica el campo, validación, bloqueo y alerta de
+      `Vigente hasta`. La transcripción dice literalmente “quitar eso”; no se
+      pidió agregar vigencia.
+- [ ] Creación de marca: el mensaje de error es incorrecto.
+- [ ] Error al ver el detalle de una ficha técnica durante la entrada de
+      producto.
+- [ ] **Registro sanitario no va en el producto, va en el proveedor.** Hoy
+      vive en `documentosAsociados` de la marca
+      (`compras_dashboard_screen.dart`, ~12 usos; `compras_models.dart:171`;
+      `compras_validation.dart:17`). Codex hace la lectura compatible y el flujo
+      en `lib/compras/**`; Claude prepara una migración auditable que reporte
+      relaciones ambiguas y no borre el origen hasta validar el destino.
+- [ ] En una recepción, no permitir agregar otra fila de producto mientras
+      exista una fila anterior vacía o incompleta; evita acumular productos
+      indefinidos sin bloquear una recepción válida con varios productos.
+- [ ] Indicador de presencia en la marca: verde si tiene al menos una ficha
+      técnica y rojo si no tiene. El estado de Calidad de cada ficha sigue
+      mostrándose en su detalle, sin confundir “archivo presente” con “aprobado”.
+- [ ] Descartar el supuesto fallo del filtro del histórico de recepciones: en la
+      transcripción se confirmó que era un filtro seleccionado por el usuario y
+      se pidió ignorarlo.
+
+**P0 · Facturación**
+
+- [ ] **El filtro por mes toma el mes del último archivo subido, no el del
+      filtro.** Es el bug que hizo que julio mostrara 2 cuadros de raciones y
+      agosto 16. `facturacion_service.dart:307` lee `facData['mes']` del
+      establecimiento; el filtro de la pantalla no manda.
+- [ ] Semáforo: rojo por debajo del 50 %, naranja intermedio, y **verde
+      reservado exclusivamente al 100 %**. Hoy el verde entra antes.
+- [ ] Exportar en `.zip` cuando todos los documentos estén cargados.
+- [ ] Limpieza de la interfaz: quitar campos operativos que no se usan y
+      mejorar la presentación de los filtros.
+
+**P1 · Tareas**
+
+- [ ] Permitir reasignar una tarea a **otro departamento** (hoy
+      `reassignTask` en `task_service.dart:552` no cruza departamento).
+- [ ] Antes de ampliar permisos, validar si todavía se necesitan observaciones
+      de seguimiento por otras áreas. En la reunión quedó como propuesta de
+      última prioridad porque el seguimiento ya puede hacerse en la tarea.
+
+**P2 · Tokens DIAN**
+
+- [ ] Filtro por empresa y habilitar el módulo para F&C. Hoy solo lo usa
+      Capital.
+
+**Cierre de Codex**
+
+- [ ] Integrar los contratos entregados por Claude con navegación, empresa
+      activa, roles y permisos por usuario.
+- [ ] Ejecutar pruebas funcionales por rol y por plataforma, verificando que Web
+      use tablas/filtros persistentes/maestro-detalle y Móvil mantenga flujos
+      compactos por tarea.
+- [ ] Revisar el árbol sucio, incluir solo archivos de esta tanda y realizar los
+      únicos `git add`, `git commit` y `git push` autorizados.
+
+---
+
+### Lo que NO tomó nadie (y por qué)
+
+No es olvido: es que no hay especificación suficiente para escribirlo bien.
+
+- **Visitas de profesionales** e **Informe técnico**: Claude puede definir el
+  esquema común y los contratos técnicos, pero no se construyen los formularios
+  finales. Oscar quedó de recoger con los directores qué se diligencia en cada
+  visita y hay una reunión pendiente para cerrar campos fijos, variables y las
+  93 obligaciones del informe. La reunión dejó el informe mensual para el final.
+- **Nutrición** y **Rutas/HSE** como maestros de formato: salen casi gratis
+  una vez exista el motor de `lib/core/maestro_formatos/`. Ya existen módulos
+  de Nutrición y Rutas: se extienden después, no se duplican ni se hacen en
+  paralelo al motor.
+- **Crear la nueva empresa con el RUT** y el **traslado a F&C**: es carga de
+  datos y configuración, no código.
+- **Verificación de Google (Gmail)** y **plantillas de Meta (WhatsApp)**:
+  trámites externos con demora de días. No dependen de nosotros.
+
+---
 ## Política de versiones (leer antes de tocar `version:` en pubspec.yaml)
 
 Las dos plataformas leen la versión de **un solo sitio**: `version: X.Y.Z+N` en
@@ -3393,3 +3609,90 @@ La negrita del cargo se ve como texto normal: `assets/` solo trae `arial.ttf`
 regular. Si se quiere negrita real, poner `assets/arial_bold.ttf`, declararlo en
 `pubspec.yaml` y `temaCarnet()` lo toma solo (ya está previsto; si el archivo no
 está, cae en la regular sin romper nada).
+
+---
+
+## Interventoría — permisos y responsable por establecimiento (10 sep 2026)
+
+Correcciones de la reunión del 9 sep 2026. Todo dentro de `lib/interventoria/`.
+
+### Los permisos dejaron de ser uno solo
+
+`canWrite` era un permiso único: quien podía escribir en el módulo podía
+registrar seguimiento **y** cambiar el responsable de un hallazgo. Son dos
+decisiones distintas y ahora son dos permisos distintos:
+
+- `puedeRevisarActas(rol)` → entra a "Por revisar". Admin, Revisor (calidad) y
+  Gerente. **Directivo quedó fuera**; conserva Análisis y el histórico, porque
+  ver el resultado no es lo mismo que poder cambiarlo.
+- `puedeReasignarResponsable(rol)` → mueve al responsable en Subsanaciones.
+  Solo Admin y Gerencia. Calidad sigue registrando seguimiento; lo que no hace
+  es decidir a quién se le exige el trabajo.
+
+Los dos viven en `interventoria_models.dart`, que es la única fuente. El panel
+del hallazgo (`interventoria_hallazgo_panel.dart`) recibe `canReasignar` aparte
+de `canWrite` para poder ocultar "Cambiar responsable" sin bloquear el
+seguimiento.
+
+`kInterventoriaRolesFase2` desapareció: su único uso era la pestaña "Por
+revisar", y dejarlo habría sido tener dos listas de roles diciendo cosas
+distintas sobre la misma pantalla.
+
+### Por qué una responsable de Tunja recibía hallazgos de otra sede
+
+Tres defectos encadenados, y cada uno bastaba para producir el síntoma.
+
+**1. La afinidad del cargo pesaba más que el establecimiento.**
+`resolverCargo` ordenaba por qué tan bien encajaba el cargo con el de la matriz
+y solo usaba el establecimiento para desempatar. Alguien de otra sede con el
+cargo "limpio" le ganaba a quien sí trabaja en el establecimiento del hallazgo.
+Ahora el establecimiento manda y la afinidad decide después
+(`resolverCargoUnico`, función de nivel superior para poder probarla sin
+Firebase).
+
+**2. La regla con varios cargos se agotaba sede por sede en el orden
+equivocado.** Una regla que lista "Administrador tipo 1" y "tipo 2" existe
+precisamente para que cada sede quede cubierta por el que allí exista. Pero se
+tomaba el primer cargo que resolviera a **alguien**, en cualquier sede: si la
+sede tenía un tipo 2 y en otra sede había un tipo 1, ganaba el de la otra sede.
+`resolverPrimerCargoQueResuelva` hace dos pasadas: agota el establecimiento
+antes de mirar afuera.
+
+**3. `afinidadCargo` no distinguía tipo 1 de tipo 2.** Al comparar contra un
+cargo que no está en la tabla de alternativas, partía el nombre en palabras y
+descartaba las de menos de tres letras. El `1` y el `2` —lo único que separa a
+los dos administradores— se caían por ese filtro, así que ambos cargos quedaban
+reducidos a `{administrador, tipo}` y eran intercambiables. Ahora los números se
+conservan aunque tengan un solo carácter. La regla genérica "Administrador"
+sigue cubriendo a los dos, que es lo que se espera de ella.
+
+Esto último es lo que hacía imposible el "maestro de responsabilidades por tipo
+de administrador" que se pidió: la pantalla ya dejaba escribir la regla —los
+cargos salen de `TBL_CARGOS`, no de un catálogo fijo— pero el motor no podía
+honrarla.
+
+### La palabra "sugerido" se fue del tablero
+
+No fue un cambio de redacción. Una lista de "sugeridos" que incluía gente de
+otras sedes invitaba a aceptarla en bloque, y así es como salían las
+asignaciones equivocadas. Ahora:
+
+- La tarjeta solo afirma "Responde: <persona>" cuando esa persona trabaja en el
+  establecimiento del hallazgo. No es una sugerencia: es lo que dice el maestro.
+- Si nadie de ese establecimiento tiene el cargo, lo dice y pide elegir a mano.
+  El responsable de otra sede se puede seguir eligiendo — hay cargos
+  corporativos que atienden varias sedes — pero con nombre y apellido, no en
+  lote.
+- El botón masivo pasó a "Asignar por el maestro (n)" y solo cuenta los
+  hallazgos con responsable **en la sede**. Vuelve a comprobarlo justo antes de
+  escribir, porque entre el filtro y el clic la lista de usuarios puede cambiar
+  y una asignación fuera de sede no se puede colar por una carrera.
+
+### Pruebas
+
+`test/interventoria/interventoria_resolver_cargo_test.dart` — 14 casos que
+fijan las tres reglas: el del establecimiento gana aunque su cargo encaje peor,
+la regla multi-cargo agota la sede antes de mirar afuera, y tipo 1 / tipo 2 no
+se resuelven el uno al otro. Sin ellas los tres defectos vuelven sin ruido:
+ninguno rompe la compilación y el síntoma solo se ve semanas después, cuando a
+alguien le llega una tarea de una cárcel en la que nunca ha estado.

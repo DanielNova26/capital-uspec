@@ -106,6 +106,90 @@ class InterventoriaAsignacionSugerida {
   bool get completa => responsable != null && aprobador != null;
 }
 
+/// Elige UNA persona para un cargo de la matriz, dentro de un establecimiento.
+///
+/// Es funcion de nivel superior y no metodo: no toca Firestore y asi se puede
+/// probar sin levantar Firebase. [InterventoriaService.resolverCargo] delega
+/// aqui.
+///
+/// **Manda el establecimiento, y despues la afinidad del cargo.** Antes era al
+/// reves: la afinidad decidia y el establecimiento solo desempataba. Con eso,
+/// alguien de otra sede cuyo cargo se pareciera un poco mas al de la matriz le
+/// ganaba a la persona que si trabaja en el establecimiento del hallazgo, y la
+/// tarea salia hacia una sede que no tenia nada que ver (el caso reportado el
+/// 9 sep 2026: una responsable de Tunja asignada a hallazgos de otro
+/// establecimiento). Un cargo "parecido" en la sede equivocada no responde por
+/// nada.
+///
+/// Puede devolver a alguien de otra sede cuando en el establecimiento no hay
+/// nadie con el cargo: hay cargos corporativos que atienden varias sedes. Quien
+/// llama distingue ese caso con [InterventoriaPersona.delCentro] — el tablero
+/// no asigna en lote cuando es false.
+InterventoriaPersona? resolverCargoUnico(
+  String cargoMatriz,
+  String centroCostoId,
+  List<InterventoriaUsuario> usuarios,
+) {
+  ({InterventoriaUsuario user, int afinidad})? mejor;
+  var mejorEsDelCentro = false;
+  for (final user in usuarios) {
+    final afinidad = afinidadCargo(cargoMatriz, user.cargo);
+    if (afinidad == null) continue;
+    final delCentro =
+        centroCostoId.isNotEmpty && user.centroId == centroCostoId;
+    final bool gana;
+    if (mejor == null) {
+      gana = true;
+    } else if (delCentro != mejorEsDelCentro) {
+      // El del establecimiento gana aunque su cargo encaje peor.
+      gana = delCentro;
+    } else {
+      gana = afinidad < mejor.afinidad;
+    }
+    if (gana) {
+      mejor = (user: user, afinidad: afinidad);
+      mejorEsDelCentro = delCentro;
+    }
+  }
+  if (mejor == null) return null;
+  return InterventoriaPersona(
+    id: mejor.user.id,
+    nombre: mejor.user.nombre,
+    cargo: mejor.user.cargo,
+    cargoMatriz: cargoMatriz,
+    delCentro: mejorEsDelCentro,
+  );
+}
+
+/// Recorre los cargos de una regla y devuelve a la persona que responde.
+///
+/// Dos pasadas, y el orden importa:
+///
+/// 1. Primero busca un cargo que resuelva a alguien **del establecimiento**.
+/// 2. Solo si ninguno lo hace, acepta al primero que resuelva fuera de él.
+///
+/// Una sola pasada rompia el caso de "Administrador tipo 1" y "tipo 2" en la
+/// misma regla, que es justamente para lo que existen las reglas con varios
+/// cargos: si la sede tiene un tipo 2 pero la regla lista tipo 1 primero, y en
+/// OTRA sede hay un tipo 1, ganaba el tipo 1 de la otra sede. El hallazgo salia
+/// del establecimiento que lo genero. Ahora el establecimiento se agota antes
+/// de mirar afuera.
+InterventoriaPersona? resolverPrimerCargoQueResuelva(
+  List<String> cargos,
+  String centroCostoId,
+  List<InterventoriaUsuario> usuarios,
+) {
+  InterventoriaPersona? fuera;
+  for (final cargo in cargos) {
+    if (cargo.trim().isEmpty) continue;
+    final persona = resolverCargoUnico(cargo, centroCostoId, usuarios);
+    if (persona == null) continue;
+    if (persona.delCentro) return persona;
+    fuera ??= persona;
+  }
+  return fuera;
+}
+
 class InterventoriaService {
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
@@ -1616,37 +1700,12 @@ class InterventoriaService {
     return candidatos.map((c) => persona(c.user)).toList();
   }
 
+  /// Ver [resolverCargoUnico]: manda el establecimiento sobre la afinidad.
   InterventoriaPersona? resolverCargo(
     String cargoMatriz,
     String centroCostoId,
     List<InterventoriaUsuario> usuarios,
-  ) {
-    ({InterventoriaUsuario user, int afinidad})? mejor;
-    for (final user in usuarios) {
-      final afinidad = afinidadCargo(cargoMatriz, user.cargo);
-      if (afinidad == null) continue;
-      final delCentro =
-          centroCostoId.isNotEmpty && user.centroId == centroCostoId;
-      final mejorDelCentro =
-          mejor != null &&
-          centroCostoId.isNotEmpty &&
-          mejor.user.centroId == centroCostoId;
-      if (mejor == null ||
-          afinidad < mejor.afinidad ||
-          (afinidad == mejor.afinidad && delCentro && !mejorDelCentro)) {
-        mejor = (user: user, afinidad: afinidad);
-      }
-    }
-    if (mejor == null) return null;
-    return InterventoriaPersona(
-      id: mejor.user.id,
-      nombre: mejor.user.nombre,
-      cargo: mejor.user.cargo,
-      cargoMatriz: cargoMatriz,
-      delCentro:
-          centroCostoId.isNotEmpty && mejor.user.centroId == centroCostoId,
-    );
-  }
+  ) => resolverCargoUnico(cargoMatriz, centroCostoId, usuarios);
 
   /// Responsable que el acta asigna a este hallazgo, resuelto contra una lista
   /// de usuarios ya cargada. Sincrónico a propósito: el tablero lo llama una
@@ -1704,13 +1763,11 @@ class InterventoriaService {
     InterventoriaHallazgo hallazgo,
     List<InterventoriaUsuario> usuarios, {
     Map<String, dynamic> reglas = const {},
-  }) {
-    for (final cargo in cargosResponsablesDe(hallazgo, reglas)) {
-      final persona = resolverCargo(cargo, hallazgo.centroCostoId, usuarios);
-      if (persona != null) return persona;
-    }
-    return null;
-  }
+  }) => resolverPrimerCargoQueResuelva(
+    cargosResponsablesDe(hallazgo, reglas),
+    hallazgo.centroCostoId,
+    usuarios,
+  );
 
   /// Configuración editable de la biblioteca para una empresa. Las claves
   /// ausentes conservan la matriz incluida en la aplicación.
@@ -1911,27 +1968,14 @@ class InterventoriaService {
     final seccion = int.tryParse(clave.split('.').first) ?? 0;
     final dias = await plazoSubsanacionDias(empresaId, seccion);
 
-    // Se recorren los cargos en orden y gana el primero que resuelva a alguien.
-    // Con "Administrador tipo 1" y "tipo 2" en la misma regla, cada sede queda
-    // cubierta por el que realmente exista alli, sin una regla por sede.
-    InterventoriaPersona? primeroQueResuelva(
-      List<String> cargos,
-      List<InterventoriaUsuario> universo,
-    ) {
-      for (final cargo in cargos) {
-        if (cargo.trim().isEmpty) continue;
-        final persona = resolverCargo(cargo, centroCostoId, universo);
-        if (persona != null) return persona;
-      }
-      return null;
-    }
-
-    final personaResponsable = primeroQueResuelva(
+    final personaResponsable = resolverPrimerCargoQueResuelva(
       cargosResponsables,
+      centroCostoId,
       responsables,
     );
-    final personaAprobador = primeroQueResuelva(
+    final personaAprobador = resolverPrimerCargoQueResuelva(
       cargosAprobadores,
+      centroCostoId,
       usuariosActivos,
     );
 

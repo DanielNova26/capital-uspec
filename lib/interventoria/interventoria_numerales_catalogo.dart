@@ -704,9 +704,20 @@ int? afinidadCargo(String cargoMatriz, String cargoUsuario) {
   if (objetivo.isEmpty) return null;
   if (objetivo == normalizarCargo(cargoMatriz)) return -1;
   if (alternativas == null) {
-    final palabras = normalizarCargo(
-      cargoMatriz,
-    ).split(RegExp(r'\s+')).where((p) => p.length > 2 && p != 'del').toList();
+    // Se exigen las palabras de tres letras o mas... y tambien los numeros,
+    // aunque sean de un solo caracter.
+    //
+    // El "1" y el "2" de "Administrador tipo 1" / "tipo 2" se estaban cayendo
+    // por el filtro de longitud, asi que ambos cargos quedaban reducidos a
+    // {administrador, tipo} y eran indistinguibles: una regla escrita para el
+    // tipo 1 resolvia igual de bien a un tipo 2. Toda la diferencia entre los
+    // dos administradores vivia en el caracter que se descartaba.
+    final palabras = normalizarCargo(cargoMatriz)
+        .split(RegExp(r'\s+'))
+        .where(
+          (p) => (p.length > 2 || RegExp(r'^\d+$').hasMatch(p)) && p != 'del',
+        )
+        .toList();
     return palabras.isNotEmpty && palabras.every(objetivo.contains) ? 0 : null;
   }
   for (var i = 0; i < alternativas.length; i++) {

@@ -208,8 +208,11 @@ class _InterventoriaDashboardScreenState
     final canApproveDeletion = puedeAprobarEliminacionInterventoria(rol);
     // Solo el Admin puede registrar puntajes (Fase 1)
     final canFase1 = kInterventoriaRolesFase1.contains(rol);
-    // Revisor/Gerente/Directivo/Admin pueden completar actas (Fase 2)
-    final canFase2 = kInterventoriaRolesFase2.contains(rol);
+    // "Por revisar" (Fase 2, completar el acta): calidad, gerencia y admin.
+    // Directivo quedo fuera por instruccion del 9 sep 2026.
+    final canRevisarActas = puedeRevisarActas(rol);
+    // Reasignar responsable en Subsanaciones: solo admin y gerencia.
+    final canReasignar = puedeReasignarResponsable(rol);
     // Registrador heredado: fijo a su centro
     final esRegistrador = rol == kRolInterventoriaRegistrador;
     // El admin de interventoría (badge "ADMINISTRADOR") o el usuario con
@@ -226,7 +229,7 @@ class _InterventoriaDashboardScreenState
         label: 'Historico de actas',
         icon: Icons.assignment_rounded,
       ),
-      if (canFase2)
+      if (canRevisarActas)
         const InternalModuleTabItem(
           label: 'Por revisar',
           icon: Icons.rate_review_rounded,
@@ -299,8 +302,8 @@ class _InterventoriaDashboardScreenState
                   onRegistrar: () => _abrirRegistrarActa(context),
                   esAdminDesarrollo: esAdminDesarrollo,
                 ),
-                // Tab: Por revisar (solo Fase 2) — índice coincide con tabs list
-                if (canFase2)
+                // Tab: Por revisar — índice coincide con tabs list
+                if (canRevisarActas)
                   _PorRevisarTab(
                     empresaId: widget.empresaId,
                     service: _svc,
@@ -422,10 +425,14 @@ class _InterventoriaDashboardScreenState
                           userId: widget.userId,
                           empresaId: widget.empresaId,
                           rol: rol,
-                          // El registrador solo documenta hallazgos; asignar
-                          // responsables es de los demás roles.
+                          // El registrador solo documenta hallazgos; registrar
+                          // seguimiento es de los demás roles.
                           canWrite:
                               canWrite && rol != kRolInterventoriaRegistrador,
+                          // Reasignar es un permiso aparte y mas estrecho:
+                          // calidad registra seguimiento pero no mueve al
+                          // responsable (instruccion del 9 sep 2026).
+                          canReasignar: canReasignar,
                         );
                       },
                     );
@@ -2536,6 +2543,10 @@ class _SeguimientoMatriz extends StatefulWidget {
   final String rol;
   final bool canWrite;
 
+  /// Permiso de asignar/reasignar responsable. Va aparte de [canWrite] porque
+  /// calidad puede registrar seguimiento pero no mover al responsable.
+  final bool canReasignar;
+
   const _SeguimientoMatriz({
     required this.hallazgos,
     required this.visitas,
@@ -2556,6 +2567,7 @@ class _SeguimientoMatriz extends StatefulWidget {
     this.empresaId = '',
     this.rol = '',
     this.canWrite = false,
+    this.canReasignar = false,
   });
 
   @override
@@ -2660,7 +2672,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
           service: service,
           userId: widget.userId,
           empresaId: widget.empresaId,
-          canWrite: widget.canWrite,
+          canWrite: widget.canReasignar,
           dentroDeScroll: dentroDeScroll,
           onAbrirSeguimiento: (h) =>
               _abrirEdicionSeguimiento(context, h, service),
@@ -2924,6 +2936,7 @@ class _SeguimientoMatrizState extends State<_SeguimientoMatriz> {
       userId: widget.userId,
       empresaId: widget.empresaId,
       canWrite: widget.canWrite,
+      canReasignar: widget.canReasignar,
       rol: widget.rol,
     );
   }

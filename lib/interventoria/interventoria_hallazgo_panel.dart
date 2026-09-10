@@ -27,6 +27,7 @@ Future<void> mostrarPanelHallazgo(
   required String userId,
   required String empresaId,
   required bool canWrite,
+  bool? canReasignar,
   String rol = '',
 }) {
   final ancho = MediaQuery.sizeOf(context).width >= 760;
@@ -36,6 +37,7 @@ Future<void> mostrarPanelHallazgo(
     userId: userId,
     empresaId: empresaId,
     canWrite: canWrite,
+    canReasignar: canReasignar ?? canWrite,
     rol: rol,
   );
   if (ancho) {
@@ -76,6 +78,11 @@ class InterventoriaHallazgoPanel extends StatefulWidget {
   final String userId;
   final String empresaId;
   final bool canWrite;
+
+  /// Cambiar o quitar el responsable. Separado de [canWrite] porque registrar
+  /// seguimiento y decidir a quien se le exige el trabajo no son el mismo
+  /// permiso: calidad hace lo primero y no lo segundo.
+  final bool canReasignar;
   final String rol;
 
   const InterventoriaHallazgoPanel({
@@ -85,6 +92,7 @@ class InterventoriaHallazgoPanel extends StatefulWidget {
     required this.userId,
     required this.empresaId,
     required this.canWrite,
+    required this.canReasignar,
     this.rol = '',
   });
 
@@ -460,7 +468,7 @@ class _InterventoriaHallazgoPanelState
               style: const TextStyle(fontSize: 12, color: _muted),
             ),
           ],
-          if (widget.canWrite) ...[
+          if (widget.canReasignar) ...[
             const SizedBox(height: 12),
             if (_asignando)
               const LinearProgressIndicator(minHeight: 3)

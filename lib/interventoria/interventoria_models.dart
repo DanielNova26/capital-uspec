@@ -38,15 +38,7 @@ const Set<String> kInterventoriaRolesFase1 = {
   kRolInterventoriaRegistrador,
 };
 
-/// Fase 2 — pueden completar/revisar el acta con el visor de PDF.
-const Set<String> kInterventoriaRolesFase2 = {
-  kRolInterventoriaAdmin,
-  kRolInterventoriaRevisor,
-  kRolInterventoriaGerente,
-  kRolInterventoriaDirectivo,
-};
-
-/// Unión de Fase 1 + Fase 2 — tienen permisos de escritura en el módulo.
+/// Roles con permisos de escritura en el módulo.
 const Set<String> kInterventoriaRolesEscritura = {
   kRolInterventoriaAdmin,
   kRolInterventoriaRegistrador,
@@ -70,6 +62,36 @@ const Set<String> kInterventoriaRolesAprobadoresEliminacion = {
 
 bool puedeAprobarEliminacionInterventoria(String rol) =>
     kInterventoriaRolesAprobadoresEliminacion.contains(rol);
+
+/// Quién entra a "Por revisar" (reunión 9 sep 2026).
+///
+/// Antes entraba toda la Fase 2, es decir tambien Directivo. La instruccion
+/// fue dejar la seccion en calidad (Revisor), gerencia y la administracion del
+/// modulo, porque quien no revisa el acta no deberia poder cambiarla. Directivo
+/// conserva Analisis y el historico: ver el resultado no es lo mismo que
+/// editarlo.
+const Set<String> kInterventoriaRolesRevisionActas = {
+  kRolInterventoriaAdmin,
+  kRolInterventoriaRevisor,
+  kRolInterventoriaGerente,
+};
+
+bool puedeRevisarActas(String rol) =>
+    kInterventoriaRolesRevisionActas.contains(rol);
+
+/// Quién puede mover el responsable de un hallazgo en Subsanaciones.
+///
+/// Deliberadamente MAS estrecho que [kInterventoriaRolesRevisionActas]:
+/// calidad revisa y registra seguimiento, pero no reasigna. Reasignar cambia a
+/// quien se le exige el trabajo, y esa decision es de administracion y
+/// gerencia. El resto ve Subsanaciones en solo lectura sobre la asignacion.
+const Set<String> kInterventoriaRolesReasignan = {
+  kRolInterventoriaAdmin,
+  kRolInterventoriaGerente,
+};
+
+bool puedeReasignarResponsable(String rol) =>
+    kInterventoriaRolesReasignan.contains(rol);
 
 /// El maestro contiene la matriz completa de responsabilidades y se reserva
 /// al administrador funcional del módulo.
