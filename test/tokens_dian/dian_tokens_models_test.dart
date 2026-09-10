@@ -116,5 +116,48 @@ void main() {
       expect(userHasApp(user, 'tokens', empresaId: 'EMPRESA_A'), isTrue);
       expect(userHasApp(user, 'tokens', empresaId: 'EMPRESA_B'), isFalse);
     });
+
+    test('filtra defensivamente los tokens por la empresa activa', () {
+      DianTokenRecord token(String id, String empresaId) =>
+          DianTokenRecord.fromMap({
+            'id': id,
+            'empresaId': empresaId,
+            'estado': 'nuevo',
+          });
+
+      final filtrados = filtrarTokensDianPorEmpresa(
+        [
+          token('capital', 'EMPRESA_CAPITAL'),
+          token('fyc', 'EMPRESA_FYC'),
+          token('sin-empresa', ''),
+        ],
+        'EMPRESA_FYC',
+      );
+
+      expect(filtrados.map((token) => token.id), ['fyc']);
+      expect(filtrarTokensDianPorEmpresa(filtrados, ''), isEmpty);
+    });
+
+    test('FYC puede recibir el módulo sin heredar permisos de Capital', () {
+      final user = <String, dynamic>{
+        'empresasDetalle': {
+          'EMPRESA_CAPITAL': {
+            'apps': ['correodashboard'],
+          },
+          'EMPRESA_FYC': {
+            'apps': ['tokensdiandashboard'],
+          },
+        },
+      };
+
+      expect(
+        userHasApp(user, 'tokensdiandashboard', empresaId: 'EMPRESA_FYC'),
+        isTrue,
+      );
+      expect(
+        userHasApp(user, 'tokensdiandashboard', empresaId: 'EMPRESA_CAPITAL'),
+        isFalse,
+      );
+    });
   });
 }

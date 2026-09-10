@@ -31,7 +31,7 @@ buscar la frase en el texto de la reunión.
 
 ### Lo que Codex NO tiene que rehacer
 
-Todo lo de la lista de Codex está hecho salvo Tokens DIAN:
+Todo lo de la lista de Codex está hecho:
 
 - Compras: vigencia quitada, registro sanitario al proveedor, mensaje de marca,
   fila de producto, **reversión de documentos rechazados**, **botón Aprobar
@@ -40,10 +40,15 @@ Todo lo de la lista de Codex está hecho salvo Tokens DIAN:
   filtraba, mentía la etiqueta), semáforo con verde solo al 100 %, el ZIP ya
   existía, **observaciones por mes**, **el chat acumula el historial**.
 - Tareas: reasignación a otro departamento.
+- Tokens DIAN: el backend ya aislaba por empresa; Codex añadió una segunda
+  compuerta en cliente y pruebas específicas para FYC sin heredar permisos de
+  Capital.
 
-**Queda solo: Tokens DIAN** — filtro por empresa y habilitar F&C. Es P2 y no
-bloquea a nadie: la transcripción dice que Mari gestiona los accesos sin
-incidentes.
+**No quedan correcciones de código concretamente especificadas de la lista de
+Codex.** Para usar Tokens
+DIAN en FYC todavía hay que asignar `tokensdiandashboard` a esa empresa y a sus
+usuarios desde Administración, y conectar el buzón propio de FYC. Es
+configuración de datos, no un permiso hardcodeado.
 
 ### Lo que hay que saber antes de tocar nada
 
@@ -79,7 +84,6 @@ incidentes.
 3. Archivo plano: confirmar con el banco si quiere los importes con coma de
    miles. Ya es un interruptor (`conSeparadorDeMiles`), pero hay que preguntarlo
    antes del primer pago real.
-editar código compartido.
 
 Fuentes: notas de Gemini del 9 sep 2026, `Correciones COMPRAS.docx`,
 `NUEVOS MODULOS.xlsx`, `ARCHIVO PLANO COTA ADMINISTRATIVA AGOSTO 2026.csv`.
@@ -258,16 +262,18 @@ año/mes/día, importe y hasta cuatro conceptos.
 
 **P1 · Tareas**
 
-- [ ] Permitir reasignar una tarea a **otro departamento** (hoy
-      `reassignTask` en `task_service.dart:552` no cruza departamento).
+- [x] Permitir reasignar una tarea a **otro departamento**. Implementado por
+      Claude y cubierto por las pruebas de opciones de asignación.
 - [ ] Antes de ampliar permisos, validar si todavía se necesitan observaciones
       de seguimiento por otras áreas. En la reunión quedó como propuesta de
       última prioridad porque el seguimiento ya puede hacerse en la tarea.
 
 **P2 · Tokens DIAN**
 
-- [ ] Filtro por empresa y habilitar el módulo para F&C. Hoy solo lo usa
-      Capital. **← lo único que queda de toda la reunión.**
+- [x] Filtro por empresa y soporte para habilitar el módulo en FYC. El callable
+      ya consultaba por `empresaId`; se añadió filtrado defensivo en cliente y
+      pruebas de aislamiento. La asignación a FYC y la conexión de su buzón se
+      hacen desde Administración.
 
 **Cierre de Codex**
 

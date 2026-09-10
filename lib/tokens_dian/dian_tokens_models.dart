@@ -65,6 +65,17 @@ class DianTokenRecord {
       !const {'expirado', 'archivado', 'invalidado'}.contains(estado);
 }
 
+List<DianTokenRecord> filtrarTokensDianPorEmpresa(
+  Iterable<DianTokenRecord> tokens,
+  String empresaId,
+) {
+  final empresaActiva = empresaId.trim();
+  if (empresaActiva.isEmpty) return const [];
+  return tokens
+      .where((token) => token.empresaId.trim() == empresaActiva)
+      .toList(growable: false);
+}
+
 class DianTokenAccess {
   final String id;
   final String userId;

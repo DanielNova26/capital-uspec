@@ -85,7 +85,9 @@ class _DianTokensDashboardScreenState extends State<DianTokensDashboardScreen>
       );
       if (!mounted) return;
       setState(() {
-        _tokens = rows;
+        // El callable ya filtra por empresa; esta segunda compuerta evita que
+        // una respuesta defectuosa mezcle tokens en la empresa activa.
+        _tokens = filtrarTokensDianPorEmpresa(rows, widget.empresaId);
         _error = null;
       });
     } catch (error) {
