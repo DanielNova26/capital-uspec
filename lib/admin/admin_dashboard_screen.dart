@@ -29,6 +29,7 @@ import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../services/session_audit_service.dart';
 
 import 'admin_repository.dart';
+import 'empresa_codigo.dart';
 import 'admin_module_closeout_service.dart';
 import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
@@ -13251,6 +13252,112 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     }
   }
 
+  /// Crea una empresa vacía pidiendo solo el nombre.
+  ///
+  /// El código sale del nombre y se enseña **antes** de crear: es el doc id de
+  /// `TBL_EMPRESAS` y viaja concatenado dentro de otros ids (`TBL_APPS`,
+  /// `TBL_EMPLEADOS`, rutas de Storage), así que cambiarlo después es una
+  /// migración, no un `update`. Que se vea es la única oportunidad de decir
+  /// "ese no".
+  Future<void> _crearEmpresaSimple() async {
+    final ctrl = TextEditingController();
+    final existentes = _empresas.map((e) => e.empresaId).toSet();
+    var intento = false;
+
+    final nombre = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx, setLocal) {
+          final codigo = codigoEmpresaDesdeNombre(ctrl.text);
+          final error = intento
+              ? validarNombreEmpresaNueva(
+                  ctrl.text,
+                  codigosExistentes: existentes,
+                )
+              : null;
+          return AlertDialog(
+            title: const Text('Nueva empresa'),
+            content: SizedBox(
+              width: 460,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: InputDecoration(
+                      labelText: 'Nombre o razón social',
+                      border: const OutlineInputBorder(),
+                      errorText: error,
+                    ),
+                    onChanged: (_) => setLocal(() {}),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    codigo.isEmpty ? 'Código: —' : 'Código: $codigo',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'La empresa nace vacía y quedas dentro de ella. Tu empresa '
+                    'activa no cambia: entras cuando quieras desde el '
+                    'selector.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  if (validarNombreEmpresaNueva(
+                        ctrl.text,
+                        codigosExistentes: existentes,
+                      ) !=
+                      null) {
+                    setLocal(() => intento = true);
+                    return;
+                  }
+                  Navigator.pop(dialogCtx, ctrl.text.trim());
+                },
+                child: const Text('Crear'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    ctrl.dispose();
+    if (nombre == null || !mounted) return;
+
+    final codigo = codigoEmpresaDesdeNombre(nombre);
+    try {
+      await _repo.crearEmpresaConMembresia(
+        empresaId: codigo,
+        nombre: nombre,
+        cedulaCreador: widget.userId,
+      );
+      if (!mounted) return;
+      _snack('Empresa $codigo creada. Ya apareces dentro de ella.');
+      await _loadAll();
+    } catch (error) {
+      if (!mounted) return;
+      final mensaje = error is StateError
+          ? error.message
+          : (error is ArgumentError ? '${error.message}' : error.toString());
+      _snack('No se pudo crear: $mensaje');
+    }
+  }
+
   Future<void> _crearEmpresaPorTransicion() async {
     final source = _empresaActual;
     if (source == null || _membresiaLoading) return;
@@ -13627,6 +13734,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
               runSpacing: 10,
               children: [
                 FilledButton.icon(
+                  onPressed: _membresiaLoading ? null : _crearEmpresaSimple,
+                  icon: const Icon(Icons.add_business_rounded),
+                  label: const Text('Nueva empresa'),
+                ),
+                OutlinedButton.icon(
                   onPressed: _membresiaLoading
                       ? null
                       : _crearEmpresaPorTransicion,

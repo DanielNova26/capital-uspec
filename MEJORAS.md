@@ -4314,3 +4314,46 @@ panel de administración, pestaña Interventoría, hay que revisar:
 1. Que Kary esté como **Revisor**.
 2. Que quien deba analizar sin revisar quede como **Calidad**.
 3. Que nadie más siga como **Directivo** esperando entrar a "Por revisar".
+
+---
+
+## Admin — crear una empresa pidiendo solo el nombre (10 sep 2026)
+
+Ya había un "Crear empresa y trasladar empleados", pero es otra cosa: mueve a
+todo el personal y copia centros, áreas, cargos y roles. Para abrir una empresa
+nueva y empezar de cero, ese camino obliga a llenar un id a mano y arrastra
+datos que no se querían.
+
+**Nueva empresa** pide el nombre y nada más. La empresa nace vacía y quien la
+crea queda dentro.
+
+### El código se enseña antes de crear
+
+El id de una empresa es el doc id de `TBL_EMPRESAS` y **viaja concatenado dentro
+de otros ids**: `TBL_APPS` usa `{empresaId}_{appId}`, los empleados
+`{empresaId}_{cedula}`, y Storage lo mete en las rutas de facturación.
+Cambiarlo después no es un `update`, es una migración —el mismo problema que la
+cédula—. Por eso el diálogo lo muestra mientras se escribe el nombre: es la
+única oportunidad de decir "ese no".
+
+`codigoEmpresaDesdeNombre` pasa a mayúsculas, quita tildes y convierte todo lo
+demás en guion bajo. **No intenta ser listo**: no quita "SAS" ni "LTDA" ni
+abrevia, porque dos empresas del mismo grupo se distinguen justamente por ese
+sufijo.
+
+### Una colisión se detiene, no se arregla sola
+
+Si el código ya existe, no se crea `EMPRESA_2`. Que dos nombres produzcan el
+mismo código casi siempre significa que se está creando una empresa **que ya
+existe**, y un duplicado silencioso no se nota hasta que la información está
+repartida entre las dos. Se avisa con el código concreto y se para.
+
+### Dos decisiones más
+
+- **La membresía se escribe en `TBL_USUARIOS` y en
+  `TBL_ESTRUCTURA_ORGANIZACIONAL`.** Las dos guardan la membresía y hay
+  pantallas que leen de cada una; escribir solo la primera hace que la empresa
+  aparezca en el selector pero no en los listados de personal.
+- **No cambia la empresa activa de quien la crea.** Sigue trabajando donde
+  estaba y entra a la nueva cuando quiera. Moverlo por haber pulsado "crear" lo
+  saca de lo que estaba haciendo.

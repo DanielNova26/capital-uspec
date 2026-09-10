@@ -249,6 +249,78 @@ class AdminRepository {
     }, SetOptions(merge: true));
   }
 
+  /// Crea una empresa vacía y le da membresía a quien la crea.
+  ///
+  /// Es el camino corto, frente a `CompanyTransitionService`, que traslada a
+  /// todo el personal y copia centros, áreas y cargos. Aquí no se copia nada:
+  /// la empresa nace vacía y con una sola persona dentro, que es quien va a
+  /// configurarla.
+  ///
+  /// Se escribe en `TBL_USUARIOS` **y** en `TBL_ESTRUCTURA_ORGANIZACIONAL`
+  /// porque las dos guardan la membresía y hay pantallas que leen de cada una;
+  /// dejar solo la primera hace que la empresa aparezca en el selector pero no
+  /// en los listados de personal.
+  ///
+  /// **No cambia la empresa principal.** Quien la crea sigue trabajando donde
+  /// estaba y entra a la nueva cuando quiera: cambiarle la empresa activa por
+  /// haber pulsado "crear" lo sacaría de lo que estaba haciendo.
+  Future<void> crearEmpresaConMembresia({
+    required String empresaId,
+    required String nombre,
+    required String cedulaCreador,
+  }) async {
+    final eid = empresaId.trim();
+    final nombreLimpio = nombre.trim();
+    if (eid.isEmpty || nombreLimpio.isEmpty || cedulaCreador.trim().isEmpty) {
+      throw ArgumentError('Faltan datos para crear la empresa.');
+    }
+
+    final ref = _db.collection('TBL_EMPRESAS').doc(eid);
+    if ((await ref.get()).exists) {
+      throw StateError('Ya existe una empresa con el código $eid.');
+    }
+
+    await ref.set({
+      'empresaId': eid,
+      'nombre': nombreLimpio,
+      'razonSocial': nombreLimpio,
+      'nit': '',
+      'direccion': '',
+      'telefono': '',
+      'correo': '',
+      'representante': '',
+      'notificacionNombreCorto': '',
+      'notificacionEmoji': '🏢',
+      'notificacionColor': '#2563EB',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final detalle = <String, dynamic>{
+      'activo': true,
+      'empresaNombre': nombreLimpio,
+      'vinculadoAt': FieldValue.serverTimestamp(),
+    };
+    final cedula = cedulaCreador.trim();
+    final batch = _db.batch();
+    batch.set(_db.collection('TBL_USUARIOS').doc(cedula), {
+      'empresas': FieldValue.arrayUnion([eid]),
+      'empresasDetalle': {eid: detalle},
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    batch.set(
+      _db.collection('TBL_ESTRUCTURA_ORGANIZACIONAL').doc(cedula),
+      {
+        'cedula': cedula,
+        'empresas': FieldValue.arrayUnion([eid]),
+        'empresasDetalle': {eid: detalle},
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+  }
+
   Future<Map<String, String>> loadEmpresaNames(Set<String> ids) async {
     final out = <String, String>{};
     for (final id in ids) {
