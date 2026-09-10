@@ -123,12 +123,15 @@ tipo de id, dígito de verificación, apellidos y nombres, forma de pago, banco,
 tipo de cuenta, número de cuenta, código de oficina, fecha límite partida en
 año/mes/día, importe y hasta cuatro conceptos.
 
-- [ ] Añadir el generador al módulo existente de Planillas de Pago, con modelo,
+- [x] Añadir el generador al módulo existente de Planillas de Pago, con modelo,
       validaciones y exportación CSV compatibles con el ejemplo recibido; no
-      crear un módulo de nómina nuevo.
-- [ ] Conservar códigos y cuentas como texto cuando tengan ceros a la izquierda,
+      crear un módulo de nómina nuevo. **Hecho el núcleo**
+      (`pp_archivo_plano.dart`); falta la pantalla y el origen de los datos.
+- [x] Conservar códigos y cuentas como texto cuando tengan ceros a la izquierda,
       fecha separada en año/mes/día, importes con dos decimales y total en la
-      cabecera. Probar sin incluir datos reales de los beneficiarios.
+      cabecera. Probar sin incluir datos reales de los beneficiarios. Hecho: las
+      pruebas del repositorio usan datos inventados, y la comprobación contra el
+      archivo real se hizo con un test temporal que ya se borró.
 - [ ] No asumir que el XLSX es una macro funcional: no contiene VBA y conserva
       varios nombres definidos con `#REF!`. Usarlo como especificación del
       layout y validar el CSV producido. El viernes de la transcripción era el
@@ -3800,3 +3803,85 @@ pude ver. Si el fallo era otro (por ejemplo el archivo borrado de Storage con el
 enlace todavía en Firestore, que abre una pestaña con un error de Google),
 hace falta comprobar la existencia del objeto antes de abrirlo. El arreglo de
 arriba es correcto en cualquier caso, pero puede no ser el único que hace falta.
+
+---
+
+## Archivo plano de pagos — el núcleo (10 sep 2026)
+
+Hoy Tesorería arma este archivo a mano en una macro de Excel. Talento Humano
+pasa la información y alguien la transcribe fila por fila; Oscar lo describió
+como "una de las cosas que quita mucho tiempo en la empresa".
+
+Lo entregado es **la regla**, no la pantalla: modelo, validación y generación
+del texto, en `lib/gestion_documental/planillas/pp_archivo_plano.dart`. No sabe
+de Firestore ni de widgets, así que se prueba entero sin levantar nada.
+
+### La especificación salió de la plantilla, no de suponer
+
+El XLSX no es solo un ejemplo de datos: los **comentarios de las celdas** son
+las instrucciones del banco, y las validaciones de la hoja son sus límites.
+
+- `Fecha Limite`: "Si la forma de pago es 1 o 2, formato aaaammdd. Si la forma
+  de pago es 3, ingrese 8 ceros: 00000000".
+- `Concepto 1`: máximo 40 caracteres. `Banco`: código ACH. `Cod Oficina`:
+  código de oficina.
+- Validaciones de la hoja: nombre y e-mail `LEN <= 36`, identificación
+  `LEN <= 15`, tipo de cuenta lista `01,02`.
+
+### Dos decisiones de modelo que no son de estilo
+
+**Los códigos son texto, no números.** En la hoja, `Banco`, `Tipo Cuenta`,
+`Forma Pago`, `Dígito V` y `Cod Oficina` están guardados como números con
+formato `0000`: el 507 se *ve* como "0507" y el 1 como "0001". El cero de la
+izquierda solo existe al pintarlo. Modelado con `int`, el archivo saldría con
+"507" y el banco no reconocería la entidad.
+
+Por lo mismo, `rellenarCodigoPlano` nunca recorta un código que llegue más
+largo de la cuenta. Recortarlo lo convertiría en otro código válido y el pago se
+iría a otra entidad sin que nada fallara. Que salga largo lo detecta la
+validación; que salga recortado no lo detecta nadie.
+
+**El importe es un entero de centavos, no un `double`.** Sumar 160 sueldos en
+coma flotante deja el total desviado por unos centavos, y el total de la
+cabecera es lo primero que revisa el banco.
+
+### La validación devuelve todo y con nombre propio
+
+No se para en el primer error y cada problema lleva la fila, la cédula y el
+nombre. Quien corrige esto tiene una lista de 160 personas delante: un mensaje
+"identificación demasiado larga" sin decir de quién no sirve para corregir nada,
+y parar en el primer fallo obliga a regenerar una vez por cada dato malo.
+
+Casos que se rechazan y que hoy nadie ve: cédulas con puntos, cuentas con
+guiones, forma de pago 1 sin fecha (saldría con ocho ceros, que para el banco
+significa "sin fecha límite", otra instrucción distinta), y la misma cédula
+repetida dos veces en el lote, que casi siempre es una fila pegada dos veces y
+son dos transferencias reales.
+
+### Comprobado contra el archivo real
+
+Se generó el lote a partir del archivo que Tesorería ya envió al banco y se
+comparó **campo por campo**: las 15 filas, las 18 columnas de cada una y el
+total de la cabecera (52.096.549) coinciden. Además, el archivo real pasa la
+validación sin un solo error, que es la comprobación de que las reglas no son
+más estrictas que la realidad.
+
+Esa comprobación se hizo con un test temporal que leía el archivo de Descargas y
+**se borró**: trae cédulas, cuentas bancarias y sueldos de personas concretas.
+Las pruebas que quedan en el repositorio usan datos inventados y fijan la forma,
+no los datos.
+
+### Lo que falta
+
+- La pantalla en Planillas de Pago para elegir periodo, personas e importes.
+- El origen de los datos bancarios. La hoja `CUENTAS` del Excel es hoy el
+  maestro (162 personas con banco, tipo y número de cuenta) y ese maestro no
+  existe en la aplicación: hay que decidir si vive en `TBL_USUARIOS` o en una
+  colección aparte, y quién puede verlo. Son datos bancarios de todo el
+  personal.
+- **Confirmar el formato de salida con el banco.** El ejemplo trae los importes
+  con coma de miles ("3,868,695.00") porque es lo que produce Excel al exportar
+  la hoja. No consta que el cargador del banco quiera esas comas: puede que
+  espere el archivo sin separadores o de ancho fijo. `importePlano` ya recibe
+  `conSeparadorDeMiles`, así que es un interruptor, pero hay que preguntarlo
+  antes del primer pago de verdad.
