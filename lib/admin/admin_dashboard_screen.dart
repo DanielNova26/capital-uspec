@@ -13443,12 +13443,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     if (conservan == null) return;
 
     final confirmed = await _confirm(
-      title: 'Confirmar transición empresarial',
+      title: 'Confirmar traslado de empleados',
       message:
           'Origen: ${source.nombre} (${source.empresaId})\n'
-          'Nueva empresa: $targetName ($targetId)\n\n'
-          'Se traslada a todo el personal, y se copian centros, áreas, cargos '
-          'y roles internos.\n\n'
+          'Destino: $targetName ($targetId)\n\n'
+          'Se traslada a todo el personal. Los centros, áreas y '
+          'cargos que falten en el destino se copian del origen.\n\n'
           '${conservan.isEmpty ? 'A todos' : 'A todos menos ${conservan.length}'} '
           'les queda ${source.nombre} APAGADA: dejan de aparecer en sus '
           'listados pero conservan el acceso a lo que ya registraron ahí.\n'

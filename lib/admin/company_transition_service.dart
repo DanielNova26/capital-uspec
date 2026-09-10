@@ -156,22 +156,37 @@ class CompanyTransitionService {
     if (!companyDocs.first.exists) {
       throw StateError('La empresa de origen no existe.');
     }
-    if (companyDocs.last.exists) {
-      throw StateError('Ya existe una empresa con el ID $targetId.');
-    }
-
+    // La empresa destino puede existir ya.
+    //
+    // Antes esto fallaba con "ya existe una empresa con ese ID": la única forma
+    // de trasladar era creando la empresa aquí mismo. Ahora la empresa se crea
+    // aparte —con "Nueva empresa"— y este flujo solo traslada, así que trabajar
+    // sobre una que ya existe es el caso normal, no el error.
+    final destinoExistia = companyDocs.last.exists;
     final sourceData = companyDocs.first.data() ?? <String, dynamic>{};
-    await targetRef.set({
-      ...sourceData,
-      'empresaId': targetId,
-      'nombre': targetName,
-      'razonSocial': targetName,
-      'empresaOrigenId': sourceId,
-      'transicionCreadaPor': actorId,
-      'transicionCreadaAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    if (destinoExistia) {
+      // De una empresa que ya existe NO se toca su ficha: tiene su NIT, su
+      // logo y sus datos, puestos a propósito. Copiarle los del origen encima
+      // los borraría en silencio. Solo se deja constancia del traslado.
+      await targetRef.set({
+        'empresaOrigenId': sourceId,
+        'transicionCreadaPor': actorId,
+        'transicionCreadaAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      await targetRef.set({
+        ...sourceData,
+        'empresaId': targetId,
+        'nombre': targetName,
+        'razonSocial': targetName,
+        'empresaOrigenId': sourceId,
+        'transicionCreadaPor': actorId,
+        'transicionCreadaAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
 
     final centroMap = await _cloneSimpleCatalog(
       collection: 'TBL_CENTROS_COSTOS',

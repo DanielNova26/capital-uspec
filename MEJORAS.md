@@ -4669,3 +4669,24 @@ Dos detalles:
   diga una cosa y el detalle otra.
 - Una sección sin evaluar dice **"Sin dato"**, no 0 %. Un cero es una evaluación
   pésima; que nadie la haya evaluado no lo es.
+
+---
+
+## "Crear empresa y trasladar" pasa a ser solo "Trasladar" (10 sep 2026)
+
+Con "Nueva empresa" ya resuelto, el otro botón hacía dos cosas y una sobraba.
+Ahora la empresa destino **se elige de una lista**, no se escribe.
+
+Que se escribiera era además un riesgo real: el id de una empresa **no se puede
+corregir después** —viaja dentro de otros ids y de las rutas de Storage—, así
+que un id mal tecleado en ese campo creaba una empresa nueva sin querer, con un
+identificador equivocado y para siempre.
+
+`CompanyTransitionService` fallaba con "ya existe una empresa con ese ID" cuando
+el destino existía: era la única forma de trasladar, creando. Ahora trabajar
+sobre una empresa que ya existe es el caso normal.
+
+**A una empresa que ya existe no se le toca la ficha.** Tiene su NIT, su logo y
+sus datos, puestos a propósito; copiarle encima los del origen los borraría en
+silencio. Solo se deja constancia del traslado. Cuando la empresa destino no
+existe, el comportamiento de siempre se conserva intacto.
