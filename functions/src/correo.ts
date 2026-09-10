@@ -268,6 +268,20 @@ export function documentTypeCode(value: unknown): string {
 }
 
 /**
+ * El maestro de tipos documentales se incorporó después de que ya existían
+ * expedientes y empresas operando. Por eso el código es obligatorio cuando
+ * viene informado, pero su ausencia sigue siendo válida para el flujo legacy:
+ * se clasifica y asigna el expediente sin inventar un código interno.
+ *
+ * @param {unknown} value Código crudo enviado por el cliente.
+ * @return {boolean} true cuando está vacío o normaliza a tres caracteres.
+ */
+export function validOptionalDocumentTypeCode(value: unknown): boolean {
+  const raw = text(value);
+  return raw.length === 0 || documentTypeCode(raw).length === 3;
+}
+
+/**
  * `ddMMyy` en hora de Bogotá. Con la fecha en UTC, todo lo clasificado después
  * de las 7 p.m. caería en el día siguiente y el consecutivo del día no
  * coincidiría con lo que ve quien clasifica.
@@ -293,11 +307,64 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function isDeveloper(user: admin.firestore.DocumentData): boolean {
+/**
+ * Rol que el usuario tiene DENTRO de una empresa concreta.
+ *
+ * Sin esto solo se miraba la raiz del documento (`role`, `rol`,
+ * `tipoUsuario`), y en una aplicacion multiempresa el rol vive en
+ * `empresasDetalle[empresaId]`: la raiz puede estar vacia o traer el de otra
+ * empresa. Es el mismo criterio que `resolveScopedRoleKey` en el cliente.
+ *
+ * @param {admin.firestore.DocumentData} user Documento del usuario.
+ * @param {string} empresaId Empresa activa.
+ * @return {string} Rol normalizado, o cadena vacia.
+ */
+function scopedRoleKey(
+  user: admin.firestore.DocumentData,
+  empresaId: string
+): string {
+  const detail =
+    user.empresasDetalle && typeof user.empresasDetalle === "object"
+      ? user.empresasDetalle[empresaId]
+      : null;
+  const key = normalizeText(detail?.roleKey || detail?.role_key);
+  if (key) return key;
+  const roleId = text(detail?.roleId || user.roleId);
+  if (roleId) {
+    const prefix = `${empresaId}_`;
+    return normalizeText(
+      roleId.startsWith(prefix) ? roleId.slice(prefix.length) : roleId
+    );
+  }
+  return normalizeText(user.role || user.rol || user.tipoUsuario);
+}
+
+/**
+ * Reconoce al desarrollador, con o sin empresa activa.
+ *
+ * Antes solo miraba una bandera booleana y los campos de la raiz. El
+ * desarrollador de esta aplicacion tambien puede venir marcado por el rol de la
+ * empresa o por un `roleId` terminado en `_desarrollador`, que es como los crea
+ * el sembrado; con la comprobacion vieja, quien administra el modulo caia al
+ * rol por defecto y el servidor le rechazaba clasificar.
+ *
+ * @param {admin.firestore.DocumentData} user Documento del usuario.
+ * @param {string} empresaId Empresa activa, si se conoce.
+ * @return {boolean} true si es desarrollador.
+ */
+export function isDeveloper(
+  user: admin.firestore.DocumentData,
+  empresaId = ""
+): boolean {
   if (user.desarrollador === true || user.developer === true) return true;
   const roles = [user.role, user.rol, user.tipoUsuario]
     .map(normalizeText)
     .filter(Boolean);
+  if (empresaId) roles.push(scopedRoleKey(user, empresaId));
+  const roleId = normalizeText(user.roleId);
+  if (roleId.endsWith("_desarrollador") || roleId.endsWith("_developer")) {
+    return true;
+  }
   return roles.some((role) =>
     ["desarrollador", "developer", "superadmin", "administrador_sistema"].includes(role)
   );
@@ -307,7 +374,9 @@ function userBelongsToEmpresa(
   user: admin.firestore.DocumentData,
   empresaId: string
 ): boolean {
-  if (isDeveloper(user)) return true;
+  // Con la empresa, para que al desarrollador se le reconozca tambien cuando
+  // su marca vive dentro de esa empresa y no en la raiz.
+  if (isDeveloper(user, empresaId)) return true;
   if (textList(user.empresas).includes(empresaId)) return true;
   const detail = user.empresasDetalle;
   if (detail && typeof detail === "object" && !Array.isArray(detail)) {
@@ -367,19 +436,28 @@ async function resolveCorreoRole(
   user: admin.firestore.DocumentData,
   empresaId: string
 ): Promise<CorreoRole | null> {
-  if (isDeveloper(user)) return "administrador";
+  if (isDeveloper(user, empresaId)) return "administrador";
   const scoped =
     user.empresasDetalle && typeof user.empresasDetalle === "object"
       ? user.empresasDetalle[empresaId]
       : null;
-  const fromUser = normalizeRole(scoped?.rolCorreo || user.rolCorreo);
-  if (fromUser) return fromUser;
-
+  // Manda `TBL_CORREO_ROLES` sobre `rolCorreo` del usuario.
+  //
+  // El backend lo tenia al reves que el cliente, y el comentario del cliente
+  // decia ser "un espejo del control que hace el backend". No lo era: a quien
+  // tuviera los dos puestos con valores distintos, la pantalla y el servidor le
+  // daban permisos distintos, asi que se le enseñaba u ocultaba lo que no
+  // correspondia.
+  //
+  // Manda la coleccion porque es lo que escribe la pantalla de roles del
+  // modulo: es la asignacion explicita y la mas reciente. `rolCorreo` en el
+  // usuario es el camino viejo, de cuando el rol se ponia a mano.
   const byId = await db()
     .collection("TBL_CORREO_ROLES")
     .doc(`${safeId(empresaId)}_${safeId(userId)}`)
     .get();
-  if (byId.exists) return normalizeRole(byId.get("rol"));
+  const fromDoc = byId.exists ? normalizeRole(byId.get("rol")) : null;
+  if (fromDoc) return fromDoc;
 
   const byFields = await db()
     .collection("TBL_CORREO_ROLES")
@@ -387,10 +465,21 @@ async function resolveCorreoRole(
     .where("usuarioId", "==", userId)
     .limit(1)
     .get();
-  if (!byFields.empty) return normalizeRole(byFields.docs[0].get("rol"));
+  const fromFields = byFields.empty
+    ? null
+    : normalizeRole(byFields.docs[0].get("rol"));
+  if (fromFields) return fromFields;
+
+  // Un texto que no se reconoce NO corta aqui: se sigue buscando, igual que en
+  // el cliente. Antes un documento con el rol mal escrito devolvia null y
+  // denegaba todo, mientras la pantalla seguia mostrando el rol por defecto.
+  const fromUser = normalizeRole(scoped?.rolCorreo || user.rolCorreo);
+  if (fromUser) return fromUser;
 
   // Permite la configuración inicial del módulo al administrador existente.
-  const global = normalizeText(user.role || user.rol);
+  // Se mira el rol DE LA EMPRESA y no solo el de la raíz, por lo mismo que
+  // explica `scopedRoleKey`.
+  const global = scopedRoleKey(user, empresaId);
   return ["administrador", "admin", "superadmin"].includes(global)
     ? "administrador"
     : null;
@@ -2885,8 +2974,9 @@ export const gdAsignarExpediente = functions
     const responsableNombre =
       text(data?.responsableNombre) || await userName(responsable.id);
     const creadorNombre = await userName(caller.userId);
-    const tipoCodigo = documentTypeCode(data?.tipoDocumentalCodigo);
-    if (tipoCodigo.length !== 3) {
+    const tipoCodigoRaw = text(data?.tipoDocumentalCodigo);
+    const tipoCodigo = documentTypeCode(tipoCodigoRaw);
+    if (!validOptionalDocumentTypeCode(tipoCodigoRaw)) {
       throw new functions.https.HttpsError(
         "invalid-argument",
         "El tipo documental debe tener un código de exactamente 3 caracteres."

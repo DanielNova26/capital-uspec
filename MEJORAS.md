@@ -3876,11 +3876,19 @@ la entrada de producto.
 Ahora los tres caminos que no abren el documento dicen cuál es: no hay archivo
 cargado, el enlace está dañado, o el sistema no pudo abrirlo.
 
-**Pendiente de confirmar:** el docx trae un pantallazo de este error que no
-pude ver. Si el fallo era otro (por ejemplo el archivo borrado de Storage con el
-enlace todavía en Firestore, que abre una pestaña con un error de Google),
-hace falta comprobar la existencia del objeto antes de abrirlo. El arreglo de
-arriba es correcto en cualquier caso, pero puede no ser el único que hace falta.
+**Confirmado el 10 sep con el PDF**, que sí traía el pantallazo: era lo
+segundo. El enlace abría una pestaña con el JSON crudo de Google —
+`"error": {"code": 404, "message": "Not Found."}`— sobre
+`firebasestorage.googleapis.com`.
+
+El enlace vive en Firestore y el archivo en Storage: **borrar el archivo no
+invalida el enlace**, así que sigue siendo válido y sigue abriendo. Ahora, antes
+de abrir un enlace de Storage, se le pregunta al servidor si el archivo sigue
+ahí (`refFromURL(...).getMetadata()`); si no está, se avisa con palabras en vez
+de mandar a nadie a leer un JSON de error.
+
+Solo se comprueban los enlaces de Storage: de otro dominio no hay forma de
+preguntar, y no se bloquea la apertura por eso.
 
 ---
 
@@ -4382,7 +4390,15 @@ sus acciones en `if (!showRejectedOnly)`: era una lista para mirar. O sea que
 la acción existía y **la pantalla donde uno busca un documento rechazado no la
 ofrecía**; había que entrar al expediente del proveedor a buscarla.
 
-Ahora las fichas rechazadas traen ahí su "Devolver a revisión".
+Ahora **los cuatro tipos** traen ahí su "Devolver a revisión": fichas técnicas,
+documentos de marca, documentos de proveedor y documentos de recepción.
+
+Los de proveedor y recepción escondían el botón por otro motivo distinto al de
+las fichas: en sus tarjetas, `if (doc.rechazado)` hace un **`return` temprano**
+con una versión compacta de solo lectura, así que nunca llegaban a los botones
+de decisión. Eran tarjetas para mirar. Ninguna de las dos cosas se ve leyendo el
+código de los botones: hay que seguir el camino del documento rechazado hasta
+donde sale.
 
 ---
 
@@ -4422,3 +4438,213 @@ De los cuatro tipos de documento (recepción, proveedor, ficha técnica y marca)
 **marca era el único sin reversión**. Un documento de marca rechazado no tenía
 más salida que borrarlo y volverlo a subir. Ya la tiene, y aparece en la pestaña
 "Rechazados" igual que la de las fichas.
+
+---
+
+## Correspondencia — el backend tenía el mismo fallo (10 sep 2026)
+
+Arreglado el cliente, el servidor habría rechazado igual: `isDeveloper` en
+`functions/src/correo.ts` miraba **solo una bandera booleana y los campos de la
+raíz** del usuario, exactamente como el cliente antes del arreglo. El botón
+habría aparecido y la acción habría fallado.
+
+Se añadió `scopedRoleKey`, gemelo de `resolveScopedRoleKey` del cliente: mira
+`empresasDetalle[empresaId].roleKey`, luego `roleId` —quitándole el prefijo de
+la empresa— y solo al final la raíz. `isDeveloper` lo usa, reconoce también un
+`roleId` terminado en `_desarrollador`, y el respaldo del "administrador global"
+de `resolveCorreoRole` pasa por lo mismo.
+
+`userBelongsToEmpresa` también recibe ahora la empresa: era una puerta anterior,
+y un desarrollador marcado dentro de la empresa se quedaba fuera antes de que
+nadie le mirara el rol.
+
+Tres casos nuevos en `functions/test/gd_roles.test.js`. 49 pruebas del backend
+en verde.
+
+### Lo que NO se cambió, y hay que decidir
+
+**Cliente y backend resuelven el rol en orden distinto**, y el comentario del
+cliente dice que es "un espejo del control que hace el backend". No lo es:
+
+| | Cliente | Backend |
+|---|---|---|
+| 2.º | `TBL_CORREO_ROLES` | `rolCorreo` del usuario |
+| 3.º | `rolCorreo` del usuario | `TBL_CORREO_ROLES` |
+
+A quien tenga los dos puestos **con valores distintos**, el cliente y el
+servidor le dan permisos distintos: la pantalla enseña u oculta lo que no
+corresponde.
+
+**Unificado el 10 sep 2026 por decisión del usuario: manda
+`TBL_CORREO_ROLES`.** Es lo que escribe la pantalla de roles del módulo, o sea
+la asignación explícita y más reciente; `rolCorreo` en el usuario es el camino
+viejo, de cuando el rol se ponía a mano. El backend se reordenó para que sea el
+cliente el que tiene razón, no al revés.
+
+De paso se corrigió algo que salió al reordenar: un documento de
+`TBL_CORREO_ROLES` con el rol **mal escrito** cortaba la búsqueda y devolvía
+"sin rol", o sea denegaba todo, mientras la pantalla seguía mostrando el rol por
+defecto. Ahora un texto no reconocido **no corta**: se sigue buscando por los
+demás caminos, igual que en el cliente.
+
+### Lo que sigue sin unificar, y a propósito
+
+El cliente, sin rol reconocido en ninguna parte, cae en `operador`. El backend
+cae en "sin rol" y deniega. Es decir: alguien de la empresa sin rol asignado ve
+la interfaz de operador y el servidor le rechaza lo que intente.
+
+**No se cambió porque el arreglo obvio es el peligroso**: poner `operador` por
+defecto en el backend le da acceso al módulo a *todo* el que pertenezca a la
+empresa. Eso es una decisión de seguridad, no una corrección de coherencia, y
+hay que tomarla mirando quién entraría.
+
+---
+
+## Compras — recepción sin ficha y captura incompleta (10 sep 2026)
+
+La captura seguía bloqueando el guardado con "Cada producto debe tener una
+ficha técnica". Se quitó esa segunda barrera: la ficha queda como soporte
+opcional y visible, pero su ausencia no impide registrar la recepción física.
+El aviso ahora dice expresamente que se puede continuar sin ella.
+
+Una recepción que todavía esté en **Revisión de Calidad** puede abrirse con la
+acción **Completar recepción** para agregar productos omitidos y cargar sus
+soportes. La edición está disponible específicamente para **Bodega**, con Admin
+Documental como respaldo; Compras y Calidad conservan el candado. Antes de
+guardar, Bodega debe explicar el motivo. Cada motivo se acumula como una nota
+con usuario y fecha y se muestra en la sección **Histórico de ediciones** del
+detalle, incluso después de finalizar. Los productos ya guardados no pueden
+retirarse y una recepción finalizada o rechazada no puede reabrirse por este
+camino. La misma validación se repite dentro de la transacción para cubrir una
+pantalla que haya quedado abierta mientras Calidad toma una decisión.
+
+Si el producto agregado corresponde a una entrega programada de la misma OC,
+el servicio actualiza también el vínculo con Abastecimiento y su historial.
+Las pruebas específicas de recepción, permisos e histórico quedan cubiertas y
+la suite completa de Compras en **105/105**. La compilación web termina correcta.
+
+---
+
+## Interventoría — las actas con catálogo propio parecían vacías (10 sep 2026)
+
+Reportado por Kary: las actas de Estación de Policía y de Infraestructura, aun
+estando al 100 %, se veían sin hallazgos al guardarlas y revisarlas.
+
+La tarjeta del histórico pintaba **`kInterventoriaCategorias` fijo**, o sea las
+secciones del acta **regular** —Horario, Almacenamiento, Equipos…—, sin mirar de
+qué tipo era el acta. Un acta de Infraestructura guarda sus puntajes bajo
+`seccion1`, `seccion2`…, así que ninguna casilla encontraba su dato y todas
+salían en "—%": el acta parecía vacía aunque estuviera completa.
+
+Eso era el síntoma. **La causa estaba más abajo y era peor.**
+
+### La lectura del acta descartaba lo que no fuera del acta regular
+
+`InterventoriaVisita.fromMap` construía los ítems recorriendo
+`kInterventoriaCategorias` y **descartaba todas las demás claves** de
+`itemsEvaluacion`. Un acta de Estación de Policía o de Infraestructura guarda
+sus puntajes bajo `seccion1`, `seccion2`…, así que al releerla llegaban las doce
+categorías de la regular, vacías, y ni una sola de las suyas.
+
+Y lo grave no es verlo mal. La Fase 2 hace `_items = Map.from(visita.items)` y
+al completar el acta los vuelve a guardar: **el siguiente guardado escribía las
+doce categorías vacías encima y borraba de verdad los puntajes que sí estaban en
+Firestore.** De ahí el "no está guardando los porcentajes" de Kary: los
+guardaba, los perdía al releer, y los destruía al volver a guardar.
+
+Leer con una lista fija no es un problema de presentación cuando lo leído se
+vuelve a escribir.
+
+Ahora se lee **todo** lo que haya guardado, con la clave que sea —incluso de un
+tipo de acta que este código todavía no conozca— y solo después se completan con
+vacías las secciones que el acta debería tener. Nada de lo guardado se descarta.
+
+### Qué se recupera y qué no
+
+Un acta que se registró y **no se ha vuelto a guardar** conserva sus puntajes en
+Firestore y se verá bien en cuanto se despliegue, sin tocar nada. Un acta que ya
+pasó por Fase 2 después del registro tiene los puntajes sobrescritos y hay que
+volver a registrarlos: eso ya no está en ninguna parte.
+
+### Lo que se dejó igual
+
+En la pestaña **Análisis** el filtro de categoría ya ofrece las secciones de las
+tres actas, no solo las de la regular. El valor del desplegable lleva el tipo de
+acta además de la clave (`ESTACION_POLICIA|seccion1`), porque la clave sola no
+identifica nada: Infraestructura y Estación de Policía usan `seccion1` para
+secciones que no tienen nada que ver.
+
+Al filtrar por una sección de un acta propia, **las actas de otro tipo se
+descartan en vez de contar como cero**. Un cero es una evaluación pésima; no
+tener ese acta no lo es, y promediarlas juntas hundiría el indicador de un
+establecimiento por un acta que nunca le tocó.
+
+## Borrar un acta sin pedirse permiso a uno mismo
+
+Kary tenía que radicar una solicitud de eliminación, ir a "Permisos de borrado"
+y **aprobársela ella misma**: ya estaba en
+`kInterventoriaRolesAprobadoresEliminacion`. Eso no protegía de nada, porque
+quien pedía y quien aprobaba eran la misma persona.
+
+Ahora quien puede aprobar borrados borra directo. **No cambia quién puede
+borrar** —es el mismo conjunto de siempre—, se quita el rodeo. Quien no está en
+ese conjunto sigue radicando la solicitud.
+
+La confirmación dice **qué más se lleva por delante**: los hallazgos del acta,
+sus archivos adjuntos, y que las tareas ya creadas quedan sin su origen. Un
+"¿seguro?" a secas no deja decidir nada.
+
+---
+
+## El comparativo se parte por subcentro (10 sep 2026)
+
+Cómbita está registrado una vez pero opera como **Alta y Media**; Picota, como
+ERE 1 y ERE 2. El comparativo agrupaba por establecimiento, así que las dos
+operaciones **se pisaban**: solo sobrevivía el acta más reciente y la otra mitad
+del establecimiento desaparecía del gráfico sin decirlo.
+
+No se ocultó Cómbita, que era la petición inicial: esconder un establecimiento
+entero resuelve el síntoma y deja al siguiente que mire el gráfico
+preguntándose por qué falta. Ahora la clave de agrupación lleva el subcentro,
+así que salen "Cómbita Alta" y "Cómbita Media" con su propio puntaje.
+
+Dos cosas que no cambian:
+
+- **Un establecimiento sin dividir sigue teniendo exactamente una barra.** El
+  subcentro entra en la clave, no la reemplaza.
+- **Dentro de cada subcentro sigue mandando la última acta**, que era la regla
+  de siempre.
+
+Sirve igual para Picota y para cualquier división futura, sin volver a tocar
+esto. Y el acta ya guardaba a cuál de los dos correspondía: el dato estaba, solo
+no se usaba.
+
+De paso, el cálculo del valor pasó a `valorCategoriaAnalisis`, que es el mismo
+que usa el resto del análisis. Antes el comparativo tenía su propia copia de esa
+lógica y no descartaba las actas de otro tipo.
+
+---
+
+## Semáforo de tres estados en las marcas (10 sep 2026)
+
+Pedido: **verde aprobada, naranja pendiente, rojo rechazada**. Antes era verde
+si la marca *tenía* ficha, sin más: una ficha rechazada y una aprobada se veían
+igual, que es justo lo que hay que poder distinguir de un vistazo.
+
+Dos decisiones que no son de color:
+
+- **Manda lo mejor que tenga la marca.** Con una ficha aprobada y otra
+  pendiente, la marca está aprobada: ya puede operar. Bajarla a naranja haría
+  que cargar un documento nuevo **empeorara** el indicador de una marca que
+  estaba bien.
+- **En el producto manda lo peor de sus marcas.** Un producto en verde con una
+  marca rechazada dentro esconde justo lo que hay que atender.
+
+`sinFicha` es un estado aparte de `rechazada` aunque los dos pinten en rojo: no
+tener ficha y tener una que Calidad rechazó se arreglan de forma distinta, y la
+etiqueta lo dice ("Sin ficha" / "Ficha rechazada"). El chip lleva texto además
+de color porque el color solo no se lee en una captura ni en un listado impreso.
+
+Con esto queda cerrado el documento `Correciones COMPRAS`. Los dos puntos que
+quedaban —"marcar pendientes por calidad" y "revisar los numerales"— el usuario
+los descartó el 10 sep: no hacen falta.

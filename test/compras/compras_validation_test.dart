@@ -455,4 +455,103 @@ void main() {
       expect(muestraBotonAprobar(aprobado: false), isTrue);
     });
   });
+
+  group('enlaces de Firebase Storage', () {
+    test('reconoce los enlaces que sí se pueden comprobar', () {
+      // El enlace vive en Firestore y el archivo en Storage: borrar el archivo
+      // no invalida el enlace. Abrirlo a ciegas lleva a la pestaña con el JSON
+      // de Google — '"error": {"code": 404}' — que fue lo reportado.
+      expect(
+        esUrlDeFirebaseStorage(
+          'https://firebasestorage.googleapis.com/v0/b/integra360-94704'
+          '.firebasestorage.app/o/compras%2Ffichas%2Fx.pdf?alt=media',
+        ),
+        isTrue,
+      );
+      expect(
+        esUrlDeFirebaseStorage('https://storage.googleapis.com/bucket/x.pdf'),
+        isTrue,
+      );
+    });
+
+    test('no intenta comprobar lo que no es Storage', () {
+      // De otro dominio no hay forma de preguntar, y no se bloquea por eso.
+      expect(
+        esUrlDeFirebaseStorage('https://drive.google.com/file/d/1'),
+        isFalse,
+      );
+      expect(esUrlDeFirebaseStorage('https://ejemplo.com/a.pdf'), isFalse);
+      expect(esUrlDeFirebaseStorage(''), isFalse);
+      expect(esUrlDeFirebaseStorage('no es una url'), isFalse);
+    });
+  });
+
+  group('semáforo de la ficha de una marca', () {
+    test('verde aprobada, naranja pendiente, rojo rechazada', () {
+      expect(
+        estadoFichaMarca(
+          tieneAprobada: true,
+          tienePendiente: false,
+          tieneRechazada: false,
+        ),
+        EstadoFichaMarca.aprobada,
+      );
+      expect(
+        estadoFichaMarca(
+          tieneAprobada: false,
+          tienePendiente: true,
+          tieneRechazada: false,
+        ),
+        EstadoFichaMarca.pendiente,
+      );
+      expect(
+        estadoFichaMarca(
+          tieneAprobada: false,
+          tienePendiente: false,
+          tieneRechazada: true,
+        ),
+        EstadoFichaMarca.rechazada,
+      );
+    });
+
+    test('sin ninguna ficha no es lo mismo que rechazada', () {
+      expect(
+        estadoFichaMarca(
+          tieneAprobada: false,
+          tienePendiente: false,
+          tieneRechazada: false,
+        ),
+        EstadoFichaMarca.sinFicha,
+      );
+    });
+
+    test('manda lo mejor que tenga', () {
+      // Una marca con una aprobada y otra pendiente ya puede operar. Bajarla a
+      // naranja haría que cargar un documento nuevo empeorara el indicador de
+      // una marca que estaba bien.
+      expect(
+        estadoFichaMarca(
+          tieneAprobada: true,
+          tienePendiente: true,
+          tieneRechazada: true,
+        ),
+        EstadoFichaMarca.aprobada,
+      );
+      expect(
+        estadoFichaMarca(
+          tieneAprobada: false,
+          tienePendiente: true,
+          tieneRechazada: true,
+        ),
+        EstadoFichaMarca.pendiente,
+      );
+    });
+
+    test('cada estado se puede leer sin ver el color', () {
+      expect(etiquetaFichaMarca(EstadoFichaMarca.aprobada), 'Ficha aprobada');
+      expect(etiquetaFichaMarca(EstadoFichaMarca.pendiente), 'Ficha pendiente');
+      expect(etiquetaFichaMarca(EstadoFichaMarca.rechazada), 'Ficha rechazada');
+      expect(etiquetaFichaMarca(EstadoFichaMarca.sinFicha), 'Sin ficha');
+    });
+  });
 }

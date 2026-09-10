@@ -128,7 +128,8 @@ class GdPermisos {
 
 /// Resuelve el rol de Correspondencia de un usuario en una empresa.
 ///
-/// Repite la precedencia del backend a propósito, en este orden:
+/// Repite la precedencia del backend a propósito —y desde el 10 sep 2026 son
+/// de verdad la misma, que antes no lo eran— en este orden:
 /// 1. la marca de desarrollador en el usuario;
 /// 2. `TBL_CORREO_ROLES/{empresaId}_{userId}`;
 /// 3. `empresasDetalle[empresaId].rolCorreo` y `rolCorreo` del usuario;

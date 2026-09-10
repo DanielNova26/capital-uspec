@@ -3189,15 +3189,14 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
       ..sort((a, b) => a.fechaVisita.compareTo(b.fechaVisita));
     return sorted
         .map((v) {
+          // Con una categoría de un acta propia, las actas de otro tipo no
+          // responden a esa pregunta y se descartan: promediarlas con cero
+          // hundiría el indicador de un establecimiento por no tener ese acta.
+          final calculado = valorCategoriaAnalisis(v, _categoriaKey);
+          if (calculado == null) return null;
           double value;
-          if (_categoriaKey.isEmpty) {
-            value = v.porcentajeGeneral;
-          } else {
-            final item = v.items[_categoriaKey];
-            if (item == null || item.noEvaluado || item.valor == null) {
-              return null;
-            }
-            value = item.valor!.clamp(0, 100).toDouble();
+          {
+            value = calculado;
           }
           return _TimelinePoint(
             label: DateFormat('dd/MM/yy').format(v.fechaVisita.toDate()),
@@ -3251,16 +3250,7 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
 
     // Timeline
     final timelinePoints = _buildTimeline();
-    final categoriaLabel = _categoriaKey.isEmpty
-        ? 'Total general'
-        : kInterventoriaCategorias
-                  .cast<InterventoriaCategoria?>()
-                  .firstWhere(
-                    (c) => c?.key == _categoriaKey,
-                    orElse: () => null,
-                  )
-                  ?.label ??
-              _categoriaKey;
+    final categoriaLabel = etiquetaCategoriaAnalisis(_categoriaKey);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3453,10 +3443,10 @@ class _SeguimientoGraficasState extends State<_SeguimientoGraficas> {
                           value: '',
                           child: Text('Total general'),
                         ),
-                        ...kInterventoriaCategorias.map(
-                          (cat) => DropdownMenuItem(
-                            value: cat.key,
-                            child: Text(cat.label),
+                        ...opcionesCategoriaAnalisis().map(
+                          (o) => DropdownMenuItem(
+                            value: o.valor,
+                            child: Text(o.etiqueta),
                           ),
                         ),
                       ],
@@ -4563,7 +4553,23 @@ class _VisitaCardState extends State<_VisitaCard> {
                     icon: Icon(Icons.edit_rounded, color: _kAccent),
                     onPressed: () => _reabrirParaRevision(context, v),
                   ),
-                if (widget.canWrite)
+                // Quien aprueba las solicitudes de borrado borra directo.
+                //
+                // No cambia QUIÉN puede borrar: es el mismo conjunto que ya
+                // aprobaba. Lo que se quita es el rodeo de pedirse permiso a
+                // uno mismo —radicar la solicitud, ir a "Permisos de borrado" y
+                // aprobársela— que no protegía de nada porque el que pedía y el
+                // que aprobaba eran la misma persona.
+                if (puedeAprobarEliminacionInterventoria(widget.rol))
+                  IconButton(
+                    tooltip: 'Eliminar acta',
+                    icon: Icon(
+                      Icons.delete_forever,
+                      color: Colors.red.shade600,
+                    ),
+                    onPressed: () => _eliminarDirecto(context, v),
+                  )
+                else if (widget.canWrite)
                   IconButton(
                     tooltip: 'Solicitar eliminación',
                     icon: Icon(
@@ -4631,7 +4637,17 @@ class _VisitaCardState extends State<_VisitaCard> {
                     ),
                   ],
                   const SizedBox(height: 10),
-                  ...kInterventoriaCategorias.map((cat) {
+                  // Las categorías del acta que se está mirando, no las del
+                  // acta regular.
+                  //
+                  // Estaba fijo a `kInterventoriaCategorias`, así que un acta
+                  // de Infraestructura o de Estación de Policía se dibujaba con
+                  // las secciones de la regular —Horario, Almacenamiento,
+                  // Equipos…— que ese acta no tiene. Sus puntajes están
+                  // guardados bajo `seccion1`, `seccion2`…, así que ninguna
+                  // casilla encontraba su dato y todas salían en "—%": el acta
+                  // parecía vacía aunque estuviera completa.
+                  ...categoriasDeActa(v.tipoActa).map((cat) {
                     final item =
                         v.items[cat.key] ?? InterventoriaItem.empty(cat);
                     return _VisitaItemRow(item: item);
@@ -4671,6 +4687,59 @@ class _VisitaCardState extends State<_VisitaCard> {
           SnackBar(content: Text(error.message ?? 'No se pudo enviar.')),
         );
       }
+    }
+  }
+
+  /// Borra el acta sin pasar por la solicitud.
+  ///
+  /// La confirmación dice **qué más se lleva por delante**: un acta no está
+  /// sola, arrastra sus hallazgos y los archivos del acta en Storage. Un
+  /// "¿seguro?" a secas no deja decidir nada.
+  Future<void> _eliminarDirecto(
+    BuildContext context,
+    InterventoriaVisita v,
+  ) async {
+    final fecha = DateFormat('dd/MM/yyyy').format(v.fechaVisita.toDate());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Eliminar acta'),
+        content: Text(
+          '${v.centroCostoNombre} · $fecha · '
+          '${etiquetaTipoActa(v.tipoActa)}\n\n'
+          'Se borran también los hallazgos de esta acta y los archivos '
+          'adjuntos. Las tareas ya creadas a partir de esos hallazgos '
+          'quedan sin su origen.\n\n'
+          'Esto no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Sí, eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await widget.service.eliminarVisita(v.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(backgroundColor: _kOk, content: Text('Acta eliminada.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: _kDanger,
+          content: Text('No se pudo eliminar: $error'),
+        ),
+      );
     }
   }
 
@@ -5152,10 +5221,13 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                         value: '',
                         child: Text('Total general'),
                       ),
-                      ...kInterventoriaCategorias.map(
-                        (cat) => DropdownMenuItem(
-                          value: cat.key,
-                          child: Text(cat.label),
+                      // Todas las actas, no solo la regular: las de
+                      // Infraestructura y Estación de Policía existían en el
+                      // histórico y desaparecían del análisis.
+                      ...opcionesCategoriaAnalisis().map(
+                        (o) => DropdownMenuItem(
+                          value: o.valor,
+                          child: Text(o.etiqueta),
                         ),
                       ),
                     ],
@@ -5575,12 +5647,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
   }
 
   String _buildTimelineSubtitle(Map<String, String> centros, int totalVisitas) {
-    final categoriaMatch = kInterventoriaCategorias
-        .cast<InterventoriaCategoria?>()
-        .firstWhere((cat) => cat?.key == _categoriaKey, orElse: () => null);
-    final categoria = _categoriaKey.isEmpty
-        ? 'Total general'
-        : (categoriaMatch?.label ?? _categoriaKey);
+    final categoria = etiquetaCategoriaAnalisis(_categoriaKey);
     final centro = widget.centroFiltro.isEmpty
         ? 'Todos los establecimientos'
         : centros[widget.centroFiltro] ?? '';
@@ -5600,12 +5667,7 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
   }
 
   String _buildComparativoSubtitle(int totalVisitas) {
-    final categoriaMatch = kInterventoriaCategorias
-        .cast<InterventoriaCategoria?>()
-        .firstWhere((cat) => cat?.key == _categoriaKey, orElse: () => null);
-    final categoria = _categoriaKey.isEmpty
-        ? 'Total general'
-        : (categoriaMatch?.label ?? _categoriaKey);
+    final categoria = etiquetaCategoriaAnalisis(_categoriaKey);
     final rangoParts = <String>[];
     if (widget.fechaDesde != null) {
       rangoParts.add(

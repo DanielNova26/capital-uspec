@@ -213,3 +213,67 @@ String etiquetaReversionDocumento({
 /// Sobre un documento **rechazado** sí se ofrece: Calidad puede revisarlo otra
 /// vez y aprobarlo, y esa es la salida normal de un rechazo.
 bool muestraBotonAprobar({required bool aprobado}) => !aprobado;
+
+/// ¿Este enlace apunta a un archivo de Firebase Storage?
+///
+/// Sirve para saber si se le puede preguntar al servidor si el archivo sigue
+/// ahí antes de abrirlo. El enlace vive en Firestore y el archivo en Storage:
+/// borrar el archivo no invalida el enlace, así que abrirlo a ciegas lleva a
+/// una pestaña con el JSON de error de Google en vez de a un aviso entendible.
+bool esUrlDeFirebaseStorage(String url) {
+  final u = Uri.tryParse(url.trim());
+  if (u == null) return false;
+  final host = u.host.toLowerCase();
+  return host == 'firebasestorage.googleapis.com' ||
+      host.endsWith('.firebasestorage.app') ||
+      host == 'storage.googleapis.com';
+}
+
+/// Semáforo de la ficha técnica de una marca (reunión 9 sep 2026).
+///
+/// Tres estados y no dos: "tiene archivo" no es lo mismo que "Calidad lo
+/// aprobó". Con un solo verde por tener el archivo cargado, una ficha rechazada
+/// y una aprobada se veían igual, que es justo lo que hay que poder distinguir
+/// de un vistazo en el listado.
+enum EstadoFichaMarca {
+  /// Calidad la aprobó.
+  aprobada,
+
+  /// Cargada y esperando revisión de Calidad.
+  pendiente,
+
+  /// Calidad la rechazó. Hay que reemplazarla.
+  rechazada,
+
+  /// No hay ficha de ninguna clase.
+  sinFicha,
+}
+
+/// Resuelve el semáforo a partir de lo que haya cargado para la marca.
+///
+/// El orden de precedencia importa y no es alfabético: **manda lo mejor que
+/// tenga**. Una marca con una ficha aprobada y otra pendiente está aprobada —
+/// ya puede operar—, y bajarla a naranja por una segunda ficha en revisión
+/// haría que cargar un documento nuevo empeorara el indicador de una marca que
+/// estaba bien.
+///
+/// El rechazo solo pinta cuando no hay nada mejor: si lo único que hay es una
+/// ficha rechazada, eso es lo que hay que ver.
+EstadoFichaMarca estadoFichaMarca({
+  required bool tieneAprobada,
+  required bool tienePendiente,
+  required bool tieneRechazada,
+}) {
+  if (tieneAprobada) return EstadoFichaMarca.aprobada;
+  if (tienePendiente) return EstadoFichaMarca.pendiente;
+  if (tieneRechazada) return EstadoFichaMarca.rechazada;
+  return EstadoFichaMarca.sinFicha;
+}
+
+/// Texto del semáforo, para el chip del listado.
+String etiquetaFichaMarca(EstadoFichaMarca estado) => switch (estado) {
+  EstadoFichaMarca.aprobada => 'Ficha aprobada',
+  EstadoFichaMarca.pendiente => 'Ficha pendiente',
+  EstadoFichaMarca.rechazada => 'Ficha rechazada',
+  EstadoFichaMarca.sinFicha => 'Sin ficha',
+};

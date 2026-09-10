@@ -1610,12 +1610,17 @@ async function fetchMetaTemplateStates(
   const rows = Array.isArray(payload.data) ? payload.data : [];
   const result: Record<string, WhatsAppMetaTemplateState> = {};
   for (const [key, definition] of Object.entries(MESSAGE_TEMPLATE_DEFINITIONS)) {
-    const row = rows.find((item) => {
+    const namedRows = rows.filter((item) => {
       if (!item || typeof item !== "object") return false;
       const data = item as Record<string, unknown>;
-      return text(data.name) === definition.metaName &&
-        text(data.language) === definition.metaLanguage;
-    }) as Record<string, unknown> | undefined;
+      return text(data.name) === definition.metaName;
+    }) as Record<string, unknown>[];
+    // Se prefiere el idioma definido por la aplicación. Si la plantilla fue
+    // creada manualmente con otro código de idioma, se usa esa versión para
+    // no obligar a duplicarla cuando Meta ya la aprobó.
+    const row = namedRows.find(
+      (item) => text(item.language) === definition.metaLanguage
+    ) || namedRows[0];
     if (!row) continue;
     const previous = config.metaTemplates[key];
     const bodyText = metaBodyText(row.components);

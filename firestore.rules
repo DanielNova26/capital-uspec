@@ -7,6 +7,63 @@ service cloud.firestore {
         && request.auth.token.userDocId is string;
     }
 
+    function currentUserPath() {
+      return /databases/$(database)/documents/TBL_USUARIOS/$(request.auth.token.userDocId);
+    }
+
+    function currentUser() {
+      return get(currentUserPath()).data;
+    }
+
+    function isDeveloper() {
+      return isSignedIn()
+        && (
+          currentUser().desarrollador == true
+          || currentUser().developer == true
+          || currentUser().role in ['desarrollador', 'developer', 'superadmin', 'administrador_sistema']
+          || currentUser().rol in ['desarrollador', 'developer', 'superadmin', 'administrador_sistema']
+        );
+    }
+
+    // Una consulta de un módulo debe venir filtrada por empresa. Firestore
+    // evalúa esta condición contra cada documento devuelto, por lo que una
+    // consulta sin ese filtro falla en lugar de filtrar datos en el servidor.
+    function belongsToCompany(empresaId) {
+      return isSignedIn()
+        && empresaId is string
+        && empresaId.size() > 0
+        && (
+          isDeveloper()
+          || (currentUser().empresas is list && empresaId in currentUser().empresas)
+          || (currentUser().empresasDetalle is map && empresaId in currentUser().empresasDetalle)
+          || currentUser().empresaId == empresaId
+          || currentUser().empresa == empresaId
+        );
+    }
+
+    function interventoriaRolePath(empresaId) {
+      return /databases/$(database)/documents/TBL_INTERVENTORIA_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+    }
+
+    function hasInterventoriaRole(empresaId, allowedRoles) {
+      return belongsToCompany(empresaId)
+        && exists(interventoriaRolePath(empresaId))
+        && get(interventoriaRolePath(empresaId)).data.rol in allowedRoles;
+    }
+
+    function correoRolePath(empresaId) {
+      return /databases/$(database)/documents/TBL_CORREO_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+    }
+
+    function isCorreoAdmin(empresaId) {
+      return belongsToCompany(empresaId)
+        && exists(correoRolePath(empresaId))
+        && get(correoRolePath(empresaId)).data.rol in [
+          'administrador', 'admin', 'manager', 'gestor', 'superadmin',
+          'desarrollador', 'developer'
+        ];
+    }
+
     // Credenciales, intentos y retos de recuperación son exclusivamente del
     // backend. Nunca se exponen al cliente, ni siquiera a administradores.
     match /TBL_AUTH_CREDENTIALS/{document=**} {
@@ -78,29 +135,105 @@ service cloud.firestore {
     // Las eliminaciones de Interventoría requieren una solicitud y aprobación
     // en Cloud Functions. El cliente puede crear/editar, pero nunca borrar.
     match /TBL_INTERVENTORIA_VISITAS/{docId} {
-      allow read, create, update: if isSignedIn();
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && belongsToCompany(resource.data.empresaId);
       allow delete: if false;
     }
     match /TBL_INTERVENTORIA_HALLAZGOS/{docId} {
-      allow read, create, update: if isSignedIn();
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && belongsToCompany(resource.data.empresaId);
       allow delete: if false;
     }
     match /TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION/{docId} {
-      allow read: if isSignedIn();
+      allow read: if belongsToCompany(resource.data.empresaId);
       allow write: if false;
+    }
+
+    // La colección de roles no puede quedar en el fallback general: de otro
+    // modo un usuario autenticado podría ascenderse a sí mismo. La primera
+    // asignación de administrador la hace Desarrollo; después administra el
+    // rol admin_interventoria de esa empresa.
+    match /TBL_INTERVENTORIA_ROLES/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if isDeveloper()
+        || hasInterventoriaRole(request.resource.data.empresaId, ['admin_interventoria']);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && (isDeveloper()
+          || hasInterventoriaRole(resource.data.empresaId, ['admin_interventoria']));
+      allow delete: if isDeveloper()
+        || hasInterventoriaRole(resource.data.empresaId, ['admin_interventoria']);
+    }
+
+    // La matriz de responsables cambia quién recibe tareas reales. Solo la
+    // administra el rol funcional del módulo; el resto conserva lectura.
+    match /TBL_INTERVENTORIA_CONFIG/{docId} {
+      allow read: if belongsToCompany(docId);
+      allow create, update: if isDeveloper()
+        || hasInterventoriaRole(docId, ['admin_interventoria']);
+      allow delete: if false;
+    }
+
+    match /TBL_CORREO_ROLES/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if isDeveloper() || isCorreoAdmin(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && (isDeveloper() || isCorreoAdmin(resource.data.empresaId));
+      allow delete: if isDeveloper() || isCorreoAdmin(resource.data.empresaId);
+    }
+
+    match /TBL_GD_TIPOS_DOCUMENTALES/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if isDeveloper() || isCorreoAdmin(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && (isDeveloper() || isCorreoAdmin(resource.data.empresaId));
+      allow delete: if false;
     }
 
     // La declaración con soporte se valida y registra únicamente en Functions.
     match /TBL_GD_EXPEDIENTES/{docId} {
-      allow read, delete: if isSignedIn();
-      allow create: if isSignedIn() && !request.resource.data.keys().hasAny([
+      allow read, delete: if belongsToCompany(resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId)
+        && !request.resource.data.keys().hasAny([
         'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
         'respuestaExternaRegistradaAt', 'soportesRespuestaExterna'
       ]);
-      allow update: if isSignedIn() && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
-        'respuestaExternaRegistradaAt', 'soportesRespuestaExterna'
-      ]);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && belongsToCompany(resource.data.empresaId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'respuestaExternaRegistrada', 'respuestaExternaRegistradaPor',
+          'respuestaExternaRegistradaAt', 'soportesRespuestaExterna'
+        ]);
+    }
+
+    match /TBL_GD_EXPEDIENTES_EVENTOS/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId);
+      allow update, delete: if false;
+    }
+
+    match /TBL_GD_COLABORACION/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && belongsToCompany(resource.data.empresaId);
+      allow delete: if false;
+    }
+
+    match /TBL_GD_VINCULOS/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId);
+      allow create: if belongsToCompany(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && belongsToCompany(resource.data.empresaId);
+      allow delete: if belongsToCompany(resource.data.empresaId);
+    }
+
+    // Contadores y códigos internos se escriben exclusivamente en Functions.
+    match /TBL_GD_CONTADORES/{docId} {
+      allow read, write: if false;
     }
 
     match /{collection}/{document=**} {
@@ -110,7 +243,15 @@ service cloud.firestore {
         && collection != 'TBL_GD_EXPEDIENTES'
         && collection != 'TBL_INTERVENTORIA_VISITAS'
         && collection != 'TBL_INTERVENTORIA_HALLAZGOS'
+        && collection != 'TBL_INTERVENTORIA_ROLES'
+        && collection != 'TBL_INTERVENTORIA_CONFIG'
         && collection != 'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION'
+        && collection != 'TBL_CORREO_ROLES'
+        && collection != 'TBL_GD_TIPOS_DOCUMENTALES'
+        && collection != 'TBL_GD_EXPEDIENTES_EVENTOS'
+        && collection != 'TBL_GD_COLABORACION'
+        && collection != 'TBL_GD_VINCULOS'
+        && collection != 'TBL_GD_CONTADORES'
         && collection != 'TBL_DIAN_TOKENS'
         && collection != 'TBL_DIAN_TOKEN_ACCESOS'
         && collection != 'TBL_DIAN_TOKEN_CONFIG'

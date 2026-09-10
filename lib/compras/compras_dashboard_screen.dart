@@ -18,6 +18,8 @@ import 'package:flutter_typeahead/flutter_typeahead.dart';
 
 import '../widgets/paged_list.dart';
 import 'compras_aprobaciones.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+
 import 'compras_models.dart';
 import 'compras_catalog_logic.dart';
 import 'compras_excel_download.dart';
@@ -4447,11 +4449,34 @@ void _abrirUrl(BuildContext context, String? url) async {
     avisar('El documento no tiene archivo cargado.');
     return;
   }
-  final uri = Uri.tryParse(url.trim());
+  final limpio = url.trim();
+  final uri = Uri.tryParse(limpio);
   if (uri == null || !uri.hasScheme) {
     avisar('El enlace del documento esta dañado. Vuelve a cargarlo.');
     return;
   }
+
+  // Se comprueba que el archivo siga en Storage ANTES de abrirlo.
+  //
+  // El enlace vive en Firestore y el archivo en Storage: si el archivo se
+  // borró, el enlace sigue ahí y sigue siendo válido. Abrirlo lleva a una
+  // pestaña con el JSON crudo de Google —`"error": {"code": 404, "message":
+  // "Not Found."}`— que es exactamente lo que se reportó al ver el detalle de
+  // una ficha técnica. Nadie tiene por qué saber qué significa eso.
+  //
+  // Solo se comprueban los enlaces de Storage: para cualquier otro dominio no
+  // hay forma de preguntar, y no se va a bloquear la apertura por eso.
+  if (esUrlDeFirebaseStorage(limpio)) {
+    try {
+      await FirebaseStorage.instance.refFromURL(limpio).getMetadata();
+    } catch (_) {
+      avisar(
+        'El archivo ya no está en el servidor. Hay que volver a cargarlo.',
+      );
+      return;
+    }
+  }
+
   if (await canLaunchUrl(uri)) {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   } else {
@@ -14691,23 +14716,29 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         .join(' | ');
   }
 
-  bool _marcaCompleta(ProductoDoc producto, MarcaRef ref) {
+  /// Semáforo de la marca: verde aprobada, naranja pendiente, rojo rechazada.
+  ///
+  /// Se miran las dos procedencias de la ficha —la de la marca y las de
+  /// proveedor+producto+marca— porque cualquiera de las dos habilita operar.
+  EstadoFichaMarca _estadoMarca(ProductoDoc producto, MarcaRef ref) {
     final marca = _marcasPorId[ref.marcaId];
-    if (marca == null) return false;
-    final fichaGeneral = marca.documentosAsociados['fichaTecnica'];
-    final fichaGeneralCompleta =
-        _estadoDocumentoConsulta('fichaTecnica', fichaGeneral).label ==
-        'Completo';
-    final fichaProveedorCompleta = _fichasDeMarca(producto, ref).any(
-      (ficha) =>
-          _estadoDocumentoConsulta(
-            'fichaTecnica',
-            documentoVisibleFichaTecnica(ficha),
-          ).label ==
-          'Completo',
+    if (marca == null) return EstadoFichaMarca.sinFicha;
+
+    final docs = <DocAdjunto?>[
+      marca.documentosAsociados['fichaTecnica'],
+      for (final ficha in _fichasDeMarca(producto, ref))
+        documentoVisibleFichaTecnica(ficha),
+    ].whereType<DocAdjunto>().where((d) => d.tieneDoc).toList();
+
+    return estadoFichaMarca(
+      tieneAprobada: docs.any((d) => d.aprobado),
+      tienePendiente: docs.any((d) => d.pendiente),
+      tieneRechazada: docs.any((d) => d.rechazado),
     );
-    return fichaGeneralCompleta || fichaProveedorCompleta;
   }
+
+  bool _marcaCompleta(ProductoDoc producto, MarcaRef ref) =>
+      _estadoMarca(producto, ref) == EstadoFichaMarca.aprobada;
 
   String _resumenDocumentoPorMarca(ProductoDoc producto, String key) {
     if (producto.marcas.isEmpty) return 'Sin marcas vinculadas';
@@ -14834,6 +14865,27 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                     final productoCompleto =
                         p.marcas.isNotEmpty &&
                         marcasCompletas == p.marcas.length;
+                    // Lo peor que tenga el producto es lo que se pinta: un
+                    // verde con una marca rechazada dentro esconde justo lo
+                    // que hay que atender.
+                    final estadosMarcas = p.marcas
+                        .map((ref) => _estadoMarca(p, ref))
+                        .toList();
+                    final estadoProducto = estadosMarcas.isEmpty
+                        ? EstadoFichaMarca.sinFicha
+                        : estadosMarcas.contains(EstadoFichaMarca.sinFicha)
+                        ? EstadoFichaMarca.sinFicha
+                        : estadosMarcas.contains(EstadoFichaMarca.rechazada)
+                        ? EstadoFichaMarca.rechazada
+                        : estadosMarcas.contains(EstadoFichaMarca.pendiente)
+                        ? EstadoFichaMarca.pendiente
+                        : EstadoFichaMarca.aprobada;
+                    final colorProducto = switch (estadoProducto) {
+                      EstadoFichaMarca.aprobada => kComprasGreen,
+                      EstadoFichaMarca.pendiente => const Color(0xFFB45309),
+                      EstadoFichaMarca.rechazada => kComprasRed,
+                      EstadoFichaMarca.sinFicha => kComprasRed,
+                    };
                     return Card(
                       margin: const EdgeInsets.only(bottom: 8),
                       shape: RoundedRectangleBorder(
@@ -14870,12 +14922,12 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _ConsultaLegendChip(
-                              color: productoCompleto
-                                  ? kComprasGreen
-                                  : kComprasRed,
+                              color: colorProducto,
                               label: productoCompleto
                                   ? 'Marcas completas'
-                                  : '$marcasCompletas/${p.marcas.length} marcas',
+                                  : '${etiquetaFichaMarca(estadoProducto)} · '
+                                        '$marcasCompletas/'
+                                        '${p.marcas.length} marcas',
                             ),
                             const Icon(
                               Icons.expand_more,
@@ -22523,6 +22575,30 @@ class _RecepcionCalidadCard extends StatelessWidget {
                 ),
               ),
             ),
+          // Un documento rechazado salía por aquí con un `return` temprano, sin
+          // llegar nunca a los botones de decisión: era una tarjeta para mirar.
+          // Con el rechazo ya reversible tiene que poder devolverse, y este es
+          // el sitio donde uno lo viene a buscar.
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () =>
+                    _devolverARevision(context, productoIdx, docKey, label),
+                icon: const Icon(Icons.undo, size: 16),
+                label: const Text(
+                  'Devolver a revisión',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFB45309),
+                  side: const BorderSide(color: Color(0xFFB45309)),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+          ),
         ],
       );
     }
@@ -22647,6 +22723,49 @@ class _RecepcionCalidadCard extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Devuelve a la cola de Calidad un documento de recepción rechazado.
+  Future<void> _devolverARevision(
+    BuildContext context,
+    int productoIdx,
+    String docKey,
+    String label,
+  ) async {
+    final decision = await _pedirMotivoReversion(
+      context,
+      docLabel: label,
+      contexto: recepcion.ordenCompra.trim().isEmpty
+          ? 'Recepción'
+          : 'Orden ${recepcion.ordenCompra}',
+      yaRechazado: true,
+    );
+    if (decision == null || !context.mounted) return;
+    try {
+      await svc.revertirAprobacionDocRecepcion(
+        recepcion: recepcion,
+        productoIdx: productoIdx,
+        docKey: docKey,
+        motivo: decision.motivo,
+        revertidoPor: userId,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: kComprasGreen,
+          content: Text('El documento volvió a la cola de Calidad.'),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      final mensaje = error is StateError ? error.message : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: kComprasRed,
+          content: Text('No se pudo devolver: $mensaje'),
+        ),
+      );
+    }
   }
 
   Future<void> _aprobarDoc(
@@ -23578,6 +23697,28 @@ class _ProveedorCalidadCard extends StatelessWidget {
                 ),
               ),
             ),
+          // Un documento rechazado salía por aquí con un `return` temprano y no
+          // llegaba nunca a los botones de decisión: era una tarjeta para
+          // mirar. Este es el sitio donde uno lo viene a buscar.
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _devolverARevision(context, docKey, label),
+                icon: const Icon(Icons.undo, size: 16),
+                label: const Text(
+                  'Devolver a revisión',
+                  style: TextStyle(fontFamily: _kFont, fontSize: 12),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFB45309),
+                  side: const BorderSide(color: Color(0xFFB45309)),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+          ),
         ],
       );
     }
@@ -23615,6 +23756,45 @@ class _ProveedorCalidadCard extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Devuelve a la cola de Calidad un documento de proveedor rechazado.
+  Future<void> _devolverARevision(
+    BuildContext context,
+    String docKey,
+    String label,
+  ) async {
+    final decision = await _pedirMotivoReversion(
+      context,
+      docLabel: label,
+      contexto: proveedor.razonSocial,
+      yaRechazado: true,
+    );
+    if (decision == null || !context.mounted) return;
+    try {
+      await svc.revertirAprobacionDocProveedor(
+        proveedorId: proveedor.id,
+        docKey: docKey,
+        motivo: decision.motivo,
+        revertidoPor: userId,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: kComprasGreen,
+          content: Text('El documento volvió a la cola de Calidad.'),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      final mensaje = error is StateError ? error.message : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: kComprasRed,
+          content: Text('No se pudo devolver: $mensaje'),
+        ),
+      );
+    }
   }
 
   Future<void> _aprobarDoc(BuildContext context, String docKey) async {

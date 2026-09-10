@@ -1127,17 +1127,42 @@ class InterventoriaVisita {
 
   factory InterventoriaVisita.fromMap(String id, Map<String, dynamic> data) {
     final rawItems = (data['itemsEvaluacion'] as Map?) ?? const {};
+    final tipo = data['tipoActa']?.toString();
     final items = <String, InterventoriaItem>{};
-    for (final categoria in kInterventoriaCategorias) {
-      final raw = rawItems[categoria.key];
+
+    // PRIMERO se lee TODO lo que hay guardado, sea cual sea su clave.
+    //
+    // Antes este bucle recorría `kInterventoriaCategorias` —las secciones del
+    // acta REGULAR— y descartaba lo demás. Un acta de Estación de Policía o de
+    // Infraestructura guarda sus puntajes bajo `seccion1`, `seccion2`…, así que
+    // al releerla se perdían todos: la pantalla mostraba "—%" en cada sección.
+    //
+    // Y lo peor no era verlo mal. Al completar el acta en Fase 2 se guardaban
+    // de vuelta los ítems tal como se habían leído, o sea las doce secciones de
+    // la regular vacías: **el guardado siguiente borraba de verdad los puntajes
+    // que sí estaban en Firestore.** Leer con una lista fija no es un problema
+    // de presentación cuando lo leído se vuelve a escribir.
+    //
+    // Por eso ahora no se filtra por ninguna lista: lo que esté guardado se
+    // conserva, incluso si viene de un tipo de acta que este código no conoce.
+    for (final entry in rawItems.entries) {
+      final clave = entry.key.toString();
+      final raw = entry.value;
       if (raw is Map) {
-        items[categoria.key] = InterventoriaItem.fromMap(
-          categoria.key,
+        items[clave] = InterventoriaItem.fromMap(
+          clave,
           raw.cast<String, dynamic>(),
         );
-      } else {
-        items[categoria.key] = InterventoriaItem.empty(categoria);
       }
+    }
+
+    // DESPUÉS se completan las secciones que el acta debería tener y no tiene,
+    // para que el formulario las pinte vacías en vez de omitirlas.
+    for (final categoria in categoriasDeActa(tipo)) {
+      items.putIfAbsent(
+        categoria.key,
+        () => InterventoriaItem.empty(categoria),
+      );
     }
     return InterventoriaVisita(
       id: id,
@@ -1222,21 +1247,49 @@ class InterventoriaComparativoActa {
   });
 }
 
+/// Clave de agrupación del comparativo: establecimiento **y subcentro**.
+///
+/// Cómbita está registrado una vez pero opera como Alta y Media; Picota, como
+/// ERE 1 y ERE 2. Con una sola barra por establecimiento, esas dos operaciones
+/// se pisaban: solo sobrevivía el acta más reciente y la otra mitad del
+/// establecimiento desaparecía del comparativo sin decirlo.
+///
+/// El subcentro entra en la clave y no reemplaza al centro: los
+/// establecimientos que no están divididos siguen teniendo exactamente una
+/// barra, como hasta ahora.
+String claveComparativo(InterventoriaVisita visita) {
+  final id = visita.centroCostoId.trim();
+  final base = id.isNotEmpty
+      ? id
+      : visita.centroCostoNombre.trim().toLowerCase();
+  if (base.isEmpty) return '';
+  final sub = visita.subcentroId.trim();
+  return sub.isEmpty ? base : '$base::$sub';
+}
+
+/// Nombre que se pinta bajo la barra.
+String nombreComparativo(InterventoriaVisita visita) {
+  final centro = visita.centroCostoNombre.trim();
+  final sub = visita.subcentroNombre.trim();
+  if (sub.isEmpty) return centro;
+  // "Cómbita Alta", no "Cómbita · Alta": es como lo nombran ellos.
+  return centro.isEmpty ? sub : '$centro $sub';
+}
+
 /// Construye el comparativo solicitado para la vista "Todos".
 ///
-/// Primero conserva la última acta de cada establecimiento y solo después
-/// calcula el valor de la categoría. De esta forma una categoría sin evaluar
-/// en la última acta se muestra como "Sin dato" y nunca se reemplaza, de forma
-/// engañosa, por el resultado de una visita anterior.
+/// Primero conserva la última acta de cada establecimiento —y de cada subcentro
+/// donde los haya— y solo después calcula el valor de la categoría. De esta
+/// forma una categoría sin evaluar en la última acta se muestra como "Sin dato"
+/// y nunca se reemplaza, de forma engañosa, por el resultado de una visita
+/// anterior.
 List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
   List<InterventoriaVisita> visitas, {
   String categoriaKey = '',
 }) {
   final ultimas = <String, InterventoriaVisita>{};
   for (final visita in visitas) {
-    final id = visita.centroCostoId.trim();
-    final fallback = visita.centroCostoNombre.trim().toLowerCase();
-    final key = id.isNotEmpty ? id : fallback;
+    final key = claveComparativo(visita);
     if (key.isEmpty) continue;
     final actual = ultimas[key];
     if (actual == null ||
@@ -1246,20 +1299,12 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
   }
 
   final puntos = ultimas.values.map((visita) {
-    double? valor;
-    if (categoriaKey.isEmpty) {
-      valor = visita.porcentajeGeneral.clamp(0, 100).toDouble();
-    } else {
-      final item = visita.items[categoriaKey];
-      if (item != null && !item.noEvaluado && item.valor != null) {
-        valor = item.valor!.clamp(0, 100).toDouble();
-      }
-    }
+    final valor = valorCategoriaAnalisis(visita, categoriaKey);
     return InterventoriaComparativoActa(
       visitaId: visita.id,
       centroCostoId: visita.centroCostoId,
       centroCostoCodigo: visita.centroCostoCodigo,
-      centroCostoNombre: visita.centroCostoNombre,
+      centroCostoNombre: nombreComparativo(visita),
       fecha: visita.fechaVisita.toDate(),
       valor: valor,
     );
@@ -1765,4 +1810,110 @@ String descripcionTareaDevolucionActa({
     'El acta volvió a "Por revisar" y se puede editar desde el histórico.',
   ];
   return partes.join('\n').trim();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filtro de categoría en Análisis
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Una opción del desplegable "Categoría del gráfico".
+///
+/// Lleva el **tipo de acta** además de la clave porque la clave sola no
+/// identifica nada: Infraestructura y Estación de Policía usan las mismas
+/// (`seccion1`, `seccion2`…) para secciones que no tienen nada que ver entre
+/// sí. Filtrar por `seccion1` a secas mezclaría "Instalaciones físicas" de un
+/// acta con lo que sea la sección 1 de la otra, y el promedio no significaría
+/// nada.
+class OpcionCategoriaAnalisis {
+  /// Vacío = acta regular.
+  final String tipoActa;
+  final String clave;
+  final String etiqueta;
+
+  const OpcionCategoriaAnalisis({
+    required this.tipoActa,
+    required this.clave,
+    required this.etiqueta,
+  });
+
+  /// Valor que viaja en el desplegable.
+  String get valor => tipoActa.isEmpty ? clave : '$tipoActa|$clave';
+}
+
+/// Todas las categorías analizables, agrupadas por acta.
+///
+/// Antes solo salían las del acta regular, así que las actas de
+/// Infraestructura y de Estación de Policía no se podían analizar por sección:
+/// existían en el histórico y desaparecían del análisis.
+List<OpcionCategoriaAnalisis> opcionesCategoriaAnalisis() {
+  final opciones = <OpcionCategoriaAnalisis>[
+    for (final cat in kInterventoriaCategorias)
+      OpcionCategoriaAnalisis(
+        tipoActa: '',
+        clave: cat.key,
+        etiqueta: cat.label,
+      ),
+  ];
+  for (final tipo in kActasConMaestro) {
+    if (!tieneCatalogoPropio(tipo)) continue;
+    for (final cat in categoriasDeActa(tipo)) {
+      opciones.add(
+        OpcionCategoriaAnalisis(
+          tipoActa: tipo,
+          clave: cat.key,
+          // El acta va en la etiqueta: sin eso el desplegable muestra dos
+          // "1. Instalaciones físicas" y no hay forma de saber cuál es cuál.
+          etiqueta: '${etiquetaTipoActa(tipo)} · ${cat.label}',
+        ),
+      );
+    }
+  }
+  return opciones;
+}
+
+/// Descompone el valor del desplegable en tipo de acta y clave.
+({String tipoActa, String clave}) descomponerCategoriaAnalisis(String valor) {
+  final i = valor.indexOf('|');
+  if (i < 0) return (tipoActa: '', clave: valor);
+  return (tipoActa: valor.substring(0, i), clave: valor.substring(i + 1));
+}
+
+/// ¿Esta acta entra en el filtro de categoría elegido?
+///
+/// Con el filtro vacío entra cualquiera. Con una categoría del acta regular
+/// entran las regulares y las de seguimiento —comparten catálogo—; con una de
+/// un acta propia, solo las de ese tipo.
+bool visitaEntraEnCategoria(String? tipoActaVisita, String valorFiltro) {
+  if (valorFiltro.isEmpty) return true;
+  final filtro = descomponerCategoriaAnalisis(valorFiltro);
+  final familiaVisita = familiaReglasActa(tipoActaVisita);
+  final familiaFiltro = filtro.tipoActa.isEmpty
+      ? kActaRegular
+      : familiaReglasActa(filtro.tipoActa);
+  return familiaVisita == familiaFiltro;
+}
+
+/// Valor de la categoría filtrada para una visita, o `null` si no aplica.
+///
+/// Devolver `null` no es lo mismo que devolver cero: un cero es una evaluación
+/// pésima y esto significa "esta acta no responde a esta pregunta" —o es de
+/// otro tipo, o esa sección no se evaluó—. Quien llama descarta el punto en vez
+/// de dibujarlo en el suelo.
+double? valorCategoriaAnalisis(InterventoriaVisita visita, String valorFiltro) {
+  if (!visitaEntraEnCategoria(visita.tipoActa, valorFiltro)) return null;
+  if (valorFiltro.isEmpty) {
+    return visita.porcentajeGeneral.clamp(0, 100).toDouble();
+  }
+  final item = visita.items[descomponerCategoriaAnalisis(valorFiltro).clave];
+  if (item == null || item.noEvaluado || item.valor == null) return null;
+  return item.valor!.clamp(0, 100).toDouble();
+}
+
+/// Etiqueta legible del filtro, para los subtítulos de los gráficos.
+String etiquetaCategoriaAnalisis(String valorFiltro) {
+  if (valorFiltro.isEmpty) return 'Total general';
+  for (final o in opcionesCategoriaAnalisis()) {
+    if (o.valor == valorFiltro) return o.etiqueta;
+  }
+  return descomponerCategoriaAnalisis(valorFiltro).clave;
 }

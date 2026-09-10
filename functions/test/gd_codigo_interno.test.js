@@ -11,7 +11,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { bogotaDayStamp, documentTypeCode } = require("../lib/correo");
+const {
+  bogotaDayStamp,
+  documentTypeCode,
+  validOptionalDocumentTypeCode,
+} = require("../lib/correo");
 
 test("la raíz sale en mayúsculas y sin signos", () => {
   assert.equal(documentTypeCode("tut"), "TUT");
@@ -37,6 +41,19 @@ test("un tipo sin código deja la raíz vacía y no inventa una", () => {
   assert.equal(documentTypeCode(null), "");
   assert.equal(documentTypeCode(undefined), "");
   assert.equal(documentTypeCode("...---"), "");
+});
+
+test("el flujo legacy admite que el tipo todavía no tenga código", () => {
+  assert.equal(validOptionalDocumentTypeCode(""), true);
+  assert.equal(validOptionalDocumentTypeCode(null), true);
+  assert.equal(validOptionalDocumentTypeCode(undefined), true);
+});
+
+test("un código informado debe aportar exactamente tres caracteres", () => {
+  assert.equal(validOptionalDocumentTypeCode("TUT"), true);
+  assert.equal(validOptionalDocumentTypeCode(" tut "), true);
+  assert.equal(validOptionalDocumentTypeCode("SG"), false);
+  assert.equal(validOptionalDocumentTypeCode("---"), false);
 });
 
 test("el día es el de Bogotá, no el de UTC", () => {
