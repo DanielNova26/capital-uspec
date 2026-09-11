@@ -126,6 +126,19 @@ const List<AppCatalogEntry> kAppCatalog = [
     notaRolInterno: 'Admin define el rol dentro de Interventoría.',
   ),
   AppCatalogEntry(
+    appId: 'visitasdashboard',
+    nombre: 'Visitas',
+    paraQueSirve:
+        'Visitas de profesionales a los establecimientos: cronograma, formato '
+        'por área con evidencia y ubicación, e informe automático.',
+    grupo: AppCatalogGroup.areasOperativas,
+    icono: Icons.fact_check_rounded,
+    color: Color(0xFF7C3AED),
+    notaRolInterno:
+        'El rol dentro de Visitas (jefe, profesional, consulta) se define en '
+        'el propio módulo.',
+  ),
+  AppCatalogEntry(
     appId: 'facturaciondashboard',
     nombre: 'Facturación',
     paraQueSirve: 'Facturación por establecimiento y consolidados de cobro.',

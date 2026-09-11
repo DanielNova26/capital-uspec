@@ -632,4 +632,10 @@ const _defaultApps = <Map<String, dynamic>>[
     'descripcion': 'Gestión logística de rutas',
     'enabled': true,
   },
+  {
+    'appId': 'visitasdashboard',
+    'nombre': 'Visitas',
+    'descripcion': 'Visitas de profesionales a establecimientos',
+    'enabled': true,
+  },
 ];

@@ -6,6 +6,61 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas de profesionales — maqueta funcional (Claude, 10 sep 2026)
+
+Módulo nuevo `lib/visitas/` según la reunión del 9 sep (02:00–02:05 de la
+transcripción): el jefe programa en un cronograma, el profesional ejecuta en
+el establecimiento con ubicación y hora del dispositivo, responde el formato
+de su área (cumple / no cumple / no aplica) con observación digitada o
+dictada y foto por ítem, cierra y sale el informe; cada "no cumple" se vuelve
+tarea; a fin de mes el consolidado por área.
+
+**Qué es maqueta:** los FORMATOS. Oscar quedó de recogerlos con los
+directores. Por eso son un maestro en Firestore (`TBL_VISITAS_FORMATOS`),
+versionado, con cuatro **borradores de ejemplo** sembrables desde la pestaña
+Formatos (calidad, HSE, mantenimiento, nutrición) y marcados como borrador en
+el nombre. Cuando lleguen los reales se cargan o editan sin tocar código.
+
+**Qué es definitivo:** el flujo. Reglas que aplican y que están probadas
+(`test/visitas/visitas_models_test.dart`, 27 casos):
+
+- Solo el profesional asignado ejecuta su visita. Ni el jefe: si el jefe
+  pudiera responder por él, volveríamos a "dicen que fueron".
+- Se inicia el día programado o después, nunca antes.
+- No se cierra con ítems sin responder; un "no cumple" exige observación, y
+  foto donde el formato lo pida (`requiereEvidencia`).
+- "No aplica" no suma ni resta; sin nada evaluado el porcentaje es null, no 0.
+- El cumplimiento se guarda al cerrar y no se recalcula, para que el
+  consolidado no dependa de que el formato siga igual.
+- Consolidado: solo terminadas promedian; programadas sin hacer y canceladas
+  se cuentan aparte; peores establecimientos primero; subcentro = fila propia.
+
+Colecciones: `TBL_VISITAS`, `TBL_VISITAS_FORMATOS`, `TBL_VISITAS_ROLES`
+(roles `jefe` / `profesional` / `consulta`; el desarrollador entra como jefe).
+Las tres caen en el catch-all de `firestore.rules` (cualquier usuario
+autenticado), igual que Rutas o Compras: no hay reglas nuevas que desplegar.
+
+Toqué archivos de Codex para enchufarlo, con cambios mínimos y aditivos:
+`lib/core/app_catalog.dart` (entrada `visitasdashboard`),
+`lib/home/home_screen.dart` (`_abrirVisitas` + tarjeta), `user_company.dart`
+(alias `visitas`), `admin_dashboard_screen.dart` (lista de apps y tabla de
+permisos) y `personnel_template_service.dart` (plantilla de `TBL_APPS`).
+**Codex: `git pull` antes de tocar esos cinco.**
+
+Para que aparezca: en Admin dar `visitasdashboard` al usuario (y crear el
+registro en TBL_APPS de la empresa si la plantilla no lo hizo); luego en
+Visitas > Roles asignar jefe / profesional.
+
+Pendiente, y no es de esta maqueta:
+- Las tareas de los hallazgos se asignan al jefe que programó. Quién responde
+  por cada hallazgo EN el establecimiento es la matriz por cargo de
+  Interventoría; conectarla es el paso siguiente.
+- Los formatos reales de cada director (los recoge Oscar).
+- Comparar la ubicación de inicio con la del establecimiento (los centros de
+  costo no tienen coordenadas todavía).
+
+---
+
 ## Biblioteca Documental — fase 1 de separación (Codex, 10 sep 2026)
 
 Implementada la decisión literal de la reunión: **Correo**, **Gestión de
@@ -27,10 +82,15 @@ asignaciones nuevas usan el appId independiente.
 
 Próxima fase sobre esta base, sin volver a unir módulos:
 
-- código automático por departamento y consecutivo;
-- formatos Word/Excel además de PDF y descarga solo de la versión publicada;
-- sello visible de aprobación con responsable y fecha;
-- Normograma con palabras clave y documentos asociados;
+- [x] maqueta funcional diferenciada: navegación lateral y tabla en Web;
+  pestañas compactas, indicadores y tarjetas en Móvil;
+- [x] código automático por dependencia y consecutivo visible al cargar;
+- [x] formatos Word/Excel además de PDF, siempre un archivo por registro;
+- [x] sello visible de aprobación con responsable y fecha;
+- [x] Normograma con palabras clave y asociación por coincidencias;
+- [ ] generar el sello dentro del archivo descargable publicado;
+- [ ] llevar el consecutivo a un contador transaccional de Firestore para evitar
+  colisiones si dos usuarios crean al mismo tiempo;
 - reglas explícitas y pruebas de Firestore para `TBL_DOCUMENTOS`, versiones y
   flujo antes del despliegue productivo.
 

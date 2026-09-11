@@ -38,6 +38,9 @@ import '../facturacion/facturacion_models.dart';
 import '../rutas/rutas_dashboard_screen.dart';
 import '../rutas/rutas_models.dart';
 import '../rutas/rutas_service.dart';
+import '../visitas/visitas_dashboard_screen.dart';
+import '../visitas/visitas_models.dart';
+import '../visitas/visitas_service.dart';
 import '../correo/correo_dashboard_screen.dart';
 import '../tokens_dian/dian_tokens_dashboard_screen.dart';
 import 'assigned_tasks_screen.dart';
@@ -567,6 +570,48 @@ class _HomeScreenState extends State<HomeScreen> {
               userId: userId,
               empresaId: empresaId,
               rolInterventoria: rolInterventoria,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _abrirVisitas(
+    BuildContext context,
+    String userId,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    if (await _guardModuleNavigation(
+      userData: userData,
+      empresaId: empresaId,
+      appId: kVisitasAppId,
+      deniedMessage: 'Sin acceso a Visitas.',
+    )) {
+      String? rol;
+      try {
+        rol = await VisitasService().getRolUsuario(empresaId, userId);
+      } catch (_) {}
+      // El desarrollador entra como jefe: puede programar, ver y configurar.
+      if (rol == null && isDeveloperUser(userData, empresaId: empresaId)) {
+        rol = kVisitasRolJefe;
+      }
+      final nombre = resolveScopedStringWithFallbacks(
+        userData,
+        empresaId,
+        const ['nombre', 'nombreCompleto'],
+        const ['nombre', 'nombreCompleto', 'name'],
+      );
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VisitasDashboardScreen(
+              userId: userId,
+              empresaId: empresaId,
+              rol: rol,
+              nombreUsuario: nombre.isEmpty ? userId : nombre,
             ),
           ),
         );
@@ -1576,6 +1621,16 @@ class _HomeScreenState extends State<HomeScreen> {
           color: kRutasColor,
           compact: !isWeb,
           onTap: () => _abrirRutas(context, cedula, empresaId, userData),
+        ),
+
+      if (_moduleVisible(apps, isDev, kVisitasAppId, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Visitas',
+          icon: Icons.fact_check_rounded,
+          color: kVisitasColor,
+          compact: !isWeb,
+          onTap: () => _abrirVisitas(context, cedula, empresaId, userData),
         ),
     ];
   }

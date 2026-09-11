@@ -6257,6 +6257,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             donde: 'Matriz central',
           ),
           (
+            modulo: 'Visitas',
+            visible: 'visitasdashboard',
+            permisos: 'TBL_VISITAS_ROLES (pestaña Roles del módulo)',
+            donde: 'Matriz central / Visitas > Roles',
+          ),
+          (
             modulo: 'Compras',
             visible: 'comprasdashboard',
             permisos: 'TBL_COMPRAS_ROLES',
@@ -15429,6 +15435,7 @@ const List<({String id, String label})> _kAllModules = [
   (id: 'interventoriadashboard', label: 'Interventoría'),
   (id: 'facturaciondashboard', label: 'Facturación'),
   (id: 'rutasdashboard', label: 'Rutas'),
+  (id: 'visitasdashboard', label: 'Visitas'),
 ];
 
 // ===================== Salud de usuarios: modelos =========================
