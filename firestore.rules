@@ -202,23 +202,29 @@ service cloud.firestore {
     // modo un usuario autenticado podría ascenderse a sí mismo. La primera
     // asignación de administrador la hace Desarrollo; después administra el
     // rol admin_interventoria de esa empresa.
+    // `isDeveloperIn` además de `isDeveloper`: el desarrollador real está
+    // marcado dentro de `empresasDetalle[empresa]` y no en la raíz, y sin esto
+    // Administración le decía "permission-denied" al cambiar un rol
+    // (11 sep 2026). Probado en functions/test/interventoria_roles.rules.js.
+    function administraInterventoria(empresaId) {
+      return isDeveloper()
+        || isDeveloperIn(empresaId)
+        || hasInterventoriaRole(empresaId, ['admin_interventoria']);
+    }
+
     match /TBL_INTERVENTORIA_ROLES/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);
-      allow create: if isDeveloper()
-        || hasInterventoriaRole(request.resource.data.empresaId, ['admin_interventoria']);
+      allow create: if administraInterventoria(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
-        && (isDeveloper()
-          || hasInterventoriaRole(resource.data.empresaId, ['admin_interventoria']));
-      allow delete: if isDeveloper()
-        || hasInterventoriaRole(resource.data.empresaId, ['admin_interventoria']);
+        && administraInterventoria(resource.data.empresaId);
+      allow delete: if administraInterventoria(resource.data.empresaId);
     }
 
     // La matriz de responsables cambia quién recibe tareas reales. Solo la
     // administra el rol funcional del módulo; el resto conserva lectura.
     match /TBL_INTERVENTORIA_CONFIG/{docId} {
       allow read: if belongsToCompany(docId);
-      allow create, update: if isDeveloper()
-        || hasInterventoriaRole(docId, ['admin_interventoria']);
+      allow create, update: if administraInterventoria(docId);
       allow delete: if false;
     }
 
