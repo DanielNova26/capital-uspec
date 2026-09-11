@@ -687,6 +687,78 @@ class InterventoriaService {
         .update(data);
   }
 
+  /// Sube una evidencia de seguimiento. Misma carpeta de la visita, con el
+  /// hallazgo en el nombre para encontrarla después.
+  Future<InterventoriaAdjunto> subirEvidenciaSeguimiento({
+    required Uint8List bytes,
+    required InterventoriaHallazgo hallazgo,
+    required String nombre,
+    required String contentType,
+    required String origen,
+  }) => subirActaBytes(
+    bytes: bytes,
+    empresaId: hallazgo.empresaId,
+    visitaId: hallazgo.visitaId.isEmpty ? 'sin_visita' : hallazgo.visitaId,
+    nombre: 'seg_${hallazgo.numeroHallazgo.replaceAll('.', '_')}_$nombre',
+    contentType: contentType,
+    origen: origen,
+  );
+
+  /// Publica un seguimiento en el hallazgo y avisa al responsable.
+  ///
+  /// Va al histórico (`seguimientos`) y también a `seguimiento`, que sigue
+  /// siendo "el último" para la exportación y las pantallas que no cambiaron.
+  /// La notificación es la guía: el responsable la abre y llega a su tarea.
+  /// Devuelve la entrada creada.
+  Future<InterventoriaSeguimiento> publicarSeguimiento({
+    required InterventoriaHallazgo hallazgo,
+    required String texto,
+    required String autorId,
+    required String autorNombre,
+    required String autorRol,
+    List<InterventoriaAdjunto> adjuntos = const [],
+  }) async {
+    final error = validarSeguimiento(texto);
+    if (error != null) throw ArgumentError(error);
+    if (hallazgo.id.isEmpty) {
+      throw ArgumentError('El hallazgo aún no está guardado.');
+    }
+    final entrada = InterventoriaSeguimiento(
+      id: _db.collection('_').doc().id,
+      texto: texto.trim(),
+      autorId: autorId,
+      autorNombre: autorNombre,
+      autorRol: autorRol,
+      fecha: Timestamp.now(),
+      adjuntos: adjuntos,
+    );
+    await _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgo.id).update({
+      'seguimientos': FieldValue.arrayUnion([entrada.toMap()]),
+      'seguimiento': entrada.texto,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final responsable = hallazgo.responsableId.trim();
+    if (responsable.isNotEmpty && responsable != autorId) {
+      try {
+        await TaskService().pushNotification(
+          toUserId: responsable,
+          title: tituloNotificacionSeguimiento(hallazgo),
+          description: cuerpoNotificacionSeguimiento(hallazgo, entrada),
+          type: 'interventoria_seguimiento',
+          taskId: hallazgo.tareaId.isEmpty ? null : hallazgo.tareaId,
+          fromId: autorId,
+          fromName: autorNombre,
+          empresaId: hallazgo.empresaId,
+          extraData: {'hallazgoId': hallazgo.id},
+        );
+      } catch (_) {
+        // El seguimiento ya quedó; un aviso que no salió no lo deshace.
+      }
+    }
+    return entrada;
+  }
+
   /// Devuelve el centroId asignado al usuario en esta empresa.
   /// Busca primero en empresasDetalle[empresaId].centroId, luego en raíz.
   Future<String> getCentroCostoId(String empresaId, String userId) async {

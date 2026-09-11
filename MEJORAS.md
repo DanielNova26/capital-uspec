@@ -6,6 +6,40 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Avances móvil, Calidad en Interventoría y seguimiento con histórico — 11 sep 2026 (Claude)
+
+**Tareas > Avances: "Tomar foto" no abría la cámara en el móvil.** El botón
+pedía el permiso de ubicación ANTES de abrir la cámara y, si estaba negado,
+se quedaba en un aviso fugaz. Ahora la cámara va primero y la ubicación es
+opcional (10 s de tope); si no hay, la marca de agua dice "Sin ubicación".
+Un error real de la cámara se muestra en pantalla.
+
+**Calidad en Interventoría.** Análisis ya lo tenían (está al final de la
+tira de pestañas, en móvil hay que deslizar). Maestro no: ahora lo
+**consultan** admin, gerencia y calidad; **editar la regla** sigue siendo
+de admin y gerencia (`puedeEditarMaestroSubsanaciones`).
+
+**Subsanaciones: seguimiento con histórico.** Antes el seguimiento era un
+solo texto que se sobrescribía, y calidad no podía ni escribirlo. Ahora:
+
+- `puedeRegistrarSeguimiento(rol)`: escritura general + calidad. Calidad
+  sigue sin reasignar.
+- Cada seguimiento es una entrada en `TBL_INTERVENTORIA_HALLAZGOS.seguimientos[]`
+  con texto, autor, fecha y adjuntos (foto desde la cámara o archivo). El
+  campo viejo `seguimiento` guarda el último texto para el Excel y las
+  pantallas que no cambiaron; un hallazgo viejo con solo ese texto lo
+  muestra como "Seguimiento anterior".
+- Al publicar, el responsable recibe notificación con la guía
+  (`interventoria_seguimiento`, enlazada a su tarea). Sin responsable, queda
+  en el histórico y se avisa que no hay a quién notificar.
+- El botón grande de abajo ("Guardar seguimiento") publica lo que haya
+  escrito sin publicar y guarda la fecha de subsanación.
+
+Reglas: `TBL_INTERVENTORIA_HALLAZGOS` ya permitía update a cualquiera de la
+empresa; no cambian. Pruebas: `interventoria_seguimiento_test.dart` (11).
+
+---
+
 ## Cómbita salía cinco veces en Análisis — 11 sep 2026 (Claude)
 
 Combita, Combita Alta, Combita Combita Alta, Combita Combita Media y

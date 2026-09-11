@@ -115,10 +115,29 @@ bool puedeReasignarResponsable(String rol) =>
 const Set<String> kInterventoriaRolesMaestro = {
   kRolInterventoriaAdmin,
   kRolInterventoriaGerente,
+  // Calidad lo CONSULTA (11 sep 2026): necesita saber quién responde por
+  // cada numeral para hacer el seguimiento. Editar la regla sigue siendo
+  // de administración y gerencia: ver `puedeEditarMaestroSubsanaciones`.
+  kRolInterventoriaCalidad,
 };
 
 bool puedeConsultarMaestroSubsanaciones(String rol) =>
     kInterventoriaRolesMaestro.contains(rol);
+
+/// Cambiar la regla de un numeral mueve el trabajo de todo el mundo: solo
+/// administración y gerencia, los mismos que reasignan.
+bool puedeEditarMaestroSubsanaciones(String rol) =>
+    kInterventoriaRolesReasignan.contains(rol);
+
+/// Quién publica seguimientos en un hallazgo.
+///
+/// Calidad entra aquí aunque no esté en `kInterventoriaRolesEscritura`
+/// (11 sep 2026): su trabajo es precisamente escribir el seguimiento, subir
+/// la evidencia y que al responsable le llegue la guía. Lo que no hace es
+/// reasignar ni cambiar el maestro.
+bool puedeRegistrarSeguimiento(String rol) =>
+    kInterventoriaRolesEscritura.contains(rol) ||
+    rol == kRolInterventoriaCalidad;
 
 /// La aprobación pertenece a la persona resuelta por la regla del numeral,
 /// no al rol genérico ni a quien creó la tarea.
@@ -1063,6 +1082,107 @@ bool contieneActaPdf(Iterable<InterventoriaAdjunto> adjuntos) => adjuntos.any(
   (adjunto) => adjunto.contentType.toLowerCase() == 'application/pdf',
 );
 
+/// Una entrada del histórico de seguimiento de un hallazgo.
+///
+/// Antes el seguimiento era UN texto que se sobrescribía: cada nota borraba
+/// la anterior y nadie sabía qué se le había dicho al responsable ni cuándo.
+/// Ahora cada nota queda con quién la escribió, cuándo y con qué evidencia,
+/// y se le notifica al responsable como guía de lo que tiene que hacer.
+class InterventoriaSeguimiento {
+  final String id;
+  final String texto;
+  final String autorId;
+  final String autorNombre;
+  final String autorRol;
+  final Timestamp fecha;
+  final List<InterventoriaAdjunto> adjuntos;
+
+  const InterventoriaSeguimiento({
+    required this.id,
+    required this.texto,
+    required this.autorId,
+    this.autorNombre = '',
+    this.autorRol = '',
+    required this.fecha,
+    this.adjuntos = const [],
+  });
+
+  factory InterventoriaSeguimiento.fromMap(Map<String, dynamic> d) =>
+      InterventoriaSeguimiento(
+        id: (d['id'] ?? '').toString(),
+        texto: (d['texto'] ?? '').toString(),
+        autorId: (d['autorId'] ?? '').toString(),
+        autorNombre: (d['autorNombre'] ?? '').toString(),
+        autorRol: (d['autorRol'] ?? '').toString(),
+        fecha: d['fecha'] as Timestamp? ?? Timestamp.now(),
+        adjuntos: [
+          for (final raw in (d['adjuntos'] as List? ?? const []))
+            if (raw is Map)
+              InterventoriaAdjunto.fromMap(Map<String, dynamic>.from(raw)),
+        ],
+      );
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'texto': texto,
+    'autorId': autorId,
+    'autorNombre': autorNombre,
+    'autorRol': autorRol,
+    'fecha': fecha,
+    'adjuntos': adjuntos.map((a) => a.toMap()).toList(),
+  };
+}
+
+/// Lee el histórico de un documento de hallazgo, del más antiguo al más
+/// reciente. Un hallazgo de antes de este cambio, con solo el texto viejo en
+/// `seguimiento`, se muestra como una entrada sin autor para no perderlo.
+List<InterventoriaSeguimiento> seguimientosDesdeData(
+  Map<String, dynamic> data,
+) {
+  final lista = [
+    for (final raw in (data['seguimientos'] as List? ?? const []))
+      if (raw is Map)
+        InterventoriaSeguimiento.fromMap(Map<String, dynamic>.from(raw)),
+  ]..sort((a, b) => a.fecha.compareTo(b.fecha));
+  if (lista.isEmpty) {
+    final viejo = (data['seguimiento'] ?? '').toString().trim();
+    if (viejo.isNotEmpty) {
+      return [
+        InterventoriaSeguimiento(
+          id: 'legado',
+          texto: viejo,
+          autorId: '',
+          fecha: data['updatedAt'] as Timestamp? ?? Timestamp.now(),
+        ),
+      ];
+    }
+  }
+  return lista;
+}
+
+/// Un seguimiento necesita decir algo: una foto sola no le explica al
+/// responsable qué hacer.
+String? validarSeguimiento(String texto) {
+  if (texto.trim().isEmpty) return 'Escribe el seguimiento antes de publicar.';
+  if (texto.trim().length < 8) return 'El seguimiento es demasiado corto.';
+  return null;
+}
+
+/// Texto de la notificación que recibe el responsable: la guía.
+String tituloNotificacionSeguimiento(InterventoriaHallazgo h) =>
+    'Seguimiento · ${h.establecimiento} · Obs. ${h.numeroHallazgo}';
+
+String cuerpoNotificacionSeguimiento(
+  InterventoriaHallazgo h,
+  InterventoriaSeguimiento s,
+) {
+  final texto = s.texto.trim();
+  final corto = texto.length > 160 ? '${texto.substring(0, 157)}…' : texto;
+  final quien = s.autorNombre.trim().isEmpty ? 'Interventoría' : s.autorNombre;
+  final fotos = s.adjuntos.isEmpty ? '' : ' · ${s.adjuntos.length} adjunto(s)';
+  return '$quien: $corto$fotos';
+}
+
 class InterventoriaVisita {
   final String id;
   final String empresaId;
@@ -1500,6 +1620,10 @@ class InterventoriaHallazgo {
   final double? valorCorreccion;
   final Timestamp? fechaSubsanacion;
   final String seguimiento;
+
+  /// Histórico. `seguimiento` conserva el último texto por compatibilidad
+  /// (exportación a Excel, pantallas viejas).
+  final List<InterventoriaSeguimiento> seguimientos;
   final List<InterventoriaAdjunto> adjuntosSubsanacion;
   final String fuente; // 'manual' | 'ocr'
   /// Puntaje de la sección al momento de crear el hallazgo (0-100). Null = no registrado.
@@ -1551,6 +1675,7 @@ class InterventoriaHallazgo {
     this.valorCorreccion,
     this.fechaSubsanacion,
     this.seguimiento = '',
+    this.seguimientos = const [],
     this.adjuntosSubsanacion = const [],
     this.fuente = 'manual',
     this.puntajeSeccion,
@@ -1614,6 +1739,7 @@ class InterventoriaHallazgo {
             : null,
         fechaSubsanacion: data['fechaSubsanacion'] as Timestamp?,
         seguimiento: (data['seguimiento'] ?? '').toString(),
+        seguimientos: seguimientosDesdeData(data),
         adjuntosSubsanacion: (data['adjuntosSubsanacion'] as List? ?? const [])
             .whereType<Map>()
             .map(
@@ -1660,6 +1786,7 @@ class InterventoriaHallazgo {
     'valorCorreccion': valorCorreccion,
     'fechaSubsanacion': fechaSubsanacion,
     'seguimiento': seguimiento,
+    'seguimientos': seguimientos.map((s) => s.toMap()).toList(),
     'adjuntosSubsanacion': adjuntosSubsanacion.map((a) => a.toMap()).toList(),
     'fuente': fuente,
     'puntajeSeccion': puntajeSeccion,
@@ -1701,6 +1828,7 @@ class InterventoriaHallazgo {
     valorCorreccion: valorCorreccion,
     fechaSubsanacion: fechaSubsanacion,
     seguimiento: seguimiento,
+    seguimientos: seguimientos,
     adjuntosSubsanacion: adjuntosSubsanacion,
     fuente: fuente,
     puntajeSeccion: puntajeSeccion,
@@ -1731,6 +1859,7 @@ class InterventoriaHallazgo {
     Timestamp? fechaSubsanacion,
     bool clearFechaSubsanacion = false,
     String? seguimiento,
+    List<InterventoriaSeguimiento>? seguimientos,
     List<InterventoriaAdjunto>? adjuntosSubsanacion,
     bool? persiste,
     double? puntajeSeccion,
@@ -1770,6 +1899,7 @@ class InterventoriaHallazgo {
         ? null
         : (fechaSubsanacion ?? this.fechaSubsanacion),
     seguimiento: seguimiento ?? this.seguimiento,
+    seguimientos: seguimientos ?? this.seguimientos,
     adjuntosSubsanacion: adjuntosSubsanacion ?? this.adjuntosSubsanacion,
     fuente: fuente,
     puntajeSeccion: puntajeSeccion ?? this.puntajeSeccion,

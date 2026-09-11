@@ -6,7 +6,7 @@ void main() {
   group('acceso al maestro de subsanaciones', () {
     // Gerencia entró el 10 sep 2026: el maestro decide quién responde por cada
     // numeral, y esa es una decisión de gerencia tanto como de administración.
-    test('solo lo conceden administración y gerencia', () {
+    test('lo consultan administración, gerencia y calidad', () {
       expect(
         puedeConsultarMaestroSubsanaciones(kRolInterventoriaAdmin),
         isTrue,
@@ -15,10 +15,15 @@ void main() {
         puedeConsultarMaestroSubsanaciones(kRolInterventoriaGerente),
         isTrue,
       );
+      // Calidad lo ve para saber quién responde (11 sep 2026); editarlo
+      // sigue siendo de administración y gerencia.
+      expect(
+        puedeConsultarMaestroSubsanaciones(kRolInterventoriaCalidad),
+        isTrue,
+      );
       for (final rol in [
         kRolInterventoriaRegistrador,
         kRolInterventoriaRevisor,
-        kRolInterventoriaCalidad,
         kRolInterventoriaDirectivo,
         kRolInterventoriaConsulta,
         '',

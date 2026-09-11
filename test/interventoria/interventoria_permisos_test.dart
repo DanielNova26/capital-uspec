@@ -44,16 +44,25 @@ void main() {
   });
 
   group('Maestro de responsabilidades', () {
-    test('solo administración y gerencia', () {
-      // Cambiarlo mueve el trabajo de todo el mundo.
+    test('lo consultan administración, gerencia y calidad', () {
       expect(puedeConsultarMaestroSubsanaciones(admin), isTrue);
       expect(puedeConsultarMaestroSubsanaciones(gerente), isTrue);
+      // Calidad necesita saber quién responde por cada numeral (11 sep).
+      expect(puedeConsultarMaestroSubsanaciones(calidad), isTrue);
     });
 
-    test('ni Kary ni calidad ni dirección', () {
+    test('ni Kary ni dirección', () {
       expect(puedeConsultarMaestroSubsanaciones(revisor), isFalse);
-      expect(puedeConsultarMaestroSubsanaciones(calidad), isFalse);
       expect(puedeConsultarMaestroSubsanaciones(directivo), isFalse);
+    });
+
+    test('la regla solo la cambian administración y gerencia', () {
+      // Cambiarla mueve el trabajo de todo el mundo.
+      expect(puedeEditarMaestroSubsanaciones(admin), isTrue);
+      expect(puedeEditarMaestroSubsanaciones(gerente), isTrue);
+      expect(puedeEditarMaestroSubsanaciones(calidad), isFalse);
+      expect(puedeEditarMaestroSubsanaciones(revisor), isFalse);
+      expect(puedeEditarMaestroSubsanaciones(directivo), isFalse);
     });
   });
 

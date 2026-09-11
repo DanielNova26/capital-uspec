@@ -190,23 +190,49 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
     }
   }
 
-  Future<void> _takePhoto() async {
-    if (!await _ensureLocationPerm()) return;
+  /// Ubicación si se puede, y si no, sin ella. Antes esto iba ANTES de la
+  /// cámara y con el permiso negado la cámara nunca se abría: el usuario
+  /// tocaba "Tomar foto" y no pasaba nada más que un aviso fugaz. La foto es
+  /// la evidencia; la ubicación la enriquece.
+  Future<Position?> _posicionSiSePuede() async {
+    try {
+      if (!await _ensureLocationPerm()) return null;
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
-    final x = await _picker.pickImage(
-      source: ImageSource.camera,
-      imageQuality: 90,
-    );
+  Future<void> _takePhoto() async {
+    XFile? x;
+    try {
+      x = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 90,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir la cámara: $e')),
+        );
+      }
+      return;
+    }
     if (x == null) return;
 
-    final pos = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
+    final pos = await _posicionSiSePuede();
 
     final now = DateTime.now();
     final lines = [
       DateFormat('dd/MM/yyyy HH:mm').format(now),
-      '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
+      pos == null
+          ? 'Sin ubicación'
+          : '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
       'Foto por: ${widget.currentUserId}',
     ];
 
@@ -291,8 +317,8 @@ class _NotifyAvancesScreenState extends State<NotifyAvancesScreen> {
         ),
       );
       _photoMeta.add({
-        'lat': pos.latitude,
-        'lng': pos.longitude,
+        'lat': pos?.latitude,
+        'lng': pos?.longitude,
         'when': now.toIso8601String(),
       });
     });

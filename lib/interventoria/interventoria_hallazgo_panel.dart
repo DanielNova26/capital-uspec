@@ -1,8 +1,15 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import '../core/user_directory.dart';
+import '../widgets/user_avatar.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
 import 'interventoria_tablero_asignacion.dart';
@@ -107,7 +114,16 @@ class _InterventoriaHallazgoPanelState
   late InterventoriaHallazgo _h;
   DateTime? _fechaSub;
   bool _guardando = false;
+  bool _publicando = false;
   bool _asignando = false;
+
+  /// Evidencias elegidas para el seguimiento que se está escribiendo.
+  final List<_EvidenciaPendiente> _pendientes = [];
+
+  /// Calidad no está en escritura general del módulo, pero el seguimiento sí
+  /// es suyo. Ver `puedeRegistrarSeguimiento`.
+  bool get _puedeSeguir =>
+      widget.canWrite || puedeRegistrarSeguimiento(widget.rol);
   List<InterventoriaUsuario> _usuarios = const [];
   Map<String, String> _areas = const {};
 
@@ -115,7 +131,9 @@ class _InterventoriaHallazgoPanelState
   void initState() {
     super.initState();
     _h = widget.hallazgo;
-    _seguCtrl = TextEditingController(text: _h.seguimiento);
+    // Vacío a propósito: cada seguimiento es una entrada nueva del
+    // histórico, no una edición del anterior.
+    _seguCtrl = TextEditingController();
     _fechaSub = _h.fechaSubsanacion?.toDate();
     _cargarUsuarios();
   }
@@ -191,18 +209,11 @@ class _InterventoriaHallazgoPanelState
                   ),
                   const SizedBox(height: 12),
                 ],
-                TextField(
-                  controller: _seguCtrl,
-                  maxLines: 4,
-                  enabled: widget.canWrite,
-                  decoration: const InputDecoration(
-                    labelText: 'Seguimiento',
-                    hintText:
-                        'Compromisos, acciones tomadas o razón del retraso…',
-                    border: OutlineInputBorder(),
-                    alignLabelWithHint: true,
-                  ),
-                ),
+                _HistorialSeguimientos(seguimientos: _h.seguimientos),
+                if (_puedeSeguir) ...[
+                  const SizedBox(height: 12),
+                  _composerSeguimiento(),
+                ],
                 const SizedBox(height: 12),
                 InkWell(
                   onTap: widget.canWrite ? _pickFecha : null,
@@ -234,7 +245,7 @@ class _InterventoriaHallazgoPanelState
               ],
             ),
           ),
-          if (widget.canWrite) _piePagina(),
+          if (_puedeSeguir) _piePagina(),
         ],
       ),
     );
@@ -557,11 +568,16 @@ class _InterventoriaHallazgoPanelState
       _aviso('Asigna primero un responsable para poder registrar seguimiento.');
       return;
     }
+    // Si quedó un seguimiento escrito y sin publicar, se publica aquí: la
+    // gente escribe y toca el botón grande de abajo, no el de "Publicar".
+    if (_seguCtrl.text.trim().isNotEmpty || _pendientes.isNotEmpty) {
+      final ok = await _publicarSeguimiento();
+      if (!ok) return;
+    }
     setState(() => _guardando = true);
     try {
       await widget.service.actualizarSeguimientoHallazgo(
         hallazgoId: _h.id,
-        seguimiento: _seguCtrl.text.trim(),
         fechaSubsanacion: _fechaSub == null
             ? null
             : Timestamp.fromDate(_fechaSub!),
@@ -571,6 +587,226 @@ class _InterventoriaHallazgoPanelState
       _aviso('No se pudo guardar: $e', error: true);
     } finally {
       if (mounted) setState(() => _guardando = false);
+    }
+  }
+
+  // ── Seguimiento con histórico ─────────────────────────────────────────
+
+  Widget _composerSeguimiento() => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: _borde),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _seguCtrl,
+          maxLines: 4,
+          minLines: 2,
+          enabled: !_publicando,
+          decoration: const InputDecoration(
+            labelText: 'Nuevo seguimiento',
+            hintText:
+                'Qué se encontró, qué debe hacer el responsable y para cuándo…',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+            filled: true,
+            fillColor: Colors.white,
+          ),
+        ),
+        if (_pendientes.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final e in _pendientes)
+                InputChip(
+                  avatar: Icon(
+                    e.contentType.startsWith('image/')
+                        ? Icons.photo_outlined
+                        : Icons.attach_file,
+                    size: 16,
+                  ),
+                  label: Text(
+                    e.nombre,
+                    style: const TextStyle(fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onDeleted: _publicando
+                      ? null
+                      : () => setState(() => _pendientes.remove(e)),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _publicando ? null : _tomarFotoSeguimiento,
+              icon: const Icon(Icons.photo_camera_outlined, size: 16),
+              label: const Text('Foto', style: TextStyle(fontSize: 12)),
+            ),
+            OutlinedButton.icon(
+              onPressed: _publicando ? null : _adjuntarArchivoSeguimiento,
+              icon: const Icon(Icons.attach_file, size: 16),
+              label: const Text('Archivo', style: TextStyle(fontSize: 12)),
+            ),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: _accent),
+              onPressed: _publicando ? null : _publicarSeguimiento,
+              icon: _publicando
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.send_rounded, size: 16),
+              label: Text(
+                _publicando ? 'Publicando…' : 'Publicar y avisar',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        if (_h.responsableId.trim().isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(
+              'Sin responsable asignado: el seguimiento queda en el histórico '
+              'pero no hay a quién avisar.',
+              style: TextStyle(fontSize: 11, color: _muted),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Future<void> _tomarFotoSeguimiento() async {
+    try {
+      final img = await ImagePicker().pickImage(
+        // En el sitio la evidencia se toma en el momento; en web no hay
+        // cámara y se acepta la galería.
+        source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
+        imageQuality: 80,
+        maxWidth: 1600,
+      );
+      if (img == null) return;
+      final bytes = await img.readAsBytes();
+      setState(() {
+        _pendientes.add(
+          _EvidenciaPendiente(
+            nombre: 'foto_${DateTime.now().millisecondsSinceEpoch}.jpg',
+            bytes: bytes,
+            contentType: 'image/jpeg',
+            origen: kIsWeb ? 'web' : 'mobile_camera',
+          ),
+        );
+      });
+    } catch (e) {
+      _aviso('No se pudo tomar la foto: $e', error: true);
+    }
+  }
+
+  Future<void> _adjuntarArchivoSeguimiento() async {
+    final res = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: true,
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'xlsx', 'docx'],
+    );
+    if (res == null) return;
+    setState(() {
+      for (final f in res.files) {
+        final bytes = f.bytes;
+        if (bytes == null) continue;
+        _pendientes.add(
+          _EvidenciaPendiente(
+            nombre: f.name,
+            bytes: bytes,
+            contentType: _tipoPorExtension(f.extension),
+            origen: 'archivo',
+          ),
+        );
+      }
+    });
+  }
+
+  String _tipoPorExtension(String? ext) => switch ((ext ?? '').toLowerCase()) {
+    'pdf' => 'application/pdf',
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'png' => 'image/png',
+    'xlsx' =>
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'docx' =>
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    _ => 'application/octet-stream',
+  };
+
+  /// Publica el seguimiento escrito. Devuelve si quedó publicado.
+  Future<bool> _publicarSeguimiento() async {
+    final error = validarSeguimiento(_seguCtrl.text);
+    if (error != null) {
+      _aviso(error);
+      return false;
+    }
+    if (_h.id.isEmpty) {
+      _aviso('Asigna primero un responsable para poder registrar seguimiento.');
+      return false;
+    }
+    setState(() => _publicando = true);
+    try {
+      final adjuntos = <InterventoriaAdjunto>[];
+      for (final e in _pendientes) {
+        adjuntos.add(
+          await widget.service.subirEvidenciaSeguimiento(
+            bytes: e.bytes,
+            hallazgo: _h,
+            nombre: e.nombre,
+            contentType: e.contentType,
+            origen: e.origen,
+          ),
+        );
+      }
+      final autor = await UserDirectory.instance.resolve(widget.userId);
+      final entrada = await widget.service.publicarSeguimiento(
+        hallazgo: _h,
+        texto: _seguCtrl.text,
+        autorId: widget.userId,
+        autorNombre: autor.nombre,
+        autorRol: widget.rol,
+        adjuntos: adjuntos,
+      );
+      if (!mounted) return true;
+      setState(() {
+        _h = _h.copyWith(
+          seguimiento: entrada.texto,
+          seguimientos: [..._h.seguimientos, entrada],
+        );
+        _seguCtrl.clear();
+        _pendientes.clear();
+      });
+      _aviso(
+        _h.responsableId.trim().isEmpty
+            ? 'Seguimiento publicado.'
+            : 'Seguimiento publicado y avisado a ${_h.responsableNombre}.',
+      );
+      return true;
+    } catch (e) {
+      _aviso('No se pudo publicar: $e', error: true);
+      return false;
+    } finally {
+      if (mounted) setState(() => _publicando = false);
     }
   }
 
@@ -1094,6 +1330,140 @@ class _AvanceDeTarea extends StatelessWidget {
           color: color,
         ),
       ),
+    );
+  }
+}
+
+class _EvidenciaPendiente {
+  final String nombre;
+  final Uint8List bytes;
+  final String contentType;
+  final String origen;
+  const _EvidenciaPendiente({
+    required this.nombre,
+    required this.bytes,
+    required this.contentType,
+    required this.origen,
+  });
+}
+
+/// El histórico: quién dijo qué y cuándo, con su evidencia.
+class _HistorialSeguimientos extends StatelessWidget {
+  final List<InterventoriaSeguimiento> seguimientos;
+  const _HistorialSeguimientos({required this.seguimientos});
+
+  @override
+  Widget build(BuildContext context) {
+    if (seguimientos.isEmpty) {
+      return const Text(
+        'Todavía no hay seguimientos.',
+        style: TextStyle(fontSize: 12, color: _muted),
+      );
+    }
+    final fmt = DateFormat('dd/MM/yyyy HH:mm');
+    return Column(
+      children: [
+        for (final s in seguimientos.reversed)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _borde),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (s.autorId.isNotEmpty)
+                      UserAvatar(
+                        userId: s.autorId,
+                        nameHint: s.autorNombre,
+                        radius: 12,
+                      )
+                    else
+                      const CircleAvatar(
+                        radius: 12,
+                        child: Icon(Icons.history, size: 14),
+                      ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: s.autorId.isEmpty
+                          ? const Text(
+                              'Seguimiento anterior',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            )
+                          : UserNameText(
+                              s.autorId,
+                              fallbackName: s.autorNombre,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                    ),
+                    Text(
+                      fmt.format(s.fecha.toDate().toLocal()),
+                      style: const TextStyle(fontSize: 11, color: _muted),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  s.texto,
+                  style: const TextStyle(fontSize: 13, height: 1.35),
+                ),
+                if (s.adjuntos.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final a in s.adjuntos)
+                        InkWell(
+                          onTap: a.url.isEmpty
+                              ? null
+                              : () => launchUrlString(
+                                  a.url,
+                                  mode: LaunchMode.externalApplication,
+                                ),
+                          child:
+                              a.contentType.startsWith('image/') &&
+                                  a.url.isNotEmpty
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Image.network(
+                                    a.url,
+                                    width: 56,
+                                    height: 56,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) =>
+                                        const Icon(Icons.broken_image_outlined),
+                                  ),
+                                )
+                              : Chip(
+                                  avatar: const Icon(
+                                    Icons.attach_file,
+                                    size: 14,
+                                  ),
+                                  label: Text(
+                                    a.nombre,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                        ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
 }

@@ -452,7 +452,11 @@ class _InterventoriaDashboardScreenState
                     service: _svc,
                     empresaId: widget.empresaId,
                     userId: widget.userId,
-                    canEdit: canMaestro,
+                    // Calidad entra a mirar; la regla la cambian
+                    // administración y gerencia.
+                    canEdit:
+                        _esAdminDesarrollo ||
+                        puedeEditarMaestroSubsanaciones(rol),
                   ),
                 if (canApproveDeletion)
                   _SolicitudesEliminacionTab(
