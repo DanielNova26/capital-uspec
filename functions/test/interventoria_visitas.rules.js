@@ -17,7 +17,7 @@ const {
   assertSucceeds,
   initializeTestEnvironment,
 } = require("@firebase/rules-unit-testing");
-const {doc, setDoc, updateDoc, deleteDoc, writeBatch} = require("firebase/firestore");
+const {doc, setDoc, updateDoc, deleteDoc, writeBatch, collection, query, where, getDocs} = require("firebase/firestore");
 
 const projectId = "capital-uspec-interventoria-visitas";
 const rules = fs.readFileSync(
@@ -130,5 +130,28 @@ test("un hallazgo con tarea asignada no se borra desde el cliente", async () => 
   });
   await assertFails(
     deleteDoc(doc(auth("kary"), "TBL_INTERVENTORIA_HALLAZGOS/h_con_tarea"))
+  );
+});
+
+test("la consulta de hallazgos de un acta pasa solo si filtra por empresa", async () => {
+  // La regla de lectura mira `resource.data.empresaId`; Firestore exige
+  // poder probarla con los filtros de la consulta. Sin `empresaId` en el
+  // where, la consulta entera es permission-denied aunque cada documento
+  // sea legible. Así fallaba el guardado del borrador (11 sep 2026).
+  const db = auth("kary");
+  await assertFails(
+    getDocs(query(
+      collection(db, "TBL_INTERVENTORIA_HALLAZGOS"),
+      where("visitaId", "==", "v1"),
+      where("fuente", "==", "acta")
+    ))
+  );
+  await assertSucceeds(
+    getDocs(query(
+      collection(db, "TBL_INTERVENTORIA_HALLAZGOS"),
+      where("empresaId", "==", "EMP_A"),
+      where("visitaId", "==", "v1"),
+      where("fuente", "==", "acta")
+    ))
   );
 });

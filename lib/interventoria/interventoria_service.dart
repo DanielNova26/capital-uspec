@@ -330,6 +330,7 @@ class InterventoriaService {
     if (visita == null) return 0;
     final snap = await _db
         .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: visita.empresaId)
         .where('visitaId', isEqualTo: visitaId)
         .where('fuente', isEqualTo: 'acta')
         .get();
@@ -416,9 +417,10 @@ class InterventoriaService {
   /// Calidad devuelve un acta con errores al administrador del
   /// establecimiento.
   ///
-  /// Hace tres cosas que van juntas: regresa el acta a "Por revisar" (editable
+  /// Hace tres cosas que van juntas: deja el acta en "Devuelta" (editable
   /// desde el histórico), deja constancia de quién la devolvió y por qué, y
-  /// crea la tarea de corrección para quien responde por esa sede.
+  /// crea la tarea de corrección para quien responde por esa sede. Solo cuando
+  /// se guarda la corrección vuelve a "Por revisar".
   ///
   /// **El acta vuelve aunque no haya a quién asignarle la tarea.** Si en el
   /// establecimiento no hay nadie con el cargo de administrador, dejar el acta
@@ -467,6 +469,14 @@ class InterventoriaService {
     // Alguien de otra sede no responde por esta acta: es el mismo criterio que
     // el tablero de asignación.
     if (responsable == null || !responsable.delCentro) return null;
+
+    // Además de la tarea, el acta conserva a quién se le asignó. Así esa
+    // persona puede abrir la corrección aunque no haya sido quien la cargó.
+    await _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id).update({
+      'correccionResponsableId': responsable.id,
+      'correccionResponsableNombre': responsable.nombre,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
 
     final taskSvc = TaskService();
     await taskSvc.createTaskEs(
@@ -551,8 +561,17 @@ class InterventoriaService {
     required Map<String, InterventoriaItem> items,
   }) async {
     // ── 1. Cargar hallazgos 'acta' existentes para esta visita ───────────────
+    //
+    // Con `empresaId`, siempre. La regla de lectura de hallazgos es
+    // `belongsToCompany(resource.data.empresaId)`, y Firestore solo acepta
+    // una consulta si puede probar la regla con los filtros de la consulta:
+    // sin el filtro por empresa la consulta entera se rechaza con
+    // permission-denied, aunque cada documento fuera legible. Eso era lo que
+    // hacía fallar el guardado del borrador de la revisión (11 sep 2026):
+    // el acta sí se actualizaba, y luego esta lectura reventaba.
     final snap = await _db
         .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: visita.empresaId)
         .where('visitaId', isEqualTo: visita.id)
         .where('fuente', isEqualTo: 'acta')
         .get();
@@ -865,17 +884,95 @@ class InterventoriaService {
     return ref.id;
   }
 
-  Future<void> eliminarVisita(String visitaId) async {
-    // 1. Cargar hallazgos de esta visita
-    final hallazgosSnap = await _db
-        .collection('TBL_INTERVENTORIA_HALLAZGOS')
-        .where('visitaId', isEqualTo: visitaId)
-        .get();
+  /// Guarda la corrección sobre la misma acta y la devuelve a la bandeja de
+  /// revisión. No borra el historial `devoluciones` ni crea otro documento.
+  Future<void> corregirActaDevuelta({
+    required InterventoriaVisita visita,
+    required String corregidoPorId,
+    bool permitirContingencia = false,
+  }) async {
+    if (visita.id.isEmpty) {
+      throw StateError('El acta todavía no se ha guardado.');
+    }
+    if (!contieneActaPdf(visita.adjuntos)) {
+      throw ArgumentError('El acta corregida debe conservar un PDF.');
+    }
 
-    // 2. Cargar visita para obtener URLs de adjuntos del acta
+    final ref = _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw StateError('El acta ya no existe.');
+      final actual = InterventoriaVisita.fromMap(snapshot.id, snapshot.data()!);
+      if (!esActaDevueltaParaCorreccion(actual)) {
+        throw StateError('El acta ya no está pendiente de corrección.');
+      }
+      final uid = corregidoPorId.trim();
+      final autorizado =
+          permitirContingencia ||
+          (uid.isNotEmpty &&
+              (actual.creadoPor.trim() == uid ||
+                  actual.correccionResponsableId.trim() == uid));
+      if (!autorizado) {
+        throw StateError('Esta corrección está asignada a otra persona.');
+      }
+
+      transaction.update(ref, {
+        'centroCostoId': visita.centroCostoId,
+        'centroCostoCodigo': visita.centroCostoCodigo,
+        'centroCostoNombre': visita.centroCostoNombre,
+        'subcentroId': visita.subcentroId,
+        'subcentroNombre': visita.subcentroNombre,
+        'fechaVisita': visita.fechaVisita,
+        'tipoActa': visita.tipoActa,
+        'tiempoComida': visita.tiempoComida,
+        'porcentajeGeneral': visita.porcentajeGeneral,
+        'totalCondicionesServicio': visita.porcentajeGeneral,
+        'itemsEvaluacion': visita.items.map(
+          (key, value) => MapEntry(key, value.toMap()),
+        ),
+        'imagenesActa': visita.adjuntos.map((a) => a.toMap()).toList(),
+        'actaOriginalUrl': visita.actaOriginalUrl,
+        'ocrTextoExtraido': visita.ocrTextoExtraido,
+        'faseActa': 'puntajes',
+        'corregidaPorId': corregidoPorId,
+        'corregidaEn': FieldValue.serverTimestamp(),
+        'correcciones': FieldValue.arrayUnion([
+          {'porId': corregidoPorId, 'fecha': Timestamp.now()},
+        ]),
+        // El motivo sigue auditado dentro de `devoluciones`; se eliminan solo
+        // los campos activos para que no se confunda con otra devolución.
+        'devolucionMotivo': FieldValue.delete(),
+        'devolucionPorId': FieldValue.delete(),
+        'devolucionPorNombre': FieldValue.delete(),
+        'devolucionEn': FieldValue.delete(),
+        'correccionResponsableId': FieldValue.delete(),
+        'correccionResponsableNombre': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+
+    // Los comentarios de Fase 1 también deben quedar sincronizados sin
+    // duplicar hallazgos. Una falla secundaria aquí no invalida la corrección
+    // ya guardada ni obliga a repetirla.
+    try {
+      await _autoCrearHallazgosDesdeItems(visita: visita, items: visita.items);
+    } catch (_) {}
+  }
+
+  Future<void> eliminarVisita(String visitaId) async {
+    // 1. Cargar visita (también para filtrar los hallazgos por empresa: la
+    //    regla de lectura no acepta consultas sin ese filtro).
     final visitaDoc = await _db
         .collection('TBL_INTERVENTORIA_VISITAS')
         .doc(visitaId)
+        .get();
+    final empresaVisita = (visitaDoc.data()?['empresaId'] ?? '').toString();
+
+    // 2. Cargar hallazgos de esta visita
+    final hallazgosSnap = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', isEqualTo: empresaVisita)
+        .where('visitaId', isEqualTo: visitaId)
         .get();
 
     // 3. Borrar archivos en Storage del acta (adjuntos de la visita)

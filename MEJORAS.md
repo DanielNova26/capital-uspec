@@ -75,6 +75,17 @@ hace la función con aprobación). 25 casos de reglas en verde.
 
 **Requiere `firebase deploy --only firestore:rules`.**
 
+**Segunda causa, la que seguía después del deploy:** "sí se guarda pero
+sale el error". El acta se actualizaba y luego reventaba la LECTURA de sus
+hallazgos: `where('visitaId').where('fuente')` sin `empresaId`. La regla de
+lectura es `belongsToCompany(resource.data.empresaId)` y Firestore solo
+acepta una consulta si puede probar la regla con los filtros de la consulta;
+sin el filtro por empresa la consulta entera es permission-denied aunque
+cada documento sea legible. Afectaba a guardar borrador, a Completar acta
+(quedaba `completa` sin sincronizar hallazgos) y a eliminar acta. Las tres
+consultas llevan ahora `empresaId`. Reproducido y cubierto en el emulador
+(`interventoria_visitas.rules.js`, caso 7). Es cambio de cliente: build web.
+
 ## Cómbita, segunda vuelta: dos "Combita Alta" — 11 sep 2026 (Claude)
 
 El dato: Cómbita existe TRES veces en `TBL_CENTROS_COSTOS` de EMPRESA_002.
