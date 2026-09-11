@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -10630,6 +10631,17 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
   bool _mostrarActaEnEscritorio = true;
   bool _mostrarActaEnTablet = false;
 
+  /// Hay cambios que no están en Firestore. Ramiriquí, 11 sep 2026: Kary
+  /// escribió los hallazgos, "guardó", y el documento nunca recibió una
+  /// escritura. El borrador solo se guardaba al tocar el check de cada nota
+  /// y cualquier fallo se tragaba en silencio; salir de la pantalla no
+  /// avisaba nada. Ahora: autosave con retardo tras cada cambio, el error
+  /// se ve, y salir con cambios pendientes pregunta.
+  bool _pendiente = false;
+  bool _guardandoBorrador = false;
+  String? _errorBorrador;
+  Timer? _autosave;
+
   @override
   void initState() {
     super.initState();
@@ -10639,10 +10651,18 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     _obsGeneralesCtrl.text = (ocrData['observacionesGenerales'] ?? '')
         .toString();
     _conclusionesCtrl.text = (ocrData['conclusiones'] ?? '').toString();
+    // Las observaciones generales y conclusiones también son cambios.
+    for (final c in [_obsGeneralesCtrl, _conclusionesCtrl]) {
+      c.addListener(() {
+        if (!_pendiente) setState(() => _pendiente = true);
+        _programarAutosave();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _autosave?.cancel();
     _obsGeneralesCtrl.dispose();
     _conclusionesCtrl.dispose();
     super.dispose();
@@ -10652,7 +10672,78 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     setState(() {
       _items[key] = item;
       _tocados.add(key);
+      _pendiente = true;
     });
+    _programarAutosave();
+  }
+
+  /// Dos segundos después del último cambio, sin que nadie toque nada.
+  void _programarAutosave() {
+    _autosave?.cancel();
+    _autosave = Timer(const Duration(seconds: 2), () {
+      if (mounted && _pendiente && !_saving) _guardarBorrador();
+    });
+  }
+
+  /// Guarda el borrador y DICE si no pudo. Devuelve si quedó guardado.
+  Future<bool> _guardarBorrador() async {
+    if (_guardandoBorrador) return false;
+    setState(() {
+      _guardandoBorrador = true;
+      _errorBorrador = null;
+    });
+    try {
+      await widget.service.guardarBorradorRevision(
+        visita: widget.visita,
+        items: await _itemsParaGuardar(),
+        obsGenerales: _obsGeneralesCtrl.text.trim(),
+        conclusiones: _conclusionesCtrl.text.trim(),
+      );
+      if (mounted) setState(() => _pendiente = false);
+      return true;
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorBorrador = 'No se guardó el borrador: $e');
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _guardandoBorrador = false);
+    }
+  }
+
+  /// Al salir con cambios sin guardar: guardar, salir sin guardar o quedarse.
+  Future<bool> _confirmarSalida() async {
+    if (!_pendiente) return true;
+    final decision = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cambios sin guardar'),
+        content: const Text(
+          'Hay observaciones que todavía no están guardadas. Si sales sin '
+          'guardar, se pierden.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'quedarse'),
+            child: const Text('Seguir editando'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'descartar'),
+            child: Text(
+              'Salir sin guardar',
+              style: TextStyle(color: Colors.red.shade700),
+            ),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'guardar'),
+            child: const Text('Guardar y salir'),
+          ),
+        ],
+      ),
+    );
+    if (decision == 'descartar') return true;
+    if (decision == 'guardar') return _guardarBorrador();
+    return false;
   }
 
   /// Lo que se va a escribir: Firestore manda salvo en lo que se tocó aquí.
@@ -10670,21 +10761,16 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     return _items;
   }
 
-  /// Autosave silencioso al marcar el check de un item — sin snackbar ni spinner.
+  /// El check de una nota guarda ya, sin esperar el retardo del autosave.
   Future<void> _guardarRapidoSilencioso() async {
-    try {
-      await widget.service.guardarBorradorRevision(
-        visita: widget.visita,
-        items: await _itemsParaGuardar(),
-        obsGenerales: _obsGeneralesCtrl.text.trim(),
-        conclusiones: _conclusionesCtrl.text.trim(),
-      );
-    } catch (_) {}
+    _autosave?.cancel();
+    await _guardarBorrador();
   }
 
   Future<void> _completar() async {
     // Nota: el puntaje ya quedó validado/fijado en "Registrar acta" (Fase 1).
     // Revisar solo agrega observaciones — no se vuelve a exigir puntaje aquí.
+    _autosave?.cancel();
     setState(() => _saving = true);
     try {
       await widget.service.completarActa(
@@ -10693,6 +10779,7 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
         obsGenerales: _obsGeneralesCtrl.text.trim(),
         conclusiones: _conclusionesCtrl.text.trim(),
       );
+      _pendiente = false;
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -10722,72 +10809,129 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
       'dd/MM/yyyy',
     ).format(widget.visita.fechaVisita.toDate());
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: _kAccent,
-        foregroundColor: Colors.white,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.visita.centroCostoNombre,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+    return PopScope(
+      canPop: !_pendiente,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (await _confirmarSalida() && mounted) Navigator.pop(context);
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: _kAccent,
+          foregroundColor: Colors.white,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.visita.centroCostoNombre,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                _errorBorrador != null
+                    ? 'Sin guardar · toca Guardar'
+                    : _guardandoBorrador
+                    ? 'Guardando borrador…'
+                    : _pendiente
+                    ? 'Cambios sin guardar'
+                    : 'Revisión de acta · $fecha',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _errorBorrador != null
+                      ? const Color(0xFFFECACA)
+                      : Colors.white,
+                  fontWeight: _pendiente || _errorBorrador != null
+                      ? FontWeight.w700
+                      : FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Guardar borrador',
+              onPressed: _guardandoBorrador || !_pendiente
+                  ? null
+                  : _guardarBorrador,
+              icon: Icon(
+                Icons.save_outlined,
+                color: _pendiente ? Colors.white : Colors.white54,
+              ),
             ),
-            Text(
-              'Revisión de acta · $fecha',
-              style: const TextStyle(fontSize: 11),
+            if (esEscritorio)
+              IconButton(
+                tooltip: _mostrarActaEnEscritorio
+                    ? 'Ocultar acta original'
+                    : 'Mostrar acta original',
+                onPressed: () => setState(
+                  () => _mostrarActaEnEscritorio = !_mostrarActaEnEscritorio,
+                ),
+                icon: Icon(
+                  _mostrarActaEnEscritorio
+                      ? Icons.visibility_off_outlined
+                      : Icons.picture_as_pdf_outlined,
+                ),
+              ),
+            // Guardar progreso eliminado: el check de cada observación
+            // ya autoguarda (ver onGuardarRapido en _NotaEditorTile).
+            // ── Completar acta (final) ─────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: _kAccent,
+                ),
+                onPressed: _saving ? null : _completar,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_circle_rounded),
+                label: Text(
+                  _saving
+                      ? 'Guardando...'
+                      : (appBarCompacta ? 'Completar' : 'Completar acta'),
+                ),
+              ),
             ),
           ],
         ),
-        actions: [
-          if (esEscritorio)
-            IconButton(
-              tooltip: _mostrarActaEnEscritorio
-                  ? 'Ocultar acta original'
-                  : 'Mostrar acta original',
-              onPressed: () => setState(
-                () => _mostrarActaEnEscritorio = !_mostrarActaEnEscritorio,
+        body: Column(
+          children: [
+            if (_errorBorrador != null)
+              MaterialBanner(
+                backgroundColor: const Color(0xFFFEE2E2),
+                content: Text(
+                  _errorBorrador!,
+                  style: const TextStyle(
+                    color: Color(0xFF991B1B),
+                    fontSize: 12,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _guardarBorrador,
+                    child: const Text('Reintentar'),
+                  ),
+                ],
               ),
-              icon: Icon(
-                _mostrarActaEnEscritorio
-                    ? Icons.visibility_off_outlined
-                    : Icons.picture_as_pdf_outlined,
-              ),
-            ),
-          // Guardar progreso eliminado: el check de cada observación
-          // ya autoguarda (ver onGuardarRapido en _NotaEditorTile).
-          // ── Completar acta (final) ─────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: _kAccent,
-              ),
-              onPressed: _saving ? null : _completar,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_circle_rounded),
-              label: Text(
-                _saving
-                    ? 'Guardando...'
-                    : (appBarCompacta ? 'Completar' : 'Completar acta'),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth >= 1180) return _buildWebLayout();
+                  if (constraints.maxWidth >= 700) return _buildTabletLayout();
+                  return _buildMobileLayout();
+                },
               ),
             ),
-          ),
-        ],
-      ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth >= 1180) return _buildWebLayout();
-          if (constraints.maxWidth >= 700) return _buildTabletLayout();
-          return _buildMobileLayout();
-        },
+          ],
+        ),
       ),
     );
   }

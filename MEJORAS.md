@@ -11,7 +11,23 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 Kary: "guardé el acta de Ramiriquí y ya no puedo leer los hallazgos que
 guardé". En el histórico el acta sale con las once secciones y ninguna nota.
 
-Causa probable (no se puede confirmar sin el dato, pero el código lo
+**Lo que dice el dato (consultado en producción, solo lectura):** el acta
+`DlJJeeQa4lkLjtmrr9uK` de Ramiriquí la creó Luis Carlos Cuervo (registrador)
+el 10 sep 19:26 en Fase 1, y `updateTime == createTime`: **el documento no
+recibió ninguna escritura después**. Cero notas, cero hallazgos. Las
+observaciones de Kary nunca llegaron al servidor, así que no hay de dónde
+recuperarlas; hay que registrarlas de nuevo. La pantalla de revisión solo
+guardaba al tocar el check de cada nota o al Completar, se tragaba los
+errores y salir no avisaba. Por eso además del punto siguiente:
+
+- autosave dos segundos después de cada cambio, y al tocar el check;
+- si el guardado falla, banner rojo con "Reintentar" y el subtítulo dice
+  "Sin guardar"; ya no se traga nada;
+- botón "Guardar borrador" en la barra;
+- salir con cambios pendientes pregunta: guardar, salir sin guardar o
+  seguir.
+
+Causa de la otra forma de perderlas (no fue esta vez, pero el código lo
 permitía): `_RevisionActaScreen` tomaba una FOTO de los ítems al abrirse y
 al guardar —borrador o completar— escribía `itemsEvaluacion` completo con
 esa foto. Cualquier observación escrita entretanto en Firestore (otro
