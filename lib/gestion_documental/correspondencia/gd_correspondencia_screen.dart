@@ -28,7 +28,6 @@ class GdCorrespondenciaScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
   final String? initialExpedienteId;
-  final VoidCallback? onOpenLibrary;
   final VoidCallback? onOpenPlanillas;
   final VoidCallback? onOpenIdentity;
 
@@ -37,7 +36,6 @@ class GdCorrespondenciaScreen extends StatefulWidget {
     required this.userId,
     required this.empresaId,
     this.initialExpedienteId,
-    this.onOpenLibrary,
     this.onOpenPlanillas,
     this.onOpenIdentity,
   });
@@ -88,28 +86,6 @@ class _GdCorrespondenciaScreenState extends State<GdCorrespondenciaScreen> {
           ],
         ),
         actions: [
-          if (widget.onOpenLibrary != null)
-            if (wide)
-              TextButton.icon(
-                onPressed: widget.onOpenLibrary,
-                icon: const Icon(
-                  Icons.folder_copy_outlined,
-                  color: Colors.white,
-                ),
-                label: const Text(
-                  'Biblioteca',
-                  style: TextStyle(color: Colors.white),
-                ),
-              )
-            else
-              IconButton(
-                onPressed: widget.onOpenLibrary,
-                tooltip: 'Biblioteca',
-                icon: const Icon(
-                  Icons.folder_copy_outlined,
-                  color: Colors.white,
-                ),
-              ),
           if (widget.onOpenPlanillas != null || widget.onOpenIdentity != null)
             PopupMenuButton<String>(
               tooltip: 'Más herramientas documentales',

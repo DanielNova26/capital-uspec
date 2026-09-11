@@ -22,13 +22,11 @@ const _border = Color(0xFFDCE5EC);
 class GdControlDashboardScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
-  final VoidCallback onOpenLibrary;
 
   const GdControlDashboardScreen({
     super.key,
     required this.userId,
     required this.empresaId,
-    required this.onOpenLibrary,
   });
 
   @override
@@ -120,18 +118,6 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
             _RolChip(rol: _permisos.rol, compacto: !wide),
             const SizedBox(width: 8),
           ],
-          if (wide)
-            OutlinedButton.icon(
-              onPressed: widget.onOpenLibrary,
-              icon: const Icon(Icons.folder_copy_outlined, size: 18),
-              label: const Text('Biblioteca'),
-            )
-          else
-            IconButton(
-              onPressed: widget.onOpenLibrary,
-              tooltip: 'Biblioteca documental',
-              icon: const Icon(Icons.folder_copy_outlined),
-            ),
           const SizedBox(width: 12),
         ],
       ),

@@ -11,6 +11,8 @@ const Map<String, String> kAppIdNormalizationMap = {
   'talento': 'talentohumanodashboard',
   'talentohumano': 'talentohumanodashboard',
   'gestiondocumental': 'gestiondocumentaldashboard',
+  'biblioteca': 'bibliotecadocumentaldashboard',
+  'bibliotecadocumental': 'bibliotecadocumentaldashboard',
   'planillas': 'planillaspagodashboard',
   'planillaspago': 'planillaspagodashboard',
   'nutricion': 'nutriciondashboard',
@@ -221,6 +223,23 @@ bool userHasApp(Map<String, dynamic> data, String? appId, {String? empresaId}) {
         .toString()
         .trim()
         .isNotEmpty;
+  }
+
+  // Compatibilidad durante la separación de Biblioteca y Correspondencia:
+  // antes ambas vivían bajo gestiondocumentaldashboard. Quien ya tenía ese
+  // módulo y un rol documental conserva Biblioteca hasta que Admin termine de
+  // asignar el nuevo appId de forma explícita.
+  if (appIdsEquivalent(target, 'bibliotecadocumentaldashboard')) {
+    final apps = extractUserApps(data, empresaId: empresaId);
+    final hadCombinedModule = apps.any(
+      (candidate) => appIdsEquivalent(candidate, 'gestiondocumentaldashboard'),
+    );
+    final detail = getUserCompanyDetail(data, empresaId);
+    final rolDocumental =
+        (detail?['rolDocumental'] ?? data['rolDocumental'] ?? '')
+            .toString()
+            .trim();
+    return hadCombinedModule && rolDocumental.isNotEmpty;
   }
   return false;
 }

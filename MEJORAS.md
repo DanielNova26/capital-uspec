@@ -6,6 +6,39 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Biblioteca Documental — fase 1 de separación (Codex, 10 sep 2026)
+
+Implementada la decisión literal de la reunión: **Correo**, **Gestión de
+Correspondencia** y **Biblioteca Documental** son accesos independientes. La
+Biblioteca dejó de abrirse como una vista interna de Correspondencia y usa el
+nuevo `appId` `bibliotecadocumentaldashboard`; su asignación y rol documental
+ya aparecen por separado en la matriz de Administración.
+
+Se reutilizó el flujo existente de `gd_*` —documentos, versiones, revisión,
+aprobación y firma— sin copiar colecciones ni servicios. La Biblioteca añadió
+los tipos iniciales de la reunión: Formato, Documento contractual, Circular
+externa y Norma aplicable, conservando los tipos históricos. La búsqueda ya
+incluye código, título, área y tipo. La carga sigue siendo un archivo por
+registro, nunca masiva.
+
+Compatibilidad: quien ya tenía `gestiondocumentaldashboard` y un
+`rolDocumental` conserva acceso a Biblioteca durante la transición. Las
+asignaciones nuevas usan el appId independiente.
+
+Próxima fase sobre esta base, sin volver a unir módulos:
+
+- código automático por departamento y consecutivo;
+- formatos Word/Excel además de PDF y descarga solo de la versión publicada;
+- sello visible de aprobación con responsable y fecha;
+- Normograma con palabras clave y documentos asociados;
+- reglas explícitas y pruebas de Firestore para `TBL_DOCUMENTOS`, versiones y
+  flujo antes del despliegue productivo.
+
+Validación de esta fase: suite completa de 670 pruebas en verde y compilación
+web release correcta.
+
+---
+
 ## Reparto de trabajo — reunión 9 sep 2026 (Claude ↔ Codex)
 
 **Estado: EJECUTADO EN SU MAYOR PARTE.** Ver el traspaso justo debajo.

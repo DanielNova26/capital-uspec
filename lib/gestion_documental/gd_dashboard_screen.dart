@@ -8,8 +8,17 @@ import '../widgets/internal_module_layout.dart';
 import 'gd_detail_screen.dart';
 import 'gd_models.dart';
 import 'gd_service.dart';
-import 'correspondencia/gd_control_dashboard_screen.dart';
 import 'widgets/gd_ui_widgets.dart';
+
+const List<String> _bibliotecaCategorias = [
+  'Formato',
+  'Documento contractual',
+  'Circular externa',
+  'Norma aplicable',
+  'Procedimiento',
+  'Politica',
+  'Instructivo',
+];
 
 class GdDashboardScreen extends StatefulWidget {
   final String userId;
@@ -31,34 +40,18 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   String? _selectedCategory;
   bool _selectionMode = false;
   bool _deletingSelection = false;
-  bool _showLibrary = false;
   final Set<String> _selectedDocIds = <String>{};
 
   @override
   Widget build(BuildContext context) {
-    if (!_showLibrary) {
-      return GuardedModulePage(
-        userIdentity: widget.userId,
-        appId: 'gestiondocumentaldashboard',
-        pageTitle: 'Gestión de Correspondencia',
-        fallbackEmpresaId: widget.empresaId,
-        child: GdControlDashboardScreen(
-          userId: widget.userId,
-          empresaId: widget.empresaId,
-          onOpenLibrary: () => setState(() => _showLibrary = true),
-        ),
-      );
-    }
     final width = MediaQuery.of(context).size.width;
     final isWeb = width >= 900;
 
     return GuardedModulePage(
       userIdentity: widget.userId,
-      appId: 'gestiondocumentaldashboard',
-      // Vista de biblioteca (subir/eliminar PDF, roles redactor/revisor/
-      // aprobador/firmante) — distinta del título del módulo, que ahora es
-      // "Gestión de Correspondencia" porque esa es la vista por defecto.
+      appId: 'bibliotecadocumentaldashboard',
       pageTitle: 'Biblioteca documental',
+      fallbackEmpresaId: widget.empresaId,
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('TBL_USUARIOS')
@@ -80,40 +73,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             empresaId: widget.empresaId,
             title: 'Biblioteca Documental',
             subtitle:
-                'Gestión centralizada de procesos, políticas e instructivos',
+                'Formatos aprobados, documentos del contrato y normas aplicables',
             badge: rolDocumental,
             accentColor: GdPalette.accent,
             headerActions: [
-              if (isWeb)
-                OutlinedButton.icon(
-                  onPressed: _openCorrespondencia,
-                  icon: const Icon(Icons.markunread_mailbox_outlined, size: 20),
-                  label: const Text(
-                    'CORRESPONDENCIA',
-                    style: TextStyle(
-                      fontFamily: kArial,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: GdPalette.primary,
-                    side: const BorderSide(color: GdPalette.border),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 22,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                )
-              else
-                IconButton(
-                  icon: const Icon(Icons.markunread_mailbox_outlined),
-                  onPressed: _openCorrespondencia,
-                  tooltip: 'Correspondencia',
-                ),
               if (isWeb && canDelete)
                 OutlinedButton.icon(
                   onPressed: _deletingSelection ? null : _toggleSelectionMode,
@@ -309,14 +272,17 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
 
                       var docs = snapshot.data ?? [];
                       if (_searchQuery.isNotEmpty) {
+                        final query = _searchQuery.toLowerCase();
                         docs = docs
                             .where(
                               (d) =>
-                                  d.titulo.toLowerCase().contains(
-                                    _searchQuery.toLowerCase(),
+                                  d.titulo.toLowerCase().contains(query) ||
+                                  d.codigo.toLowerCase().contains(query) ||
+                                  (d.area ?? '').toLowerCase().contains(
+                                    query,
                                   ) ||
-                                  d.codigo.toLowerCase().contains(
-                                    _searchQuery.toLowerCase(),
+                                  (d.categoria ?? '').toLowerCase().contains(
+                                    query,
                                   ),
                             )
                             .toList();
@@ -434,7 +400,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'Gestión centralizada de procesos, políticas e instructivos',
+                'Formatos aprobados, documentos del contrato y normas aplicables',
                 style: TextStyle(
                   fontFamily: kArial,
                   fontSize: 14,
@@ -488,7 +454,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
       child: TextField(
         onChanged: (v) => setState(() => _searchQuery = v),
         decoration: const InputDecoration(
-          hintText: 'Buscar por código o título...',
+          hintText: 'Buscar por código, título, área o tipo...',
           prefixIcon: Icon(Icons.search, size: 20, color: GdPalette.muted),
           border: InputBorder.none,
           contentPadding: EdgeInsets.symmetric(vertical: 10),
@@ -563,7 +529,6 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   }
 
   Widget _buildCategoryFilter(bool isWeb) {
-    final categories = ['Procedimiento', 'Politica', 'Formato', 'Instructivo'];
     return Container(
       height: 45,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -587,7 +552,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                 style: TextStyle(fontFamily: kArial, fontSize: 13),
               ),
             ),
-            ...categories.map(
+            ..._bibliotecaCategorias.map(
               (c) => DropdownMenuItem<String?>(
                 value: c,
                 child: Text(
@@ -794,7 +759,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             const SizedBox(height: 12),
             Text(
               canCreate
-                  ? 'Sube el primer documento (PDF) para iniciar el flujo de revisión, aprobación y firma digital.'
+                  ? 'Carga un documento individual para iniciar el flujo de revisión, aprobación y publicación.'
                   : 'Cuando existan documentos vigentes y aprobados, aparecerán listados en esta sección.',
               textAlign: TextAlign.center,
               style: const TextStyle(
@@ -860,10 +825,6 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         service: _service,
       ),
     );
-  }
-
-  void _openCorrespondencia() {
-    setState(() => _showLibrary = false);
   }
 
   void _toggleSelectionMode() {
@@ -1166,24 +1127,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                             size: 20,
                           ),
                         ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Procedimiento',
-                            child: Text('Procedimiento'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Politica',
-                            child: Text('Política'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Formato',
-                            child: Text('Formato'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Instructivo',
-                            child: Text('Instructivo'),
-                          ),
-                        ],
+                        items: _bibliotecaCategorias
+                            .map(
+                              (categoria) => DropdownMenuItem(
+                                value: categoria,
+                                child: Text(categoria),
+                              ),
+                            )
+                            .toList(),
                         onChanged: (v) => _categoria = v,
                         validator: (v) => v == null ? 'Requerido' : null,
                       ),

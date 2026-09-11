@@ -137,9 +137,10 @@ const List<AppCatalogEntry> kAppCatalog = [
   ),
   AppCatalogEntry(
     appId: 'correodashboard',
-    nombre: 'Correo y Correspondencia',
+    nombre: 'Correo',
     paraQueSirve:
-        'Radicar la correspondencia que entra y sale, y hacerle seguimiento.',
+        'Consultar buzones, clasificar mensajes y convertir correos en '
+        'correspondencia.',
     grupo: AppCatalogGroup.gestion,
     icono: Icons.mark_email_unread_rounded,
     color: Color(0xFF0F766E),
@@ -151,11 +152,23 @@ const List<AppCatalogEntry> kAppCatalog = [
     appId: 'gestiondocumentaldashboard',
     nombre: 'Gestión de Correspondencia',
     paraQueSirve:
-        'Biblioteca documental: redactar, revisar, aprobar y firmar documentos '
-        'controlados.',
+        'Radicar la correspondencia que entra y sale, asignar responsables y '
+        'controlar tiempos de respuesta.',
     grupo: AppCatalogGroup.gestion,
-    icono: Icons.auto_stories_rounded,
+    icono: Icons.markunread_mailbox_rounded,
     color: Color(0xFF0D9488),
+    notaRolInterno:
+        'El acceso se asigna aquí; el rol operativo se comparte con Correo.',
+  ),
+  AppCatalogEntry(
+    appId: 'bibliotecadocumentaldashboard',
+    nombre: 'Biblioteca Documental',
+    paraQueSirve:
+        'Publicar formatos aprobados, documentos contractuales y normas con '
+        'control de versiones.',
+    grupo: AppCatalogGroup.gestion,
+    icono: Icons.local_library_rounded,
+    color: Color(0xFF2563A6),
     notaRolInterno:
         'Admin define si es redactor, revisor, aprobador o firmante.',
   ),

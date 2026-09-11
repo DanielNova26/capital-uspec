@@ -22,6 +22,7 @@ import '../admin/admin_dashboard_screen.dart' hide kArial;
 import '../talento_humano/talento_humano_dashboard_screen.dart';
 import '../gerencia/gerencia_dashboard_screen.dart';
 import 'document_management_screen.dart' hide kArial;
+import 'library_management_screen.dart';
 import '../gestion_documental/planillas/pp_module_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../compras/compras_dashboard_screen.dart';
@@ -1299,6 +1300,19 @@ class _HomeScreenState extends State<HomeScreen> {
     return legacyRole.isNotEmpty;
   }
 
+  bool _bibliotecaVisible(
+    Map<String, dynamic> userData,
+    String empresaId,
+    List<String> apps,
+    bool isDev,
+    Set<String> disabledAppIds,
+  ) {
+    const appId = 'bibliotecadocumentaldashboard';
+    if (disabledAppIds.any((id) => appIdsEquivalent(id, appId))) return false;
+    if (_moduleVisible(apps, isDev, appId, disabledAppIds)) return true;
+    return userHasApp(userData, appId, empresaId: empresaId);
+  }
+
   List<Widget> _getModuleWidgets(
     String cedula,
     String empresaId,
@@ -1413,6 +1427,34 @@ class _HomeScreenState extends State<HomeScreen> {
               context,
               MaterialPageRoute(
                 builder: (_) => DocumentManagementScreen(
+                  currentUserId: cedula,
+                  empresaId: empresaId,
+                ),
+              ),
+            );
+          },
+        ),
+
+      if (_bibliotecaVisible(userData, empresaId, apps, isDev, disabledAppIds))
+        ModuleCard(
+          width: cardWidth,
+          title: 'Biblioteca Documental',
+          icon: Icons.local_library_rounded,
+          color: const Color(0xFF2563A6),
+          compact: !isWeb,
+          onTap: () async {
+            const appId = 'bibliotecadocumentaldashboard';
+            final permitido = await _guardModuleNavigation(
+              userData: userData,
+              empresaId: empresaId,
+              appId: appId,
+              deniedMessage: 'Sin acceso a Biblioteca Documental',
+            );
+            if (!permitido || !mounted) return;
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LibraryManagementScreen(
                   currentUserId: cedula,
                   empresaId: empresaId,
                 ),

@@ -890,11 +890,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       initialValue: rolDocumental,
                       isExpanded: true,
                       decoration: const InputDecoration(
-                        // Este rol es del flujo documental (redactar/revisar/
-                        // aprobar/firmar), no del rol Clasificador y asignador
-                        // de Correspondencia — por eso dice "Biblioteca" y no
-                        // el nombre del módulo.
-                        labelText: 'Rol de biblioteca (submódulo)',
+                        // Este rol pertenece al flujo independiente de la
+                        // Biblioteca, no al clasificador de Correspondencia.
+                        labelText: 'Rol en Biblioteca Documental',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(
                           Icons.description_outlined,
@@ -4824,16 +4822,19 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       icon: Icons.query_stats_rounded,
       color: Color(0xFF7C3AED),
     ),
-    // Etiqueta "Biblioteca" (no "Correspondencia") a propósito: el dropdown de
-    // esta fila escribe `rolDocumental` (redactor/revisor/aprobador/firmante),
-    // que gobierna la Biblioteca documental, no el rol Clasificador y
-    // asignador de Correspondencia — ese vive aparte, ver `_correoRoleCallout`.
     const _AccessMatrixModule(
-      key: 'gestion_documental',
+      key: 'gestion_correspondencia',
       label: 'Gestión de Correspondencia',
       appId: 'gestiondocumentaldashboard',
-      icon: Icons.auto_stories_rounded,
+      icon: Icons.markunread_mailbox_rounded,
       color: Color(0xFF0D9488),
+    ),
+    const _AccessMatrixModule(
+      key: 'gestion_documental',
+      label: 'Biblioteca Documental',
+      appId: 'bibliotecadocumentaldashboard',
+      icon: Icons.local_library_rounded,
+      color: Color(0xFF2563A6),
       roles: kDocumentalRoleLabels,
     ),
     const _AccessMatrixModule(
@@ -5292,8 +5293,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
     String appId,
     String empresaId,
   ) {
-    if (appIdsEquivalent(appId, kPlanillasPagoAppId) &&
-        userHasApp(userDoc.data(), kPlanillasPagoAppId, empresaId: empresaId)) {
+    if ((appIdsEquivalent(appId, kPlanillasPagoAppId) ||
+            appIdsEquivalent(appId, 'bibliotecadocumentaldashboard')) &&
+        userHasApp(userDoc.data(), appId, empresaId: empresaId)) {
       return true;
     }
     final apps =
@@ -6275,7 +6277,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           (
             modulo: 'Gestión de Correspondencia',
             visible: 'gestiondocumentaldashboard',
-            permisos: 'rolDocumental / rolPlanillas',
+            permisos: 'Acceso al tablero de control',
+            donde: 'Matriz central',
+          ),
+          (
+            modulo: 'Biblioteca Documental',
+            visible: 'bibliotecadocumentaldashboard',
+            permisos: 'rolDocumental',
             donde: 'Matriz central',
           ),
         ];
@@ -15413,6 +15421,7 @@ const List<({String id, String label})> _kAllModules = [
   (id: 'talentohumanodashboard', label: 'Talento Humano'),
   (id: 'gerenciadashboard', label: 'Gerencia'),
   (id: 'gestiondocumentaldashboard', label: 'Gestión de Correspondencia'),
+  (id: 'bibliotecadocumentaldashboard', label: 'Biblioteca Documental'),
   (id: kPlanillasPagoAppId, label: 'Planillas de Pago'),
   (id: 'nutriciondashboard', label: 'Nutrición'),
   (id: 'comprasdashboard', label: 'Compras'),

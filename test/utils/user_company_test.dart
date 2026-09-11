@@ -132,4 +132,54 @@ void main() {
       expect(appIdsEquivalent('planillas', 'planillaspagodashboard'), isTrue);
     },
   );
+
+  test('normaliza Biblioteca al identificador canónico independiente', () {
+    final result = normalizeAppIdList([
+      'biblioteca',
+      'bibliotecadocumentaldashboard',
+    ]);
+
+    expect(result.ids, ['bibliotecadocumentaldashboard']);
+    expect(result.changed, isTrue);
+    expect(
+      appIdsEquivalent('bibliotecadocumental', 'bibliotecadocumentaldashboard'),
+      isTrue,
+    );
+  });
+
+  test('conserva Biblioteca a quien tenía el módulo combinado y su rol', () {
+    final legacy = <String, dynamic>{
+      'apps': ['gestiondocumentaldashboard'],
+      'empresasDetalle': {
+        'EMPRESA_001': {'rolDocumental': 'redactor'},
+      },
+    };
+
+    expect(
+      userHasApp(
+        legacy,
+        'bibliotecadocumentaldashboard',
+        empresaId: 'EMPRESA_001',
+      ),
+      isTrue,
+    );
+    expect(
+      userHasApp(
+        legacy,
+        'bibliotecadocumentaldashboard',
+        empresaId: 'EMPRESA_002',
+      ),
+      isFalse,
+    );
+    expect(
+      userHasApp(
+        {
+          'apps': ['gestiondocumentaldashboard'],
+        },
+        'bibliotecadocumentaldashboard',
+        empresaId: 'EMPRESA_001',
+      ),
+      isFalse,
+    );
+  });
 }
