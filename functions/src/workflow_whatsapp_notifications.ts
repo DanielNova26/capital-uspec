@@ -75,7 +75,11 @@ export const ppWhatsAppCambioFirma = functions
     const nombre = text(after.nombrePlanillaDetectado || after.nombreArchivoOriginal) ||
       `Planilla ${context.params.planillaId}`;
     if (current === "en_revision_auditoria") {
-      await once(`pp_tesoreria_${context.params.planillaId}_${current}`, async () => {
+      // Clave por evento y no por estado: una planilla observada vuelve a
+      // `en_revision_auditoria` al corregirse, y con la clave por estado ese
+      // segundo paso no avisaba a Auditoría. `eventId` es único por cambio y
+      // estable en los reintentos, que es lo que la idempotencia necesita.
+      await once(`pp_tesoreria_${context.params.planillaId}_${context.eventId}`, async () => {
         await sendWhatsAppRoute({
           empresaId,
           routeId: "planillas_tesoreria_auditoria",
@@ -94,7 +98,7 @@ export const ppWhatsAppCambioFirma = functions
       });
     }
     if (current === "aprobada_auditoria") {
-      await once(`pp_auditoria_${context.params.planillaId}_${current}`, async () => {
+      await once(`pp_auditoria_${context.params.planillaId}_${context.eventId}`, async () => {
         await sendWhatsAppRoute({
           empresaId,
           routeId: "planillas_auditoria_gerencia",

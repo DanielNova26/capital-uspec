@@ -6,6 +6,32 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Planillas por WhatsApp: revisado — 11 sep 2026 (Claude)
+
+`ppWhatsAppCambioFirma` está bien planteado: es `onUpdate` sobre
+`TBL_PP_PLANILLAS` y las firmas SÍ son updates de `estado`, así que dispara
+(en los logs corre en cada cambio). Plantilla `planilla_pago_actualizacion`
+aprobada en Meta con variables planilla/estado/accion en ese orden, que es
+el que manda la función. Listas de EMPRESA_001 activas: Aprob_auditoria
+(Karen, Daniel) y Aprob_gerencia (Oscar, Daniel).
+
+Dos cosas encontradas:
+
+- **EMPRESA_002 no tiene rutas de planillas** (`planillas_tesoreria_auditoria`
+  ni `planillas_auditoria_gerencia`). La planilla 1583 firmada el 07/09 en
+  esa empresa no avisó a nadie por eso. Se configura en Administración >
+  WhatsApp; no es código.
+- La idempotencia era por planilla+estado, así que una planilla **observada
+  y vuelta a enviar** a Auditoría no avisaba la segunda vez. Ahora la clave
+  es el `eventId` de Firestore: único por cambio, estable en reintentos.
+
+Aún no se ha ejercido ninguna firma desde que se migró a Meta (la última
+fue el 07/09, antes de la migración del 11/09 03:10). La primera firma real
+después del deploy lo confirma; con `WHATSAPP_ROUTE_SENT` / `_SKIPPED` en
+logs ya no hay que adivinar.
+
+---
+
 ## El WhatsApp de "nueva acta" no salía nunca — 11 sep 2026 (Claude)
 
 Codex se quedó sin créditos a mitad de la migración a WhatsApp Cloud (Meta).
