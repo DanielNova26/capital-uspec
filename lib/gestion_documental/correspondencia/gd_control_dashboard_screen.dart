@@ -1316,7 +1316,7 @@ class _ProcessTable extends StatelessWidget {
                     ],
                   ),
                 ),
-                DataCell(Text(_formatDate(row.fechaRecepcion))),
+                DataCell(Text(_formatDateTime(row.fechaRecepcion))),
                 DataCell(
                   SizedBox(
                     width: 120,
@@ -1722,6 +1722,11 @@ const _chartColors = <Color>[
 
 String _formatDate(DateTime? value) =>
     value == null ? 'Sin fecha' : DateFormat('dd/MM/yyyy').format(value);
+
+// La recepción lleva hora: los plazos se cuentan desde que entra el correo.
+String _formatDateTime(DateTime? value) => value == null
+    ? 'Sin fecha'
+    : DateFormat('dd/MM/yyyy HH:mm').format(value.toLocal());
 
 String _deliveryChannel(GdExpediente row) {
   if (row.respuestaExternaRegistrada)
