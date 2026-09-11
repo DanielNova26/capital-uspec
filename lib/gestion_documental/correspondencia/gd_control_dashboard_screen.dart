@@ -36,6 +36,22 @@ class GdControlDashboardScreen extends StatefulWidget {
 
 class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
   final _service = GdCorrespondenciaService();
+
+  // Una sola suscripción por pantalla. Crear `.snapshots()` dentro de `build`
+  // abre un listener nuevo en cada tecla del buscador o cambio de filtro; en
+  // web eso termina en "INTERNAL ASSERTION FAILED" y la lista se queda
+  // congelada aunque el expediente nuevo sí haya llegado (y con él la
+  // notificación). Se recrea solo si cambia la empresa.
+  Stream<List<GdExpediente>>? _expedientes;
+  String _expedientesDe = '';
+
+  Stream<List<GdExpediente>> _streamExpedientes() {
+    if (_expedientes == null || _expedientesDe != widget.empresaId) {
+      _expedientesDe = widget.empresaId;
+      _expedientes = _service.streamExpedientes(widget.empresaId);
+    }
+    return _expedientes!;
+  }
   final _search = TextEditingController();
   String _query = '';
   String _filter = 'activos';
@@ -122,7 +138,7 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
         ],
       ),
       body: StreamBuilder<List<GdExpediente>>(
-        stream: _service.streamExpedientes(widget.empresaId),
+        stream: _streamExpedientes(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return _DashboardError(error: snapshot.error);

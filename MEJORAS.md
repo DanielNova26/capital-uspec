@@ -6,6 +6,35 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Cuatro reportes de Gerencia — 11 sep 2026 (Claude)
+
+1. **Correo: "No fue posible cargar los permisos del módulo".** No era
+   permisos: era que quien NO tiene documento en `TBL_CORREO_ROLES` recibe
+   `permission-denied` y no "no existe", porque la regla de lectura mira
+   `resource.data.empresaId` y en un documento inexistente `resource` es nulo.
+   `GdPermisosService.resolverRol` ahora trata ese denegado como "sin rol
+   asignado" y sigue con las demás fuentes. Sin reglas nuevas.
+2. **Interventoría: "Otra persona autorizada debe resolver esta solicitud".**
+   La regla de cuatro ojos tenía sentido cuando nadie borraba directo. Desde
+   el 10 sep admin, gerente y revisor eliminan sin pedir permiso, así que la
+   propia solicitud (la de Oscar del 05/09 sobre Ponal) solo quedaba atascada.
+   Backend (`interventoriaResolverEliminacion`) y pestaña dejan resolverla.
+   **Requiere deploy de functions.**
+3. **Las actas de Ubaté quedaban en "Bodega Cota".** El Registrador tenía el
+   establecimiento FIJO desde `TBL_USUARIOS.centroId` (o
+   `empresasDetalle[empresa].centroId`) y no podía ni verlo ni cambiarlo. Ahora
+   arranca preseleccionado en el suyo, con aviso, y puede cambiarlo. El dato de
+   ese usuario sigue mal: corregir su `centroId` en Admin/TH. Las actas ya
+   guardadas en Bodega Cota hay que volverlas a registrar (no hay "cambiar
+   establecimiento" de un acta).
+4. **Correspondencia: "me llega el mensaje pero no se actualiza".** Las dos
+   pantallas creaban `streamExpedientes(...).snapshots()` dentro de `build`:
+   cada tecla del buscador abría un listener nuevo; en web eso acaba en el
+   `INTERNAL ASSERTION FAILED` conocido y la lista se congela. Stream
+   memoizada por pantalla, recreada solo si cambia la empresa.
+
+---
+
 ## Visitas de profesionales — maqueta funcional (Claude, 10 sep 2026)
 
 Módulo nuevo `lib/visitas/` según la reunión del 9 sep (02:00–02:05 de la

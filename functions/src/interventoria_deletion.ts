@@ -294,12 +294,12 @@ export const interventoriaResolverEliminacion = functions
         "La solicitud no existe o ya fue resuelta."
       );
     }
-    if (clean(requestData.solicitadoPorId) === actor.id) {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "Quien solicita no puede aprobar su propia eliminación."
-      );
-    }
+    // Antes: "quien solicita no puede aprobar su propia eliminación". Tenía
+    // sentido cuando ningún rol podía borrar directo. Desde el 10 sep 2026
+    // admin, gerente y revisor eliminan sin pedir permiso, así que bloquear la
+    // propia solicitud solo dejaba atascadas las que se pidieron antes de ese
+    // cambio: Gerencia veía su solicitud del 05/09 y nadie más la resolvía.
+    // Quien puede borrar directo puede cerrar lo que él mismo pidió.
     const type = clean(requestData.tipo) as EntityType;
     const entityId = clean(requestData.entidadId, 512);
     const entityRef = admin.firestore().collection(collectionFor(type)).doc(entityId);

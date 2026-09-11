@@ -821,32 +821,38 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('Motivo: ${data['motivo'] ?? ''}'),
                     const SizedBox(height: 12),
+                    // La propia solicitud también se resuelve aquí: quien
+                    // llega a esta pestaña ya puede borrar directo, y dejarla
+                    // esperando a "otra persona" solo la atascaba.
                     if (ownRequest)
-                      const Text(
-                        'Otra persona autorizada debe resolver esta solicitud.',
-                        style: TextStyle(color: Color(0xFFB45309)),
-                      )
-                    else
-                      Wrap(
-                        spacing: 8,
-                        children: [
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                _resolve(context, request, approve: false),
-                            icon: const Icon(Icons.close),
-                            label: const Text('Rechazar'),
-                          ),
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: _kDanger,
-                            ),
-                            onPressed: () =>
-                                _resolve(context, request, approve: true),
-                            icon: const Icon(Icons.delete_forever),
-                            label: const Text('Aprobar eliminación'),
-                          ),
-                        ],
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Es tu propia solicitud. Como puedes eliminar '
+                          'directamente, la resuelves tú mismo.',
+                          style: TextStyle(color: Color(0xFFB45309)),
+                        ),
                       ),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              _resolve(context, request, approve: false),
+                          icon: const Icon(Icons.close),
+                          label: Text(ownRequest ? 'Retirar' : 'Rechazar'),
+                        ),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _kDanger,
+                          ),
+                          onPressed: () =>
+                              _resolve(context, request, approve: true),
+                          icon: const Icon(Icons.delete_forever),
+                          label: const Text('Aprobar eliminación'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -6896,64 +6902,55 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   Widget _buildCommonHeader(bool isWeb) {
     return Column(
       children: [
-        // Si hay centro fijo (Registrador), mostrar solo ese centro como texto
-        if (widget.centroFijoId != null && widget.centroFijoId!.isNotEmpty)
-          InputDecorator(
-            decoration: const InputDecoration(
-              labelText: 'Establecimiento / centro de costos',
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            child: _centro == null
-                ? const SizedBox(
-                    height: 18,
-                    child: Center(
-                      child: SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  )
-                : Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on_rounded,
-                        size: 14,
-                        color: _kAccent,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _centro!.nombre,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-          )
-        else
-          StreamBuilder<List<CentroCostoRef>>(
-            stream: widget.service.streamCentrosCosto(widget.empresaId),
-            builder: (_, snap) {
-              final centros = snap.data ?? [];
-              return DropdownButtonFormField<CentroCostoRef>(
-                initialValue: _centro,
-                decoration: const InputDecoration(
-                  labelText: 'Establecimiento / centro de costos',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                items: _centrosCostoDropdownItems(centros),
-                onChanged: (v) => setState(() {
-                  _centro = v;
-                  // El subcentro anterior es de otro establecimiento.
-                  _subcentro = null;
-                }),
-              );
-            },
-          ),
+        // El Registrador arranca en SU establecimiento, pero puede cambiarlo.
+        // Antes era un texto fijo: si el `centroId` del usuario estaba mal
+        // (pasó con Ubaté, que quedaba guardado como "Bodega Cota"), cada
+        // acta se registraba en el establecimiento equivocado y quien
+        // registraba no tenía forma de corregirlo ni de notarlo.
+        StreamBuilder<List<CentroCostoRef>>(
+          stream: widget.service.streamCentrosCosto(widget.empresaId),
+          builder: (_, snap) {
+            final centros = snap.data ?? [];
+            final esFijo =
+                widget.centroFijoId != null && widget.centroFijoId!.isNotEmpty;
+            final fijoNombre = esFijo
+                ? centros
+                      .where((c) => c.centroId == widget.centroFijoId)
+                      .map((c) => c.nombre)
+                      .firstOrNull
+                : null;
+            // El precargado viene de otra lectura: el desplegable necesita
+            // la MISMA instancia que está en sus ítems.
+            final seleccionado = _centro == null
+                ? null
+                : centros
+                      .where((c) => c.centroId == _centro!.centroId)
+                      .firstOrNull;
+            return DropdownButtonFormField<CentroCostoRef>(
+              key: ValueKey('centro_${seleccionado?.centroId ?? ''}'),
+              initialValue: seleccionado,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Establecimiento / centro de costos',
+                helperText: !esFijo
+                    ? null
+                    : fijoNombre == null
+                    ? 'Tu usuario no tiene un establecimiento válido asignado.'
+                    : 'Tu establecimiento asignado es $fijoNombre. '
+                          'Cámbialo solo si el acta es de otro.',
+                helperMaxLines: 2,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: _centrosCostoDropdownItems(centros),
+              onChanged: (v) => setState(() {
+                _centro = v;
+                // El subcentro anterior es de otro establecimiento.
+                _subcentro = null;
+              }),
+            );
+          },
+        ),
         if ((_centro?.subcentrosActivos ?? const []).isNotEmpty) ...[
           const SizedBox(height: 10),
           DropdownButtonFormField<SubcentroCosto>(

@@ -175,13 +175,25 @@ class GdPermisosService {
       return GdRolCorrespondencia.administrador;
     }
 
-    final asignado = await _db
-        .collection('TBL_CORREO_ROLES')
-        .doc('${empresaId}_$userId')
-        .get();
-    final delDoc = GdRolCorrespondencia.desdeTexto(
-      asignado.data()?['rol']?.toString(),
-    );
+    // Quien NO tiene documento en TBL_CORREO_ROLES no recibe "no existe":
+    // recibe permission-denied. La regla de lectura mira
+    // `resource.data.empresaId`, y en un documento inexistente `resource` es
+    // nulo, así que la regla falla y Firestore lo reporta como denegado. Eso
+    // era lo que veía Gerencia: "No fue posible cargar los permisos del
+    // módulo" en una empresa donde simplemente no tenía rol asignado. Sin rol
+    // asignado se sigue con la siguiente fuente, que es lo que siempre debió
+    // pasar.
+    String? rolAsignado;
+    try {
+      final asignado = await _db
+          .collection('TBL_CORREO_ROLES')
+          .doc('${empresaId}_$userId')
+          .get();
+      rolAsignado = asignado.data()?['rol']?.toString();
+    } on FirebaseException catch (e) {
+      if (e.code != 'permission-denied') rethrow;
+    }
+    final delDoc = GdRolCorrespondencia.desdeTexto(rolAsignado);
     if (delDoc != null) return delDoc;
 
     final detalle = data['empresasDetalle'];
