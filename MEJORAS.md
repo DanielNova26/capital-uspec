@@ -6,6 +6,38 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Admin no podía cambiar roles de Interventoría — 11 sep 2026 (Claude)
+
+"No se pudo cambiar el rol de Interventoría: permission-denied", con el
+desarrollador administrando la Unión Temporal. La regla de
+`TBL_INTERVENTORIA_ROLES` solo aceptaba `isDeveloper()` (marca en la RAÍZ del
+usuario) o `admin_interventoria`. El desarrollador real está marcado dentro de
+`empresasDetalle[empresa]`, y su documento de rol en esa empresa no coincidía
+con lo que la regla busca. Ahora `administraInterventoria(empresaId)` suma
+`isDeveloperIn(empresaId)`, igual que ya hacía el maestro de beneficiarios.
+También aplica a `TBL_INTERVENTORIA_CONFIG` (matriz de responsables).
+
+Probado en el emulador (`functions/test/interventoria_roles.rules.js`, 6
+casos): con las reglas viejas fallaba exactamente el caso del desarrollador
+por empresa; con las nuevas pasan los 6 más los 7 del maestro bancario. De
+paso quedó demostrado que un error de evaluación en una rama de `||` NO tumba
+la regla si la otra rama es cierta: el `isDeveloper()` con campos ausentes
+no era el culpable.
+
+**Requiere `firebase deploy --only firestore:rules`.**
+
+Para correr el emulador desde esta máquina (Windows, JDK 21) hace falta un
+directorio corto para los sockets locales, si no muere con "Unable to
+establish loopback connection":
+
+```powershell
+$env:JAVA_TOOL_OPTIONS='-Djdk.net.unixdomain.tmpdir=C:\Temp\uds'   # crear la carpeta antes
+$env:PATH='C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin;'+$env:PATH
+cd functions; npx firebase emulators:exec --only firestore "node --test test/interventoria_roles.rules.js test/nomina_cuentas.rules.js"
+```
+
+---
+
 ## Cuatro reportes de Gerencia — 11 sep 2026 (Claude)
 
 1. **Correo: "No fue posible cargar los permisos del módulo".** No era
