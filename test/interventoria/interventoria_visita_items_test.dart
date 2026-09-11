@@ -256,6 +256,67 @@ void main() {
       expect(puntos.single.centroCostoNombre, 'tumaco');
     });
 
+    test('"Alta" y "Combita Alta" son el mismo subcentro', () {
+      // Lo que se vio el 11 sep: Combita, Combita Alta, Combita Combita Alta,
+      // Combita Combita Media y Combita Media, cinco barras para dos partes.
+      final puntos = compararUltimaActaPorEstablecimiento([
+        acta(
+          centro: 'Combita',
+          subId: 'alta',
+          subNombre: 'Alta',
+          fecha: DateTime(2026, 8, 21),
+          puntaje: 87,
+        ),
+        acta(
+          centro: 'Combita',
+          subId: 'combita_alta',
+          subNombre: 'Combita Alta',
+          fecha: DateTime(2026, 9, 8),
+          puntaje: 78,
+        ),
+        acta(
+          centro: 'Combita',
+          subId: 'combita_media',
+          subNombre: 'Combita Media',
+          fecha: DateTime(2026, 9, 9),
+          puntaje: 49,
+        ),
+        acta(
+          centro: 'Combita',
+          subId: 'media',
+          subNombre: 'Media',
+          fecha: DateTime(2026, 8, 25),
+          puntaje: 88,
+        ),
+      ]);
+
+      expect(puntos, hasLength(2));
+      expect(
+        puntos.map((p) => p.centroCostoNombre),
+        containsAll(['Combita Alta', 'Combita Media']),
+      );
+      // Y en cada una manda la más reciente, venga con el nombre que venga.
+      expect(puntos.map((p) => p.valor), containsAll([78.0, 49.0]));
+    });
+
+    test('el acta vieja sin subcentro de un centro dividido se dice', () {
+      final puntos = compararUltimaActaPorEstablecimiento([
+        acta(centro: 'Combita', fecha: DateTime(2026, 9, 3), puntaje: 89),
+        acta(
+          centro: 'Combita',
+          subId: 'alta',
+          subNombre: 'Alta',
+          fecha: DateTime(2026, 9, 8),
+          puntaje: 78,
+        ),
+      ]);
+
+      expect(
+        puntos.map((p) => p.centroCostoNombre),
+        containsAll(['Combita (sin subcentro)', 'Combita Alta']),
+      );
+    });
+
     test('dentro de cada subcentro manda la última acta', () {
       final puntos = compararUltimaActaPorEstablecimiento([
         acta(

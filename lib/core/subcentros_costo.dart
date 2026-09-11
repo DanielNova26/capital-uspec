@@ -104,8 +104,57 @@ List<SubcentroCosto> subcentrosDesdeData(Object? raw) {
 /// veces sin saber cuál es cuál.
 String nombreEstablecimiento(String centro, String subcentro) {
   final c = centro.trim();
-  final s = subcentro.trim();
+  final s = subcentroSinCentro(centro, subcentro);
   if (s.isEmpty) return c;
   if (c.isEmpty) return s;
   return '$c — $s';
+}
+
+/// El subcentro sin el nombre del centro delante.
+///
+/// En las actas el subcentro quedó guardado de dos formas: "Alta" y
+/// "Cómbita Alta". Pegarle el centro a la segunda daba "Combita Combita
+/// Alta" en el gráfico y en las tablas. Aquí las dos vuelven a "Alta".
+String subcentroSinCentro(String centro, String subcentro) {
+  final s = subcentro.trim();
+  final c = centro.trim();
+  if (s.isEmpty || c.isEmpty) return s;
+  final sc = _claveTexto(s);
+  final cc = _claveTexto(c);
+  if (sc == cc) return '';
+  if (sc.startsWith(cc)) {
+    // Quitar tantas palabras del inicio como tenga el centro.
+    final palabras = s.split(RegExp(r'\s+'));
+    final nCentro = c.split(RegExp(r'\s+')).length;
+    if (palabras.length > nCentro &&
+        _claveTexto(palabras.take(nCentro).join(' ')) == cc) {
+      return palabras.skip(nCentro).join(' ');
+    }
+  }
+  return s;
+}
+
+/// Clave con la que dos actas caen en el mismo subcentro aunque lo hayan
+/// guardado con distinto id o distinto nombre ("alta", "Alta", "Cómbita
+/// Alta"). Vacía si no hay subcentro.
+String claveSubcentro(
+  String centro,
+  String subcentroId,
+  String subcentroNombre,
+) {
+  final porNombre = _claveTexto(subcentroSinCentro(centro, subcentroNombre));
+  if (porNombre.isNotEmpty) return porNombre;
+  return _claveTexto(subcentroSinCentro(centro, subcentroId));
+}
+
+String _claveTexto(String value) {
+  const origen = 'áéíóúÁÉÍÓÚäëïöüÄËÏÖÜñÑ';
+  const destino = 'aeiouAEIOUaeiouAEIOUnN';
+  final b = StringBuffer();
+  for (final rune in value.runes) {
+    final ch = String.fromCharCode(rune);
+    final i = origen.indexOf(ch);
+    b.write(i >= 0 ? destino[i] : ch);
+  }
+  return b.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
 }

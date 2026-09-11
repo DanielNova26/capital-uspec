@@ -6,6 +6,27 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Cómbita salía cinco veces en Análisis — 11 sep 2026 (Claude)
+
+Combita, Combita Alta, Combita Combita Alta, Combita Combita Media y
+Combita Media: cinco barras para dos partes. Dos causas, las dos de datos:
+
+- el subcentro quedó guardado unas veces como "Alta" y otras como "Combita
+  Alta", con ids distintos según la época del catálogo. La barra se agrupaba
+  por id, así que el mismo subcentro salía dos veces; y el nombre se armaba
+  centro + subcentro, de ahí el "Combita Combita Alta";
+- hay actas de Cómbita sin subcentro (de antes de dividirlo, y una del
+  03/09 registrada antes de que fuera obligatorio).
+
+Ahora las barras y las columnas de la matriz se agrupan por clave
+normalizada del subcentro sin el nombre del centro (`claveSubcentro` en
+`lib/core/subcentros_costo.dart`), el nombre no se duplica, y el acta sin
+subcentro de un centro dividido sale como "Combita (sin subcentro)" en vez
+de parecer una tercera parte. Quedan dos barras + esa, mientras existan
+actas viejas sin subcentro; el registro ya exige subcentro.
+
+---
+
 ## Admin no podía cambiar roles de Interventoría — 11 sep 2026 (Claude)
 
 "No se pudo cambiar el rol de Interventoría: permission-denied", con el

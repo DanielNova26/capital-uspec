@@ -5418,10 +5418,13 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   Text(
+                                                    // Con subcentro: dos
+                                                    // columnas "Combita" no
+                                                    // dicen cuál es Alta.
                                                     v
                                                             .centroCostoNombre
                                                             .isNotEmpty
-                                                        ? v.centroCostoNombre
+                                                        ? nombreComparativo(v)
                                                         : v.centroCostoCodigo,
                                                     style: const TextStyle(
                                                       fontWeight:

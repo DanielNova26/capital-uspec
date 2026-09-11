@@ -1282,14 +1282,20 @@ String claveComparativo(InterventoriaVisita visita) {
       ? id
       : visita.centroCostoNombre.trim().toLowerCase();
   if (base.isEmpty) return '';
-  final sub = visita.subcentroId.trim();
+  // Por clave normalizada y no por id: el mismo subcentro quedó guardado con
+  // ids y nombres distintos según la época, y salía como dos barras.
+  final sub = claveSubcentro(
+    visita.centroCostoNombre,
+    visita.subcentroId,
+    visita.subcentroNombre,
+  );
   return sub.isEmpty ? base : '$base::$sub';
 }
 
 /// Nombre que se pinta bajo la barra.
 String nombreComparativo(InterventoriaVisita visita) {
   final centro = visita.centroCostoNombre.trim();
-  final sub = visita.subcentroNombre.trim();
+  final sub = subcentroSinCentro(centro, visita.subcentroNombre);
   if (sub.isEmpty) return centro;
   // "Cómbita Alta", no "Cómbita · Alta": es como lo nombran ellos.
   return centro.isEmpty ? sub : '$centro $sub';
@@ -1317,13 +1323,31 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
     }
   }
 
+  // Centros que en alguna acta traen subcentro: un acta suya SIN subcentro
+  // es de antes de la división y no se puede atribuir a Alta ni a Media.
+  // Se deja, pero dicho: "Cómbita (sin subcentro)" y no "Cómbita" a secas,
+  // que parecía una tercera parte del establecimiento.
+  final divididos = <String>{
+    for (final v in ultimas.values)
+      if (claveSubcentro(
+        v.centroCostoNombre,
+        v.subcentroId,
+        v.subcentroNombre,
+      ).isNotEmpty)
+        claveComparativo(v).split('::').first,
+  };
+
   final puntos = ultimas.values.map((visita) {
     final valor = valorCategoriaAnalisis(visita, categoriaKey);
+    final clave = claveComparativo(visita);
+    final sinSubcentro = !clave.contains('::') && divididos.contains(clave);
     return InterventoriaComparativoActa(
       visitaId: visita.id,
       centroCostoId: visita.centroCostoId,
       centroCostoCodigo: visita.centroCostoCodigo,
-      centroCostoNombre: nombreComparativo(visita),
+      centroCostoNombre: sinSubcentro
+          ? '${nombreComparativo(visita)} (sin subcentro)'
+          : nombreComparativo(visita),
       fecha: visita.fechaVisita.toDate(),
       valor: valor,
       detalle: detalleSeccionesDeVisita(visita),
