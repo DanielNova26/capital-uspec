@@ -20,11 +20,20 @@ DateTime? gdFechaRecepcionDesde(Map<String, dynamic> data) =>
     _gdDate(data['receivedAt']) ??
     _gdDate(data['createdAt']);
 
+/// Con la hora, no solo el día.
+///
+/// Un tutela tiene términos que se cuentan en horas hábiles desde que entra,
+/// y dos correos del mismo día pueden estar a un lado y otro de un plazo:
+/// "recibido 10/09" no dice si llegó a las 8 o a las 17. La hora se muestra en
+/// la local del dispositivo, que en esta operación es siempre Colombia.
 String gdEtiquetaFechaRecibido(DateTime? value) {
   if (value == null) return 'Fecha de recibido no disponible';
-  final day = value.day.toString().padLeft(2, '0');
-  final month = value.month.toString().padLeft(2, '0');
-  return 'Recibido $day/$month/${value.year}';
+  final local = value.toLocal();
+  final day = local.day.toString().padLeft(2, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return 'Recibido $day/$month/${local.year} $hour:$minute';
 }
 
 List<Map<String, dynamic>> _gdMapList(dynamic value) {

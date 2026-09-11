@@ -61,7 +61,15 @@ void main() {
         }),
         received,
       );
-      expect(gdEtiquetaFechaRecibido(received), 'Recibido 10/09/2026');
+      // Con la hora: los términos de una tutela se cuentan desde que entra, y
+      // dos correos del mismo día pueden caer a un lado y otro de un plazo.
+      expect(
+        gdEtiquetaFechaRecibido(received),
+        'Recibido ${received.day.toString().padLeft(2, '0')}/'
+        '${received.month.toString().padLeft(2, '0')}/${received.year} '
+        '${received.hour.toString().padLeft(2, '0')}:'
+        '${received.minute.toString().padLeft(2, '0')}',
+      );
     });
 
     test('usa la fecha de creación para expedientes antiguos', () {
@@ -70,7 +78,7 @@ void main() {
       expect(gdFechaRecepcionDesde({'createdAt': created}), created);
       expect(
         gdEtiquetaFechaRecibido(gdFechaRecepcionDesde({'createdAt': created})),
-        'Recibido 10/09/2026',
+        'Recibido 10/09/2026 06:52',
       );
     });
   });

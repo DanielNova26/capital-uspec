@@ -399,9 +399,7 @@ class _Explicacion extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w700,
-                  color: clasificadores == 0
-                      ? const Color(0xFF9A3412)
-                      : _navy,
+                  color: clasificadores == 0 ? const Color(0xFF9A3412) : _navy,
                 ),
               ),
             ),
@@ -439,10 +437,7 @@ class _UsuarioRolTile extends StatelessWidget {
           children: [
             Text(
               usuario.nombre,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: _navy,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w800, color: _navy),
             ),
             const SizedBox(height: 2),
             Text(
