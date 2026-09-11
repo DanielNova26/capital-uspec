@@ -4779,13 +4779,44 @@ colecciones no estaban en esa lista, así que **cualquiera con una cuenta podía
 leerlas y escribirlas**, de cualquier empresa. Ahora están excluidas del comodín
 y tienen regla propia.
 
-### No pude probarlas en el emulador
+### Probadas en el emulador el 10 sep 2026
 
-`functions/test/nomina_cuentas.rules.js` fija los ocho casos —incluido el que
-importa: Talento Humano lee el maestro y **falla** al leer el número—. No se
-pudo ejecutar: `firebase-tools` exige Java 21 y esta máquina tiene la 17. La
-prueba queda escrita para cuando se actualice; mientras tanto, el despliegue
-rechaza reglas que no compilen, pero no comprueba que denieguen lo que se cree.
+`functions/test/nomina_cuentas.rules.js`, **6 de 6 en verde** (2 saltadas, las
+de Talento Humano, que entran cuando exista su módulo):
+
+- Tesorería lee el maestro y el número.
+- El número no se puede colar en el maestro.
+- Quien no es Tesorería no puede escribir el número.
+- Alguien de la empresa **sin rol de planillas** no ve nada.
+- La Tesorería **de otra empresa** no ve estas cuentas.
+- Sin sesión no se ve nada.
+
+Hizo falta instalar Temurin 21 (`choco install temurin21`, en consola de
+administrador) y ponerlo **en el PATH**, no solo en `JAVA_HOME`: la CLI de
+Firebase ejecuta el `java` que encuentra en el PATH. Se pone solo para esa
+ventana, para no mover el JDK con el que compila Android.
+
+```
+$env:PATH='C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspotin;'+$env:PATH
+cd C:\Desarrollo\capital-uspecunctions
+npx firebase emulators:exec --only firestore "node --test test/nomina_cuentas.rules.js"
+```
+
+### Pendiente: `isDeveloper()` toca campos que pueden no existir
+
+En los registros del emulador aparece `Property desarrollador is undefined on
+object`. En las reglas, leer un campo ausente con el punto **lanza un error de
+evaluación**, y la mayoría de los usuarios no tienen `desarrollador`. Hoy no
+rompe nada porque quien llama a `isDeveloper()` lo hace dentro de un `||` que
+sigue siendo cierto por otra rama, pero el día que esa función sea la única
+rama de un permiso, el error denegará a quien sí tenía derecho.
+
+El arreglo es leer con `get('campo', valorPorDefecto)`. **Se intentó y se
+revirtió**: `isDeveloper()` gobierna todas las reglas de la aplicación y el
+emulador dejó de arrancar antes de poder comprobarlo
+(`NoClassDefFoundError: LegacySystemExit`, con el jar recién descargado). Subir
+sin verificar un cambio en el portero de todo, para quitar ruido de un registro,
+es mal negocio. Queda anotado para hacerlo cuando el emulador vuelva a levantar.
 
 ## El maestro completa el archivo, no lo sustituye
 
