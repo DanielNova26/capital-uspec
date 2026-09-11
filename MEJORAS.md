@@ -176,6 +176,18 @@ no era el culpable.
 
 **Requiere `firebase deploy --only firestore:rules`.**
 
+**Segunda vuelta (misma tarde):** desplegado lo anterior, seguía el
+permission-denied al cambiarse el rol a sí mismo en Servir USPEC. El dato:
+el desarrollador real tiene `role: rutas_desarrollador` y
+`roleId: EMPRESA_001_rutas_desarrollador` en la raíz, y en EMPRESA_002 un
+bloque sin rol. La app lo reconoce porque `isDeveloperUser` acepta un
+`roleId` que TERMINA en `_desarrollador`; las reglas exigían el valor exacto
+`desarrollador`. Ahora `esRolDeDesarrollo(valor)` acepta la lista corta o el
+sufijo `_(desarrollador|developer)$`, y se usa en `isDeveloper` e
+`isDeveloperIn`. De paso `let u = currentUser()` en vez de seis llamadas:
+el emulador avisaba del tope de 1000 expresiones por petición. Caso
+`devreal` añadido a la prueba; 19 casos de reglas en verde.
+
 Para correr el emulador desde esta máquina (Windows, JDK 21) hace falta un
 directorio corto para los sockets locales, si no muere con "Unable to
 establish loopback connection":

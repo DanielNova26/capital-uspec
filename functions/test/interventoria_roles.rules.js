@@ -86,6 +86,18 @@ test.before(async () => {
         role: "desarrollador",
         empresas: ["EMP_A"],
       }),
+      // El desarrollador REAL: `role: rutas_desarrollador` y
+      // `roleId: EMPRESA_001_rutas_desarrollador` en la raíz, y en la empresa
+      // donde administra (EMP_A) un bloque sin rol. Es lo que la app llama
+      // desarrollador (`isDeveloperUser`) y las reglas no reconocían.
+      setDoc(doc(db, "TBL_USUARIOS/devreal"), {
+        nombre: "Daniel",
+        role: "rutas_desarrollador",
+        roleKey: "rutas_desarrollador",
+        roleId: "EMP_OTRA_rutas_desarrollador",
+        empresas: ["EMP_OTRA", "EMP_A"],
+        empresasDetalle: {EMP_OTRA: {cargo: "Desarrollador"}, EMP_A: {cargo: "Desarrollador"}},
+      }),
       setDoc(doc(db, "TBL_INTERVENTORIA_ROLES/EMP_A_existente"), rolDoc("EMP_A", "existente")),
     ]);
   });
@@ -116,6 +128,19 @@ test("y puede quitar un rol (Sin rol = borrar el documento)", async () => {
 test("el desarrollador marcado en la raíz sigue pudiendo", async () => {
   await assertSucceeds(
     setDoc(doc(auth("devraiz"), "TBL_INTERVENTORIA_ROLES/EMP_A_nueva3"), rolDoc("EMP_A", "nueva3"))
+  );
+});
+
+test("el desarrollador real (roleId terminado en _desarrollador) administra", async () => {
+  await assertSucceeds(
+    setDoc(doc(auth("devreal"), "TBL_INTERVENTORIA_ROLES/EMP_A_nueva4"), rolDoc("EMP_A", "nueva4"))
+  );
+  // Y su propio rol, que es lo que estaba intentando.
+  await assertSucceeds(
+    setDoc(doc(auth("devreal"), "TBL_INTERVENTORIA_ROLES/EMP_A_devreal"), {
+      ...rolDoc("EMP_A", "devreal"),
+      rol: "admin_interventoria",
+    })
   );
 });
 

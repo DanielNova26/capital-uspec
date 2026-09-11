@@ -15,13 +15,31 @@ service cloud.firestore {
       return get(currentUserPath()).data;
     }
 
+    // Espejo de `isDeveloperUser` en lib/utils/user_company.dart. La app
+    // reconoce al desarrollador también por un `roleId` que TERMINA en
+    // `_desarrollador` (el real es `EMPRESA_001_rutas_desarrollador`, y su
+    // `role` es `rutas_desarrollador`, que no está en la lista corta). Sin
+    // esto la app lo trataba como desarrollador y las reglas no: Admin le
+    // decía "permission-denied" al cambiar un rol (11 sep 2026).
+    function esRolDeDesarrollo(valor) {
+      return valor is string
+        && (valor in ['desarrollador', 'developer', 'superadmin', 'administrador_sistema']
+          || valor.matches('.*_(desarrollador|developer)$'));
+    }
+
+    // `let` y no seis `currentUser()`: cada llamada cuenta como expresiones
+    // evaluadas y las reglas tienen un tope de 1000 por petición. Con las
+    // llamadas repetidas el emulador ya avisaba "maximum of 1000 expressions".
     function isDeveloper() {
+      let u = currentUser();
       return isSignedIn()
         && (
-          currentUser().desarrollador == true
-          || currentUser().developer == true
-          || currentUser().role in ['desarrollador', 'developer', 'superadmin', 'administrador_sistema']
-          || currentUser().rol in ['desarrollador', 'developer', 'superadmin', 'administrador_sistema']
+          ('desarrollador' in u && u.desarrollador == true)
+          || ('developer' in u && u.developer == true)
+          || ('role' in u && esRolDeDesarrollo(u.role))
+          || ('rol' in u && esRolDeDesarrollo(u.rol))
+          || ('roleKey' in u && esRolDeDesarrollo(u.roleKey))
+          || ('roleId' in u && esRolDeDesarrollo(u.roleId))
         );
     }
 
@@ -29,15 +47,16 @@ service cloud.firestore {
     // evalúa esta condición contra cada documento devuelto, por lo que una
     // consulta sin ese filtro falla en lugar de filtrar datos en el servidor.
     function belongsToCompany(empresaId) {
+      let u = currentUser();
       return isSignedIn()
         && empresaId is string
         && empresaId.size() > 0
         && (
-          isDeveloper()
-          || (currentUser().empresas is list && empresaId in currentUser().empresas)
-          || (currentUser().empresasDetalle is map && empresaId in currentUser().empresasDetalle)
-          || currentUser().empresaId == empresaId
-          || currentUser().empresa == empresaId
+          ('empresas' in u && u.empresas is list && empresaId in u.empresas)
+          || ('empresasDetalle' in u && u.empresasDetalle is map && empresaId in u.empresasDetalle)
+          || ('empresaId' in u && u.empresaId == empresaId)
+          || ('empresa' in u && u.empresa == empresaId)
+          || isDeveloper()
         );
     }
 
@@ -72,18 +91,17 @@ service cloud.firestore {
     // Cada acceso va precedido de un `in`: en las reglas, leer un campo que no
     // existe lanza error, y el `&&` se detiene antes de llegar ahí.
     function isDeveloperIn(empresaId) {
+      let u = currentUser();
       return isSignedIn()
-        && 'empresasDetalle' in currentUser()
-        && currentUser().empresasDetalle is map
-        && empresaId in currentUser().empresasDetalle
-        && currentUser().empresasDetalle[empresaId] is map
+        && 'empresasDetalle' in u
+        && u.empresasDetalle is map
+        && empresaId in u.empresasDetalle
+        && u.empresasDetalle[empresaId] is map
         && (
-          ('roleKey' in currentUser().empresasDetalle[empresaId]
-            && currentUser().empresasDetalle[empresaId].roleKey in ['desarrollador', 'developer'])
-          || ('roleId' in currentUser().empresasDetalle[empresaId]
-            && currentUser().empresasDetalle[empresaId].roleId in [
-              empresaId + '_desarrollador', empresaId + '_developer'
-            ])
+          ('roleKey' in u.empresasDetalle[empresaId]
+            && esRolDeDesarrollo(u.empresasDetalle[empresaId].roleKey))
+          || ('roleId' in u.empresasDetalle[empresaId]
+            && esRolDeDesarrollo(u.empresasDetalle[empresaId].roleId))
         );
     }
 
