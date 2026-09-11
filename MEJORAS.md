@@ -6,6 +6,34 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## El WhatsApp de "nueva acta" no salía nunca — 11 sep 2026 (Claude)
+
+Codex se quedó sin créditos a mitad de la migración a WhatsApp Cloud (Meta).
+La configuración en producción está completa: proveedor `whatsapp_cloud`,
+plantilla `interventoria_actividad` APROBADA, ruta `interventoria_nueva_acta`
+con lista "Nueva_acta" (Kary y Oscar, activos), módulo encendido. Y aun así
+no llegaba nada.
+
+Causa: `interventoriaWhatsAppNuevaActa` era `onUpdate` y comparaba cuántas
+imágenes había antes y después. Pero el acta se crea en UNA escritura con las
+imágenes ya adentro (`guardarVisita` hace un `set`), así que la creación
+nunca disparaba la función; solo la disparaban los guardados de revisión, y
+ahí terminaba en 6 ms sin enviar (se ve en los logs de hoy). Ahora es
+`onWrite` y trata la creación como "de 0 a N imágenes".
+
+Además `sendWhatsAppRoute` tenía ocho `return { skipped: true }` mudos.
+Ahora cada omisión escribe `WHATSAPP_ROUTE_SKIPPED` con el motivo
+(módulo apagado, ruta sin lista, lista inactiva, sin destinatarios…) y cada
+envío `WHATSAPP_ROUTE_SENT`. La próxima vez se diagnostica con un
+`gcloud logging read`, no adivinando.
+
+**Requiere deploy de functions.** No se tocaron los archivos de Codex a
+medias (`functions/lib/**`, `package.json`, `main.dart`, permisos de
+arranque, acta devuelta): siguen sin commit en el árbol para que él los
+retome.
+
+---
+
 ## Ramiriquí perdió las observaciones al guardar — 11 sep 2026 (Claude)
 
 Kary: "guardé el acta de Ramiriquí y ya no puedo leer los hallazgos que

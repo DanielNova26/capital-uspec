@@ -1385,26 +1385,34 @@ export async function sendWhatsAppRoute(input: {
   metadata?: Record<string, unknown>;
 }): Promise<{ sent: number; skipped: boolean }> {
   const routeId = normalize(input.routeId);
+  // Cada omisión deja rastro: un aviso que no sale sin decir por qué es
+  // exactamente lo que no se pudo diagnosticar el 11 sep 2026.
+  const skip = (motivo: string, extra: Record<string, unknown> = {}) => {
+    console.warn("WHATSAPP_ROUTE_SKIPPED", {
+      empresaId: input.empresaId, routeId, motivo, ...extra,
+    });
+    return { sent: 0, skipped: true };
+  };
   const moduleId = SUPPORTED_ROUTES.get(routeId);
-  if (!moduleId) return { sent: 0, skipped: true };
+  if (!moduleId) return skip("ruta_no_soportada");
   const config = await loadRuntimeConfig(input.empresaId);
-  if (!config.enabled || config.modules[moduleId] !== true) {
-    return { sent: 0, skipped: true };
-  }
+  if (!config.enabled) return skip("whatsapp_deshabilitado");
+  if (config.modules[moduleId] !== true) return skip("modulo_apagado", { moduleId });
   const listId = text(config.routes[routeId]);
-  if (!listId) return { sent: 0, skipped: true };
+  if (!listId) return skip("ruta_sin_lista");
   const list = await db().collection(LIST_COLLECTION).doc(listId).get();
-  if (!list.exists || list.get("activo") === false ||
-      text(list.get("empresaId")) !== input.empresaId) {
-    return { sent: 0, skipped: true };
+  if (!list.exists) return skip("lista_no_existe", { listId });
+  if (list.get("activo") === false) return skip("lista_inactiva", { listId });
+  if (text(list.get("empresaId")) !== input.empresaId) {
+    return skip("lista_de_otra_empresa", { listId });
   }
   const allowedModules = normalizedListModules(list.get("modulos"));
   if (allowedModules.length && !allowedModules.includes(moduleId)) {
-    return { sent: 0, skipped: true };
+    return skip("lista_no_cubre_modulo", { listId, moduleId });
   }
   const recipients = normalizedRecipients(list.get("destinatarios"))
     .filter((item) => item.activo);
-  if (!recipients.length) return { sent: 0, skipped: true };
+  if (!recipients.length) return skip("lista_sin_destinatarios", { listId });
   const provider = await createWhatsAppProvider(input.empresaId, moduleId);
   let sent = 0;
   for (const recipient of recipients) {
@@ -1422,6 +1430,10 @@ export async function sendWhatsAppRoute(input: {
         },
       });
       sent++;
+      console.log("WHATSAPP_ROUTE_SENT", {
+        empresaId: input.empresaId, routeId, listId,
+        telefono: recipient.telefono.slice(-4),
+      });
     } catch (error) {
       console.error("WHATSAPP_ROUTE_RECIPIENT_ERROR", {
         routeId,

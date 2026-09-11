@@ -114,12 +114,18 @@ export const ppWhatsAppCambioFirma = functions
     }
   });
 
+// `onWrite` y no `onUpdate`: el acta se crea en UNA sola escritura con sus
+// imágenes ya adentro (`guardarVisita` hace un `set` completo), así que con
+// `onUpdate` la creación nunca se veía y el aviso de "nueva acta" no salía
+// nunca. Se comprobó el 11 sep 2026: la función se ejecutaba solo en los
+// guardados de revisión y terminaba en 6 ms sin enviar nada.
 export const interventoriaWhatsAppNuevaActa = functions
   .region(REGION)
   .firestore.document("TBL_INTERVENTORIA_VISITAS/{visitaId}")
-  .onUpdate(async (change, context) => {
-    const before = change.before.data();
-    const after = change.after.data();
+  .onWrite(async (change, context) => {
+    if (!change.after.exists) return;
+    const before = change.before.exists ? change.before.data() ?? {} : {};
+    const after = change.after.data() ?? {};
     const previous = Array.isArray(before.imagenesActa) ? before.imagenesActa.length : 0;
     const current = Array.isArray(after.imagenesActa) ? after.imagenesActa.length : 0;
     if (current <= previous) return;
