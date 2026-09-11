@@ -12,8 +12,14 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
    permisos: era que quien NO tiene documento en `TBL_CORREO_ROLES` recibe
    `permission-denied` y no "no existe", porque la regla de lectura mira
    `resource.data.empresaId` y en un documento inexistente `resource` es nulo.
-   `GdPermisosService.resolverRol` ahora trata ese denegado como "sin rol
-   asignado" y sigue con las demás fuentes. Sin reglas nuevas.
+   Y aunque el documento exista (Oscar tiene "Administrador del módulo" en la
+   matriz), la lectura depende de cómo la regla entiende la pertenencia a la
+   empresa, que no es exactamente como la entiende la app. Por eso el rol
+   ahora lo da el servidor: callable nuevo `correoMiRol`, que devuelve lo
+   mismo que `resolveCorreoRole` aplica en cada acción. La lectura directa de
+   Firestore queda de respaldo si la función no responde, y en ese respaldo
+   el denegado del documento inexistente se toma como "sin rol asignado".
+   **Requiere deploy de functions.** Sin reglas nuevas.
 2. **Interventoría: "Otra persona autorizada debe resolver esta solicitud".**
    La regla de cuatro ojos tenía sentido cuando nadie borraba directo. Desde
    el 10 sep admin, gerente y revisor eliminan sin pedir permiso, así que la

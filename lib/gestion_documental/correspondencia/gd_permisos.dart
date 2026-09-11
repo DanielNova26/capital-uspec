@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../utils/user_company.dart';
 
@@ -140,9 +141,11 @@ class GdPermisos {
 /// de que existiera el rol clasificador.
 class GdPermisosService {
   final FirebaseFirestore _db;
+  final FirebaseFunctions? _functions;
 
-  GdPermisosService({FirebaseFirestore? db})
-    : _db = db ?? FirebaseFirestore.instance;
+  GdPermisosService({FirebaseFirestore? db, FirebaseFunctions? functions})
+    : _db = db ?? FirebaseFirestore.instance,
+      _functions = functions;
 
   static const GdRolCorrespondencia rolPorDefecto =
       GdRolCorrespondencia.operador;
@@ -161,6 +164,50 @@ class GdPermisosService {
     if (empresaId.trim().isEmpty || userId.trim().isEmpty) {
       return rolPorDefecto;
     }
+    // Primero el servidor. `correoMiRol` devuelve lo mismo que el backend
+    // aplica en cada acción, así que la interfaz nunca puede ofrecer más ni
+    // menos de lo que el servidor va a aceptar; y no pasa por las reglas de
+    // Firestore, que es donde Gerencia se quedaba fuera. La lectura directa
+    // de abajo queda de respaldo por si la función no responde.
+    final delServidor = await _rolDesdeServidor(
+      empresaId: empresaId,
+      userId: userId,
+    );
+    if (delServidor != null) return delServidor;
+    return _rolDesdeFirestore(empresaId: empresaId, userId: userId);
+  }
+
+  Future<GdRolCorrespondencia?> _rolDesdeServidor({
+    required String empresaId,
+    required String userId,
+  }) async {
+    try {
+      // Se resuelve aquí y no en el constructor: sin Firebase inicializado
+      // (pruebas) `FirebaseFunctions.instance` lanza, y eso debe caer en el
+      // respaldo, no tumbar el servicio.
+      final functions = _functions ?? FirebaseFunctions.instance;
+      final result = await functions
+          .httpsCallable('correoMiRol')
+          .call<Map<dynamic, dynamic>>({
+            'empresaId': empresaId,
+            'userId': userId,
+          })
+          .timeout(const Duration(seconds: 12));
+      final rol = result.data['rol']?.toString();
+      // "sin rol" es una respuesta válida del servidor: el usuario existe y
+      // pertenece a la empresa, pero nadie le asignó nada. Ahí aplica el rol
+      // por defecto, no el respaldo.
+      if (rol == null || rol.isEmpty) return rolPorDefecto;
+      return GdRolCorrespondencia.desdeTexto(rol) ?? rolPorDefecto;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<GdRolCorrespondencia> _rolDesdeFirestore({
+    required String empresaId,
+    required String userId,
+  }) async {
     final usuario = await _db.collection('TBL_USUARIOS').doc(userId).get();
     final data = usuario.data() ?? const <String, dynamic>{};
     // Se usa el mismo `isDeveloperUser` que el resto de la aplicación en vez de

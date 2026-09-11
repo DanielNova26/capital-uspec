@@ -36,6 +36,7 @@ export {
   correoProbarRegla,
   correoProbarWhatsApp,
   correoEstadoIntegracion,
+  correoMiRol,
   correoCrearExpediente,
   gdAsignarExpediente,
   gdCodificarExpedientesHistoricos,

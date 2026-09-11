@@ -4183,6 +4183,46 @@ export const correoProbarWhatsApp = functions
   });
 
 /** Estado no sensible para la pantalla de configuración. */
+/**
+ * Rol de Correo del usuario que llama, resuelto por el servidor.
+ *
+ * La interfaz lo pedía leyendo Firestore bajo las reglas, y eso tenía dos
+ * formas de fallar sin que el usuario tuviera nada mal: un documento
+ * inexistente en TBL_CORREO_ROLES responde permission-denied (la regla mira
+ * `resource.data` y `resource` es nulo), y cualquier diferencia entre cómo
+ * lee la regla la pertenencia a la empresa y cómo la lee la app deja al
+ * usuario sin módulo. Aquí manda `resolveCorreoRole`, que es exactamente lo
+ * que el backend aplica en cada acción: si esto dice "administrador", las
+ * acciones de administrador van a pasar.
+ */
+export const correoMiRol = functions
+  .region(REGION)
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    const empresaId = text(data?.empresaId);
+    const authUid = text(context.auth?.uid);
+    const appIdentity = text(data?.userId || data?.cedula);
+    if (!empresaId || !authUid) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "Se requiere una sesión autenticada y empresaId."
+      );
+    }
+    let userSnap = await findUserByIdentity(authUid);
+    if (!userSnap?.exists && appIdentity) {
+      const candidate = await findUserByIdentity(appIdentity);
+      if (candidate?.exists) userSnap = candidate;
+    }
+    if (!userSnap?.exists) {
+      throw new functions.https.HttpsError("unauthenticated", "Usuario no encontrado.");
+    }
+    const user = userSnap.data() ?? {};
+    if (!userBelongsToEmpresa(user, empresaId)) {
+      return { rol: null, motivo: "no_pertenece" };
+    }
+    const rol = await resolveCorreoRole(userSnap.id, user, empresaId);
+    return { rol, motivo: rol ? null : "sin_rol" };
+  });
+
 export const correoEstadoIntegracion = functions
   .region(REGION)
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
