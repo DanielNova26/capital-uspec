@@ -84,12 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // Clave que detecta cambio de cedula/empresa para re-suscribirse.
   String? _lastCitasKey;
 
-  // Notificaciones no asociadas directamente a tareas, para que el calendario
-  // también funcione como agenda operativa transversal.
-  Map<String, List<Map<String, dynamic>>> _notificationEvents = {};
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-  _notificationCalendarSub;
-  String? _lastNotificationCalendarKey;
   Map<String, List<Map<String, dynamic>>> _abastecimientoEvents = {};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _abastecimientoSub;
   String? _lastAbastecimientoKey;
@@ -410,9 +404,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final key = DateFormat('yyyy-MM-dd').format(day);
     final tasks = _events[key] ?? [];
     final citas = _citasEvents[key] ?? [];
-    final notificaciones = _notificationEvents[key] ?? [];
     final abastecimiento = _abastecimientoEvents[key] ?? [];
-    return [...tasks, ...citas, ...notificaciones, ...abastecimiento];
+    return [...tasks, ...citas, ...abastecimiento];
   }
 
   /// Suscribe (o re-suscribe) a TBL_CITAS_NUTRICION para el cedula+empresa activa.
@@ -448,82 +441,6 @@ class _HomeScreenState extends State<HomeScreen> {
         });
   }
 
-  bool _notificationMatchesEmpresa(
-    Map<String, dynamic> data,
-    String empresaId,
-  ) {
-    final notifEmpresa = (data['empresaId'] ?? '').toString().trim();
-    final eid = empresaId.trim();
-    if (eid.isEmpty) return true;
-    return notifEmpresa == eid;
-  }
-
-  DateTime? _notificationCalendarDate(Map<String, dynamic> data) {
-    final explicit = _toDate(
-      data['calendarAt'] ??
-          data['scheduledFor'] ??
-          data['fechaCalendario'] ??
-          data['fechaEvento'],
-    );
-    if (explicit != null) return explicit;
-
-    final type = (data['type'] ?? '').toString().trim().toLowerCase();
-    final taskId = (data['taskId'] ?? '').toString().trim();
-    final isModuleNotification =
-        taskId.isEmpty ||
-        taskId.startsWith('proveedor:') ||
-        taskId.startsWith('ficha:') ||
-        taskId.startsWith('recepcion:') ||
-        type.startsWith('gestion_documental') ||
-        type == 'planillas_pago_resumen';
-    if (!isModuleNotification) return null;
-
-    return _toDate(data['createdAt']);
-  }
-
-  String _notificationCalendarLabel(String type) {
-    final t = type.trim().toLowerCase();
-    if (t.startsWith('gestion_documental')) return 'GESTIÓN DOC.';
-    if (t.contains('cita_nutricion')) return 'NUTRICIÓN';
-    if (t.contains('planillas')) return 'PLANILLAS';
-    if (t.contains('rechazado') || t.contains('correccion')) return 'COMPRAS';
-    if (t.contains('talento') || t.contains('th_')) return 'TALENTO H.';
-    if (t.startsWith('fac_')) return 'FACTURACIÓN';
-    return 'NOTIFICACIÓN';
-  }
-
-  void _restartNotificationCalendarSubscription(
-    String cedula,
-    String empresaId,
-  ) {
-    final key = '$cedula:$empresaId';
-    if (_lastNotificationCalendarKey == key) return;
-    _lastNotificationCalendarKey = key;
-    _notificationCalendarSub?.cancel();
-    _notificationEvents = {};
-    _notificationCalendarSub = FirebaseFirestore.instance
-        .collection('TBL_NOTIFICACIONES')
-        .doc(cedula)
-        .collection('notifications')
-        .orderBy('createdAt', descending: true)
-        .limit(300)
-        .snapshots()
-        .listen((snap) {
-          final newEvents = <String, List<Map<String, dynamic>>>{};
-          for (final d in snap.docs) {
-            final data = <String, dynamic>{'id': d.id, ...d.data()};
-            if (!_notificationMatchesEmpresa(data, empresaId)) continue;
-            final fecha = _notificationCalendarDate(data);
-            if (fecha == null) continue;
-            final k = DateFormat('yyyy-MM-dd').format(fecha);
-            data['_calType'] = 'notificacion';
-            data['titulo'] = (data['title'] ?? 'Notificación').toString();
-            newEvents.putIfAbsent(k, () => []).add(data);
-          }
-          if (mounted) setState(() => _notificationEvents = newEvents);
-        });
-  }
-
   Future<void> _restartAbastecimientoSubscription(
     String cedula,
     String empresaId,
@@ -543,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
     if (!mounted || _lastAbastecimientoKey != key) return;
     _abastecimientoRol = role;
-    if (role != kRolBodega && role != kRolAdmin) {
+    if (!comprasRolRecibeAgendaAbastecimiento(role)) {
       if (mounted) setState(() => _abastecimientoEvents = {});
       return;
     }
@@ -810,7 +727,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _tokenSub?.cancel();
     _notifSub?.cancel();
     _citasSub?.cancel();
-    _notificationCalendarSub?.cancel();
     _abastecimientoSub?.cancel();
     super.dispose();
   }
@@ -826,7 +742,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _currentEmpresaId = scopeEmpresa;
     // Suscribir/re-suscribir citas de Nutrición para el calendario.
     _restartCitasSubscription(cedula, scopeEmpresa);
-    _restartNotificationCalendarSubscription(cedula, scopeEmpresa);
     unawaited(_restartAbastecimientoSubscription(cedula, scopeEmpresa));
     _syncActiveNotificationCedula(cedula);
 
@@ -1730,7 +1645,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Column(
       children: tasks.map((t) {
         final esCita = t['_calType'] == 'cita_nutricion';
-        final esNotificacion = t['_calType'] == 'notificacion';
         final esAbastecimiento = t['_calType'] == 'abastecimiento';
 
         if (esCita) {
@@ -1740,7 +1654,9 @@ class _HomeScreenState extends State<HomeScreen> {
             decoration: BoxDecoration(
               color: scheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.4),
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.02),
@@ -1809,98 +1725,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     empresaId: (t['empresaId'] as String?) ?? scopeEmpresa,
                   ),
                 ),
-              ),
-            ),
-          );
-        }
-
-        if (esNotificacion) {
-          final type = (t['type'] ?? '').toString();
-          final desc = (t['description'] ?? t['body'] ?? '').toString();
-          final label = _notificationCalendarLabel(type);
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: scheme.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.02),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 4,
-              ),
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.notifications_active_outlined,
-                  color: scheme.primary,
-                  size: 20,
-                ),
-              ),
-              title: Text(
-                _titleOf(t),
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontFamily: kArial,
-                  fontSize: 14,
-                ),
-              ),
-              subtitle: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: scheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          color: scheme.primary,
-                        ),
-                      ),
-                    ),
-                    if (desc.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        desc,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-              onTap: () => _openNotificationTask(
-                type: type,
-                taskId: (t['taskId'] ?? '').toString(),
-                cedula: cedula,
-                userData: userData,
               ),
             ),
           );
@@ -1995,7 +1819,9 @@ class _HomeScreenState extends State<HomeScreen> {
           decoration: BoxDecoration(
             color: scheme.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+            border: Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.4),
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.02),

@@ -26,6 +26,15 @@ void main() {
       expect(comprasRolPuedeVerAbastecimiento(kRolAdmin), isTrue);
     });
 
+    test('solo Compras y Bodega reciben Abastecimiento en la agenda', () {
+      expect(comprasRolRecibeAgendaAbastecimiento(kRolCompras), isTrue);
+      expect(comprasRolRecibeAgendaAbastecimiento(kRolBodega), isTrue);
+      expect(comprasRolRecibeAgendaAbastecimiento(kRolAdmin), isFalse);
+      expect(comprasRolRecibeAgendaAbastecimiento(kRolCalidad), isFalse);
+      expect(comprasRolRecibeAgendaAbastecimiento(kRolConsultas), isFalse);
+      expect(comprasRolRecibeAgendaAbastecimiento(null), isFalse);
+    });
+
     test('solo Bodega y Admin pueden completar una recepción cerrada', () {
       expect(comprasRolPuedeCompletarRecepcion(kRolBodega), isTrue);
       expect(comprasRolPuedeCompletarRecepcion(kRolAdmin), isTrue);

@@ -253,6 +253,13 @@ String labelComprasRol(String? raw) {
 bool comprasRolPuedeVerAbastecimiento(String? raw) =>
     normalizeComprasRol(raw) != kRolConsultas;
 
+/// La agenda operativa de Abastecimiento solo corresponde a quienes coordinan
+/// la compra o reciben físicamente el pedido.
+bool comprasRolRecibeAgendaAbastecimiento(String? raw) {
+  final rol = normalizeComprasRol(raw);
+  return rol == kRolCompras || rol == kRolBodega;
+}
+
 /// Solo Bodega completa una recepción ya cerrada; Admin conserva el acceso de
 /// soporte. Compras y Calidad no alteran la captura durante la revisión.
 bool comprasRolPuedeCompletarRecepcion(String? raw) {
