@@ -437,6 +437,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               _buildInfoItem('Codigo', doc.codigo),
               _buildInfoItem('Categoria', doc.categoria ?? '-'),
               _buildInfoItem('Area', doc.area ?? '-'),
+              if (doc.palabrasClave.isNotEmpty)
+                _buildInfoItem('Palabras clave', doc.palabrasClave.join(', ')),
               _buildUserInfoItem('Creado por', doc.creadoPor),
               if (doc.updatedAt != null)
                 _buildInfoItem(
@@ -447,6 +449,76 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 ),
             ],
           ),
+          if (doc.aprobadoPor != null) ...[
+            const SizedBox(height: 20),
+            _buildApprovalSeal(doc),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApprovalSeal(DocumentoDoc doc) {
+    final approvedAt = doc.aprobadoEn == null
+        ? 'Fecha disponible en el historial'
+        : DateFormat('dd/MM/yyyy HH:mm').format(doc.aprobadoEn!.toDate());
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFECFDF5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFA7F3D0)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+              color: Color(0xFF059669),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.verified_rounded, color: Colors.white),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'APROBADO POR CALIDAD',
+                  style: TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
+                    color: Color(0xFF047857),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                UserNameText(
+                  doc.aprobadoPor!,
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: GdPalette.primary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  approvedAt,
+                  style: const TextStyle(
+                    fontFamily: kArial,
+                    fontSize: 11,
+                    color: GdPalette.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.lock_outline_rounded, color: Color(0xFF059669)),
         ],
       ),
     );
@@ -748,7 +820,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                           ),
                           SizedBox(height: 16),
                           Text(
-                            'Aun no se ha subido el archivo PDF',
+                            'Aun no se ha subido el archivo',
                             style: TextStyle(
                               fontFamily: kArial,
                               color: Color(0xFF64748B),
@@ -757,7 +829,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                         ],
                       ),
                     )
-                  : buildGdPdfPreview(
+                  : _isPdf(previewVersion)
+                  ? buildGdPdfPreview(
                       url: previewVersion.urlPdf!,
                       pdfFuture: _resolvePreviewPdfFuture(
                         previewVersion.urlPdf!,
@@ -765,7 +838,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                       fileName:
                           previewVersion.nombreArchivo ??
                           '${previewVersion.etiqueta}.pdf',
-                    ),
+                    )
+                  : _buildOfficePreview(previewVersion),
             ),
             if (previewVersion != null)
               Positioned.fill(
@@ -792,9 +866,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
           TextButton.icon(
             onPressed: () => _launchURL(currentVersion!.urlPdf!),
             icon: const Icon(Icons.open_in_new, size: 16),
-            label: const Text(
-              'Abrir PDF',
-              style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
+            label: Text(
+              _isPdf(currentVersion) ? 'Abrir PDF' : 'Descargar archivo',
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         if (hasLink && puedeSubir) const SizedBox(width: 4),
@@ -809,6 +886,68 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     );
   }
 
+  bool _isPdf(VersionDoc? version) {
+    return (version?.nombreArchivo ?? '').toLowerCase().endsWith('.pdf');
+  }
+
+  Widget _buildOfficePreview(VersionDoc version) {
+    final name = version.nombreArchivo ?? 'Documento adjunto';
+    final extension = name.contains('.')
+        ? name.split('.').last.toUpperCase()
+        : 'ARCHIVO';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: GdPalette.accent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.file_present_rounded,
+                size: 58,
+                color: GdPalette.accent,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              name,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                color: GdPalette.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$extension no tiene vista previa. Descárgalo para consultar su contenido.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 13,
+                color: GdPalette.muted,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: version.urlPdf == null
+                  ? null
+                  : () => _launchURL(version.urlPdf!),
+              icon: const Icon(Icons.download_rounded),
+              label: const Text('DESCARGAR ARCHIVO'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildUploadButton(
     VersionDoc? currentVersion,
     String? rolDocumental,
@@ -819,7 +958,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       onPressed: currentVersion == null
           ? null
           : () async {
-              await _pickAndUploadPdf(
+              await _pickAndUploadDocument(
                 currentVersion,
                 rolDocumental,
                 nombreActor,
@@ -827,20 +966,20 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             },
       icon: const Icon(Icons.upload_file, size: 16),
       label: Text(
-        isReplace ? 'Reemplazar PDF' : 'Subir PDF',
+        isReplace ? 'Reemplazar archivo' : 'Subir archivo',
         style: const TextStyle(fontFamily: kArial, fontWeight: FontWeight.w800),
       ),
     );
   }
 
-  Future<void> _pickAndUploadPdf(
+  Future<void> _pickAndUploadDocument(
     VersionDoc currentVersion,
     String? rolDocumental,
     String? nombreActor,
   ) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['pdf'],
+      allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx'],
       withData: true,
     );
 
@@ -867,7 +1006,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'No se seleccionó ningún archivo o hubo un error al leer el PDF.',
+            'No se seleccionó ningún archivo o hubo un error al leerlo.',
           ),
         ),
       );
@@ -994,11 +1133,14 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             currentVersion != null &&
             GdRoles.puedeEjecutar('subir_pdf', rolDocumental))
           _buildActionButton(
-            label: 'SUBIR PDF CORREGIDO',
+            label: 'SUBIR ARCHIVO CORREGIDO',
             icon: Icons.upload_file,
             color: const Color(0xFFF59E0B),
-            onPressed: () =>
-                _pickAndUploadPdf(currentVersion, rolDocumental!, nombreActor),
+            onPressed: () => _pickAndUploadDocument(
+              currentVersion,
+              rolDocumental!,
+              nombreActor,
+            ),
           ),
         if (doc.estado == GdEstado.observado &&
             currentVersion != null &&
@@ -1515,7 +1657,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
           style: TextStyle(fontFamily: kArial, fontWeight: FontWeight.w900),
         ),
         content: Text(
-          'Se eliminará "${doc.titulo}" junto con todas sus versiones, historial y archivo PDF. Esta acción no se puede deshacer.',
+          'Se eliminará "${doc.titulo}" junto con todas sus versiones, historial y archivo. Esta acción no se puede deshacer.',
           style: const TextStyle(fontFamily: kArial),
         ),
         actions: [

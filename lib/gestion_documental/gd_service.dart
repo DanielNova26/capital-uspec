@@ -106,6 +106,7 @@ class GdService {
     String? descripcion,
     String? categoria,
     String? area,
+    List<String> palabrasClave = const [],
     String? nombreActor,
     // PDF opcional en la creación (puede subirse después)
     Uint8List? pdfBytes,
@@ -123,7 +124,7 @@ class GdService {
     String? urlPdf;
     String? pathPdf;
     if (pdfBytes != null && pdfNombre != null) {
-      final result = await _subirPdfBytes(
+      final result = await _subirArchivoBytes(
         empresaId: empresaId,
         docId: docId,
         numero: 1,
@@ -144,6 +145,7 @@ class GdService {
       'descripcion': descripcion,
       'categoria': categoria,
       'area': area,
+      'palabrasClave': palabrasClave,
       'versionActual': 'v1',
       'estado': GdEstado.borrador.valor,
       'versionVigenteId': null,
@@ -152,6 +154,7 @@ class GdService {
       'updatedAt': now,
       'revisadoPor': null,
       'aprobadoPor': null,
+      'aprobadoEn': null,
       'firmadoPor': null,
     });
 
@@ -245,7 +248,7 @@ class GdService {
 
     final esReemplazo = verSnap.data()?['urlPdf'] != null;
 
-    final (url, path) = await _subirPdfBytes(
+    final (url, path) = await _subirArchivoBytes(
       empresaId: empresaId,
       docId: docId,
       numero: numeroVersion,
@@ -403,7 +406,10 @@ class GdService {
         'aprobadoPor': actorId,
         'aprobadoEn': FieldValue.serverTimestamp(),
       },
-      camposDocumento: {'aprobadoPor': actorId},
+      camposDocumento: {
+        'aprobadoPor': actorId,
+        'aprobadoEn': FieldValue.serverTimestamp(),
+      },
     );
   }
 
@@ -588,7 +594,7 @@ class GdService {
     String? urlPdf;
     String? pathPdf;
     if (pdfBytes != null && pdfNombre != null) {
-      final result = await _subirPdfBytes(
+      final result = await _subirArchivoBytes(
         empresaId: empresaId,
         docId: docId,
         numero: nuevoNumero,
@@ -633,6 +639,7 @@ class GdService {
       // Limpiar trazabilidad de versión anterior
       'revisadoPor': null,
       'aprobadoPor': null,
+      'aprobadoEn': null,
       'firmadoPor': null,
     });
 
@@ -698,9 +705,7 @@ class GdService {
     final docData = docSnap.data() ?? <String, dynamic>{};
     final empresaDocumento = (docData['empresaId'] ?? '').toString();
     if (empresaDocumento != empresaId) {
-      throw const GdException(
-        'El documento no pertenece a la empresa activa.',
-      );
+      throw const GdException('El documento no pertenece a la empresa activa.');
     }
 
     final versionesSnap = await _verCol.where('docId', isEqualTo: docId).get();
@@ -842,8 +847,7 @@ class GdService {
 
       // Refresh the download URL and retry via HTTP (covers expired-token case).
       try {
-        final freshUrl =
-            await _storage.ref(firma.pathFirma!).getDownloadURL();
+        final freshUrl = await _storage.ref(firma.pathFirma!).getDownloadURL();
         final resp = await http.get(Uri.parse(freshUrl));
         if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
           return resp.bodyBytes;
@@ -1053,8 +1057,8 @@ class GdService {
     });
   }
 
-  /// Sube bytes de PDF a Firebase Storage y retorna (url, path).
-  Future<(String, String)> _subirPdfBytes({
+  /// Sube un archivo documental a Firebase Storage y retorna (url, path).
+  Future<(String, String)> _subirArchivoBytes({
     required String empresaId,
     required String docId,
     required int numero,
@@ -1068,9 +1072,23 @@ class GdService {
     ); // Limpiar nombre de archivo
     final path = 'documentos/$empresaId/$docId/v$numero/${ts}_$safeName';
     final ref = _storage.ref(path);
-    await ref.putData(bytes, SettableMetadata(contentType: 'application/pdf'));
+    await ref.putData(bytes, SettableMetadata(contentType: _mimeType(nombre)));
     final url = await ref.getDownloadURL();
     return (url, path);
+  }
+
+  String _mimeType(String nombre) {
+    final extension = nombre.split('.').last.toLowerCase();
+    return switch (extension) {
+      'pdf' => 'application/pdf',
+      'doc' => 'application/msword',
+      'docx' =>
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'xls' => 'application/vnd.ms-excel',
+      'xlsx' =>
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      _ => 'application/octet-stream',
+    };
   }
 
   /// Repara lecturas incompletas: si existe pathPdf pero falta urlPdf,

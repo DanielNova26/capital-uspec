@@ -13,26 +13,33 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Estados del ciclo de vida de un documento / versión.
 enum GdEstado {
-  borrador,     // recién creado, editable
-  en_revision,  // enviado al revisor/aprobador
-  observado,    // devuelto con comentario obligatorio
-  aprobado,     // aprobado formalmente, listo para firma
-  firmado,      // firmado internamente, listo para marcar vigente
-  vigente,      // versión activa y visible para todos
-  obsoleto,     // reemplazado por versión más nueva
+  borrador, // recién creado, editable
+  en_revision, // enviado al revisor/aprobador
+  observado, // devuelto con comentario obligatorio
+  aprobado, // aprobado formalmente, listo para firma
+  firmado, // firmado internamente, listo para marcar vigente
+  vigente, // versión activa y visible para todos
+  obsoleto, // reemplazado por versión más nueva
 }
 
 extension GdEstadoX on GdEstado {
   String get valor => name; // 'borrador', 'en_revision', etc.
   String get etiqueta {
     switch (this) {
-      case GdEstado.borrador:    return 'Borrador';
-      case GdEstado.en_revision: return 'En revisión';
-      case GdEstado.observado:   return 'Observado';
-      case GdEstado.aprobado:    return 'Aprobado';
-      case GdEstado.firmado:     return 'Firmado';
-      case GdEstado.vigente:     return 'Vigente';
-      case GdEstado.obsoleto:    return 'Obsoleto';
+      case GdEstado.borrador:
+        return 'Borrador';
+      case GdEstado.en_revision:
+        return 'En revisión';
+      case GdEstado.observado:
+        return 'Observado';
+      case GdEstado.aprobado:
+        return 'Aprobado';
+      case GdEstado.firmado:
+        return 'Firmado';
+      case GdEstado.vigente:
+        return 'Vigente';
+      case GdEstado.obsoleto:
+        return 'Obsoleto';
     }
   }
 
@@ -63,17 +70,28 @@ extension GdAccionX on GdAccion {
   String get valor => name;
   String get descripcion {
     switch (this) {
-      case GdAccion.creado:            return 'Documento creado';
-      case GdAccion.pdf_subido:        return 'PDF subido';
-      case GdAccion.pdf_reemplazado:   return 'PDF reemplazado';
-      case GdAccion.enviado_revision:  return 'Enviado a revisión';
-      case GdAccion.observado:         return 'Observado con comentario';
-      case GdAccion.reenviado:         return 'Reenviado a revisión';
-      case GdAccion.aprobado:          return 'Aprobado formalmente';
-      case GdAccion.firmado:           return 'Firmado internamente';
-      case GdAccion.marcado_vigente:   return 'Marcado como vigente';
-      case GdAccion.marcado_obsoleto:  return 'Marcado como obsoleto';
-      case GdAccion.nueva_version:     return 'Nueva versión iniciada';
+      case GdAccion.creado:
+        return 'Documento creado';
+      case GdAccion.pdf_subido:
+        return 'PDF subido';
+      case GdAccion.pdf_reemplazado:
+        return 'PDF reemplazado';
+      case GdAccion.enviado_revision:
+        return 'Enviado a revisión';
+      case GdAccion.observado:
+        return 'Observado con comentario';
+      case GdAccion.reenviado:
+        return 'Reenviado a revisión';
+      case GdAccion.aprobado:
+        return 'Aprobado formalmente';
+      case GdAccion.firmado:
+        return 'Firmado internamente';
+      case GdAccion.marcado_vigente:
+        return 'Marcado como vigente';
+      case GdAccion.marcado_obsoleto:
+        return 'Marcado como obsoleto';
+      case GdAccion.nueva_version:
+        return 'Nueva versión iniciada';
     }
   }
 
@@ -90,23 +108,23 @@ extension GdAccionX on GdAccion {
 /// o desde TBL_USUARIOS.rolDocumental (fallback global).
 /// El rol 'desarrollador' tiene bypass completo (consistente con el resto del proyecto).
 class GdRoles {
-  static const String redactor    = 'redactor';
-  static const String revisor     = 'revisor';
-  static const String aprobador   = 'aprobador';
-  static const String firmante    = 'firmante';
-  static const String adminDoc    = 'admin_doc';
+  static const String redactor = 'redactor';
+  static const String revisor = 'revisor';
+  static const String aprobador = 'aprobador';
+  static const String firmante = 'firmante';
+  static const String adminDoc = 'admin_doc';
   static const String desarrollador = 'desarrollador';
 
   /// Roles que pueden actuar en cada acción de transición.
   static const Map<String, Set<String>> permisosAccion = {
     'enviar_revision': {redactor, adminDoc, desarrollador},
-    'observar':        {revisor, aprobador, adminDoc, desarrollador},
-    'reenviar':        {redactor, adminDoc, desarrollador},
-    'aprobar':         {aprobador, adminDoc, desarrollador},
-    'firmar':          {firmante, adminDoc, desarrollador},
-    'marcar_vigente':  {firmante, aprobador, adminDoc, desarrollador},
-    'subir_pdf':       {redactor, adminDoc, desarrollador},
-    'nueva_version':   {redactor, adminDoc, desarrollador},
+    'observar': {revisor, aprobador, adminDoc, desarrollador},
+    'reenviar': {redactor, adminDoc, desarrollador},
+    'aprobar': {aprobador, adminDoc, desarrollador},
+    'firmar': {firmante, adminDoc, desarrollador},
+    'marcar_vigente': {firmante, aprobador, adminDoc, desarrollador},
+    'subir_pdf': {redactor, adminDoc, desarrollador},
+    'nueva_version': {redactor, adminDoc, desarrollador},
     'eliminar_documento': {adminDoc, desarrollador},
   };
 
@@ -125,20 +143,23 @@ class GdRoles {
 class DocumentoDoc {
   final String docId;
   final String empresaId;
-  final String codigo;          // "DOC-IND-001" — único por empresa
+  final String codigo; // "DOC-IND-001" — único por empresa
   final String titulo;
   final String? descripcion;
-  final String? categoria;      // Procedimiento, Política, Formato, Instructivo
-  final String? area;           // Área o departamento responsable
-  final String versionActual;   // Etiqueta: "v1", "v2"
-  final GdEstado estado;        // Estado de la versión activa en progreso
-  final String? versionVigenteId; // versionId de la versión vigente en TBL_DOCUMENTOS_VERSIONES
-  final String creadoPor;       // userId del redactor
+  final String? categoria; // Procedimiento, Política, Formato, Instructivo
+  final String? area; // Área o departamento responsable
+  final List<String> palabrasClave; // Búsqueda y asociaciones del Normograma
+  final String versionActual; // Etiqueta: "v1", "v2"
+  final GdEstado estado; // Estado de la versión activa en progreso
+  final String?
+  versionVigenteId; // versionId de la versión vigente en TBL_DOCUMENTOS_VERSIONES
+  final String creadoPor; // userId del redactor
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
   // Trazabilidad rápida (se actualiza al avanzar el estado)
   final String? revisadoPor;
   final String? aprobadoPor;
+  final Timestamp? aprobadoEn;
   final String? firmadoPor;
 
   const DocumentoDoc({
@@ -149,6 +170,7 @@ class DocumentoDoc {
     this.descripcion,
     this.categoria,
     this.area,
+    this.palabrasClave = const [],
     required this.versionActual,
     required this.estado,
     this.versionVigenteId,
@@ -157,6 +179,7 @@ class DocumentoDoc {
     this.updatedAt,
     this.revisadoPor,
     this.aprobadoPor,
+    this.aprobadoEn,
     this.firmadoPor,
   });
 
@@ -169,6 +192,10 @@ class DocumentoDoc {
       descripcion: m['descripcion'] as String?,
       categoria: m['categoria'] as String?,
       area: m['area'] as String?,
+      palabrasClave: (m['palabrasClave'] as List<dynamic>? ?? const [])
+          .map((value) => value.toString())
+          .where((value) => value.trim().isNotEmpty)
+          .toList(),
       versionActual: (m['versionActual'] ?? 'v1').toString(),
       estado: GdEstadoX.deString((m['estado'] ?? 'borrador').toString()),
       versionVigenteId: m['versionVigenteId'] as String?,
@@ -177,6 +204,7 @@ class DocumentoDoc {
       updatedAt: m['updatedAt'] as Timestamp?,
       revisadoPor: m['revisadoPor'] as String?,
       aprobadoPor: m['aprobadoPor'] as String?,
+      aprobadoEn: m['aprobadoEn'] as Timestamp?,
       firmadoPor: m['firmadoPor'] as String?,
     );
   }
@@ -188,6 +216,7 @@ class DocumentoDoc {
     'descripcion': descripcion,
     'categoria': categoria,
     'area': area,
+    'palabrasClave': palabrasClave,
     'versionActual': versionActual,
     'estado': estado.valor,
     'versionVigenteId': versionVigenteId,
@@ -196,6 +225,7 @@ class DocumentoDoc {
     'updatedAt': updatedAt,
     'revisadoPor': revisadoPor,
     'aprobadoPor': aprobadoPor,
+    'aprobadoEn': aprobadoEn,
     'firmadoPor': firmadoPor,
   };
 
@@ -204,12 +234,14 @@ class DocumentoDoc {
     String? descripcion,
     String? categoria,
     String? area,
+    List<String>? palabrasClave,
     String? versionActual,
     GdEstado? estado,
     String? versionVigenteId,
     Timestamp? updatedAt,
     String? revisadoPor,
     String? aprobadoPor,
+    Timestamp? aprobadoEn,
     String? firmadoPor,
   }) => DocumentoDoc(
     docId: docId,
@@ -219,6 +251,7 @@ class DocumentoDoc {
     descripcion: descripcion ?? this.descripcion,
     categoria: categoria ?? this.categoria,
     area: area ?? this.area,
+    palabrasClave: palabrasClave ?? this.palabrasClave,
     versionActual: versionActual ?? this.versionActual,
     estado: estado ?? this.estado,
     versionVigenteId: versionVigenteId ?? this.versionVigenteId,
@@ -227,6 +260,7 @@ class DocumentoDoc {
     updatedAt: updatedAt ?? this.updatedAt,
     revisadoPor: revisadoPor ?? this.revisadoPor,
     aprobadoPor: aprobadoPor ?? this.aprobadoPor,
+    aprobadoEn: aprobadoEn ?? this.aprobadoEn,
     firmadoPor: firmadoPor ?? this.firmadoPor,
   );
 }
@@ -241,14 +275,16 @@ class VersionDoc {
   final String versionId;
   final String docId;
   final String empresaId;
-  final int numero;         // 1, 2, 3... (número de versión)
-  final String etiqueta;   // "v1", "v2"
+  final int numero; // 1, 2, 3... (número de versión)
+  final String etiqueta; // "v1", "v2"
   final GdEstado estado;
 
   /// URL descargable del PDF en Firebase Storage.
   final String? urlPdf;
+
   /// Path en Firebase Storage (para renovar URL o eliminar).
   final String? pathPdf;
+
   /// Nombre original del archivo.
   final String? nombreArchivo;
 
@@ -264,6 +300,7 @@ class VersionDoc {
 
   /// Snapshot de la URL de firma usada al firmar (para trazabilidad permanente).
   final String? urlFirmaUsada;
+
   /// Nombre del firmante al momento de firmar (snapshot).
   final String? nombreFirmante;
 
@@ -398,11 +435,11 @@ class FlujoEventoDoc {
   final String docId;
   final String? versionId;
   final String empresaId;
-  final String accion;          // GdAccion.valor
-  final String realizadoPor;    // userId
-  final String? nombreActor;    // nombre legible (snapshot)
+  final String accion; // GdAccion.valor
+  final String realizadoPor; // userId
+  final String? nombreActor; // nombre legible (snapshot)
   final Timestamp? realizadoEn;
-  final String? observacion;    // comentario libre o motivo
+  final String? observacion; // comentario libre o motivo
   final Map<String, dynamic>? metadatos;
 
   const FlujoEventoDoc({
@@ -456,10 +493,11 @@ class FlujoEventoDoc {
 class FirmaUsuarioDoc {
   final String empresaId;
   final String userId;
-  final String nombre;        // Nombre para mostrar en documentos firmados
-  final String? cargo;        // Cargo o rol que aparece bajo la firma
-  final String? urlFirma;     // PNG firma manuscrita — descargable
-  final String? pathFirma;    // Path en Storage: firmas_doc/{empresaId}/{userId}/firma.png
+  final String nombre; // Nombre para mostrar en documentos firmados
+  final String? cargo; // Cargo o rol que aparece bajo la firma
+  final String? urlFirma; // PNG firma manuscrita — descargable
+  final String?
+  pathFirma; // Path en Storage: firmas_doc/{empresaId}/{userId}/firma.png
   /// Raw PNG bytes stored as Firestore Blob — primary read path on web (avoids Storage CORS).
   final Uint8List? firmaBlob;
   final bool activa;
@@ -484,9 +522,14 @@ class FirmaUsuarioDoc {
       (urlFirma != null && urlFirma!.isNotEmpty) ||
       (pathFirma != null && pathFirma!.isNotEmpty);
 
-  static String docId(String empresaId, String userId) => '${empresaId}_$userId';
+  static String docId(String empresaId, String userId) =>
+      '${empresaId}_$userId';
 
-  factory FirmaUsuarioDoc.fromMap(String empresaId, String userId, Map<String, dynamic> m) {
+  factory FirmaUsuarioDoc.fromMap(
+    String empresaId,
+    String userId,
+    Map<String, dynamic> m,
+  ) {
     return FirmaUsuarioDoc(
       empresaId: empresaId,
       userId: userId,
