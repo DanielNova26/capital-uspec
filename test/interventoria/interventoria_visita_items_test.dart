@@ -299,23 +299,59 @@ void main() {
       expect(puntos.map((p) => p.valor), containsAll([78.0, 49.0]));
     });
 
-    test('el acta vieja sin subcentro de un centro dividido se dice', () {
-      final puntos = compararUltimaActaPorEstablecimiento([
-        acta(centro: 'Combita', fecha: DateTime(2026, 9, 3), puntaje: 89),
-        acta(
-          centro: 'Combita',
-          subId: 'alta',
-          subNombre: 'Alta',
-          fecha: DateTime(2026, 9, 8),
-          puntaje: 78,
-        ),
-      ]);
+    test(
+      'el acta vieja sin subcentro de un centro dividido no es una barra',
+      () {
+        // Oscar pidió dos barras para Cómbita, no tres. La de antes de la
+        // división sigue en el histórico, pero no compite con Alta y Media.
+        final puntos = compararUltimaActaPorEstablecimiento([
+          acta(centro: 'Combita', fecha: DateTime(2026, 9, 3), puntaje: 89),
+          acta(
+            centro: 'Combita',
+            subId: 'alta',
+            subNombre: 'Alta',
+            fecha: DateTime(2026, 9, 8),
+            puntaje: 78,
+          ),
+        ]);
 
-      expect(
-        puntos.map((p) => p.centroCostoNombre),
-        containsAll(['Combita (sin subcentro)', 'Combita Alta']),
-      );
-    });
+        expect(puntos.map((p) => p.centroCostoNombre), ['Combita Alta']);
+      },
+    );
+
+    test(
+      'el centro viejo "Combita Alta" y el subcentro Alta son la misma barra',
+      () {
+        // En producción hay tres centros: "Combita" (dividido), "Combita Alta" y
+        // "Combita Media" como centros aparte con actas hasta agosto.
+        final puntos = compararUltimaActaPorEstablecimiento([
+          InterventoriaVisita.fromMap('viejo', {
+            'empresaId': 'capital',
+            'centroCostoId': 'EMPRESA_002_1024',
+            'centroCostoNombre': 'Combita Alta',
+            'tipoActa': kActaRegular,
+            'porcentajeGeneral': 87,
+            'fechaVisita': Timestamp.fromDate(DateTime(2026, 8, 21)),
+            'itemsEvaluacion': const {},
+          }),
+          InterventoriaVisita.fromMap('nuevo', {
+            'empresaId': 'capital',
+            'centroCostoId': 'EMPRESA_002_1013',
+            'centroCostoNombre': 'Combita',
+            'subcentroId': 'combita_alta',
+            'subcentroNombre': 'Combita Alta',
+            'tipoActa': kActaRegular,
+            'porcentajeGeneral': 81,
+            'fechaVisita': Timestamp.fromDate(DateTime(2026, 9, 10)),
+            'itemsEvaluacion': const {},
+          }),
+        ]);
+
+        expect(puntos, hasLength(1));
+        expect(puntos.single.centroCostoNombre, 'Combita Alta');
+        expect(puntos.single.valor, 81.0);
+      },
+    );
 
     test('dentro de cada subcentro manda la última acta', () {
       final puntos = compararUltimaActaPorEstablecimiento([

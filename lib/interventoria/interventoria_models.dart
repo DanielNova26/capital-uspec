@@ -1235,8 +1235,12 @@ class InterventoriaVisita {
   final Map<String, dynamic> ocrDatosDetectados;
   final bool ocrRevisado;
   final String observaciones;
+  final String devolucionMotivo;
+  final String correccionResponsableId;
+  final String correccionResponsableNombre;
 
   /// 'puntajes' = Fase 1 completa (admin registró puntajes, pendiente de revisión)
+  /// 'devuelta' = el registrador debe corregirla antes de una nueva revisión
   /// 'completa'  = Fase 2 completa (revisor completó observaciones y conclusiones)
   /// ''          = actas antiguas → se tratan como 'completa' por retrocompatibilidad
   final String faseActa;
@@ -1265,6 +1269,9 @@ class InterventoriaVisita {
     this.ocrDatosDetectados = const {},
     this.ocrRevisado = false,
     this.observaciones = '',
+    this.devolucionMotivo = '',
+    this.correccionResponsableId = '',
+    this.correccionResponsableNombre = '',
     this.faseActa = 'completa',
     required this.createdAt,
     this.updatedAt,
@@ -1337,6 +1344,11 @@ class InterventoriaVisita {
           .cast<String, dynamic>(),
       ocrRevisado: data['ocrRevisado'] == true,
       observaciones: (data['observaciones'] ?? '').toString(),
+      devolucionMotivo: (data['devolucionMotivo'] ?? '').toString(),
+      correccionResponsableId: (data['correccionResponsableId'] ?? '')
+          .toString(),
+      correccionResponsableNombre: (data['correccionResponsableNombre'] ?? '')
+          .toString(),
       // Actas antiguas sin faseActa se tratan como completadas
       faseActa: (data['faseActa'] ?? 'completa').toString(),
       createdAt: data['createdAt'] as Timestamp? ?? Timestamp.now(),
@@ -1366,6 +1378,9 @@ class InterventoriaVisita {
     'ocrDatosDetectados': ocrDatosDetectados,
     'ocrRevisado': ocrRevisado,
     'observaciones': observaciones,
+    'devolucionMotivo': devolucionMotivo,
+    'correccionResponsableId': correccionResponsableId,
+    'correccionResponsableNombre': correccionResponsableNombre,
     'faseActa': faseActa,
     'createdAt': createdAt,
     'updatedAt': FieldValue.serverTimestamp(),
@@ -1422,19 +1437,35 @@ class InterventoriaComparativoActa {
 /// establecimientos que no están divididos siguen teniendo exactamente una
 /// barra, como hasta ahora.
 String claveComparativo(InterventoriaVisita visita) {
-  final id = visita.centroCostoId.trim();
-  final base = id.isNotEmpty
-      ? id
-      : visita.centroCostoNombre.trim().toLowerCase();
-  if (base.isEmpty) return '';
-  // Por clave normalizada y no por id: el mismo subcentro quedó guardado con
-  // ids y nombres distintos según la época, y salía como dos barras.
-  final sub = claveSubcentro(
-    visita.centroCostoNombre,
-    visita.subcentroId,
-    visita.subcentroNombre,
-  );
-  return sub.isEmpty ? base : '$base::$sub';
+  // Por el NOMBRE del establecimiento tal como se pinta, no por el id.
+  //
+  // En producción (11 sep 2026) Cómbita existe tres veces: el centro
+  // `..._1013` "Combita" dividido en subcentros desde el 4 sep, y los
+  // centros viejos `..._1023` "Combita Media" y `..._1024` "Combita Alta",
+  // con actas hasta agosto. Por id son cinco barras; para quien mira el
+  // gráfico son dos establecimientos. La barra es el establecimiento como
+  // lo nombran, y dentro de ella manda el acta más reciente venga del
+  // centro que venga.
+  return _claveNombre(nombreComparativo(visita));
+}
+
+/// ¿El acta tiene subcentro?
+bool _tieneSubcentro(InterventoriaVisita v) => claveSubcentro(
+  v.centroCostoNombre,
+  v.subcentroId,
+  v.subcentroNombre,
+).isNotEmpty;
+
+String _claveNombre(String value) {
+  const origen = 'áéíóúÁÉÍÓÚäëïöüÄËÏÖÜñÑ';
+  const destino = 'aeiouAEIOUaeiouAEIOUnN';
+  final b = StringBuffer();
+  for (final rune in value.runes) {
+    final ch = String.fromCharCode(rune);
+    final i = origen.indexOf(ch);
+    b.write(i >= 0 ? destino[i] : ch);
+  }
+  return b.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
 }
 
 /// Nombre que se pinta bajo la barra.
@@ -1468,31 +1499,28 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
     }
   }
 
-  // Centros que en alguna acta traen subcentro: un acta suya SIN subcentro
-  // es de antes de la división y no se puede atribuir a Alta ni a Media.
-  // Se deja, pero dicho: "Cómbita (sin subcentro)" y no "Cómbita" a secas,
-  // que parecía una tercera parte del establecimiento.
+  // Un establecimiento dividido se muestra por sus partes y nada más. Su
+  // acta SIN subcentro es de antes de la división y no se puede atribuir a
+  // Alta ni a Media: no va al comparativo (sigue en el histórico y en la
+  // línea de tiempo del establecimiento). Pintarla como "Cómbita" a secas
+  // parecía una tercera parte; Oscar pidió dos barras, no tres.
   final divididos = <String>{
     for (final v in ultimas.values)
-      if (claveSubcentro(
-        v.centroCostoNombre,
-        v.subcentroId,
-        v.subcentroNombre,
-      ).isNotEmpty)
-        claveComparativo(v).split('::').first,
+      if (_tieneSubcentro(v)) _claveNombre(v.centroCostoNombre),
   };
+  ultimas.removeWhere(
+    (_, v) =>
+        !_tieneSubcentro(v) &&
+        divididos.contains(_claveNombre(v.centroCostoNombre)),
+  );
 
   final puntos = ultimas.values.map((visita) {
     final valor = valorCategoriaAnalisis(visita, categoriaKey);
-    final clave = claveComparativo(visita);
-    final sinSubcentro = !clave.contains('::') && divididos.contains(clave);
     return InterventoriaComparativoActa(
       visitaId: visita.id,
       centroCostoId: visita.centroCostoId,
       centroCostoCodigo: visita.centroCostoCodigo,
-      centroCostoNombre: sinSubcentro
-          ? '${nombreComparativo(visita)} (sin subcentro)'
-          : nombreComparativo(visita),
+      centroCostoNombre: nombreComparativo(visita),
       fecha: visita.fechaVisita.toDate(),
       valor: valor,
       detalle: detalleSeccionesDeVisita(visita),
@@ -1959,13 +1987,32 @@ double calcularScoreHallazgos(List<InterventoriaHallazgo> hallazgos) {
 /// sede lo decide el establecimiento, no una lista escrita a mano aquí.
 const List<String> kInterventoriaCargosCorreccionActa = ['Administrador'];
 
-/// Estado al que vuelve un acta devuelta.
-///
-/// `puntajes` es "Fase 1 completa, pendiente de revisión": el acta reaparece en
-/// "Por revisar" y se puede editar desde el histórico, que es lo que se pidió.
-/// No se inventa un estado nuevo porque el que hace falta ya existe y todas las
-/// pantallas saben leerlo.
-const String kFaseActaDevuelta = 'puntajes';
+/// Estado exclusivo de una devolución. Mientras esté aquí no reaparece en la
+/// bandeja del revisor: primero la debe corregir quien la registró.
+const String kFaseActaDevuelta = 'devuelta';
+
+/// También reconoce devoluciones creadas por versiones anteriores, cuando se
+/// guardaban como `puntajes` junto con un motivo activo.
+bool esActaDevueltaParaCorreccion(InterventoriaVisita visita) =>
+    visita.faseActa == kFaseActaDevuelta ||
+    (visita.faseActa == 'puntajes' &&
+        visita.devolucionMotivo.trim().isNotEmpty);
+
+/// La corrige quien la subió o la persona a quien se asignó la devolución.
+/// Desarrollo conserva acceso de contingencia sin abrir la edición a todos los
+/// usuarios que pueden consultar el histórico.
+bool puedeEditarActaDevuelta({
+  required InterventoriaVisita visita,
+  required String userId,
+  bool esAdminDesarrollo = false,
+}) {
+  if (!esActaDevueltaParaCorreccion(visita)) return false;
+  final uid = userId.trim();
+  if (uid.isEmpty) return esAdminDesarrollo;
+  return esAdminDesarrollo ||
+      visita.creadoPor.trim() == uid ||
+      visita.correccionResponsableId.trim() == uid;
+}
 
 /// El motivo de la devolución es obligatorio.
 ///

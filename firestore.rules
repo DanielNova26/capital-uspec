@@ -209,7 +209,15 @@ service cloud.firestore {
       allow create: if belongsToCompany(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && belongsToCompany(resource.data.empresaId);
-      allow delete: if false;
+      // Guardar la revisión de un acta sincroniza sus hallazgos: crea los
+      // nuevos y BORRA los que ya no tienen observación y nunca tuvieron
+      // tarea. Con `delete: if false` ese batch entero fallaba y el borrador
+      // no se guardaba ("permission-denied", 11 sep 2026). Solo se abre ese
+      // caso: un hallazgo con tarea asignada sigue sin poderse borrar desde
+      // el cliente (lo borra la función de eliminación con su aprobación).
+      allow delete: if belongsToCompany(resource.data.empresaId)
+        && 'fuente' in resource.data && resource.data.fuente == 'acta'
+        && (!('tareaId' in resource.data) || resource.data.tareaId == '');
     }
     match /TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);

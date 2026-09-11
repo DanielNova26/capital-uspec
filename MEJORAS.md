@@ -60,6 +60,37 @@ retome.
 
 ---
 
+## "No se guardó el borrador: permission-denied" en la revisión — 11 sep 2026 (Claude)
+
+Con el aviso nuevo de la pantalla de revisión, el administrador vio de
+inmediato lo que antes se tragaba en silencio: `permission-denied` al
+guardar el borrador de Pasto. Reproducido en el emulador
+(`functions/test/interventoria_visitas.rules.js`): el acta se actualiza
+bien y los hallazgos se crean bien, pero `TBL_INTERVENTORIA_HALLAZGOS` tenía
+`allow delete: if false`, y guardar la revisión BORRA los hallazgos
+huérfanos (sin observación y sin tarea). Un batch con un borrado prohibido
+falla completo. Ahora se permite borrar desde el cliente solo un hallazgo
+`fuente: 'acta'` sin `tareaId`; uno con tarea sigue sin poderse borrar (lo
+hace la función con aprobación). 25 casos de reglas en verde.
+
+**Requiere `firebase deploy --only firestore:rules`.**
+
+## Cómbita, segunda vuelta: dos "Combita Alta" — 11 sep 2026 (Claude)
+
+El dato: Cómbita existe TRES veces en `TBL_CENTROS_COSTOS` de EMPRESA_002.
+`..._1013` "Combita" (dividido en subcentros desde el 4 sep), y los centros
+viejos `..._1024` "Combita Alta" y `..._1023` "Combita Media", con actas
+hasta el 21 y 25 de agosto. Agrupando por id salían dos "Combita Alta".
+Ahora la barra se agrupa por el NOMBRE del establecimiento tal como se
+pinta, y las actas sin subcentro de un centro que ya está dividido no van
+al comparativo (siguen en el histórico). Con los datos de hoy: Combita Alta
+(10/09) y Combita Media (09/09). Dos barras.
+
+Pendiente de datos, no de código: los centros 1023 y 1024 deberían
+deshabilitarse en el catálogo para que nadie registre más actas ahí.
+
+---
+
 ## Ramiriquí perdió las observaciones al guardar — 11 sep 2026 (Claude)
 
 Kary: "guardé el acta de Ramiriquí y ya no puedo leer los hallazgos que
