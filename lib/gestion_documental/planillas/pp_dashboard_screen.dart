@@ -270,10 +270,13 @@ class _PpDashboardScreenState extends State<PpDashboardScreen>
                         ),
                       ),
                     ),
-                  // El maestro de beneficiarios: quien pueda borrar planillas
-                  // es de Tesorería o administración, que es justo quien lo
-                  // gestiona. La regla de Firestore manda de todas formas.
-                  if (canDelete)
+                  // El maestro de beneficiarios. Antes iba detrás de
+                  // `eliminar_planilla`, que excluye a Tesorería: la persona
+                  // que más lo necesita no veía el botón.
+                  if (PpRoles.puedeEjecutar(
+                    'gestionar_beneficiarios',
+                    rolPlanillas,
+                  ))
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: OutlinedButton.icon(

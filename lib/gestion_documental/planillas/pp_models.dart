@@ -56,6 +56,11 @@ class PpRoles {
     'eliminar_planilla': {adminDoc, desarrollador},
     'eliminar_logo': {adminDoc},
     'ver_lote': {tesoreria, auditoria, gerencia, adminDoc, desarrollador},
+    // El maestro de beneficiarios de pago. Tesorería es quien lo trabaja;
+    // administración y desarrollo entran para configurar y corregir. La regla
+    // de Firestore repite exactamente este conjunto: si se cambia aquí sin
+    // cambiarla allí, el botón aparece y el servidor deniega.
+    'gestionar_beneficiarios': {tesoreria, adminDoc, desarrollador},
   };
 
   static bool puedeEjecutar(String accion, String? rol) {

@@ -63,9 +63,37 @@ service cloud.firestore {
         : (currentUser().rolPlanillas is string ? currentUser().rolPlanillas : '');
     }
 
+    // Desarrollador marcado DENTRO de la empresa (`empresasDetalle[e].roleKey`
+    // o `roleId` terminado en `_desarrollador`), que es como lo reconoce la
+    // aplicación. `isDeveloper()` solo mira la raíz del usuario, así que a
+    // quien esté marcado por empresa el servidor le deniega aunque la pantalla
+    // le enseñe el botón.
+    //
+    // Cada acceso va precedido de un `in`: en las reglas, leer un campo que no
+    // existe lanza error, y el `&&` se detiene antes de llegar ahí.
+    function isDeveloperIn(empresaId) {
+      return isSignedIn()
+        && 'empresasDetalle' in currentUser()
+        && currentUser().empresasDetalle is map
+        && empresaId in currentUser().empresasDetalle
+        && currentUser().empresasDetalle[empresaId] is map
+        && (
+          ('roleKey' in currentUser().empresasDetalle[empresaId]
+            && currentUser().empresasDetalle[empresaId].roleKey in ['desarrollador', 'developer'])
+          || ('roleId' in currentUser().empresasDetalle[empresaId]
+            && currentUser().empresasDetalle[empresaId].roleId in [
+              empresaId + '_desarrollador', empresaId + '_developer'
+            ])
+        );
+    }
+
     function hasPlanillasRole(empresaId, allowedRoles) {
       return belongsToCompany(empresaId)
-        && (isDeveloper() || planillasRole(empresaId) in allowedRoles);
+        && (
+          isDeveloper()
+          || isDeveloperIn(empresaId)
+          || planillasRole(empresaId) in allowedRoles
+        );
     }
 
     function correoRolePath(empresaId) {

@@ -555,4 +555,84 @@ void main() {
       expect(completadas.single.numeroCuenta, '019068402');
     });
   });
+
+  group('el banco viene por nombre en la planilla', () {
+    // Es lo que salio en la primera prueba real: "Banco: esta vacio" para dos
+    // filas que decian BANCO OCCIDENTE y BANCOLOMBIA a la vista.
+    test('reconoce los nombres como los escribe una persona', () {
+      expect(codigoBancoDesdeTexto('BANCO OCCIDENTE'), '0023');
+      expect(codigoBancoDesdeTexto('BANCO DE OCCIDENTE'), '0023');
+      expect(codigoBancoDesdeTexto('BANCOLOMBIA'), '0007');
+      expect(codigoBancoDesdeTexto('Davivienda'), '0051');
+      expect(codigoBancoDesdeTexto('BBVA COLOMBIA S.A.'), '0013');
+      expect(codigoBancoDesdeTexto('banco de bogotá'), '0001');
+    });
+
+    test('un código sigue siendo un código', () {
+      expect(codigoBancoDesdeTexto('23'), '0023');
+      expect(codigoBancoDesdeTexto('0507'), '0507');
+    });
+
+    test('lo que no es ningún banco queda vacío, no se inventa', () {
+      expect(codigoBancoDesdeTexto('BANCO INEXISTENTE XYZ'), '');
+      expect(codigoBancoDesdeTexto(''), '');
+    });
+
+    test('la fila de la planilla sale con el código correcto', () {
+      final filas = filasPlanoDesdePlanilla([
+        {
+          'valor': 100.0,
+          'extras': {
+            'NIT': '900111222',
+            'PROVEEDOR': 'X',
+            'N CUENTA': '1',
+            'CTE': 'X',
+            'BANCO': 'BANCO OCCIDENTE',
+          },
+        },
+      ], fechaLimite: DateTime(2026, 9, 4));
+
+      expect(filas.single.banco, '0023');
+      expect(validarPlanoPagos(filas), isEmpty);
+    });
+  });
+
+  group('nombres más largos que el tope del banco', () {
+    test('se recortan sin partir la palabra cuando se puede', () {
+      expect(
+        recortarNombrePlano('SISTEMAS DE INFORMACION EMPRESARIAL SAS'),
+        'SISTEMAS DE INFORMACION EMPRESARIAL',
+      );
+    });
+
+    test('los que caben no se tocan', () {
+      expect(
+        recortarNombrePlano('FORTOX SEGURITY GROUP'),
+        'FORTOX SEGURITY GROUP',
+      );
+    });
+
+    test('sin espacio donde cortar se corta a lo bruto', () {
+      final largo = 'A' * 50;
+      expect(recortarNombrePlano(largo).length, kPlanoMaxNombre);
+    });
+
+    test('la fila de la planilla ya no falla por el nombre', () {
+      final filas = filasPlanoDesdePlanilla([
+        {
+          'valor': 100.0,
+          'extras': {
+            'NIT': '900333444',
+            'PROVEEDOR': 'SISTEMAS DE INFORMACION EMPRESARIAL SAS',
+            'N CUENTA': '1',
+            'AHO': 'x',
+            'BANCO': 'BANCOLOMBIA',
+          },
+        },
+      ], fechaLimite: DateTime(2026, 9, 4));
+
+      expect(validarPlanoPagos(filas), isEmpty);
+      expect(filas.single.nombre.length, lessThanOrEqualTo(kPlanoMaxNombre));
+    });
+  });
 }

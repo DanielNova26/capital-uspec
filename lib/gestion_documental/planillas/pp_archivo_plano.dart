@@ -54,6 +54,27 @@ const int kPlanoMaxConceptos = 4;
 /// Forma de pago que NO lleva fecha límite (el banco espera ocho ceros).
 const String kPlanoFormaPagoSinFecha = '3';
 
+/// Recorta un nombre al tope que admite el banco, sin partir una palabra si
+/// se puede evitar.
+///
+/// "SISTEMAS DE INFORMACION EMPRESARIAL SAS" (39) queda en
+/// "SISTEMAS DE INFORMACION EMPRESARIAL" (35), no en
+/// "SISTEMAS DE INFORMACION EMPRESARIA" (36): los dos caben, pero el primero
+/// se lee. Si no hay espacio donde cortar, se corta a lo bruto: caber es la
+/// única condición que el banco impone.
+String recortarNombrePlano(String nombre, {int maximo = kPlanoMaxNombre}) {
+  final limpio = nombre.trim();
+  if (limpio.length <= maximo) return limpio;
+  final corte = limpio.substring(0, maximo);
+  final ultimoEspacio = corte.lastIndexOf(' ');
+  // No se busca el espacio demasiado atrás: recortar a la mitad por respetar
+  // una palabra deja un nombre que ya no dice quién es.
+  if (ultimoEspacio >= maximo ~/ 2) {
+    return corte.substring(0, ultimoEspacio).trim();
+  }
+  return corte.trim();
+}
+
 /// Rellena un código con ceros a la izquierda hasta [ancho].
 ///
 /// Si ya viene más largo se devuelve intacto: recortarlo cambiaría el código
@@ -498,12 +519,19 @@ List<PlanoPagoFila> filasPlanoDesdePlanilla(
     final nit = soloDigitos(
       _extra(extras, const ['nit', 'identificacion', 'documento', 'cedula']),
     );
-    final nombre = _extra(extras, const [
-      'proveedor',
-      'beneficiario',
-      'apellidos y nombres',
-      'nombre',
-    ]);
+    // El nombre se recorta al tope del banco. Aquí, y no en la validación,
+    // porque este nombre viene de un Excel externo que nadie va a editar
+    // para que quepa: la razón social es la que es. Al banco le identifica el
+    // NIT y la cuenta; el nombre es descriptivo, y "SISTEMAS DE INFORMACION
+    // EMPRESARIA" le sirve igual que con el "L SAS" que no cabe.
+    final nombre = recortarNombrePlano(
+      _extra(extras, const [
+        'proveedor',
+        'beneficiario',
+        'apellidos y nombres',
+        'nombre',
+      ]),
+    );
     final cuenta = soloDigitos(
       _extra(extras, const [
         'no cuenta',
@@ -535,7 +563,11 @@ List<PlanoPagoFila> filasPlanoDesdePlanilla(
         ),
         nombre: nombre,
         formaPago: formaPago,
-        banco: soloDigitos(_extra(extras, const ['banco', 'codigo banco'])),
+        // El Excel trae el banco por nombre ("BANCO OCCIDENTE") o por código;
+        // las dos formas se resuelven al código ACH.
+        banco: codigoBancoDesdeTexto(
+          _extra(extras, const ['banco', 'codigo banco']),
+        ),
         tipoCuenta: tipoCuentaDesdePlanilla(
           marcaCorriente: _extra(extras, const ['cte', 'corriente']),
           marcaAhorros: _extra(extras, const ['aho', 'ahorros']),
@@ -675,3 +707,120 @@ List<String> beneficiariosSinMaestro(
         !maestro.containsKey(f.identificacion.trim()))
       f.identificacion.trim(),
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catálogo de bancos
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Códigos ACH y su nombre, copiados de la hoja "Bancos" del Excel de
+/// Tesorería.
+///
+/// Está aquí para que Talento Humano elija "BBVA" y no teclee "0013": el código
+/// es un dato del banco, no algo que alguien deba recordar, y un dígito mal
+/// escrito manda un sueldo a otra entidad.
+///
+/// **Está incompleto a propósito, y no pasa nada.** En el maestro real hay
+/// personas cobrando en 0507, 0551 y 0809, que esta tabla no tiene: son
+/// entidades más nuevas que el Excel. Por eso el catálogo *sugiere* y no
+/// *restringe* — un código que no esté aquí se acepta igual, porque el que está
+/// viejo es el catálogo, no los datos.
+const Map<String, String> kBancosAch = {
+  '0001': 'BANCO DE BOGOTA',
+  '0002': 'BANCO POPULAR',
+  '0006': 'BANCO CORPBANCA',
+  '0007': 'BANCOLOMBIA',
+  '0008': 'SCOTIA BANK',
+  '0009': 'CITIBANK',
+  '0010': 'HSBC COLOMBIA',
+  '0012': 'BANCO GNB SUDAMERIS',
+  '0013': 'BBVA',
+  '0014': 'HELM BANK',
+  '0019': 'BANCO COLPATRIA',
+  '0023': 'BANCO DE OCCIDENTE',
+  '0028': 'BANCO MERCANTIL',
+  '0032': 'CAJA SOCIAL',
+  '0035': 'INTERCONTINENTAL',
+  '0040': 'BANCO AGRARIO',
+  '0051': 'DAVIVIENDA',
+  '0052': 'BANCO AV VILLAS',
+  '0055': 'FINANDINA',
+  '0058': 'PROCREDIT',
+  '0060': 'PICHINCHA',
+  '0061': 'BANCOOMEVA',
+  '0062': 'FALABELLA',
+  '0076': 'COOP. CENTRAL',
+};
+
+/// Nombre del banco, o el código si no está en el catálogo.
+///
+/// Nunca devuelve vacío: un código desconocido se muestra tal cual, que es más
+/// útil que una casilla en blanco y deja ver cuál hay que añadir.
+String nombreBanco(String codigo) {
+  final c = rellenarCodigoPlano(codigo);
+  if (c.replaceAll('0', '').isEmpty) return 'Sin banco';
+  return kBancosAch[c] ?? 'Código $c';
+}
+
+/// Resuelve el banco a su código ACH a partir de lo que traiga el Excel:
+/// el código ("23", "0023") o el **nombre** ("BANCO OCCIDENTE").
+///
+/// La planilla de anticipos trae el banco por nombre, como lo escribe una
+/// persona: "BANCO OCCIDENTE" sin el "DE", "BANCOLOMBIA" pegado. Exigir el
+/// código dejaba el campo vacío y el archivo rechazado por el banco.
+///
+/// Se compara ignorando las palabras que no distinguen a nadie —BANCO, DE,
+/// DEL, S.A., LTDA— y las tildes, así "BANCO OCCIDENTE" y "BANCO DE OCCIDENTE"
+/// son lo mismo. Lo que no coincide con nada queda vacío: inventar un banco es
+/// peor que reportar que falta.
+String codigoBancoDesdeTexto(String texto) {
+  final limpio = texto.trim();
+  if (limpio.isEmpty) return '';
+  if (RegExp(r'^\d+$').hasMatch(limpio)) return rellenarCodigoPlano(limpio);
+
+  final buscado = _claveBanco(limpio);
+  if (buscado.isEmpty) return '';
+  for (final e in kBancosAch.entries) {
+    if (_claveBanco(e.value) == buscado) return e.key;
+  }
+  // Segunda pasada, más laxa: que una contenga a la otra ("OCCIDENTE" dentro
+  // de "OCCIDENTE" ya salió arriba; esto atrapa "BBVA COLOMBIA" vs "BBVA").
+  for (final e in kBancosAch.entries) {
+    final clave = _claveBanco(e.value);
+    if (clave.length >= 4 &&
+        (buscado.contains(clave) || clave.contains(buscado))) {
+      return e.key;
+    }
+  }
+  return '';
+}
+
+const _palabrasSinValor = {
+  'BANCO',
+  'DE',
+  'DEL',
+  'SA',
+  'S.A.',
+  'S.A',
+  'LTDA',
+  'EL',
+  'LA',
+  'Y',
+  'COLOMBIA',
+};
+
+String _claveBanco(String nombre) {
+  const con = 'ÁÉÍÓÚÜÑáéíóúüñ';
+  const sin = 'AEIOUUNaeiouun';
+  final b = StringBuffer();
+  for (final r in nombre.runes) {
+    final ch = String.fromCharCode(r);
+    final i = con.indexOf(ch);
+    b.write(i == -1 ? ch : sin[i]);
+  }
+  return b
+      .toString()
+      .toUpperCase()
+      .split(RegExp(r'[^A-Z0-9]+'))
+      .where((p) => p.isNotEmpty && !_palabrasSinValor.contains(p))
+      .join();
+}

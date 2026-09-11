@@ -55,6 +55,12 @@ test.before(async () => {
         empresas: ["EMP_A"],
         empresasDetalle: {EMP_A: {}},
       }),
+      // Desarrollador marcado DENTRO de la empresa, como lo hace el sembrado:
+      // sin `desarrollador: true` en la raíz.
+      setDoc(doc(db, "TBL_USUARIOS/devempresa"), {
+        empresas: ["EMP_A"],
+        empresasDetalle: {EMP_A: {roleId: "EMP_A_desarrollador"}},
+      }),
       setDoc(doc(db, "TBL_USUARIOS/otraempresa"), {
         empresas: ["EMP_B"],
         empresasDetalle: {EMP_B: {rolPlanillas: "tesoreria"}},
@@ -145,4 +151,14 @@ test("sin sesión no se ve nada", async () => {
   const db = env.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(db, "TBL_PAGOS_BENEFICIARIOS/EMP_A_123")));
   await assertFails(getDoc(doc(db, "TBL_PAGOS_BENEFICIARIOS_CUENTA/EMP_A_123")));
+});
+
+test("el desarrollador marcado por empresa entra al maestro y al número", async () => {
+  // isDeveloper() solo mira la raíz; sin isDeveloperIn() este usuario veía el
+  // botón y el servidor le denegaba.
+  const db = auth("devempresa");
+  await assertSucceeds(getDoc(doc(db, "TBL_PAGOS_BENEFICIARIOS/EMP_A_123")));
+  await assertSucceeds(
+    getDoc(doc(db, "TBL_PAGOS_BENEFICIARIOS_CUENTA/EMP_A_123"))
+  );
 });
