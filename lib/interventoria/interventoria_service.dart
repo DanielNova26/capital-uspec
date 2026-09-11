@@ -309,6 +309,73 @@ class InterventoriaService {
   /// Fase 2 — el revisor guarda un borrador (observaciones parciales) sin
   /// marcar el acta como completa. También genera hallazgos para los ítems
   /// que ya tengan observaciones, pero nunca los asigna automáticamente.
+  Future<InterventoriaVisita?> getVisita(String visitaId) async {
+    final doc = await _db
+        .collection('TBL_INTERVENTORIA_VISITAS')
+        .doc(visitaId)
+        .get();
+    if (!doc.exists) return null;
+    return InterventoriaVisita.fromMap(doc.id, doc.data()!);
+  }
+
+  /// Vuelve a poner en el acta las observaciones que quedaron guardadas como
+  /// hallazgos (`TBL_INTERVENTORIA_HALLAZGOS`, fuente 'acta').
+  ///
+  /// Sirve cuando un guardado con datos viejos borró las notas del acta
+  /// pero los hallazgos siguen ahí (los asignados a tarea nunca se borran).
+  /// Solo rellena ítems que hoy no tienen notas; no toca los que sí tienen.
+  /// Devuelve cuántas notas volvieron.
+  Future<int> reconstruirNotasDesdeHallazgos(String visitaId) async {
+    final visita = await getVisita(visitaId);
+    if (visita == null) return 0;
+    final snap = await _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('visitaId', isEqualTo: visitaId)
+        .where('fuente', isEqualTo: 'acta')
+        .get();
+    final porItem = <String, List<(int, InterventoriaNota)>>{};
+    for (final doc in snap.docs) {
+      final d = doc.data();
+      final grupoId = (d['grupoId'] ?? '').toString();
+      final m = RegExp(r'^(.+)_obs(\d+)$').firstMatch(grupoId);
+      if (m == null) continue;
+      final texto = (d['observaciones'] ?? '').toString().trim();
+      final aspecto = (d['descripcion'] ?? '').toString().trim();
+      if (texto.isEmpty && aspecto.isEmpty) continue;
+      porItem.putIfAbsent(m.group(1)!, () => []).add((
+        int.parse(m.group(2)!),
+        InterventoriaNota(
+          aspecto: aspecto == texto ? '' : aspecto,
+          numeralActa: (d['numeralActa'] ?? '').toString(),
+          texto: texto.isEmpty ? aspecto : texto,
+          fuente: 'acta',
+        ),
+      ));
+    }
+    if (porItem.isEmpty) return 0;
+
+    final items = Map<String, InterventoriaItem>.from(visita.items);
+    var restauradas = 0;
+    for (final entry in porItem.entries) {
+      final actual = items[entry.key];
+      if (actual == null || actual.observaciones.isNotEmpty) continue;
+      final notas = (entry.value..sort((a, b) => a.$1.compareTo(b.$1)))
+          .map((e) => e.$2)
+          .toList();
+      items[entry.key] = actual.copyWith(
+        observaciones: notas,
+        observacion: notas.map((n) => n.texto).join('\n'),
+      );
+      restauradas += notas.length;
+    }
+    if (restauradas == 0) return 0;
+    await _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visitaId).update({
+      'itemsEvaluacion': items.map((k, v) => MapEntry(k, v.toMap())),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    return restauradas;
+  }
+
   Future<void> guardarBorradorRevision({
     required InterventoriaVisita visita,
     required Map<String, InterventoriaItem> items,
@@ -732,11 +799,13 @@ class InterventoriaService {
       fecha: Timestamp.now(),
       adjuntos: adjuntos,
     );
-    await _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgo.id).update({
-      'seguimientos': FieldValue.arrayUnion([entrada.toMap()]),
-      'seguimiento': entrada.texto,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _db.collection('TBL_INTERVENTORIA_HALLAZGOS').doc(hallazgo.id).update(
+      {
+        'seguimientos': FieldValue.arrayUnion([entrada.toMap()]),
+        'seguimiento': entrada.texto,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+    );
 
     final responsable = hallazgo.responsableId.trim();
     if (responsable.isNotEmpty && responsable != autorId) {

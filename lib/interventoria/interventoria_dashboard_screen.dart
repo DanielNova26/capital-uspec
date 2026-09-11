@@ -4563,6 +4563,19 @@ class _VisitaCardState extends State<_VisitaCard> {
                     icon: Icon(Icons.edit_rounded, color: _kAccent),
                     onPressed: () => _reabrirParaRevision(context, v),
                   ),
+                // Un acta sin ninguna nota pero con hallazgos guardados es la
+                // huella de un guardado que pisó las observaciones. Se
+                // recuperan desde los hallazgos.
+                if (puedeRevisarActas(widget.rol) &&
+                    v.items.values.every((i) => i.observaciones.isEmpty))
+                  IconButton(
+                    tooltip: 'Recuperar observaciones desde los hallazgos',
+                    icon: const Icon(
+                      Icons.settings_backup_restore_rounded,
+                      color: Color(0xFFB45309),
+                    ),
+                    onPressed: () => _recuperarNotas(context, v),
+                  ),
                 // Quien aprueba las solicitudes de borrado borra directo.
                 //
                 // No cambia QUIÉN puede borrar: es el mismo conjunto que ya
@@ -4705,6 +4718,35 @@ class _VisitaCardState extends State<_VisitaCard> {
   /// La confirmación dice **qué más se lleva por delante**: un acta no está
   /// sola, arrastra sus hallazgos y los archivos del acta en Storage. Un
   /// "¿seguro?" a secas no deja decidir nada.
+  Future<void> _recuperarNotas(
+    BuildContext context,
+    InterventoriaVisita v,
+  ) async {
+    try {
+      final n = await widget.service.reconstruirNotasDesdeHallazgos(v.id);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: n == 0 ? null : _kOk,
+          content: Text(
+            n == 0
+                ? 'No hay hallazgos guardados de esta acta: no hay nada que '
+                      'recuperar. Toca registrar las observaciones de nuevo.'
+                : '$n observación(es) recuperadas desde los hallazgos.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: _kDanger,
+          content: Text('No se pudo recuperar: $e'),
+        ),
+      );
+    }
+  }
+
   Future<void> _eliminarDirecto(
     BuildContext context,
     InterventoriaVisita v,
@@ -10578,6 +10620,10 @@ class _RevisionActaScreen extends StatefulWidget {
 
 class _RevisionActaScreenState extends State<_RevisionActaScreen> {
   late Map<String, InterventoriaItem> _items;
+
+  /// Ítems que esta persona cambió aquí. Al guardar, solo estos pisan lo que
+  /// haya en Firestore; el resto se toma fresco (ver `mezclarItemsRevision`).
+  final Set<String> _tocados = {};
   final _obsGeneralesCtrl = TextEditingController();
   final _conclusionesCtrl = TextEditingController();
   bool _saving = false;
@@ -10602,12 +10648,34 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     super.dispose();
   }
 
+  void _cambiarItem(String key, InterventoriaItem item) {
+    setState(() {
+      _items[key] = item;
+      _tocados.add(key);
+    });
+  }
+
+  /// Lo que se va a escribir: Firestore manda salvo en lo que se tocó aquí.
+  Future<Map<String, InterventoriaItem>> _itemsParaGuardar() async {
+    try {
+      final fresca = await widget.service.getVisita(widget.visita.id);
+      if (fresca != null) {
+        return mezclarItemsRevision(
+          locales: _items,
+          frescos: fresca.items,
+          tocados: _tocados,
+        );
+      }
+    } catch (_) {}
+    return _items;
+  }
+
   /// Autosave silencioso al marcar el check de un item — sin snackbar ni spinner.
   Future<void> _guardarRapidoSilencioso() async {
     try {
       await widget.service.guardarBorradorRevision(
         visita: widget.visita,
-        items: _items,
+        items: await _itemsParaGuardar(),
         obsGenerales: _obsGeneralesCtrl.text.trim(),
         conclusiones: _conclusionesCtrl.text.trim(),
       );
@@ -10621,7 +10689,7 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
     try {
       await widget.service.completarActa(
         visita: widget.visita,
-        items: _items,
+        items: await _itemsParaGuardar(),
         obsGenerales: _obsGeneralesCtrl.text.trim(),
         conclusiones: _conclusionesCtrl.text.trim(),
       );
@@ -10748,7 +10816,7 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
             items: _items,
             obsGeneralesCtrl: _obsGeneralesCtrl,
             conclusionesCtrl: _conclusionesCtrl,
-            onItemChanged: (key, item) => setState(() => _items[key] = item),
+            onItemChanged: _cambiarItem,
             onGuardarRapido: _guardarRapidoSilencioso,
           ),
         ),
@@ -10814,8 +10882,7 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
                   items: _items,
                   obsGeneralesCtrl: _obsGeneralesCtrl,
                   conclusionesCtrl: _conclusionesCtrl,
-                  onItemChanged: (key, item) =>
-                      setState(() => _items[key] = item),
+                  onItemChanged: (key, item) => _cambiarItem(key, item),
                   onGuardarRapido: _guardarRapidoSilencioso,
                 ),
         ),
@@ -10850,8 +10917,7 @@ class _RevisionActaScreenState extends State<_RevisionActaScreen> {
                   items: _items,
                   obsGeneralesCtrl: _obsGeneralesCtrl,
                   conclusionesCtrl: _conclusionesCtrl,
-                  onItemChanged: (key, item) =>
-                      setState(() => _items[key] = item),
+                  onItemChanged: (key, item) => _cambiarItem(key, item),
                   onGuardarRapido: _guardarRapidoSilencioso,
                 ),
               ],

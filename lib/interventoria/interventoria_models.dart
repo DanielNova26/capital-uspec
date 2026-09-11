@@ -1082,6 +1082,31 @@ bool contieneActaPdf(Iterable<InterventoriaAdjunto> adjuntos) => adjuntos.any(
   (adjunto) => adjunto.contentType.toLowerCase() == 'application/pdf',
 );
 
+/// Qué ítems se envían al guardar la revisión (Fase 2).
+///
+/// La pantalla de revisión toma una FOTO de los ítems al abrirse y la
+/// escribe completa al guardar. Si entre una cosa y otra alguien más —o la
+/// misma persona en otro dispositivo, o el autosave de una nota— escribió
+/// observaciones en Firestore, esa foto vieja las pisaba y las borraba, y
+/// con ellas los hallazgos sin tarea. Kary lo vio el 11 sep 2026 con
+/// Ramiriquí: guardó y los hallazgos desaparecieron.
+///
+/// Regla: manda lo que está en Firestore ([frescos]) salvo en los ítems que
+/// esta persona tocó en esta pantalla ([tocados]), donde manda lo local.
+Map<String, InterventoriaItem> mezclarItemsRevision({
+  required Map<String, InterventoriaItem> locales,
+  required Map<String, InterventoriaItem> frescos,
+  required Set<String> tocados,
+}) {
+  final salida = <String, InterventoriaItem>{...frescos};
+  for (final entry in locales.entries) {
+    if (tocados.contains(entry.key) || !salida.containsKey(entry.key)) {
+      salida[entry.key] = entry.value;
+    }
+  }
+  return salida;
+}
+
 /// Una entrada del histórico de seguimiento de un hallazgo.
 ///
 /// Antes el seguimiento era UN texto que se sobrescribía: cada nota borraba

@@ -6,6 +6,31 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Ramiriquí perdió las observaciones al guardar — 11 sep 2026 (Claude)
+
+Kary: "guardé el acta de Ramiriquí y ya no puedo leer los hallazgos que
+guardé". En el histórico el acta sale con las once secciones y ninguna nota.
+
+Causa probable (no se puede confirmar sin el dato, pero el código lo
+permitía): `_RevisionActaScreen` tomaba una FOTO de los ítems al abrirse y
+al guardar —borrador o completar— escribía `itemsEvaluacion` completo con
+esa foto. Cualquier observación escrita entretanto en Firestore (otro
+dispositivo, el autosave de una nota, otra persona) se pisaba, y
+`_autoCrearHallazgosDesdeItems` borraba los hallazgos sin tarea que ya no
+tenían nota. Pérdida real, silenciosa.
+
+Arreglo: la pantalla lleva los ítems que la persona tocó (`_tocados`) y al
+guardar mezcla con lo fresco de Firestore (`mezclarItemsRevision`): manda
+Firestore salvo en lo tocado aquí. Probado.
+
+Recuperación: botón "Recuperar observaciones desde los hallazgos" en la
+tarjeta del acta (roles que revisan), visible solo cuando el acta no tiene
+ninguna nota. Reconstruye las notas desde `TBL_INTERVENTORIA_HALLAZGOS`
+(fuente 'acta', por `grupoId`). Si los hallazgos también se borraron (no
+estaban asignados), no hay de dónde y toca registrarlas de nuevo.
+
+---
+
 ## Avances móvil, Calidad en Interventoría y seguimiento con histórico — 11 sep 2026 (Claude)
 
 **Tareas > Avances: "Tomar foto" no abría la cámara en el móvil.** El botón

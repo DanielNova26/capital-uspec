@@ -388,4 +388,55 @@ void main() {
       expect(horario.valor, 90);
     });
   });
+
+  group('guardar la revisión no pisa lo que ya estaba', () {
+    // Kary, 11 sep 2026, Ramiriquí: la pantalla de revisión escribía la foto
+    // que tomó al abrirse y borraba las observaciones guardadas entretanto,
+    // y con ellas los hallazgos sin tarea.
+    InterventoriaItem item(String key, List<String> notas, {double? v}) =>
+        InterventoriaItem(
+          key: key,
+          label: key,
+          valor: v,
+          observaciones: [for (final n in notas) InterventoriaNota(texto: n)],
+        );
+
+    test('un ítem no tocado toma lo que hay en Firestore', () {
+      final local = {'horario': item('horario', const [])};
+      final fresco = {
+        'horario': item('horario', const ['Llegó tarde']),
+      };
+      final salida = mezclarItemsRevision(
+        locales: local,
+        frescos: fresco,
+        tocados: const {},
+      );
+      expect(salida['horario']!.observaciones.single.texto, 'Llegó tarde');
+    });
+
+    test('un ítem tocado aquí manda, incluso para borrar una nota', () {
+      final local = {'horario': item('horario', const [])};
+      final fresco = {
+        'horario': item('horario', const ['Llegó tarde']),
+      };
+      final salida = mezclarItemsRevision(
+        locales: local,
+        frescos: fresco,
+        tocados: const {'horario'},
+      );
+      expect(salida['horario']!.observaciones, isEmpty);
+    });
+
+    test('lo que solo existe localmente no se pierde', () {
+      final local = {
+        'equipos': item('equipos', const ['Nevera sin registro']),
+      };
+      final salida = mezclarItemsRevision(
+        locales: local,
+        frescos: const {},
+        tocados: const {},
+      );
+      expect(salida['equipos']!.observaciones, hasLength(1));
+    });
+  });
 }
