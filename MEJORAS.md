@@ -60,6 +60,27 @@ retome.
 
 ---
 
+## Compras: el registro sanitario es SOLO del producto — 11 sep 2026 (Claude)
+
+Compras corrigió lo del 10 sep: el registro sanitario no va en el
+proveedor "ni en ningún otro lado", solo en el producto (por marca, junto a
+la ficha técnica). Se deshizo esa parte del commit `918a6b3`:
+
+- `kDocumentosAsociadosLabels` vuelve a tener `registroSanitario` (con
+  vigencia obligatoria; la ficha técnica sigue SIN vigencia, eso sí era de
+  la reunión);
+- `soporteRegistroInvima` vuelve a `kDocProveedorOcultos`: no se pide al
+  proveedor aunque la matriz lo traiga, y lo ya cargado no se borra;
+- un producto nuevo vuelve a exigir ficha y registro por marca; la ficha
+  del producto muestra el estado del registro; Consulta de productos y de
+  marcas lo listan y lo exportan; "Marcas por completar" lo cuenta.
+
+Lo que NO se tocó: el semáforo de la marca sigue siendo solo de la ficha
+(verde aprobada / naranja pendiente / rojo rechazada), como se decidió el
+10 sep; el registro se ve como chip aparte, no cambia el color.
+
+---
+
 ## "No se guardó el borrador: permission-denied" en la revisión — 11 sep 2026 (Claude)
 
 Con el aviso nuevo de la pantalla de revisión, el administrador vio de

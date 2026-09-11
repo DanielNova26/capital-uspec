@@ -4944,7 +4944,7 @@ class _DocumentosAsociadosSheetState extends State<_DocumentosAsociadosSheet> {
             const SizedBox(height: 8),
             Text(
               widget.requiredForCompletion
-                  ? 'La ficha técnica es obligatoria para esta marca. Todo archivo nuevo o reemplazado queda pendiente de revisión de Calidad.'
+                  ? 'La ficha técnica y el registro sanitario son obligatorios para esta marca. Todo archivo nuevo o reemplazado queda pendiente de revisión de Calidad.'
                   : 'Carga o reemplaza los archivos de la marca. Quedarán pendientes hasta que Calidad los apruebe.',
               style: const TextStyle(
                 fontFamily: _kFont,
@@ -7680,6 +7680,11 @@ class _ProductoFormSheetState extends State<_ProductoFormSheet> {
                                 'fichaTecnica',
                                 'Ficha técnica',
                                 fichasProveedor: fichasProveedor,
+                              ),
+                              _documentoMarcaEstado(
+                                marca,
+                                'registroSanitario',
+                                'Registro sanitario',
                               ),
                             ],
                           ),
@@ -14786,6 +14791,7 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
         'Marcas',
         'Estado documental por marca',
         'Ficha técnica por marca',
+        'Registro sanitario por marca',
         'Fichas técnicas por proveedor',
       ];
       final filas = exportados
@@ -14803,6 +14809,7 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                   ? 'Completo'
                   : 'Pendiente',
               _resumenDocumentoPorMarca(p, 'fichaTecnica'),
+              _resumenDocumentoPorMarca(p, 'registroSanitario'),
               _resumenFichasProveedor(p),
             ],
           )
@@ -15079,6 +15086,12 @@ class _ConsultaProductosTabState extends State<_ConsultaProductosTab> {
                                     respaldoMarca: marca
                                         ?.documentosAsociados['fichaTecnica'],
                                   ),
+                                  _consultaDocumentoChip(
+                                    'registroSanitario',
+                                    'Registro',
+                                    marca
+                                        ?.documentosAsociados['registroSanitario'],
+                                  ),
                                 ];
                               }).toList(),
                             ),
@@ -15261,10 +15274,20 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
         'Fecha límite requerimiento ficha técnica',
         'Soportes ficha técnica',
         'URL ficha técnica',
+        'Estado registro sanitario',
+        'Vigencia registro sanitario',
+        'Requerimiento registro sanitario',
+        'Fecha límite requerimiento registro sanitario',
+        'Soportes registro sanitario',
+        'URL registro sanitario',
       ];
+      String vence(DocAdjunto? doc) => doc?.fechaVencimiento == null
+          ? '—'
+          : DateFormat('dd/MM/yyyy').format(doc!.fechaVencimiento!.toDate());
       final filas = exportadas.map((m) {
         final fichas = _fichasDeMarca(m);
         final fichaGeneral = m.documentosAsociados['fichaTecnica'];
+        final registro = m.documentosAsociados['registroSanitario'];
         final fichasVisibles = fichas
             .map(documentoVisibleFichaTecnica)
             .whereType<DocAdjunto>()
@@ -15292,6 +15315,16 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
           fichasVisibles.isEmpty
               ? fichaGeneral?.url ?? 'Sin cargar'
               : fichasVisibles.map((doc) => doc.url).join(' | '),
+          _estadoDocumentoConsulta('registroSanitario', registro).label,
+          vence(registro),
+          registro?.requerimientoNota ?? '—',
+          registro?.requerimientoFechaLimite == null
+              ? '—'
+              : DateFormat(
+                  'dd/MM/yyyy',
+                ).format(registro!.requerimientoFechaLimite!.toDate()),
+          '${registro?.soportesRequerimiento.length ?? 0}',
+          registro?.url ?? 'Sin cargar',
         ];
       }).toList();
       await _exportarExcel(
@@ -15417,6 +15450,12 @@ class _ConsultaMarcasTabState extends State<_ConsultaMarcasTab> {
                                     respaldoMarca:
                                         m.documentosAsociados['fichaTecnica'],
                                     compacto: true,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _consultaDocumentoChip(
+                                    'registroSanitario',
+                                    'Registro',
+                                    m.documentosAsociados['registroSanitario'],
                                   ),
                                   const SizedBox(width: 4),
                                   const Icon(
@@ -20174,7 +20213,7 @@ class _ResumenCalidadTab extends StatelessWidget {
                   _ResumenStatCard(
                     valor: '${d.marcasIncompletas.length}',
                     label: 'Marcas por completar',
-                    detalle: 'Ficha técnica',
+                    detalle: 'Ficha técnica y Registro sanitario',
                     icon: Icons.label_important_outline,
                     color: const Color(0xFF7B3F00),
                     tooltip: _resumenTooltip([

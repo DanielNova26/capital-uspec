@@ -13,7 +13,9 @@ const Set<String> kDocumentosConVigenciaObligatoria = {
   'actaIvcVehiculo',
   'examenMedico',
   'cursoManipulacion',
-  'soporteRegistroInvima',
+  // La ficha técnica no vence (reunión 9 sep); el registro sanitario sí, y
+  // vive en el producto (Compras, 11 sep).
+  'registroSanitario',
 };
 
 bool documentoRequiereVigencia(String docKey) =>

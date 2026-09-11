@@ -92,9 +92,14 @@ const String kDocFichaTecnicaProv = 'fichaTecnicaProv';
 
 /// Documentos legacy de proveedor que se conservan para leer históricos, pero
 /// ya no deben solicitarse ni mostrarse en la captura activa.
+// El registro sanitario NO se pide al proveedor (Compras, 11 sep 2026):
+// es del producto, y solo del producto. El 10 sep se había movido aquí; se
+// devuelve a `kDocumentosAsociadosLabels`. La clave `soporteRegistroInvima`
+// se conserva oculta para no romper proveedores que ya lo tenían cargado.
 const Set<String> kDocProveedorOcultos = {
   kDocFichaTecnicaProv,
   'autorizacionSanitaria',
+  'soporteRegistroInvima',
   'fichaTecnicaDosificacion',
 };
 
@@ -116,7 +121,7 @@ const Map<String, String> kDocProveedorLabels = {
   'examenMedico': 'Examen médico ocupacional',
   'cursoManipulacion':
       'Certificado/curso de manipulación de alimentos del conductor/manipulador',
-  'soporteRegistroInvima': 'Registro sanitario',
+  'soporteRegistroInvima': 'Soporte de registro sanitario INVIMA',
   'autorizacionSanitaria': 'Autorización sanitaria',
   'fichaTecnicaDosificacion':
       'Ficha técnica con registro sanitario y dosificaciones',
@@ -167,6 +172,7 @@ const Map<String, String> kDocRecepcionLabels = {
 /// una marca o de un producto, sin depender de una recepción o proveedor.
 const Map<String, String> kDocumentosAsociadosLabels = {
   'fichaTecnica': 'Ficha técnica',
+  'registroSanitario': 'Registro sanitario',
 };
 
 /// Roles de usuario en el módulo Compras/Bodega.

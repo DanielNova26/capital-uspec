@@ -121,7 +121,7 @@ void main() {
     });
 
     test(
-      'la ficha no vence y el registro sanitario vigente pertenece al proveedor',
+      'la ficha no vence; el registro sanitario vence y es del producto',
       () {
         expect(kDocumentosConVigenciaObligatoria, {
           'rut',
@@ -130,10 +130,11 @@ void main() {
           'actaIvcVehiculo',
           'examenMedico',
           'cursoManipulacion',
-          'soporteRegistroInvima',
+          'registroSanitario',
         });
         expect(documentoRequiereVigencia('fichaTecnica'), isFalse);
-        expect(documentoRequiereVigencia('soporteRegistroInvima'), isTrue);
+        expect(documentoRequiereVigencia('registroSanitario'), isTrue);
+        expect(documentoRequiereVigencia('soporteRegistroInvima'), isFalse);
         expect(documentoRequiereVigencia('autorizacionSanitaria'), isFalse);
         expect(documentoRequiereVigencia('certSanitariaImport'), isFalse);
       },
@@ -162,7 +163,7 @@ void main() {
             url: 'https://example.test/autorizacion.pdf',
           ),
         }),
-        contains('Registro sanitario'),
+        isNull,
       );
     });
   });
@@ -183,12 +184,13 @@ void main() {
     test(
       'la captura activa ubica cada documento en su expediente correcto',
       () {
-        expect(kDocumentosAsociadosLabels.keys, ['fichaTecnica']);
-        expect(
-          kDocProveedorLabels['soporteRegistroInvima'],
-          'Registro sanitario',
-        );
-        expect(kDocProveedorOcultos, isNot(contains('soporteRegistroInvima')));
+        // Compras, 11 sep 2026: el registro sanitario se exige SOLO en el
+        // producto; al proveedor no se le pide.
+        expect(kDocumentosAsociadosLabels.keys, [
+          'fichaTecnica',
+          'registroSanitario',
+        ]);
+        expect(kDocProveedorOcultos, contains('soporteRegistroInvima'));
       },
     );
 
@@ -234,54 +236,79 @@ void main() {
       );
     });
 
-    test('un producto nuevo exige ficha asociada a cada marca', () {
-      const ref = MarcaRef(
-        marcaId: 'marca',
-        codigo: 'MRC-0001',
-        descripcion: 'MARCA',
-      );
-      MarcaDoc marcaCon(Map<String, DocAdjunto> documentos) => MarcaDoc(
-        id: 'marca',
-        empresaId: 'empresa',
-        codigo: 'MRC-0001',
-        descripcion: 'MARCA',
-        documentosAsociados: documentos,
-        createdAt: Timestamp.fromDate(DateTime(2026, 7, 28)),
-      );
+    test(
+      'un producto nuevo exige ficha y registro sanitario en cada marca',
+      () {
+        const ref = MarcaRef(
+          marcaId: 'marca',
+          codigo: 'MRC-0001',
+          descripcion: 'MARCA',
+        );
+        MarcaDoc marcaCon(Map<String, DocAdjunto> documentos) => MarcaDoc(
+          id: 'marca',
+          empresaId: 'empresa',
+          codigo: 'MRC-0001',
+          descripcion: 'MARCA',
+          documentosAsociados: documentos,
+          createdAt: Timestamp.fromDate(DateTime(2026, 7, 28)),
+        );
 
-      expect(
-        validarDocumentosMarcasProducto(const [ref], [marcaCon(const {})]),
-        contains('Ficha técnica'),
-      );
-      expect(
-        validarDocumentosMarcasProducto(
-          const [ref],
-          [
-            marcaCon(const {
-              'fichaTecnica': DocAdjunto(
-                url: 'https://example.test/ficha.pdf',
-                fechaVencimiento: null,
-              ),
-            }),
-          ],
-        ),
-        isNull,
-      );
-      expect(
-        validarDocumentosMarcasProducto(
-          const [ref],
-          [
-            marcaCon({
-              'fichaTecnica': DocAdjunto(
-                url: 'https://example.test/ficha.pdf',
-                estadoCalidad: 'pendiente_revision_calidad',
-              ),
-            }),
-          ],
-        ),
-        isNull,
-      );
-    });
+        expect(
+          validarDocumentosMarcasProducto(const [ref], [marcaCon(const {})]),
+          allOf(contains('Ficha técnica'), contains('Registro sanitario')),
+        );
+        expect(
+          validarDocumentosMarcasProducto(
+            const [ref],
+            [
+              marcaCon(const {
+                'fichaTecnica': DocAdjunto(
+                  url: 'https://example.test/ficha.pdf',
+                  fechaVencimiento: null,
+                ),
+              }),
+            ],
+          ),
+          contains('Registro sanitario'),
+        );
+        expect(
+          validarDocumentosMarcasProducto(
+            const [ref],
+            [
+              marcaCon({
+                'fichaTecnica': const DocAdjunto(
+                  url: 'https://example.test/ficha.pdf',
+                  fechaVencimiento: null,
+                ),
+                'registroSanitario': DocAdjunto(
+                  url: 'https://example.test/registro.pdf',
+                  fechaVencimiento: Timestamp.fromDate(DateTime(2030, 1, 1)),
+                ),
+              }),
+            ],
+          ),
+          isNull,
+        );
+        expect(
+          validarDocumentosMarcasProducto(
+            const [ref],
+            [
+              marcaCon({
+                'fichaTecnica': DocAdjunto(
+                  url: 'https://example.test/ficha.pdf',
+                  estadoCalidad: 'pendiente_revision_calidad',
+                ),
+                'registroSanitario': DocAdjunto(
+                  url: 'https://example.test/registro.pdf',
+                  fechaVencimiento: Timestamp.fromDate(DateTime(2030, 1, 1)),
+                ),
+              }),
+            ],
+          ),
+          isNull,
+        );
+      },
+    );
   });
 
   group('filas de producto en recepción', () {
@@ -301,7 +328,7 @@ void main() {
   });
 
   test(
-    'el motor conserva registro sanitario de proveedor y oculta ficha de recepción',
+    'el motor oculta el registro sanitario del proveedor y la ficha de recepción',
     () {
       ReqDocumentoDoc regla(String key, String nivel) => ReqDocumentoDoc(
         empresaId: 'empresa',
@@ -321,9 +348,10 @@ void main() {
         regla('certCalidad', 'RECEPCION'),
       ]);
 
+      // Compras, 11 sep 2026: el registro sanitario es del producto; al
+      // proveedor ya no se le pide aunque la matriz lo traiga.
       expect(engine.docsProveedor(const ['Todas']).map((doc) => doc.keyApp), [
         'rut',
-        'soporteRegistroInvima',
       ]);
       expect(
         engine
