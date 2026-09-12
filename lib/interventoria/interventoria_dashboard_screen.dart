@@ -4549,7 +4549,10 @@ class _VisitaCardState extends State<_VisitaCard> {
                 // eso no está detrás de `esAdminDesarrollo`: reabrir es
                 // deshacer un clic propio, devolver es una decisión sobre el
                 // trabajo del establecimiento y crea la tarea de corrección.
-                if (puedeRevisarActas(widget.rol) && v.faseActa == 'completa')
+                // También en Fase 1 (12 sep 2026): un acta registrada en el
+                // establecimiento equivocado —Ubaté guardada como Bodega Cota—
+                // hay que devolverla ANTES de revisarla, no después.
+                if (puedeRevisarActas(widget.rol))
                   IconButton(
                     tooltip: 'Devolver acta con errores',
                     icon: Icon(
@@ -4567,7 +4570,10 @@ class _VisitaCardState extends State<_VisitaCard> {
                 // Un acta sin ninguna nota pero con hallazgos guardados es la
                 // huella de un guardado que pisó las observaciones. Se
                 // recuperan desde los hallazgos.
+                // Solo en actas ya completas: en Fase 1 no tener notas es lo
+                // normal, y el botón salía en todas las tarjetas del día.
                 if (puedeRevisarActas(widget.rol) &&
+                    v.faseActa == 'completa' &&
                     v.items.values.every((i) => i.observaciones.isEmpty))
                   IconButton(
                     tooltip: 'Recuperar observaciones desde los hallazgos',

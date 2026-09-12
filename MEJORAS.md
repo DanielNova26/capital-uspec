@@ -6,6 +6,47 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Correspondencia: "Contestado", quién y qué contestó — 12 sep 2026 (Claude)
+
+La columna "Canal de respuesta" del tablero decía "Microsoft 365 · fuera de
+la app" cuando el cron encontraba la respuesta en *Elementos enviados*. Era
+correcto pero no se leía como contestado, y el backend solo guardaba que
+salió un correo del buzón: ni el texto, ni el remitente, ni el responsable.
+
+- Tablero: chip verde **Contestado** con fecha, canal debajo ("Desde Outlook
+  (detectada en el buzón)" / "Desde la app por…" / "Marcada Ya contesté") y
+  "Por Fulano" con `UserAvatar`/`UserNameText`. "Pendiente" sigue igual.
+  Excel: columna nueva "Contestada por".
+- Backend (`correo.ts`): al enlazar un enviado se leen cuerpo, adjuntos
+  (solo nombres) y remitente (`sender`/`from` en Graph, `From` en Gmail) y
+  se escriben `respuestaCuerpo`/`respuestaAsunto` (si estaban vacíos),
+  `respuestaRemitente`, `respuestaAdjuntosNombres`, `respondidoPorId/Nombre`
+  (el responsable asignado al detectar) y `respuestaDetalleAt`.
+- Backfill: las detectadas antes de este cambio no se vuelven a escanear,
+  así que cada corrida completa hasta 5 expedientes `buzon_externo` sin
+  `respuestaDetalleAt` (`backfillDetectedResponses`).
+
+Quién contestó, en orden: (1) el responsable asignado al detectar la
+respuesta; (2) si no hay, la **firma del correo**: se toma solo lo que
+escribió quien contesta (se corta en `De:` / `From:` / "El ... escribió:" /
+`>`) y se compara contra el personal de la empresa (nombre completo o
+primer nombre + primer apellido, con hasta dos palabras entre medio). Solo
+se atribuye si casa exactamente una persona; con dos o ninguna queda vacío
+y se muestra el buzón. `respondidoPorOrigen` = `responsable` | `firma`; en
+la UI la firma lleva un icono de pluma / "(según la firma del correo)".
+Prueba: `functions/test/gd_firma_respuesta.test.js`.
+
+El remitente del buzón (`sender`/`from`) se guarda igual, pero como las
+respuestas salen del mismo buzón compartido en que entran, casi nunca es
+la persona; por eso la firma es el respaldo, no el remitente.
+
+Aparte: `functions/src/interventoria_deletion.ts` estaba en ceros en la
+copia de trabajo (16 KB de NUL, sin commit). Se reconstruyó desde
+`lib/interventoria_deletion.js` (compilado del 11 sep 21:33); el JS que
+genera es idéntico. Incluye `interventoriaEliminarActa`, que la app ya llama.
+
+---
+
 ## Planillas por WhatsApp: revisado — 11 sep 2026 (Claude)
 
 `ppWhatsAppCambioFirma` está bien planteado: es `onUpdate` sobre
@@ -57,6 +98,17 @@ envío `WHATSAPP_ROUTE_SENT`. La próxima vez se diagnostica con un
 medias (`functions/lib/**`, `package.json`, `main.dart`, permisos de
 arranque, acta devuelta): siguen sin commit en el árbol para que él los
 retome.
+
+---
+
+## Devolver un acta también en Fase 1 — 12 sep 2026 (Claude)
+
+El botón "Devolver acta con errores" solo salía en actas ya completas
+(Fase 2). Un acta registrada mal —el establecimiento equivocado, como Ubaté
+en Bodega Cota— hay que devolverla ANTES de revisarla. Ahora sale en todas
+las actas para admin, revisor y gerencia. Y el botón naranja de "Recuperar
+observaciones desde los hallazgos" ya solo aparece en actas completas sin
+notas: en Fase 1 no tener notas es lo normal y salía en todas las tarjetas.
 
 ---
 
