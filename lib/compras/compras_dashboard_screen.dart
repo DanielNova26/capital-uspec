@@ -10268,15 +10268,12 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
       return;
     }
     if (_modoEdicionPendiente && _motivoEdicionCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Indica el motivo por el cual se está editando la recepción.',
-          ),
-          backgroundColor: kComprasRed,
-        ),
-      );
-      return;
+      // El campo está arriba del formulario y el botón abajo, después de
+      // todos los productos: el aviso decía "indica el motivo" y nadie veía
+      // dónde. Se pide aquí mismo y se sigue guardando.
+      final motivo = await _pedirMotivoEdicion(context);
+      if (motivo == null) return;
+      _motivoEdicionCtrl.text = motivo;
     }
     if (_modoCorreccion && !_correccionModificada) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -20381,6 +20378,55 @@ class _ReversionDecision {
 /// [yaRechazado] cambia el dialogo entero: sobre un documento rechazado no hay
 /// aprobacion que revertir ni tiene sentido ofrecer "Rechazar" otra vez. Solo
 /// queda un destino, la cola de Calidad, asi que no se pregunta.
+/// Motivo de la edición de una recepción, pedido al guardar cuando el campo
+/// de arriba quedó vacío. Devuelve null si se cancela.
+Future<String?> _pedirMotivoEdicion(BuildContext context) async {
+  final ctrl = TextEditingController();
+  var vacio = false;
+  final motivo = await showDialog<String>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: const Text(
+          'Motivo de la edición',
+          style: TextStyle(fontFamily: _kFont),
+        ),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 4,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: InputDecoration(
+            hintText: 'Ej.: Llegan dos marcas distintas de panela x 500 g.',
+            helperText: 'Queda visible en el histórico de la recepción.',
+            errorText: vacio ? 'Escribe el motivo para poder guardar.' : null,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (ctrl.text.trim().isEmpty) {
+                setLocal(() => vacio = true);
+                return;
+              }
+              Navigator.pop(ctx, ctrl.text.trim());
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    ),
+  );
+  ctrl.dispose();
+  return motivo;
+}
+
 Future<_ReversionDecision?> _pedirMotivoReversion(
   BuildContext context, {
   required String docLabel,

@@ -242,6 +242,22 @@ retome.
 
 ---
 
+## Compras: "Indica el motivo por el cual se está editando la recepción" — 14 sep 2026 (Claude)
+
+La auditoría de ediciones de recepción (Codex, `ea52583`) exige un motivo
+al editar una recepción que ya estaba en revisión. El campo "Motivo de la
+edición *" está ARRIBA del formulario (después del grupo), y el botón
+"Guardar cambios" abajo, después de todos los productos y sus archivos: el
+aviso rojo decía "indica el motivo" y la persona no encontraba dónde. Ahora,
+si al guardar está vacío, se pide en un diálogo ahí mismo y se sigue
+guardando; el campo de arriba sigue existiendo para quien lo vea.
+
+Aclaración para Compras: "Observaciones de la ficha técnica" es otra cosa
+(va con el producto, para Calidad); el motivo de edición es de la recepción
+y queda en su histórico.
+
+---
+
 ## Registrar acta: la causa real era una regla — 14 sep 2026 (Claude)
 
 El "Dart exception thrown from converted Future" de los registradores no
@@ -5595,3 +5611,43 @@ el cargo se completa solo a partir de la persona.
 
 De paso: al elegir el **cargo propio** se guardaba su código en `jefe_cargo`
 (el cargo del jefe). Ahora se limpia, como el resto de campos del jefe.
+
+## Plantilla Excel de formato: encabezado según el modelo del jefe (14 sep 2026)
+
+El jefe entregó `1. Formato modelo v1.xlsx` con el encabezado como lo quiere.
+`gd_formato_plantilla.dart` ahora reproduce esa geometría en vez de la
+provisional del 12 sep:
+
+- **Rellenos como la versión del 12 sep** (el jefe sí los quiere; el modelo
+  los traía en blanco pero fue una aclaración posterior): título en blanco
+  sobre el primario `0D1B68` (azul marino del modelo), empresa, dependencia
+  y etiquetas sobre el secundario claro `E8EEF5`, valores en blanco, y una
+  franja del primario en la fila 6 (la fila 5, de 2 pt, queda en blanco como
+  hueco). Bordes finos en el primario. `TBL_EMPRESAS.colorPrimario/
+  colorSecundario` los siguen sobreescribiendo por empresa.
+- **Columnas A-Q todas angostas e iguales** (4.86 en Excel) y R como margen:
+  el encabezado mide 497 pt y cabe en carta vertical; la cuadrícula fina es
+  la que usan las dependencias para armar el contenido.
+- **Bloques:** logo `A1:C4` · empresa `D1:L1` (negrilla 11) · nombre del
+  formato `D2:L3` (negrilla 11) · dependencia `D4:L4` (normal 11) ·
+  etiquetas `M:N` · valores `O:Q`. Se elimina la fila "Empresa": la empresa
+  va arriba del título.
+- **Filas:** 1-4 de 14.25 pt; 5 y 6 separadoras de 2 y 8 pt. El contenido
+  libre sigue empezando en la fila 7 y la protección de hoja no cambia.
+- **Aprobado lleva solo el nombre.** La celda `O2:Q2` mide 87 pt: no cabe
+  "nombre · fecha hora". El modelo pone `[usuario]`, así que el sello de
+  Calidad escribe el nombre y la fecha/hora exacta queda en el registro de la
+  Biblioteca (ya estaba). Nombres largos se encogen (`shrinkToFit`) en vez
+  de cortarse; lo mismo empresa y dependencia.
+- El sello sigue reconociendo los archivos descargados con el encabezado
+  anterior (combinación `C1:G3`) y les escribe en `I2`; los nuevos van en
+  `O2`.
+
+Verificado abriendo el .xlsx generado en Excel (COM): mismas medidas que el
+modelo (`A1:Q4` = 497.25 × 57 pt, logo centrado en `A1:C4` sin deformar).
+
+Lo que NO se copió del modelo, a propósito: la hoja del jefe no está
+protegida y tiene `D1:L4` desbloqueadas; eso contradice el acuerdo del 12 sep
+(encabezado intocable), así que el candado se mantiene. Tampoco la columna
+S oculta, que no aporta nada al usuario. Y el blanco sin rellenos del modelo
+tampoco: el jefe aclaró después que los rellenos van.
