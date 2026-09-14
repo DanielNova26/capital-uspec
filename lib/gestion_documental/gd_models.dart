@@ -60,6 +60,9 @@ enum GdAccion {
   observado,
   reenviado,
   aprobado,
+  formato_validado,
+  metadatos_actualizados,
+  publicado,
   firmado,
   marcado_vigente,
   marcado_obsoleto,
@@ -84,6 +87,12 @@ extension GdAccionX on GdAccion {
         return 'Reenviado a revisión';
       case GdAccion.aprobado:
         return 'Aprobado formalmente';
+      case GdAccion.formato_validado:
+        return 'Formato validado por Calidad';
+      case GdAccion.metadatos_actualizados:
+        return 'Clasificación documental actualizada';
+      case GdAccion.publicado:
+        return 'Publicado para consulta';
       case GdAccion.firmado:
         return 'Firmado internamente';
       case GdAccion.marcado_vigente:
@@ -121,6 +130,7 @@ class GdRoles {
     'observar': {revisor, aprobador, adminDoc, desarrollador},
     'reenviar': {redactor, adminDoc, desarrollador},
     'aprobar': {aprobador, adminDoc, desarrollador},
+    'validar_formato': {revisor, aprobador, adminDoc, desarrollador},
     'firmar': {firmante, adminDoc, desarrollador},
     'marcar_vigente': {firmante, aprobador, adminDoc, desarrollador},
     'subir_pdf': {redactor, adminDoc, desarrollador},
@@ -148,6 +158,9 @@ class DocumentoDoc {
   final String? descripcion;
   final String? categoria; // Procedimiento, Política, Formato, Instructivo
   final String? area; // Área o departamento responsable
+  final String? carpeta; // Carpeta temática para documentos del contrato
+  final String? alias; // Nombre alternativo o concepto de búsqueda
+  final String? codigoExterno; // Resolución, ley u otro identificador externo
   final List<String> palabrasClave; // Búsqueda y asociaciones del Normograma
   final String versionActual; // Etiqueta: "v1", "v2"
   final GdEstado estado; // Estado de la versión activa en progreso
@@ -170,6 +183,9 @@ class DocumentoDoc {
     this.descripcion,
     this.categoria,
     this.area,
+    this.carpeta,
+    this.alias,
+    this.codigoExterno,
     this.palabrasClave = const [],
     required this.versionActual,
     required this.estado,
@@ -192,6 +208,9 @@ class DocumentoDoc {
       descripcion: m['descripcion'] as String?,
       categoria: m['categoria'] as String?,
       area: m['area'] as String?,
+      carpeta: m['carpeta'] as String?,
+      alias: m['alias'] as String?,
+      codigoExterno: m['codigoExterno'] as String?,
       palabrasClave: (m['palabrasClave'] as List<dynamic>? ?? const [])
           .map((value) => value.toString())
           .where((value) => value.trim().isNotEmpty)
@@ -216,6 +235,9 @@ class DocumentoDoc {
     'descripcion': descripcion,
     'categoria': categoria,
     'area': area,
+    'carpeta': carpeta,
+    'alias': alias,
+    'codigoExterno': codigoExterno,
     'palabrasClave': palabrasClave,
     'versionActual': versionActual,
     'estado': estado.valor,
@@ -234,6 +256,9 @@ class DocumentoDoc {
     String? descripcion,
     String? categoria,
     String? area,
+    String? carpeta,
+    String? alias,
+    String? codigoExterno,
     List<String>? palabrasClave,
     String? versionActual,
     GdEstado? estado,
@@ -251,6 +276,9 @@ class DocumentoDoc {
     descripcion: descripcion ?? this.descripcion,
     categoria: categoria ?? this.categoria,
     area: area ?? this.area,
+    carpeta: carpeta ?? this.carpeta,
+    alias: alias ?? this.alias,
+    codigoExterno: codigoExterno ?? this.codigoExterno,
     palabrasClave: palabrasClave ?? this.palabrasClave,
     versionActual: versionActual ?? this.versionActual,
     estado: estado ?? this.estado,

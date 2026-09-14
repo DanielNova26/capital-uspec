@@ -15,6 +15,7 @@ import 'correspondencia/gd_colaboracion_models.dart';
 import 'correspondencia/gd_colaboracion_service.dart';
 import 'correspondencia/gd_correspondencia_screen.dart';
 import 'gd_models.dart';
+import 'gd_library_logic.dart';
 import 'gd_service.dart';
 import 'widgets/gd_pdf_preview.dart';
 import 'widgets/gd_ui_widgets.dart';
@@ -33,6 +34,146 @@ class GdDetailScreen extends StatefulWidget {
 
   @override
   State<GdDetailScreen> createState() => _GdDetailScreenState();
+}
+
+class _EditLibraryMetadataDialog extends StatefulWidget {
+  final DocumentoDoc document;
+  final GdService service;
+  final String empresaId;
+  final String actorId;
+  final String rolDocumental;
+
+  const _EditLibraryMetadataDialog({
+    required this.document,
+    required this.service,
+    required this.empresaId,
+    required this.actorId,
+    required this.rolDocumental,
+  });
+
+  @override
+  State<_EditLibraryMetadataDialog> createState() =>
+      _EditLibraryMetadataDialogState();
+}
+
+class _EditLibraryMetadataDialogState
+    extends State<_EditLibraryMetadataDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _folderController;
+  late final TextEditingController _aliasController;
+  late final TextEditingController _externalCodeController;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _folderController = TextEditingController(text: widget.document.carpeta);
+    _aliasController = TextEditingController(text: widget.document.alias);
+    _externalCodeController = TextEditingController(
+      text: widget.document.codigoExterno,
+    );
+  }
+
+  @override
+  void dispose() {
+    _folderController.dispose();
+    _aliasController.dispose();
+    _externalCodeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.service.actualizarClasificacionBiblioteca(
+        docId: widget.document.docId,
+        empresaId: widget.empresaId,
+        actorId: widget.actorId,
+        rolDocumental: widget.rolDocumental,
+        carpeta: _folderController.text,
+        alias: _aliasController.text,
+        codigoExterno: _externalCodeController.text,
+      );
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isContract =
+        gdSectionForCategory(widget.document.categoria) ==
+        GdLibrarySection.contrato;
+    return AlertDialog(
+      title: const Text('Editar clasificación'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isContract) ...[
+                TextFormField(
+                  controller: _folderController,
+                  decoration: const InputDecoration(
+                    labelText: 'Carpeta temática',
+                    hintText: 'Ej: Legales, Nutricionales, Jurídicas',
+                  ),
+                  validator: (value) => (value ?? '').trim().isEmpty
+                      ? 'Indica una carpeta'
+                      : null,
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextFormField(
+                controller: _externalCodeController,
+                decoration: InputDecoration(
+                  labelText: isContract
+                      ? 'Código externo o resolución'
+                      : 'Número de ley o norma',
+                ),
+                validator: isContract
+                    ? null
+                    : (value) => (value ?? '').trim().isEmpty
+                          ? 'Indica el número de la norma'
+                          : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _aliasController,
+                decoration: const InputDecoration(
+                  labelText: 'Alias o concepto',
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(_saving ? 'Guardando...' : 'Guardar'),
+        ),
+      ],
+    );
+  }
 }
 
 class _GdDetailScreenState extends State<GdDetailScreen>
@@ -252,7 +393,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildMainInfoCard(doc),
+                _buildMainInfoCard(doc, rolDocumental),
                 const SizedBox(height: 24),
                 _buildPreviewSection(
                   doc,
@@ -333,7 +474,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                _buildMainInfoCard(doc),
+                _buildMainInfoCard(doc, rolDocumental),
                 const SizedBox(height: 16),
                 _buildPreviewSection(
                   doc,
@@ -384,7 +525,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     );
   }
 
-  Widget _buildMainInfoCard(DocumentoDoc doc) {
+  Widget _buildMainInfoCard(DocumentoDoc doc, String? rolDocumental) {
     return ModuleCard(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -437,6 +578,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               _buildInfoItem('Codigo', doc.codigo),
               _buildInfoItem('Categoria', doc.categoria ?? '-'),
               _buildInfoItem('Area', doc.area ?? '-'),
+              if ((doc.carpeta ?? '').trim().isNotEmpty)
+                _buildInfoItem('Carpeta', doc.carpeta!),
+              if ((doc.codigoExterno ?? '').trim().isNotEmpty)
+                _buildInfoItem('Código externo / número', doc.codigoExterno!),
+              if ((doc.alias ?? '').trim().isNotEmpty)
+                _buildInfoItem('Alias o concepto', doc.alias!),
               if (doc.palabrasClave.isNotEmpty)
                 _buildInfoItem('Palabras clave', doc.palabrasClave.join(', ')),
               _buildUserInfoItem('Creado por', doc.creadoPor),
@@ -449,6 +596,28 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 ),
             ],
           ),
+          if (GdRoles.puedeEjecutar('subir_pdf', rolDocumental) &&
+              (doc.creadoPor == widget.userId ||
+                  rolDocumental == GdRoles.adminDoc ||
+                  rolDocumental == GdRoles.desarrollador) &&
+              gdSectionForCategory(doc.categoria) !=
+                  GdLibrarySection.formatos) ...[
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => _EditLibraryMetadataDialog(
+                  document: doc,
+                  service: _service,
+                  empresaId: widget.empresaId,
+                  actorId: widget.userId,
+                  rolDocumental: rolDocumental!,
+                ),
+              ),
+              icon: const Icon(Icons.edit_note_outlined, size: 18),
+              label: const Text('EDITAR CLASIFICACIÓN'),
+            ),
+          ],
           if (doc.aprobadoPor != null) ...[
             const SizedBox(height: 20),
             _buildApprovalSeal(doc),
@@ -486,8 +655,10 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'APROBADO POR CALIDAD',
+                Text(
+                  gdIsInstitutionalFormat(doc.categoria)
+                      ? 'FORMATO VALIDADO POR CALIDAD'
+                      : 'APROBADO POR CALIDAD',
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 11,
@@ -1041,6 +1212,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     String? nombreActor,
   ) {
     final currentVersionId = currentVersion?.versionId;
+    final formatoInstitucional = gdIsInstitutionalFormat(doc.categoria);
+    // Contrato y normograma: documentos que ya existen, sin flujo.
+    final esConsulta = gdIsReferenceDocument(doc.categoria);
     final puedeEnviar =
         currentVersionId != null &&
         GdRoles.puedeEjecutar('enviar_revision', rolDocumental);
@@ -1053,6 +1227,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     final puedeAprobar =
         currentVersionId != null &&
         GdRoles.puedeEjecutar('aprobar', rolDocumental);
+    final puedeValidarFormato =
+        currentVersionId != null &&
+        GdRoles.puedeEjecutar('validar_formato', rolDocumental);
     final puedeFirmar =
         currentVersionId != null &&
         GdRoles.puedeEjecutar('firmar', rolDocumental);
@@ -1067,11 +1244,88 @@ class _GdDetailScreenState extends State<GdDetailScreen>
       'eliminar_documento',
       rolDocumental,
     );
+    final puedePublicarConsulta =
+        esConsulta &&
+        currentVersionId != null &&
+        doc.estado != GdEstado.vigente &&
+        GdRoles.puedeEjecutar('subir_pdf', rolDocumental);
+    final puedeReemplazarConsulta =
+        esConsulta && doc.estado == GdEstado.vigente && puedeNuevaVersion;
+
+    if (esConsulta) {
+      return ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          _buildStatusTimeline(doc.estado, consulta: true),
+          const SizedBox(height: 32),
+          const Text(
+            'ACCIONES DISPONIBLES',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+              color: Color(0xFF94A3B8),
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (puedePublicarConsulta)
+            _buildActionButton(
+              label: 'PUBLICAR PARA CONSULTA',
+              icon: Icons.public,
+              color: GdPalette.accent,
+              onPressed: () => _handleAction(
+                () => _service.publicarDocumentoConsulta(
+                  docId: doc.docId,
+                  versionId: currentVersionId,
+                  empresaId: widget.empresaId,
+                  actorId: widget.userId,
+                  rolDocumental: rolDocumental!,
+                  nombreActor: nombreActor,
+                ),
+              ),
+            ),
+          if (puedeReemplazarConsulta)
+            _buildActionButton(
+              label: 'REEMPLAZAR ARCHIVO',
+              icon: Icons.upload_file,
+              onPressed: () => _pickAndReplaceReferenceFile(
+                doc,
+                rolDocumental!,
+                nombreActor,
+              ),
+            ),
+          if (puedeEliminar) ...[
+            if (puedePublicarConsulta || puedeReemplazarConsulta)
+              const SizedBox(height: 16),
+            _buildActionButton(
+              label: 'ELIMINAR DOCUMENTO',
+              icon: Icons.delete_forever,
+              color: Colors.redAccent,
+              onPressed: () => _confirmDeleteDocument(doc, rolDocumental!),
+            ),
+          ],
+          if (rolDocumental == null ||
+              (!puedePublicarConsulta &&
+                  !puedeReemplazarConsulta &&
+                  !puedeEliminar))
+            _buildLimitedActionsCard(rolDocumental),
+          const SizedBox(height: 40),
+          _buildHelpCard(consulta: true),
+        ],
+      );
+    }
 
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        _buildStatusTimeline(doc.estado),
+        _buildStatusTimeline(
+          doc.estado,
+          formatoInstitucional:
+              formatoInstitucional &&
+              doc.estado != GdEstado.aprobado &&
+              doc.estado != GdEstado.firmado,
+        ),
         const SizedBox(height: 32),
         const Text(
           'ACCIONES DISPONIBLES',
@@ -1099,7 +1353,27 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               ),
             ),
           ),
-        if (doc.estado == GdEstado.en_revision && puedeAprobar)
+        if (doc.estado == GdEstado.en_revision &&
+            formatoInstitucional &&
+            puedeValidarFormato)
+          _buildActionButton(
+            label: 'VALIDAR FORMATO',
+            icon: Icons.verified,
+            color: const Color(0xFF10B981),
+            onPressed: () => _handleAction(
+              () => _service.validarFormatoInstitucional(
+                docId: doc.docId,
+                versionId: currentVersionId,
+                empresaId: widget.empresaId,
+                actorId: widget.userId,
+                rolDocumental: rolDocumental!,
+                nombreActor: nombreActor,
+              ),
+            ),
+          ),
+        if (doc.estado == GdEstado.en_revision &&
+            !formatoInstitucional &&
+            puedeAprobar)
           _buildActionButton(
             label: 'APROBAR REVISIÓN',
             icon: Icons.verified,
@@ -1115,7 +1389,9 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               ),
             ),
           ),
-        if (doc.estado == GdEstado.en_revision && puedeAprobar && puedeObservar)
+        if (doc.estado == GdEstado.en_revision &&
+            (formatoInstitucional ? puedeValidarFormato : puedeAprobar) &&
+            puedeObservar)
           const SizedBox(height: 16),
         if (doc.estado == GdEstado.en_revision && puedeObservar)
           _buildActionButton(
@@ -1221,68 +1497,127 @@ class _GdDetailScreenState extends State<GdDetailScreen>
         if (rolDocumental == null ||
             (!puedeEnviar &&
                 !puedeAprobar &&
+                !puedeValidarFormato &&
                 !puedeObservar &&
                 !puedeReenviar &&
                 !puedeFirmar &&
                 !puedeMarcarVigente &&
                 !puedeNuevaVersion &&
                 !puedeEliminar))
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.lock_person_outlined,
-                  color: const Color(0xFF94A3B8).withValues(alpha: 0.5),
-                  size: 32,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Acciones Limitadas',
-                  style: TextStyle(
-                    fontFamily: kArial,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  rolDocumental == null
-                      ? 'No tienes un rol asignado para esta empresa. Contacta al administrador para habilitar tus permisos.'
-                      : 'Tu rol actual (${rolDocumental.toUpperCase()}) no tiene acciones permitidas para el estado actual del documento.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: kArial,
-                    fontSize: 13,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _buildLimitedActionsCard(rolDocumental),
         const SizedBox(height: 40),
         _buildHelpCard(),
       ],
     );
   }
 
-  Widget _buildStatusTimeline(GdEstado estadoActual) {
-    final pasos = [
-      {'estado': GdEstado.borrador, 'label': 'Creación'},
-      {'estado': GdEstado.en_revision, 'label': 'Revisión'},
-      {'estado': GdEstado.aprobado, 'label': 'Aprobación'},
-      {'estado': GdEstado.firmado, 'label': 'Firma'},
-      {'estado': GdEstado.vigente, 'label': 'Vigencia'},
-    ];
+  Widget _buildLimitedActionsCard(String? rolDocumental) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.lock_person_outlined,
+            color: const Color(0xFF94A3B8).withValues(alpha: 0.5),
+            size: 32,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Acciones Limitadas',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            rolDocumental == null
+                ? 'No tienes un rol asignado para esta empresa. Contacta al administrador para habilitar tus permisos.'
+                : 'Tu rol actual (${rolDocumental.toUpperCase()}) no tiene acciones permitidas para el estado actual del documento.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 13,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Consulta: el archivo nuevo entra como versión vigente en el acto.
+  Future<void> _pickAndReplaceReferenceFile(
+    DocumentoDoc doc,
+    String rolDocumental,
+    String? nombreActor,
+  ) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx'],
+      withData: true,
+    );
+    final file = result?.files.isNotEmpty == true ? result!.files.single : null;
+    if (file == null || file.bytes == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se seleccionó ningún archivo o hubo un error al leerlo.',
+          ),
+        ),
+      );
+      return;
+    }
+    await _handleAction(
+      () => _service.iniciarNuevaVersion(
+        docId: doc.docId,
+        empresaId: widget.empresaId,
+        actorId: widget.userId,
+        rolDocumental: rolDocumental,
+        nombreActor: nombreActor,
+        pdfBytes: file.bytes,
+        pdfNombre: file.name,
+      ),
+    );
+  }
+
+  Widget _buildStatusTimeline(
+    GdEstado estadoActual, {
+    bool formatoInstitucional = false,
+    bool consulta = false,
+  }) {
+    final pasos = consulta
+        ? [
+            {'estado': GdEstado.borrador, 'label': 'Cargado'},
+            {'estado': GdEstado.vigente, 'label': 'Publicado'},
+          ]
+        : formatoInstitucional
+        ? [
+            {'estado': GdEstado.borrador, 'label': 'Creación'},
+            {'estado': GdEstado.en_revision, 'label': 'Revisión'},
+            {'estado': GdEstado.vigente, 'label': 'Validado'},
+          ]
+        : [
+            {'estado': GdEstado.borrador, 'label': 'Creación'},
+            {'estado': GdEstado.en_revision, 'label': 'Revisión'},
+            {'estado': GdEstado.aprobado, 'label': 'Aprobación'},
+            {'estado': GdEstado.firmado, 'label': 'Firma'},
+            {'estado': GdEstado.vigente, 'label': 'Vigencia'},
+          ];
 
     int indiceActual = pasos.indexWhere((p) => p['estado'] == estadoActual);
     if (estadoActual == GdEstado.observado) indiceActual = 1;
-    if (estadoActual == GdEstado.obsoleto) indiceActual = 4;
+    if (estadoActual == GdEstado.obsoleto) indiceActual = pasos.length - 1;
+    // Consulta con estado heredado del flujo (en_revision, aprobado...):
+    // sigue sin publicar.
+    if (consulta && indiceActual < 0) indiceActual = 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1416,7 +1751,7 @@ class _GdDetailScreenState extends State<GdDetailScreen>
     );
   }
 
-  Widget _buildHelpCard() {
+  Widget _buildHelpCard({bool consulta = false}) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1424,10 +1759,10 @@ class _GdDetailScreenState extends State<GdDetailScreen>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
+          const Text(
             'Ayuda de Proceso',
             style: TextStyle(
               fontFamily: kArial,
@@ -1436,10 +1771,12 @@ class _GdDetailScreenState extends State<GdDetailScreen>
               color: Color(0xFF0F172A),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
-            'Para que un documento sea Vigente, debe pasar por Revision, Aprobacion y Firma. El sistema genera un historial inalterable de cada paso.',
-            style: TextStyle(
+            consulta
+                ? 'Los documentos del contrato y del normograma ya existen fuera de la app: quedan publicados para consulta al cargarlos, sin revisión ni firma. Reemplazar el archivo crea una versión nueva y deja la anterior como obsoleta.'
+                : 'Para que un documento sea Vigente, debe pasar por Revision, Aprobacion y Firma. El sistema genera un historial inalterable de cada paso.',
+            style: const TextStyle(
               fontFamily: kArial,
               fontSize: 12,
               color: Color(0xFF64748B),

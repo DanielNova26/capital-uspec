@@ -22,6 +22,11 @@
 //   vigente      → obsoleto      (automático al marcar nueva vigente)
 //
 // Regla fuerte: solo una versión puede tener esVigente=true por documento.
+//
+// Excepción: los documentos de consulta (secciones Contrato y Normograma,
+// ver gdIsReferenceDocument) ya existen fuera de la app y nacen vigentes.
+// No pasan por revisión ni firma; reemplazar el archivo crea una versión
+// nueva que también queda vigente de inmediato.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 // Eliminado import de file_picker.dart
@@ -30,6 +35,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'gd_models.dart';
+import 'gd_library_logic.dart';
 import '../services/task_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,6 +112,9 @@ class GdService {
     String? descripcion,
     String? categoria,
     String? area,
+    String? carpeta,
+    String? alias,
+    String? codigoExterno,
     List<String> palabrasClave = const [],
     String? nombreActor,
     // PDF opcional en la creación (puede subirse después)
@@ -113,12 +122,19 @@ class GdService {
     String? pdfNombre,
   }) async {
     _validarRol('subir_pdf', rolDocumental);
+    final esConsulta = gdIsReferenceDocument(categoria);
+    if (esConsulta && (pdfBytes == null || pdfNombre == null)) {
+      throw const GdException(
+        'Adjunta el archivo: los documentos de consulta se publican al cargarlos.',
+      );
+    }
 
     final docRef = _docCol.doc();
     final docId = docRef.id;
     final verRef = _verCol.doc();
     final versionId = verRef.id;
     final now = FieldValue.serverTimestamp();
+    final estadoInicial = esConsulta ? GdEstado.vigente : GdEstado.borrador;
 
     // Subir PDF si se proveyó
     String? urlPdf;
@@ -145,10 +161,13 @@ class GdService {
       'descripcion': descripcion,
       'categoria': categoria,
       'area': area,
+      'carpeta': carpeta?.trim(),
+      'alias': alias?.trim(),
+      'codigoExterno': codigoExterno?.trim(),
       'palabrasClave': palabrasClave,
       'versionActual': 'v1',
-      'estado': GdEstado.borrador.valor,
-      'versionVigenteId': null,
+      'estado': estadoInicial.valor,
+      'versionVigenteId': esConsulta ? versionId : null,
       'creadoPor': actorId,
       'createdAt': now,
       'updatedAt': now,
@@ -164,7 +183,7 @@ class GdService {
       'empresaId': empresaId,
       'numero': 1,
       'etiqueta': 'v1',
-      'estado': GdEstado.borrador.valor,
+      'estado': estadoInicial.valor,
       'urlPdf': urlPdf,
       'pathPdf': pathPdf,
       'nombreArchivo': pdfNombre,
@@ -179,7 +198,7 @@ class GdService {
       'urlFirmaUsada': null,
       'nombreFirmante': null,
       'observacion': null,
-      'esVigente': false,
+      'esVigente': esConsulta,
     });
 
     await batch.commit();
@@ -208,10 +227,164 @@ class GdService {
       );
     }
 
+    if (esConsulta) {
+      await _registrarEvento(
+        docId: docId,
+        versionId: versionId,
+        empresaId: empresaId,
+        accion: GdAccion.publicado,
+        actorId: actorId,
+        nombreActor: nombreActor,
+        metadatos: {'etiqueta': 'v1'},
+      );
+    }
+
     debugPrint(
       '[GdService] Documento creado: docId=$docId versionId=$versionId',
     );
     return docId;
+  }
+
+  /// Publica un documento de consulta (contrato o normograma) que quedó en
+  /// un estado intermedio: registros cargados antes de que estas secciones
+  /// dejaran de pasar por el flujo. La versión actual queda vigente y la
+  /// vigente anterior, si la hay, obsoleta.
+  Future<void> publicarDocumentoConsulta({
+    required String docId,
+    required String versionId,
+    required String empresaId,
+    required String actorId,
+    required String rolDocumental,
+    String? nombreActor,
+  }) async {
+    _validarRol('subir_pdf', rolDocumental);
+    final docSnap = await _docCol.doc(docId).get();
+    final verSnap = await _verCol.doc(versionId).get();
+    final docData = docSnap.data();
+    final verData = verSnap.data();
+    if (docData == null ||
+        verData == null ||
+        docData['empresaId'] != empresaId ||
+        verData['empresaId'] != empresaId ||
+        verData['docId'] != docId ||
+        !gdIsReferenceDocument(docData['categoria']?.toString())) {
+      throw const GdException(
+        'El documento de consulta no existe en la empresa activa.',
+      );
+    }
+    if (docData['versionActual'] != verData['etiqueta']) {
+      throw const GdException('Solo se publica la versión actual.');
+    }
+    if (verData['estado'] == GdEstado.vigente.valor) {
+      throw const GdException('El documento ya está publicado.');
+    }
+    if ((verData['urlPdf'] ?? '').toString().trim().isEmpty) {
+      throw const GdException('Adjunta el archivo antes de publicarlo.');
+    }
+
+    final previous = await _verCol
+        .where('docId', isEqualTo: docId)
+        .where('esVigente', isEqualTo: true)
+        .limit(1)
+        .get();
+    final now = FieldValue.serverTimestamp();
+    final batch = _db.batch();
+    if (previous.docs.isNotEmpty && previous.docs.first.id != versionId) {
+      batch.update(previous.docs.first.reference, {
+        'esVigente': false,
+        'estado': GdEstado.obsoleto.valor,
+      });
+    }
+    batch.update(verSnap.reference, {
+      'estado': GdEstado.vigente.valor,
+      'esVigente': true,
+    });
+    batch.update(docSnap.reference, {
+      'estado': GdEstado.vigente.valor,
+      'versionVigenteId': versionId,
+      'updatedAt': now,
+    });
+    await batch.commit();
+    if (previous.docs.isNotEmpty && previous.docs.first.id != versionId) {
+      await _registrarEvento(
+        docId: docId,
+        versionId: previous.docs.first.id,
+        empresaId: empresaId,
+        accion: GdAccion.marcado_obsoleto,
+        actorId: actorId,
+        nombreActor: nombreActor,
+        metadatos: {'reemplazadaPor': versionId},
+      );
+    }
+    await _registrarEvento(
+      docId: docId,
+      versionId: versionId,
+      empresaId: empresaId,
+      accion: GdAccion.publicado,
+      actorId: actorId,
+      nombreActor: nombreActor,
+      metadatos: {'etiqueta': verData['etiqueta']},
+    );
+  }
+
+  /// Permite clasificar documentos existentes sin alterar su archivo ni versión.
+  Future<void> actualizarClasificacionBiblioteca({
+    required String docId,
+    required String empresaId,
+    required String actorId,
+    required String rolDocumental,
+    required String carpeta,
+    required String alias,
+    required String codigoExterno,
+  }) async {
+    _validarRol('subir_pdf', rolDocumental);
+    final ref = _docCol.doc(docId);
+    final snapshot = await ref.get();
+    final data = snapshot.data();
+    if (data == null || data['empresaId'] != empresaId) {
+      throw const GdException('El documento no existe en la empresa activa.');
+    }
+    if (rolDocumental != GdRoles.adminDoc &&
+        rolDocumental != GdRoles.desarrollador &&
+        data['creadoPor'] != actorId) {
+      throw const GdException(
+        'Solo el creador o un administrador puede editar la clasificación.',
+      );
+    }
+    final section = gdSectionForCategory(data['categoria']?.toString());
+    if (section == GdLibrarySection.formatos) {
+      throw const GdException('Los formatos no utilizan esta clasificación.');
+    }
+    final folder = carpeta.trim();
+    final externalCode = codigoExterno.trim();
+    if (section == GdLibrarySection.contrato && folder.isEmpty) {
+      throw const GdException('Indica una carpeta temática.');
+    }
+    if (section == GdLibrarySection.normograma && externalCode.isEmpty) {
+      throw const GdException('Indica el número de la norma.');
+    }
+    final updated = {
+      'carpeta': section == GdLibrarySection.contrato ? folder : null,
+      'alias': alias.trim(),
+      'codigoExterno': externalCode,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final batch = _db.batch();
+    batch.update(ref, updated);
+    batch.set(_flujoCol.doc(), {
+      'docId': docId,
+      'versionId': null,
+      'empresaId': empresaId,
+      'accion': GdAccion.metadatos_actualizados.valor,
+      'realizadoPor': actorId,
+      'realizadoEn': FieldValue.serverTimestamp(),
+      'metadatos': {
+        'carpeta': section == GdLibrarySection.contrato ? folder : null,
+        'alias': alias.trim(),
+        'codigoExterno': externalCode,
+      },
+    });
+    await batch.commit();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -413,6 +586,89 @@ class GdService {
     );
   }
 
+  /// Calidad valida y publica un formato institucional con un único check.
+  /// No exige firma personal ni los pasos aprobado/firmado del flujo anterior.
+  Future<void> validarFormatoInstitucional({
+    required String docId,
+    required String versionId,
+    required String empresaId,
+    required String actorId,
+    required String rolDocumental,
+    String? nombreActor,
+  }) async {
+    _validarRol('validar_formato', rolDocumental);
+    final docSnap = await _docCol.doc(docId).get();
+    final verSnap = await _verCol.doc(versionId).get();
+    final docData = docSnap.data();
+    final verData = verSnap.data();
+    if (docData == null ||
+        verData == null ||
+        docData['empresaId'] != empresaId ||
+        verData['empresaId'] != empresaId ||
+        verData['docId'] != docId ||
+        !gdIsInstitutionalFormat(docData['categoria']?.toString())) {
+      throw const GdException('El formato no existe en la empresa activa.');
+    }
+    if (docData['estado'] != GdEstado.en_revision.valor ||
+        verData['estado'] != GdEstado.en_revision.valor ||
+        docData['versionActual'] != verData['etiqueta']) {
+      throw const GdException('Solo se valida la versión actual en revisión.');
+    }
+    if ((verData['urlPdf'] ?? '').toString().trim().isEmpty) {
+      throw const GdException('Adjunta el archivo antes de validarlo.');
+    }
+
+    final previous = await _verCol
+        .where('docId', isEqualTo: docId)
+        .where('esVigente', isEqualTo: true)
+        .limit(1)
+        .get();
+    final now = FieldValue.serverTimestamp();
+    final batch = _db.batch();
+    if (previous.docs.isNotEmpty && previous.docs.first.id != versionId) {
+      batch.update(previous.docs.first.reference, {
+        'esVigente': false,
+        'estado': GdEstado.obsoleto.valor,
+      });
+    }
+    batch.update(verSnap.reference, {
+      'estado': GdEstado.vigente.valor,
+      'esVigente': true,
+      'aprobadoPor': actorId,
+      'aprobadoEn': now,
+      'validadoPor': actorId,
+      'validadoEn': now,
+    });
+    batch.update(docSnap.reference, {
+      'estado': GdEstado.vigente.valor,
+      'versionVigenteId': versionId,
+      'aprobadoPor': actorId,
+      'aprobadoEn': now,
+      'updatedAt': now,
+    });
+    await batch.commit();
+    if (previous.docs.isNotEmpty && previous.docs.first.id != versionId) {
+      await _registrarEvento(
+        docId: docId,
+        versionId: previous.docs.first.id,
+        empresaId: empresaId,
+        accion: GdAccion.marcado_obsoleto,
+        actorId: actorId,
+        nombreActor: nombreActor,
+        metadatos: {'reemplazadaPor': versionId},
+      );
+    }
+    await _registrarEvento(
+      docId: docId,
+      versionId: versionId,
+      empresaId: empresaId,
+      accion: GdAccion.formato_validado,
+      actorId: actorId,
+      nombreActor: nombreActor,
+      metadatos: {'sello': 'Formato validado'},
+    );
+  }
+
   /// Firma internamente el documento aprobado.
   /// Transición: aprobado → firmado
   /// Actor: firmante, admin_doc
@@ -576,6 +832,14 @@ class GdService {
     final docSnap = await _docCol.doc(docId).get();
     if (!docSnap.exists) throw const GdException('Documento no encontrado.');
     final data = docSnap.data()!;
+    // Consulta: la versión nueva reemplaza a la vigente en el acto.
+    final esConsulta = gdIsReferenceDocument(data['categoria']?.toString());
+    if (esConsulta && (pdfBytes == null || pdfNombre == null)) {
+      throw const GdException(
+        'Adjunta el archivo nuevo: los documentos de consulta se publican al cargarlos.',
+      );
+    }
+    final estadoNuevo = esConsulta ? GdEstado.vigente : GdEstado.borrador;
 
     // Calcular nuevo número de versión
     final versionsSnap = await _verCol.where('docId', isEqualTo: docId).get();
@@ -607,13 +871,23 @@ class GdService {
 
     final batch = _db.batch();
 
+    final vigenteAnteriorId = esConsulta
+        ? (data['versionVigenteId'] as String?)
+        : null;
+    if (vigenteAnteriorId != null) {
+      batch.update(_verCol.doc(vigenteAnteriorId), {
+        'esVigente': false,
+        'estado': GdEstado.obsoleto.valor,
+      });
+    }
+
     // Nueva versión
     batch.set(verRef, {
       'docId': docId,
       'empresaId': empresaId,
       'numero': nuevoNumero,
       'etiqueta': nuevaEtiqueta,
-      'estado': GdEstado.borrador.valor,
+      'estado': estadoNuevo.valor,
       'urlPdf': urlPdf,
       'pathPdf': pathPdf,
       'nombreArchivo': pdfNombre,
@@ -628,13 +902,15 @@ class GdService {
       'urlFirmaUsada': null,
       'nombreFirmante': null,
       'observacion': null,
-      'esVigente': false,
+      'esVigente': esConsulta,
     });
 
-    // Actualizar documento maestro: nueva versión en borrador
+    // Actualizar documento maestro: nueva versión en borrador (o vigente
+    // de una vez si es de consulta)
     batch.update(_docCol.doc(docId), {
       'versionActual': nuevaEtiqueta,
-      'estado': GdEstado.borrador.valor,
+      'estado': estadoNuevo.valor,
+      if (esConsulta) 'versionVigenteId': versionId,
       'updatedAt': now,
       // Limpiar trazabilidad de versión anterior
       'revisadoPor': null,
@@ -668,6 +944,29 @@ class GdService {
         actorId: actorId,
         nombreActor: nombreActor,
         metadatos: {'nombre': pdfNombre},
+      );
+    }
+
+    if (esConsulta) {
+      if (vigenteAnteriorId != null) {
+        await _registrarEvento(
+          docId: docId,
+          versionId: vigenteAnteriorId,
+          empresaId: empresaId,
+          accion: GdAccion.marcado_obsoleto,
+          actorId: actorId,
+          nombreActor: nombreActor,
+          metadatos: {'reemplazadaPor': versionId},
+        );
+      }
+      await _registrarEvento(
+        docId: docId,
+        versionId: versionId,
+        empresaId: empresaId,
+        accion: GdAccion.publicado,
+        actorId: actorId,
+        nombreActor: nombreActor,
+        metadatos: {'etiqueta': nuevaEtiqueta},
       );
     }
 

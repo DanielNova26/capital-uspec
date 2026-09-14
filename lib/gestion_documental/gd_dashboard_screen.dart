@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/guarded_module_page.dart';
 import '../utils/user_company.dart';
@@ -31,11 +33,13 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   final _service = GdService();
   String _searchQuery = '';
   String? _selectedCategory;
+  String? _selectedFolder;
   GdLibrarySection _selectedSection = GdLibrarySection.formatos;
   _LibraryStatusFilter _statusFilter = _LibraryStatusFilter.todos;
   List<DocumentoDoc> _knownDocuments = const [];
   bool _selectionMode = false;
   bool _deletingSelection = false;
+  bool _downloadingTemplate = false;
   final Set<String> _selectedDocIds = <String>{};
 
   @override
@@ -329,6 +333,11 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
 
   bool _matchesFilters(DocumentoDoc document) {
     if (!gdDocumentMatchesQuery(document, _searchQuery)) return false;
+    if (_selectedSection == GdLibrarySection.contrato &&
+        _selectedFolder != null &&
+        (document.carpeta ?? '').trim() != _selectedFolder) {
+      return false;
+    }
     if (_selectedCategory != null && document.categoria != _selectedCategory) {
       return false;
     }
@@ -346,10 +355,35 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     setState(() {
       _selectedSection = section;
       _selectedCategory = null;
+      _selectedFolder = null;
       _statusFilter = _LibraryStatusFilter.todos;
       _selectionMode = false;
       _selectedDocIds.clear();
     });
+  }
+
+  Future<void> _downloadFormatTemplate() async {
+    if (_downloadingTemplate) return;
+    setState(() => _downloadingTemplate = true);
+    try {
+      final data = await rootBundle.load(
+        'assets/templates/plantilla_formato_institucional_base.xlsx',
+      );
+      await FileSaver.instance.saveFile(
+        name: 'plantilla_formato_institucional_base',
+        bytes: data.buffer.asUint8List(),
+        fileExtension: 'xlsx',
+        mimeType: MimeType.microsoftExcel,
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo descargar la plantilla: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingTemplate = false);
+    }
   }
 
   Widget _buildWebWorkspace({
@@ -369,7 +403,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
           child: Column(
             children: [
               _buildSectionOverview(sectionDocs, isWeb: true),
-              _buildFilters(true),
+              _buildFilters(true, sectionDocs),
               if (_selectionMode && canDelete) _buildSelectionBanner(true),
               if (showRoleNotice) _buildRolDocumentalNotice(true),
               Expanded(
@@ -397,7 +431,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
       children: [
         _buildMobileSectionTabs(allDocs),
         _buildSectionOverview(sectionDocs, isWeb: false),
-        _buildFilters(false),
+        _buildFilters(false, sectionDocs),
         if (_selectionMode && canDelete) _buildSelectionBanner(false),
         if (showRoleNotice) _buildRolDocumentalNotice(false),
         Expanded(
@@ -568,6 +602,20 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                       color: GdPalette.muted,
                     ),
                   ),
+                  if (_selectedSection == GdLibrarySection.formatos) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _downloadingTemplate
+                          ? null
+                          : _downloadFormatTemplate,
+                      icon: const Icon(Icons.download_outlined, size: 18),
+                      label: Text(
+                        _downloadingTemplate
+                            ? 'DESCARGANDO...'
+                            : 'DESCARGAR EXCEL BASE',
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -630,9 +678,9 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     GdLibrarySection.formatos =>
       'Modelos oficiales para descargar y usar, con código, versión y aprobación de Calidad.',
     GdLibrarySection.contrato =>
-      'RUT, certificados, contrato, anexos, otrosí y circulares, cargados uno por uno.',
+      'Documentos ya existentes, publicados al cargarlos, organizados por carpetas temáticas y localizables por nombre, alias o código externo.',
     GdLibrarySection.normograma =>
-      'Normas aplicables localizables por palabras clave y documentos relacionados.',
+      'Repositorio único de normas para consulta general, localizables por número, tema y palabras clave.',
   };
 
   IconData _sectionIcon(GdLibrarySection section) => switch (section) {
@@ -679,10 +727,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     );
   }
 
-  Widget _buildFilters(bool isWeb) {
+  Widget _buildFilters(bool isWeb, List<DocumentoDoc> sectionDocs) {
     final hint = _selectedSection == GdLibrarySection.normograma
-        ? 'Buscar norma o palabra clave...'
-        : 'Buscar por código, nombre, área o tipo...';
+        ? 'Buscar número de norma o tema...'
+        : 'Buscar nombre, código, alias o carpeta...';
     final searchField = Container(
       height: 45,
       decoration: BoxDecoration(
@@ -706,14 +754,26 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
       ),
     );
 
+    final folderFilter = _selectedSection == GdLibrarySection.contrato
+        ? _buildFolderFilter(sectionDocs)
+        : null;
     final filters = isWeb
-        ? Row(
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: searchField),
-              const SizedBox(width: 12),
-              SizedBox(width: 220, child: _buildCategoryFilter(isWeb)),
-              const SizedBox(width: 12),
-              SizedBox(width: 180, child: _buildStatusFilter(isWeb)),
+              Row(
+                children: [
+                  Expanded(child: searchField),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 220, child: _buildCategoryFilter(isWeb)),
+                  const SizedBox(width: 12),
+                  SizedBox(width: 180, child: _buildStatusFilter(isWeb)),
+                ],
+              ),
+              if (folderFilter != null) ...[
+                const SizedBox(height: 12),
+                SizedBox(width: 220, child: folderFilter),
+              ],
             ],
           )
         : Column(
@@ -727,6 +787,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   Expanded(child: _buildStatusFilter(isWeb)),
                 ],
               ),
+              if (folderFilter != null) ...[
+                const SizedBox(height: 12),
+                folderFilter,
+              ],
             ],
           );
 
@@ -736,6 +800,47 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         maxWidth: 1280,
         padding: EdgeInsets.zero,
         child: ModuleCard(padding: const EdgeInsets.all(16), child: filters),
+      ),
+    );
+  }
+
+  Widget _buildFolderFilter(List<DocumentoDoc> documents) {
+    final folders =
+        documents
+            .map((document) => (document.carpeta ?? '').trim())
+            .toSet()
+            .toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final selected = folders.contains(_selectedFolder) ? _selectedFolder : null;
+    return Container(
+      height: 45,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: GdPalette.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: GdPalette.border),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          isExpanded: true,
+          value: selected,
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('Todas las carpetas'),
+            ),
+            ...folders.map(
+              (folder) => DropdownMenuItem<String?>(
+                value: folder,
+                child: Text(
+                  folder.isEmpty ? 'Sin carpeta' : folder,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
+          onChanged: (value) => setState(() => _selectedFolder = value),
+        ),
       ),
     );
   }
@@ -933,6 +1038,8 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   _buildTableHeader(
                     _selectedSection == GdLibrarySection.normograma
                         ? 'ASOCIADOS'
+                        : _selectedSection == GdLibrarySection.contrato
+                        ? 'CARPETA'
                         : 'DEPENDENCIA',
                   ),
                   _buildTableHeader('VERSION'),
@@ -969,6 +1076,10 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                     _buildTableCell(
                       _selectedSection == GdLibrarySection.normograma
                           ? '${gdRelatedDocumentsCount(d, allDocs)} documento(s)'
+                          : _selectedSection == GdLibrarySection.contrato
+                          ? ((d.carpeta ?? '').trim().isEmpty
+                                ? 'Sin carpeta'
+                                : d.carpeta!)
                           : (d.area ?? '-'),
                     ),
                     _buildTableCell(d.versionActual),
@@ -1530,6 +1641,18 @@ class _DocumentListItem extends StatelessWidget {
                   icon: Icons.business_outlined,
                   label: doc.area!,
                 ),
+              if ((doc.carpeta ?? '').trim().isNotEmpty)
+                _DocumentMetaChip(
+                  icon: Icons.folder_outlined,
+                  label: doc.carpeta!,
+                ),
+              if ((doc.codigoExterno ?? '').trim().isNotEmpty)
+                _DocumentMetaChip(
+                  icon: Icons.tag_outlined,
+                  label: doc.codigoExterno!,
+                ),
+              if ((doc.alias ?? '').trim().isNotEmpty)
+                _DocumentMetaChip(icon: Icons.label_outline, label: doc.alias!),
               if (doc.palabrasClave.isNotEmpty)
                 _DocumentMetaChip(
                   icon: Icons.sell_outlined,
@@ -1592,6 +1715,9 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   final _areaController = TextEditingController();
   final _codigoController = TextEditingController();
   String _titulo = '';
+  String _carpeta = '';
+  String _alias = '';
+  String _codigoExterno = '';
   late String _categoria;
   String _palabrasClaveRaw = '';
   PlatformFile? _archivo;
@@ -1683,8 +1809,12 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 const SizedBox(height: 16),
                 TextFormField(
                   decoration: InputDecoration(
-                    labelText: 'Título del Documento',
-                    hintText: 'Nombre descriptivo del proceso o formato',
+                    labelText: widget.section == GdLibrarySection.normograma
+                        ? 'Tema tratado'
+                        : 'Título del documento',
+                    hintText: widget.section == GdLibrarySection.normograma
+                        ? 'Ej: Dotación de elementos para PPL'
+                        : 'Nombre descriptivo del documento',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -1694,6 +1824,54 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                   validator: (v) =>
                       v == null || v.trim().isEmpty ? 'Requerido' : null,
                 ),
+                if (widget.section == GdLibrarySection.contrato) ...[
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Carpeta temática',
+                      hintText: 'Ej: Legales, Nutricionales, Jurídicas',
+                      helperText:
+                          'Escribe una carpeta existente o crea una nueva.',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.folder_outlined),
+                    ),
+                    onSaved: (value) => _carpeta = (value ?? '').trim(),
+                    validator: (value) => (value ?? '').trim().isEmpty
+                        ? 'Indica la carpeta temática'
+                        : null,
+                  ),
+                ],
+                if (widget.section != GdLibrarySection.formatos) ...[
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    decoration: InputDecoration(
+                      labelText: widget.section == GdLibrarySection.normograma
+                          ? 'Número de ley o norma'
+                          : 'Código externo o número de resolución',
+                      hintText: widget.section == GdLibrarySection.normograma
+                          ? 'Ej: Ley 123 de 2026'
+                          : 'Ej: Resolución USPEC 001-26',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.tag_outlined),
+                    ),
+                    onSaved: (value) => _codigoExterno = (value ?? '').trim(),
+                    validator: widget.section == GdLibrarySection.normograma
+                        ? (value) => (value ?? '').trim().isEmpty
+                              ? 'Indica el número de la norma'
+                              : null
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Alias o concepto (opcional)',
+                      hintText: 'Ej: Manejo de fiambreras para PPL',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.label_outline),
+                    ),
+                    onSaved: (value) => _alias = (value ?? '').trim(),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: _areaController,
@@ -1750,7 +1928,9 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 _buildFilePicker(isWeb),
                 const SizedBox(height: 8),
                 Text(
-                  '* Se admite un único PDF, Word o Excel. El registro iniciará en borrador y deberá pasar por Calidad.',
+                  widget.section == GdLibrarySection.formatos
+                      ? '* Se admite un único PDF, Word o Excel. El registro iniciará en borrador y deberá pasar por Calidad.'
+                      : '* Se admite un único PDF, Word o Excel. El documento queda publicado para consulta de inmediato, sin revisión ni firma.',
                   style: TextStyle(
                     fontFamily: kArial,
                     fontSize: 11,
@@ -1946,6 +2126,9 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         rolDocumental: widget.rolDocumental,
         categoria: _categoria,
         area: _areaController.text.trim(),
+        carpeta: _carpeta.isEmpty ? null : _carpeta,
+        alias: _alias.isEmpty ? null : _alias,
+        codigoExterno: _codigoExterno.isEmpty ? null : _codigoExterno,
         palabrasClave: gdNormalizeKeywords(_palabrasClaveRaw),
         pdfBytes: _archivo?.bytes,
         pdfNombre: _archivo?.name,

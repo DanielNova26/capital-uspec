@@ -6,6 +6,93 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Biblioteca Documental: carpetas, alias, normograma y check de Calidad — 14 sep 2026 (Codex, cerrado por Claude)
+
+Origen: reunión del 12 sep 2026 (notas de Gemini). Oscar pidió tres cosas
+para la Biblioteca: formatos institucionales validados con un solo check,
+documentos del contrato organizados por carpetas temáticas y buscables por
+alias o código externo, y un normograma único (número de norma + tema) sin
+carpetas.
+
+**Modelo (`gd_models.dart`)**
+- `DocumentoDoc` gana `carpeta`, `alias` y `codigoExterno` (todos opcionales,
+  `null` cuando no aplican). Se guardan en `TBL_GD_DOCUMENTOS` y viajan en
+  `fromMap/toMap/copyWith`.
+- Nuevas acciones de historial: `formato_validado` y `metadatos_actualizados`.
+- Nuevo permiso `validar_formato` para revisor, aprobador, admin_doc y
+  desarrollador.
+
+**Servicio (`gd_service.dart`)**
+- `crearDocumento` acepta los tres campos nuevos (recortados con `trim`).
+- `validarFormatoInstitucional`: un solo paso `en_revision → vigente` para
+  categorías de formato (Formato, Política, Procedimiento, Instructivo…).
+  Exige archivo adjunto, versión actual en revisión y vuelve obsoleta la
+  vigente anterior. Registra `formato_validado` con sello "Formato validado".
+- **Contrato y normograma no pasan por ningún flujo** (decisión de Daniel,
+  14 sep): son documentos que ya existen (RUT, resoluciones, leyes) y están
+  para conocimiento general. `gdIsReferenceDocument(categoria)` los
+  identifica y:
+  - `crearDocumento` exige archivo y los crea directamente **vigentes**
+    (`esVigente: true`, `versionVigenteId`), con evento `publicado`.
+  - `iniciarNuevaVersion` exige archivo y la versión nueva entra vigente en
+    el acto; la anterior queda obsoleta (`marcado_obsoleto` + `publicado`).
+  - `publicarDocumentoConsulta` publica registros de contrato/normograma que
+    quedaron en borrador/revisión antes de este cambio (botón **PUBLICAR
+    PARA CONSULTA** en el detalle).
+  - En el detalle, estos documentos muestran línea de tiempo de 2 pasos
+    (Cargado → Publicado), y como acciones solo **REEMPLAZAR ARCHIVO** y
+    eliminar. Nada de enviar a revisión, aprobar, firmar ni marcar vigente.
+  - Quien no tiene rol documental ve solo vigentes, así que estos documentos
+    quedan visibles para todos desde que se cargan.
+- El flujo de formatos (check único) queda pendiente de una revisión
+  posterior: debe ser menos cíclico y coordinarse con el Excel base y su
+  encabezado.
+- `actualizarClasificacionBiblioteca`: edita carpeta/alias/código externo de
+  un documento ya cargado sin tocar archivo ni versión. Solo el creador o
+  admin_doc/desarrollador; en contrato la carpeta es obligatoria, en
+  normograma el número de norma es obligatorio, en formatos no aplica. Deja
+  evento `metadatos_actualizados` con los valores nuevos.
+
+**Búsqueda (`gd_library_logic.dart`)**
+- `gdDocumentMatchesQuery` incluye carpeta, alias y código externo, así que
+  "RUT", "fiambreras" o "USPEC 001-26" encuentran el documento desde
+  cualquier carpeta.
+- `gdIsInstitutionalFormat(categoria)` decide si aplica el check único.
+
+**Pantallas**
+- Dashboard: filtro de carpeta (solo en sección Contrato, con opción "Sin
+  carpeta"), columna CARPETA en la tabla web, chips de carpeta/código/alias
+  en tarjetas, y botón **DESCARGAR EXCEL BASE** en Formatos que baja
+  `assets/templates/plantilla_formato_institucional_base.xlsx` con
+  `FileSaver` (web y móvil).
+- Alta de documento: en Contrato pide carpeta (obligatoria), código externo y
+  alias; en Normograma el título se llama "Tema tratado" y el número de norma
+  es obligatorio; en Formatos no cambia.
+- Detalle: botón **EDITAR CLASIFICACIÓN** (creador o admin), sello
+  "FORMATO VALIDADO POR CALIDAD" con persona y fecha/hora, línea de tiempo
+  de 3 pasos (Creación → Revisión → Validado) para formatos y botón
+  **VALIDAR FORMATO** en lugar de "Aprobar revisión".
+
+**Plantilla Excel** (`assets/templates/plantilla_formato_institucional_base.xlsx`)
+- Provisional. Encabezado con sello/logo a la izquierda, nombre del formato al
+  centro, dependencia debajo, versión y fecha a los lados, y un área editable
+  de contenido. Colores corporativos y plantilla oficial pendientes de Oscar
+  (compromiso de la reunión).
+
+**Pendiente / decisiones abiertas**
+- Reglas de Firestore: `TBL_GD_DOCUMENTOS`, `TBL_GD_VERSIONES` y
+  `TBL_GD_FLUJO` siguen bajo la regla genérica de usuario autenticado; no se
+  tocaron.
+- Ver la Biblioteca sigue exigiendo el módulo asignado; "público" hoy
+  significa "todo el personal con acceso a Biblioteca", no toda la empresa.
+- Las carpetas son texto libre: no hay catálogo. Si se escriben "Legales" y
+  "legales" salen como dos carpetas.
+
+Pruebas: `flutter test test/gestion_documental` (búsqueda por carpeta/alias/
+código y por número de norma).
+
+---
+
 ## Correspondencia: "Contestado", quién y qué contestó — 12 sep 2026 (Claude)
 
 La columna "Canal de respuesta" del tablero decía "Microsoft 365 · fuera de

@@ -28,6 +28,17 @@ const List<String> gdNormogramCategories = [
   'Circular normativa',
 ];
 
+bool gdIsInstitutionalFormat(String? category) {
+  final normalized = _normalize(category ?? '');
+  return gdFormatCategories.any((value) => _normalize(value) == normalized);
+}
+
+/// Contrato y normograma son documentos que ya existen (RUT, resoluciones,
+/// leyes): se publican al cargarlos y no pasan por revisión, validación ni
+/// firma. Solo los formatos institucionales llevan flujo.
+bool gdIsReferenceDocument(String? category) =>
+    gdSectionForCategory(category) != GdLibrarySection.formatos;
+
 List<String> gdCategoriesForSection(GdLibrarySection section) =>
     switch (section) {
       GdLibrarySection.formatos => gdFormatCategories,
@@ -119,6 +130,9 @@ bool gdDocumentMatchesQuery(DocumentoDoc document, String rawQuery) {
     document.descripcion ?? '',
     document.area ?? '',
     document.categoria ?? '',
+    document.carpeta ?? '',
+    document.alias ?? '',
+    document.codigoExterno ?? '',
     ...document.palabrasClave,
   ].map(_normalize).join(' ');
   return query.split(RegExp(r'\s+')).every(haystack.contains);

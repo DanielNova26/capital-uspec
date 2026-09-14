@@ -12,6 +12,20 @@ void main() {
         GdLibrarySection.contrato,
       );
       expect(gdSectionForCategory('Resolución'), GdLibrarySection.normograma);
+      expect(gdIsInstitutionalFormat('Política'), isTrue);
+      expect(gdIsInstitutionalFormat('Formato'), isTrue);
+      expect(gdIsInstitutionalFormat('Documento contractual'), isFalse);
+      expect(gdIsInstitutionalFormat('Norma aplicable'), isFalse);
+      // Contrato y normograma se publican al cargarlos; solo formatos llevan flujo.
+      expect(gdIsReferenceDocument('RUT'), isTrue);
+      expect(gdIsReferenceDocument('Ley'), isTrue);
+      expect(gdIsReferenceDocument('Formato'), isFalse);
+      expect(gdIsReferenceDocument(null), isFalse);
+      expect(GdRoles.puedeEjecutar('validar_formato', GdRoles.revisor), isTrue);
+      expect(
+        GdRoles.puedeEjecutar('validar_formato', GdRoles.redactor),
+        isFalse,
+      );
     });
 
     test('genera código por dependencia y consecutivo', () {
@@ -50,6 +64,47 @@ void main() {
 
       expect(gdDocumentMatchesQuery(norm, 'DOTACION'), isTrue);
       expect(gdRelatedDocumentsCount(norm, [norm, format]), 1);
+    });
+
+    test(
+      'busca documentos contractuales por carpeta, alias y código externo',
+      () {
+        final document = DocumentoDoc.fromMap('contrato', {
+          'empresaId': 'empresa',
+          'codigo': 'JUR-001',
+          'titulo': 'Lineamiento de alimentación',
+          'categoria': 'Documento contractual',
+          'carpeta': 'Nutricionales',
+          'alias': 'Manejo de fiambreras para PPL',
+          'codigoExterno': 'Resolución USPEC 001-26',
+          'versionActual': 'v1',
+          'estado': 'borrador',
+          'creadoPor': 'redactor',
+        });
+
+        expect(gdDocumentMatchesQuery(document, 'nutricionales'), isTrue);
+        expect(gdDocumentMatchesQuery(document, 'FIAMBRERAS'), isTrue);
+        expect(gdDocumentMatchesQuery(document, 'USPEC 001-26'), isTrue);
+        expect(document.toMap()['codigoExterno'], 'Resolución USPEC 001-26');
+        expect(document.copyWith(carpeta: 'Jurídicas').carpeta, 'Jurídicas');
+      },
+    );
+
+    test('busca el normograma por número de ley y tema', () {
+      final norm = DocumentoDoc.fromMap('norma', {
+        'empresaId': 'empresa',
+        'codigo': 'CAL-001',
+        'titulo': 'Dotación de elementos para PPL',
+        'categoria': 'Ley',
+        'codigoExterno': 'Ley 123 de 2026',
+        'versionActual': 'v1',
+        'estado': 'borrador',
+        'creadoPor': 'redactor',
+      });
+
+      expect(gdDocumentMatchesQuery(norm, 'Ley 123'), isTrue);
+      expect(gdDocumentMatchesQuery(norm, 'dotacion PPL'), isTrue);
+      expect(gdSectionForCategory(norm.categoria), GdLibrarySection.normograma);
     });
 
     test('el modelo conserva palabras clave y fecha de aprobación', () {
