@@ -127,6 +127,11 @@ class _OrganizationalStructureScreenState
   /// Docs actuales del stream (para export).
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _currentDocs = [];
 
+  /// Todo el personal de la empresa activa, sin los filtros de pantalla.
+  /// El selector de jefe directo lee de aquí: el jefe puede estar en otra
+  /// área o fuera de la búsqueda actual y aun así tiene que aparecer.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _companyDocs = [];
+
   bool _exporting = false;
   bool _syncing = false;
   bool _generatingPdf = false;
@@ -338,6 +343,64 @@ class _OrganizationalStructureScreenState
           };
         })
         .toList();
+  }
+
+  /// Personas que pueden ser jefe directo de [excludeCedula].
+  ///
+  /// Sale de [_companyDocs] (todo el personal activo de la empresa, no la
+  /// vista filtrada) y el nombre se resuelve igual que en las tarjetas:
+  /// primero TBL_USUARIOS, luego el doc de estructura, y la cédula al final.
+  /// El cargo se compara normalizado (mayúsculas, tildes, espacios) o por
+  /// id de cargo; si con ese cargo no hay nadie, se muestra a todo el personal
+  /// para que el proceso nunca quede bloqueado por un texto distinto.
+  List<Map<String, String>> _bossCandidates({
+    required String pattern,
+    required String bossCargoName,
+    required String bossCargoCode,
+    required String excludeCedula,
+  }) {
+    final term = normalizeHierarchyText(pattern);
+    final cargoKey = normalizeHierarchyText(bossCargoName);
+    final code = bossCargoCode.trim();
+
+    final all = <Map<String, String>>[];
+    for (final d in _companyDocs) {
+      final scoped = _orgDataForCompany(d.data());
+      final cedula = _orgCedula(d);
+      if (cedula.isEmpty || cedula == excludeCedula) continue;
+      if (_statusOf(scoped) != PersonnelStatusService.active) continue;
+
+      final ui = _userCache[cedula];
+      final nombre = (ui?.nombre.isNotEmpty == true)
+          ? ui!.nombre
+          : (scoped['nombre'] as String?)?.trim() ?? '';
+      final cargo = (scoped['cargo'] as String?)?.trim() ?? '';
+      final cargoId = (scoped['cargoId'] as String?)?.trim() ?? '';
+
+      all.add({
+        'id': cedula,
+        'nombre': nombre.isNotEmpty ? nombre : cedula,
+        'cargo': cargo,
+        'cargoId': cargoId,
+      });
+    }
+
+    bool matchesTerm(Map<String, String> m) =>
+        term.isEmpty ||
+        normalizeHierarchyText(m['nombre']!).contains(term) ||
+        m['id']!.contains(term);
+
+    bool matchesCargo(Map<String, String> m) =>
+        (cargoKey.isNotEmpty &&
+            normalizeHierarchyText(m['cargo']!) == cargoKey) ||
+        (code.isNotEmpty && m['cargoId'] == code);
+
+    final byCargo = (cargoKey.isEmpty && code.isEmpty)
+        ? const <Map<String, String>>[]
+        : all.where(matchesCargo).where(matchesTerm).toList();
+    final result = byCargo.isNotEmpty ? byCargo : all.where(matchesTerm).toList();
+    result.sort((a, b) => a['nombre']!.compareTo(b['nombre']!));
+    return result;
   }
 
   /// Todos los cargos de TBL_CARGOS
@@ -1772,10 +1835,11 @@ class _OrganizationalStructureScreenState
                   onSuggestionSelected: (m) {
                     setStateDialog(() {
                       ctrCargo.text = m['desc']!;
-                      selectedBossCode = m['code']!;
-                      // Al cambiar cargo también limpiar jefe
+                      // Al cambiar cargo también limpiar jefe. El código del
+                      // cargo propio NO es el cargo del jefe.
                       ctrBossCargo.clear();
                       ctrBossName.clear();
+                      selectedBossCode = '';
                       selectedBossDirectId = '';
                     });
                   },
@@ -1818,47 +1882,65 @@ class _OrganizationalStructureScreenState
                     controller: ctrBossName,
                     decoration: const InputDecoration(
                       labelText: 'Jefe directo',
-                      hintText: 'Selecciona primero el cargo del jefe…',
+                      hintText: 'Buscar por nombre o cédula…',
                     ),
                   ),
                   suggestionsCallback: (pattern) async {
-                    final bossCargoName = ctrBossCargo.text.trim();
-                    if (bossCargoName.isEmpty) return [];
-                    return _currentDocs
-                        .map((d) {
-                          final scoped = _orgDataForCompany(d.data());
-                          final nombre =
-                              (scoped['nombre'] as String?)?.trim() ?? '';
-                          final cedula = _orgCedula(d);
-                          final display = nombre.isNotEmpty ? nombre : cedula;
-                          return {
-                            'id': cedula,
-                            'nombre': display,
-                            'cargo': (scoped['cargo'] ?? '').toString(),
-                          };
-                        })
-                        .where(
-                          (m) =>
-                              m['cargo'] == bossCargoName &&
-                              (pattern.isEmpty ||
-                                  m['nombre']!.toLowerCase().contains(
-                                    pattern.toLowerCase(),
-                                  )),
-                        )
-                        .toList();
+                    // Si el texto es el nombre ya elegido, no se usa como
+                    // filtro: la persona quiere ver la lista completa.
+                    final typed = pattern.trim();
+                    final term =
+                        (selectedBossDirectId.isNotEmpty &&
+                            typed == ctrBossName.text.trim())
+                        ? ''
+                        : typed;
+                    return _bossCandidates(
+                      pattern: term,
+                      bossCargoName: ctrBossCargo.text,
+                      bossCargoCode: selectedBossCode,
+                      excludeCedula: ctrId.text.trim(),
+                    );
                   },
                   itemBuilder: (_, m) => ListTile(
                     title: Text(m['nombre']!),
                     subtitle: Text(
-                      'Cédula: ${m['id']!}',
+                      [
+                        'Cédula: ${m['id']!}',
+                        if ((m['cargo'] ?? '').isNotEmpty) m['cargo']!,
+                      ].join(' · '),
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
-                  onSuggestionSelected: (m) {
+                  noItemsFoundBuilder: (_) => const ListTile(
+                    title: Text('No hay personal activo que coincida'),
+                  ),
+                  onSuggestionSelected: (m) async {
+                    final cargoJefe = m['cargo'] ?? '';
+                    final cargoIdJefe = m['cargoId'] ?? '';
                     setStateDialog(() {
                       ctrBossName.text = m['nombre']!;
                       selectedBossDirectId = m['id']!;
+                      // Si aún no se había elegido el cargo del jefe, se
+                      // completa con el de la persona escogida.
+                      if (ctrBossCargo.text.trim().isEmpty &&
+                          cargoJefe.isNotEmpty) {
+                        ctrBossCargo.text = cargoJefe;
+                        selectedBossCode = cargoIdJefe;
+                      }
                     });
+                    // El id del cargo del jefe se resuelve contra TBL_CARGOS
+                    // cuando el doc de estructura no lo trae.
+                    if (selectedBossCode.isEmpty && cargoJefe.isNotEmpty) {
+                      final key = normalizeHierarchyText(cargoJefe);
+                      final cargos = await _fetchCargos('');
+                      if (!ctx.mounted) return;
+                      for (final c in cargos) {
+                        if (normalizeHierarchyText(c['desc'] ?? '') == key) {
+                          setStateDialog(() => selectedBossCode = c['code']!);
+                          break;
+                        }
+                      }
+                    }
                   },
                   minCharsForSuggestions: 0,
                 ),
@@ -2644,10 +2726,14 @@ class _OrganizationalStructureScreenState
                     return const Center(child: CircularProgressIndicator());
                   }
                   final term = _searchCtrl.text.trim().toLowerCase();
+                  // Personal completo de la empresa (sin filtros de vista):
+                  // lo usa el selector de jefe directo del formulario.
+                  _companyDocs = snap.data!.docs
+                      .where((d) => _orgBelongsToCompany(d.data()))
+                      .toList();
                   final docs =
-                      snap.data!.docs.where((d) {
+                      _companyDocs.where((d) {
                         final raw = d.data();
-                        if (!_orgBelongsToCompany(raw)) return false;
                         final m = _orgDataForCompany(raw);
                         if (_statusFilter.isNotEmpty &&
                             _statusOf(m) != _statusFilter) {
