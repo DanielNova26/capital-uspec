@@ -250,7 +250,8 @@ edición *" está ARRIBA del formulario (después del grupo), y el botón
 "Guardar cambios" abajo, después de todos los productos y sus archivos: el
 aviso rojo decía "indica el motivo" y la persona no encontraba dónde. Ahora,
 si al guardar está vacío, se pide en un diálogo ahí mismo y se sigue
-guardando; el campo de arriba sigue existiendo para quien lo vea.
+guardando. Y el campo se movió de arriba del formulario a JUSTO ENCIMA del
+botón de guardar, que es donde la persona está cuando lo necesita.
 
 Aclaración para Compras: "Observaciones de la ficha técnica" es otra cosa
 (va con el producto, para Calidad); el motivo de edición es de la recepción

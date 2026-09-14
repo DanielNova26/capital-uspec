@@ -11287,22 +11287,6 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                           : null,
                     ),
                   ],
-                  if (_modoEdicionPendiente) ...[
-                    const SizedBox(height: 18),
-                    TextField(
-                      controller: _motivoEdicionCtrl,
-                      minLines: 2,
-                      maxLines: 4,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: _inputDecoration('Motivo de la edición *').copyWith(
-                        hintText:
-                            'Ej.: Faltó registrar un producto de la orden de compra.',
-                        prefixIcon: const Icon(Icons.edit_note_rounded),
-                        helperText:
-                            'Este motivo quedará visible en el histórico de la recepción.',
-                      ),
-                    ),
-                  ],
                   if (widget.existing?.historialEdiciones.isNotEmpty ==
                       true) ...[
                     const SizedBox(height: 24),
@@ -11488,8 +11472,28 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                       ),
                     ),
                   ],
+                  // El motivo de la edición va JUNTO al botón de guardar, no
+                  // arriba del formulario: la persona baja por todos los
+                  // productos, guarda, y el aviso le decía "indica el motivo"
+                  // sin que viera dónde (14 sep 2026).
+                  if (_modoEdicionPendiente) ...[
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _motivoEdicionCtrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: _inputDecoration('Motivo de la edición *').copyWith(
+                        hintText:
+                            'Ej.: Llegan dos marcas distintas de panela x 500 g.',
+                        prefixIcon: const Icon(Icons.edit_note_rounded),
+                        helperText:
+                            'Obligatorio. Queda visible en el histórico de la recepción.',
+                      ),
+                    ),
+                  ],
                   if (_mostrarAccionGuardar) ...[
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
