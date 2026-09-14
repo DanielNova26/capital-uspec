@@ -242,6 +242,29 @@ retome.
 
 ---
 
+## Registrar acta: la causa real era una regla — 14 sep 2026 (Claude)
+
+El "Dart exception thrown from converted Future" de los registradores no
+era (solo) el churn de listeners. Reproducido en el emulador: el registro de
+un acta (versión de Codex) abre una transacción que LEE el id nuevo para
+comprobar que no exista y luego lo crea. La regla de lectura de
+`TBL_INTERVENTORIA_VISITAS` era `belongsToCompany(resource.data.empresaId)`,
+y en un documento inexistente `resource` es nulo: la regla falla con error y
+Firestore deniega. En web, un error dentro de una transacción sale con ese
+texto genérico. Ningún registrador pudo guardar actas desde el build del 11.
+
+Regla: `get` permite `resource == null` (leer un id que no existe no expone
+nada) y `list` sigue exigiendo pertenencia. Mismo cambio en
+`TBL_INTERVENTORIA_HALLAZGOS` y `TBL_CORREO_ROLES`, que tenían la misma
+trampa (la de Correo se había esquivado desde el cliente el 11 sep). 28
+casos de reglas en verde; la prueba nueva reproduce la transacción.
+
+**Solo requiere `firebase deploy --only firestore:rules`; no hace falta
+build.** El MemoStreamBuilder del commit anterior sigue siendo correcto,
+pero por sí solo no habría destrabado el registro.
+
+---
+
 ## Entrega de Codex integrada — 14 sep 2026 (commit por Claude)
 
 Codex terminó su lista pero la dejó sin commit en el árbol de trabajo (y
@@ -5547,3 +5570,28 @@ plano hacen falta los datos, no el archivo. Guardar el original añadiría
 almacenamiento y una copia más de cuentas bancarias que proteger, sin resolver
 nada que las filas no resuelvan ya. Si algún día hace falta el original como
 soporte de auditoría, es otra decisión y otro sitio.
+
+## Jefe directo en "Ver personal": la lista salía vacía o sin nombre (14 sep 2026)
+
+Al editar o agregar un colaborador, el campo **Jefe directo** no traía a nadie,
+o mostraba la cédula en lugar del nombre. Tres causas en
+`organizational_structure_screen.dart`:
+
+- buscaba solo en `_currentDocs`, que es la lista **ya filtrada** en pantalla
+  (estado, área, cargo, búsqueda). Si el jefe estaba en otra área o fuera de la
+  búsqueda, no existía para el selector;
+- tomaba el nombre del doc de `TBL_ESTRUCTURA_ORGANIZACIONAL`, que en muchos
+  registros está vacío; el nombre real vive en `TBL_USUARIOS` y así lo
+  resuelven las tarjetas;
+- comparaba el cargo con `==` exacto contra el texto del campo "Cargo del jefe
+  directo": una tilde o una mayúscula distinta dejaba la lista en cero.
+
+Ahora el selector lee de `_companyDocs` (todo el personal activo de la empresa,
+sin filtros de vista), resuelve el nombre como las tarjetas, compara el cargo
+normalizado (`normalizeHierarchyText`) o por `cargoId`, y si con ese cargo no
+hay nadie muestra a todo el personal con su cargo en el subtítulo, para que el
+proceso nunca quede bloqueado. Si se elige al jefe sin haber elegido su cargo,
+el cargo se completa solo a partir de la persona.
+
+De paso: al elegir el **cargo propio** se guardaba su código en `jefe_cargo`
+(el cargo del jefe). Ahora se limpia, como el resto de campos del jefe.

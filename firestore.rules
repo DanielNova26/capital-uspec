@@ -70,6 +70,27 @@ service cloud.firestore {
         && get(interventoriaRolePath(empresaId)).data.rol in allowedRoles;
     }
 
+    function visitasRolePath(empresaId) {
+      return /databases/$(database)/documents/TBL_VISITAS_ROLES/$(empresaId + '_' + request.auth.token.userDocId);
+    }
+
+    function hasVisitasRole(empresaId, allowedRoles) {
+      return belongsToCompany(empresaId)
+        && exists(visitasRolePath(empresaId))
+        && get(visitasRolePath(empresaId)).data.rol in allowedRoles;
+    }
+
+    function administraVisitas(empresaId) {
+      return belongsToCompany(empresaId)
+        && (isDeveloper() || isDeveloperIn(empresaId)
+          || hasVisitasRole(empresaId, ['jefe']));
+    }
+
+    function participaEnVisitas(empresaId) {
+      return administraVisitas(empresaId)
+        || hasVisitasRole(empresaId, ['profesional', 'consulta']);
+    }
+
     // Rol del módulo de Planillas de Pago para la empresa activa.
     //
     // Vive en el propio usuario (`empresasDetalle[empresa].rolPlanillas`, o
@@ -197,15 +218,23 @@ service cloud.firestore {
 
     // Las eliminaciones de Interventoría requieren una solicitud y aprobación
     // en Cloud Functions. El cliente puede crear/editar, pero nunca borrar.
+    // `get` de un documento que NO existe: `resource` es nulo y la regla de
+    // pertenencia falla con error, que Firestore convierte en denegado. El
+    // registro de un acta lee su id nuevo dentro de una transacción para no
+    // crearla dos veces, y con esa regla ningún registrador pudo guardar
+    // actas desde el 11 sep 2026 (probado en interventoria_visitas.rules.js).
+    // Leer un id inexistente no expone nada: solo dice que no existe.
     match /TBL_INTERVENTORIA_VISITAS/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId);
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && belongsToCompany(resource.data.empresaId);
       allow delete: if false;
     }
     match /TBL_INTERVENTORIA_HALLAZGOS/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId);
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if belongsToCompany(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && belongsToCompany(resource.data.empresaId);
@@ -222,6 +251,70 @@ service cloud.firestore {
     match /TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION/{docId} {
       allow read: if belongsToCompany(resource.data.empresaId);
       allow write: if false;
+    }
+
+    // El módulo de visitas comparte empresa, pero cada profesional solo puede
+    // responder sus propias visitas. Las asignaciones y formatos pertenecen
+    // al jefe; el rol no se puede autoasignar usando el fallback general.
+    match /TBL_VISITAS_ROLES/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId)
+        && (administraVisitas(resource.data.empresaId)
+          || resource.data.userId == request.auth.token.userDocId);
+      allow create: if administraVisitas(request.resource.data.empresaId)
+        && docId == request.resource.data.empresaId + '_' + request.resource.data.userId
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta'];
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && resource.data.userId == request.resource.data.userId
+        && administraVisitas(resource.data.empresaId)
+        && request.resource.data.rol in ['jefe', 'profesional', 'consulta'];
+      allow delete: if administraVisitas(resource.data.empresaId);
+    }
+
+    match /TBL_VISITAS_FORMATOS/{docId} {
+      allow read: if participaEnVisitas(resource.data.empresaId);
+      allow create: if administraVisitas(request.resource.data.empresaId);
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && administraVisitas(resource.data.empresaId);
+      allow delete: if false;
+    }
+
+    match /TBL_VISITAS/{docId} {
+      allow read: if belongsToCompany(resource.data.empresaId)
+        && (administraVisitas(resource.data.empresaId)
+          || hasVisitasRole(resource.data.empresaId, ['consulta'])
+          || (hasVisitasRole(resource.data.empresaId, ['profesional'])
+            && resource.data.profesionalId == request.auth.token.userDocId));
+      allow create: if administraVisitas(request.resource.data.empresaId)
+        && request.resource.data.asignadoPorId == request.auth.token.userDocId
+        && request.resource.data.estado == 'programada';
+      allow update: if resource.data.empresaId == request.resource.data.empresaId
+        && resource.data.profesionalId == request.resource.data.profesionalId
+        && (
+          (administraVisitas(resource.data.empresaId)
+            && resource.data.estado == 'programada'
+            && request.resource.data.estado == 'cancelada'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['estado', 'motivoCancelacion', 'updatedAt']))
+          || (hasVisitasRole(resource.data.empresaId, ['profesional'])
+            && resource.data.profesionalId == request.auth.token.userDocId
+            && (
+              (resource.data.estado == 'programada'
+                && request.resource.data.estado == 'en_curso'
+                && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['estado', 'inicio', 'updatedAt']))
+              || (resource.data.estado == 'en_curso'
+                && request.resource.data.estado == 'en_curso'
+                && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['respuestas', 'observacionGeneral', 'updatedAt']))
+              || (resource.data.estado == 'en_curso'
+                && request.resource.data.estado == 'terminada'
+                && request.resource.data.cerradaPor == request.auth.token.userDocId
+                && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['estado', 'fin', 'cumplimiento', 'tareasCreadas',
+                    'cerradaPor', 'updatedAt']))
+            ))
+        );
+      allow delete: if false;
     }
 
     // La colección de roles no puede quedar en el fallback general: de otro
@@ -307,7 +400,9 @@ service cloud.firestore {
     }
 
     match /TBL_CORREO_ROLES/{docId} {
-      allow read: if belongsToCompany(resource.data.empresaId);
+      // Mismo caso: quien no tiene rol asignado lee un documento inexistente.
+      allow get: if resource == null || belongsToCompany(resource.data.empresaId);
+      allow list: if belongsToCompany(resource.data.empresaId);
       allow create: if isDeveloper() || isCorreoAdmin(request.resource.data.empresaId);
       allow update: if resource.data.empresaId == request.resource.data.empresaId
         && (isDeveloper() || isCorreoAdmin(resource.data.empresaId));
@@ -375,6 +470,9 @@ service cloud.firestore {
         && collection != 'TBL_INTERVENTORIA_ROLES'
         && collection != 'TBL_INTERVENTORIA_CONFIG'
         && collection != 'TBL_INTERVENTORIA_SOLICITUDES_ELIMINACION'
+        && collection != 'TBL_VISITAS'
+        && collection != 'TBL_VISITAS_FORMATOS'
+        && collection != 'TBL_VISITAS_ROLES'
         && collection != 'TBL_CORREO_ROLES'
         && collection != 'TBL_GD_TIPOS_DOCUMENTALES'
         && collection != 'TBL_GD_EXPEDIENTES_EVENTOS'

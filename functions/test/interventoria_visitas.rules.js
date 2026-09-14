@@ -17,7 +17,7 @@ const {
   assertSucceeds,
   initializeTestEnvironment,
 } = require("@firebase/rules-unit-testing");
-const {doc, setDoc, updateDoc, deleteDoc, writeBatch, collection, query, where, getDocs} = require("firebase/firestore");
+const {doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, collection, query, where, getDocs, runTransaction} = require("firebase/firestore");
 
 const projectId = "capital-uspec-interventoria-visitas";
 const rules = fs.readFileSync(
@@ -154,4 +154,30 @@ test("la consulta de hallazgos de un acta pasa solo si filtra por empresa", asyn
       where("fuente", "==", "acta")
     ))
   );
+});
+
+test("registrar un acta nueva: leer el id que aun no existe no se deniega", async () => {
+  // Registrar acta (Fase 1) hace una transacción: lee el documento con el id
+  // nuevo para comprobar que no exista y luego lo crea. Con la regla
+  // `belongsToCompany(resource.data.empresaId)`, un documento inexistente no
+  // da "no existe": `resource` es nulo, la regla falla y Firestore deniega.
+  // En web eso se ve como "Dart exception thrown from converted Future" y
+  // NINGÚN registrador pudo guardar actas desde el 11 sep 2026.
+  const db = auth("kary");
+  await assertSucceeds(getDoc(doc(db, "TBL_INTERVENTORIA_VISITAS/no_existe_aun")));
+  await assertSucceeds(runTransaction(db, async (tx) => {
+    const ref = doc(db, "TBL_INTERVENTORIA_VISITAS/acta_nueva_tx");
+    const snap = await tx.get(ref);
+    if (snap.exists()) throw new Error("ya existe");
+    tx.set(ref, {empresaId: "EMP_A", centroCostoId: "c1", faseActa: "puntajes"});
+  }));
+});
+
+test("leer un acta de otra empresa sigue denegado", async () => {
+  await env.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "TBL_INTERVENTORIA_VISITAS/ajena"), {
+      empresaId: "EMP_B", centroCostoId: "c9",
+    });
+  });
+  await assertFails(getDoc(doc(auth("kary"), "TBL_INTERVENTORIA_VISITAS/ajena")));
 });
