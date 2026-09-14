@@ -600,12 +600,28 @@ class _GdDetailScreenState extends State<GdDetailScreen>
           if (rolDocumental != null &&
               gdIsInstitutionalFormat(doc.categoria)) ...[
             const SizedBox(height: 18),
-            OutlinedButton.icon(
-              onPressed: _loadingAction
-                  ? null
-                  : () => _downloadFormatTemplate(doc),
-              icon: const Icon(Icons.table_view_outlined, size: 18),
-              label: const Text('PLANTILLA EXCEL CON ENCABEZADO'),
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 14,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _loadingAction
+                      ? null
+                      : () => _downloadFormatTemplate(doc),
+                  icon: const Icon(Icons.table_view_outlined, size: 18),
+                  label: const Text('DESCARGAR PLANTILLA EXCEL'),
+                ),
+                if (doc.estado == GdEstado.borrador)
+                  const Text(
+                    'Trae el encabezado bloqueado (logo, nombre, código, versión). Arma el formato debajo y súbelo con "Subir archivo".',
+                    style: TextStyle(
+                      fontFamily: kArial,
+                      fontSize: 12,
+                      color: GdPalette.muted,
+                    ),
+                  ),
+              ],
             ),
           ],
           if (GdRoles.puedeEjecutar('subir_pdf', rolDocumental) &&

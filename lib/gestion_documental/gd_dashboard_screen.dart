@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../core/area_directory.dart';
 import '../core/guarded_module_page.dart';
 import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
@@ -1197,8 +1198,8 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     );
   }
 
-  void _showCreateDialog(String rolDocumental) {
-    showDialog(
+  Future<void> _showCreateDialog(String rolDocumental) async {
+    final created = await showDialog<String?>(
       context: context,
       builder: (context) => _CreateDocumentDialog(
         empresaId: widget.empresaId,
@@ -1209,6 +1210,20 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         existingCodes: _knownDocuments.map((document) => document.codigo),
       ),
     );
+    // Un formato recién creado se abre de una vez: ahí está la plantilla
+    // Excel con encabezado y el botón para subir el archivo.
+    if (created is String && created.isNotEmpty && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GdDetailScreen(
+            docId: created,
+            empresaId: widget.empresaId,
+            userId: widget.userId,
+          ),
+        ),
+      );
+    }
   }
 
   void _toggleSelectionMode() {
@@ -1681,11 +1696,42 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   String _palabrasClaveRaw = '';
   PlatformFile? _archivo;
   bool _loading = false;
+  // Dependencia desde el catálogo de áreas de la empresa (nunca id crudo ni
+  // repetidas). Si la empresa no tiene áreas cargadas, se escribe a mano.
+  AreaCatalogo _areas = const AreaCatalogo.vacio();
+  bool _areasCargadas = false;
+
+  bool get _esFormato => widget.section == GdLibrarySection.formatos;
 
   @override
   void initState() {
     super.initState();
     _categoria = gdCategoriesForSection(widget.section).first;
+    _cargarAreas();
+  }
+
+  Future<void> _cargarAreas() async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('TBL_AREAS')
+          .where('empresaId', isEqualTo: widget.empresaId)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _areas = AreaCatalogo.desde(
+          snap.docs.map(
+            (d) => (
+              id: d.id,
+              nombre: (d.data()['nombre'] ?? d.data()['area'])?.toString(),
+            ),
+          ),
+          empresaId: widget.empresaId,
+        );
+        _areasCargadas = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _areasCargadas = true);
+    }
   }
 
   @override
@@ -1725,7 +1771,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Un registro, un archivo. El código se asigna automáticamente y Calidad controla su publicación.',
+            switch (widget.section) {
+              GdLibrarySection.formatos =>
+                'El código se asigna automáticamente. Crea el registro, descarga la plantilla Excel con el encabezado, arma el formato y súbelo; Calidad lo valida con un check.',
+              GdLibrarySection.contrato =>
+                'Un registro, un archivo. Se publica para consulta al cargarlo.',
+              GdLibrarySection.normograma =>
+                'Número de norma y tema tratado. Se publica para consulta al cargarla.',
+            },
             style: TextStyle(
               fontFamily: kArial,
               fontWeight: FontWeight.w400,
@@ -1832,24 +1885,61 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                   ),
                 ],
                 const SizedBox(height: 16),
-                TextFormField(
-                  controller: _areaController,
-                  decoration: InputDecoration(
-                    labelText: 'Dependencia responsable',
-                    hintText: 'Ej: Talento Humano',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                if (_areas.isNotEmpty)
+                  DropdownButtonFormField<String>(
+                    initialValue: _areaController.text.isEmpty
+                        ? null
+                        : _areaController.text,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: 'Dependencia responsable',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.business_center_outlined,
+                        size: 20,
+                      ),
                     ),
-                    prefixIcon: const Icon(
-                      Icons.business_center_outlined,
-                      size: 20,
+                    items: [
+                      for (final area in _areas.opciones)
+                        DropdownMenuItem(
+                          value: area.nombre,
+                          child: Text(
+                            area.nombre,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      _areaController.text = value ?? '';
+                      setState(_updateGeneratedCode);
+                    },
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Selecciona la dependencia'
+                        : null,
+                  )
+                else
+                  TextFormField(
+                    controller: _areaController,
+                    decoration: InputDecoration(
+                      labelText: 'Dependencia responsable',
+                      hintText: _areasCargadas
+                          ? 'La empresa no tiene áreas registradas: escríbela'
+                          : 'Cargando áreas...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.business_center_outlined,
+                        size: 20,
+                      ),
                     ),
+                    onChanged: (_) => setState(_updateGeneratedCode),
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Selecciona o escribe la dependencia'
+                        : null,
                   ),
-                  onChanged: (_) => setState(_updateGeneratedCode),
-                  validator: (value) => value == null || value.trim().isEmpty
-                      ? 'Selecciona o escribe la dependencia'
-                      : null,
-                ),
                 if (widget.section == GdLibrarySection.normograma) ...[
                   const SizedBox(height: 16),
                   TextFormField(
@@ -1873,9 +1963,11 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                   ),
                 ],
                 const SizedBox(height: 24),
-                const Text(
-                  'ARCHIVO DEL REGISTRO',
-                  style: TextStyle(
+                Text(
+                  _esFormato
+                      ? 'ARCHIVO DEL REGISTRO (OPCIONAL)'
+                      : 'ARCHIVO DEL REGISTRO',
+                  style: const TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.w900,
                     fontSize: 11,
@@ -1887,8 +1979,8 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 _buildFilePicker(isWeb),
                 const SizedBox(height: 8),
                 Text(
-                  widget.section == GdLibrarySection.formatos
-                      ? '* Se admite un único PDF, Word o Excel. El registro iniciará en borrador y deberá pasar por Calidad.'
+                  _esFormato
+                      ? '* Puedes crear el registro sin archivo: al abrirlo descargas la plantilla Excel con el encabezado bloqueado y subes el formato cuando esté listo. Calidad lo valida con un check.'
                       : '* Se admite un único PDF, Word o Excel. El documento queda publicado para consulta de inmediato, sin revisión ni firma.',
                   style: TextStyle(
                     fontFamily: kArial,
@@ -1936,9 +2028,9 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                     strokeWidth: 2,
                   ),
                 )
-              : const Text(
-                  'CREAR E INICIAR FLUJO',
-                  style: TextStyle(
+              : Text(
+                  _esFormato ? 'CREAR Y ABRIR' : 'CARGAR Y PUBLICAR',
+                  style: const TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.w900,
                   ),
@@ -2064,7 +2156,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
 
   Future<void> _create() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_archivo?.bytes == null) {
+    if (!_esFormato && _archivo?.bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Debes seleccionar el archivo del registro.'),
@@ -2077,7 +2169,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
 
     setState(() => _loading = true);
     try {
-      await widget.service.crearDocumento(
+      final docId = await widget.service.crearDocumento(
         empresaId: widget.empresaId,
         titulo: _titulo,
         codigo: _codigoController.text.trim(),
@@ -2092,7 +2184,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         pdfBytes: _archivo?.bytes,
         pdfNombre: _archivo?.name,
       );
-      if (mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context, _esFormato ? docId : null);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

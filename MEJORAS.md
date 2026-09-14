@@ -102,6 +102,13 @@ carpetas.
     la sección "Colores corporativos" con los dos campos y una vista previa
     del encabezado; vacío = defecto, y un hex inválido no se guarda.
 - Descarga con `FileSaver` (web y móvil); nombre `LOG-001_Acta_de_baja_v1.xlsx`.
+- Alta de formato (ajuste tras la primera prueba de Daniel): el archivo es
+  **opcional** al crear —antes el diálogo lo exigía y no había forma de
+  descargar la plantilla antes de tener el archivo—, el botón dice "CREAR Y
+  ABRIR" y al crear se abre el detalle de una vez, donde está **DESCARGAR
+  PLANTILLA EXCEL** y "Subir archivo". La **dependencia** ya no es texto
+  libre: desplegable desde `TBL_AREAS` vía `AreaCatalogo` (regla 3 de
+  CLAUDE.md); solo si la empresa no tiene áreas se escribe a mano.
 - Pruebas: `test/gestion_documental/gd_formato_plantilla_test.dart` (hash de
   clave, bloqueo, merges, logo, escape XML, nombre). Además se abrió un
   archivo generado con openpyxl: protección, clave, merges, imagen y
