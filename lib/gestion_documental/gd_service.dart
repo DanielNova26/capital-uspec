@@ -606,6 +606,58 @@ class GdService {
         'Solo los formatos institucionales usan plantilla con encabezado.',
       );
     }
+    String? aprobadoPor;
+    DateTime? aprobadoEn;
+    final aprobadorId = (data['aprobadoPor'] ?? '').toString().trim();
+    if (data['estado'] == GdEstado.vigente.valor && aprobadorId.isNotEmpty) {
+      final info = await UserDirectory.instance.resolve(aprobadorId);
+      // Nunca la cédula en el papel: si no hay nombre, queda el área.
+      aprobadoPor = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
+      aprobadoEn = (data['aprobadoEn'] as Timestamp?)?.toDate();
+    }
+    return _armarPlantillaFormato(
+      empresaId: empresaId,
+      titulo: (data['titulo'] ?? '').toString(),
+      codigo: (data['codigo'] ?? '').toString(),
+      dependencia: (data['area'] ?? '').toString(),
+      version: (data['versionActual'] ?? 'v1').toString(),
+      aprobadoPor: aprobadoPor,
+      aprobadoEn: aprobadoEn,
+    );
+  }
+
+  /// Plantilla para un formato que todavía no existe: se descarga desde el
+  /// mismo diálogo de alta con los datos escritos (código previsto, nombre,
+  /// dependencia), se arma y se sube ahí mismo. Así el flujo no se rompe.
+  Future<(Uint8List, String)> generarPlantillaFormatoPrevia({
+    required String empresaId,
+    required String titulo,
+    required String codigo,
+    required String dependencia,
+  }) {
+    if (titulo.trim().isEmpty || dependencia.trim().isEmpty) {
+      throw const GdException(
+        'Escribe la dependencia y el nombre del formato antes de descargar.',
+      );
+    }
+    return _armarPlantillaFormato(
+      empresaId: empresaId,
+      titulo: titulo,
+      codigo: codigo,
+      dependencia: dependencia,
+      version: 'v1',
+    );
+  }
+
+  Future<(Uint8List, String)> _armarPlantillaFormato({
+    required String empresaId,
+    required String titulo,
+    required String codigo,
+    required String dependencia,
+    required String version,
+    String? aprobadoPor,
+    DateTime? aprobadoEn,
+  }) async {
     final empresaSnap = await _db
         .collection('TBL_EMPRESAS')
         .doc(empresaId)
@@ -627,22 +679,12 @@ class GdService {
       }
     }
 
-    String? aprobadoPor;
-    DateTime? aprobadoEn;
-    final aprobadorId = (data['aprobadoPor'] ?? '').toString().trim();
-    if (data['estado'] == GdEstado.vigente.valor && aprobadorId.isNotEmpty) {
-      final info = await UserDirectory.instance.resolve(aprobadorId);
-      // Nunca la cédula en el papel: si no hay nombre, queda el área.
-      aprobadoPor = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
-      aprobadoEn = (data['aprobadoEn'] as Timestamp?)?.toDate();
-    }
-
     final datos = GdPlantillaFormatoDatos(
       empresaNombre: (empresa['nombre'] ?? '').toString().trim(),
-      titulo: (data['titulo'] ?? '').toString(),
-      codigo: (data['codigo'] ?? '').toString(),
-      dependencia: (data['area'] ?? '').toString(),
-      version: (data['versionActual'] ?? 'v1').toString(),
+      titulo: titulo,
+      codigo: codigo,
+      dependencia: dependencia,
+      version: version,
       fecha: DateTime.now(),
       aprobadoPor: aprobadoPor,
       aprobadoEn: aprobadoEn,

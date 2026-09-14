@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 
 import '../core/area_directory.dart';
@@ -1696,6 +1697,8 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   String _palabrasClaveRaw = '';
   PlatformFile? _archivo;
   bool _loading = false;
+  bool _descargandoPlantilla = false;
+  bool _plantillaDescargada = false;
   // Dependencia desde el catálogo de áreas de la empresa (nunca id crudo ni
   // repetidas). Si la empresa no tiene áreas cargadas, se escribe a mano.
   AreaCatalogo _areas = const AreaCatalogo.vacio();
@@ -1773,7 +1776,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           Text(
             switch (widget.section) {
               GdLibrarySection.formatos =>
-                'El código se asigna automáticamente. Crea el registro, descarga la plantilla Excel con el encabezado, arma el formato y súbelo; Calidad lo valida con un check.',
+                'Todo aquí: escribe dependencia y nombre, descarga la plantilla con el encabezado, arma el formato y súbelo. Calidad lo valida con un check.',
               GdLibrarySection.contrato =>
                 'Un registro, un archivo. Se publica para consulta al cargarlo.',
               GdLibrarySection.normograma =>
@@ -1832,6 +1835,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                     ),
                     prefixIcon: const Icon(Icons.title, size: 20),
                   ),
+                  onChanged: (v) => setState(() => _titulo = v.trim()),
                   onSaved: (v) => _titulo = (v ?? '').trim(),
                   validator: (v) =>
                       v == null || v.trim().isEmpty ? 'Requerido' : null,
@@ -1962,10 +1966,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                         : null,
                   ),
                 ],
+                if (_esFormato) ...[
+                  const SizedBox(height: 24),
+                  _buildTemplateStep(),
+                ],
                 const SizedBox(height: 24),
                 Text(
                   _esFormato
-                      ? 'ARCHIVO DEL REGISTRO (OPCIONAL)'
+                      ? 'PASO 2 · SUBIR EL FORMATO ARMADO'
                       : 'ARCHIVO DEL REGISTRO',
                   style: const TextStyle(
                     fontFamily: kArial,
@@ -1980,7 +1988,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 const SizedBox(height: 8),
                 Text(
                   _esFormato
-                      ? '* Puedes crear el registro sin archivo: al abrirlo descargas la plantilla Excel con el encabezado bloqueado y subes el formato cuando esté listo. Calidad lo valida con un check.'
+                      ? '* Sube el Excel armado sobre la plantilla (el encabezado viene bloqueado). El registro queda en borrador hasta el check de Calidad.'
                       : '* Se admite un único PDF, Word o Excel. El documento queda publicado para consulta de inmediato, sin revisión ni firma.',
                   style: TextStyle(
                     fontFamily: kArial,
@@ -2029,7 +2037,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                   ),
                 )
               : Text(
-                  _esFormato ? 'CREAR Y ABRIR' : 'CARGAR Y PUBLICAR',
+                  _esFormato ? 'CREAR FORMATO' : 'CARGAR Y PUBLICAR',
                   style: const TextStyle(
                     fontFamily: kArial,
                     fontWeight: FontWeight.w900,
@@ -2082,6 +2090,129 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         if (value != null) setState(() => _categoria = value);
       },
       validator: (value) => value == null ? 'Requerido' : null,
+    );
+  }
+
+  bool get _puedeDescargarPlantilla =>
+      _titulo.trim().isNotEmpty && _areaController.text.trim().isNotEmpty;
+
+  Future<void> _descargarPlantilla() async {
+    if (_descargandoPlantilla) return;
+    setState(() => _descargandoPlantilla = true);
+    try {
+      final (bytes, fileName) = await widget.service
+          .generarPlantillaFormatoPrevia(
+            empresaId: widget.empresaId,
+            titulo: _titulo,
+            codigo: _codigoController.text.trim(),
+            dependencia: _areaController.text.trim(),
+          );
+      await FileSaver.instance.saveFile(
+        name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
+        bytes: bytes,
+        fileExtension: 'xlsx',
+        mimeType: MimeType.microsoftExcel,
+      );
+      if (mounted) setState(() => _plantillaDescargada = true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo generar la plantilla: $e'),
+            backgroundColor: GdPalette.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _descargandoPlantilla = false);
+    }
+  }
+
+  /// Paso 1 del alta de un formato: la plantilla con el encabezado ya lleno
+  /// (logo, nombre, dependencia, código previsto, v1) se baja desde aquí.
+  Widget _buildTemplateStep() {
+    final listo = _puedeDescargarPlantilla;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _plantillaDescargada
+            ? GdPalette.success.withValues(alpha: 0.06)
+            : GdPalette.accent.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _plantillaDescargada
+              ? GdPalette.success.withValues(alpha: 0.5)
+              : GdPalette.accent.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'PASO 1 · PLANTILLA CON ENCABEZADO',
+            style: TextStyle(
+              fontFamily: kArial,
+              fontWeight: FontWeight.w900,
+              fontSize: 11,
+              color: GdPalette.muted,
+              letterSpacing: 1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            listo
+                ? 'Excel con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. El encabezado va bloqueado; de la fila 7 hacia abajo arma el formato como necesites.'
+                : 'Escribe la dependencia y el nombre del formato para habilitar la descarga.',
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 12,
+              color: GdPalette.muted,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton.tonalIcon(
+                onPressed: listo && !_descargandoPlantilla
+                    ? _descargarPlantilla
+                    : null,
+                icon: _descargandoPlantilla
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.table_view_outlined, size: 18),
+                label: Text(
+                  _plantillaDescargada
+                      ? 'DESCARGAR DE NUEVO'
+                      : 'DESCARGAR PLANTILLA EXCEL',
+                ),
+              ),
+              if (_plantillaDescargada)
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      size: 18,
+                      color: GdPalette.success,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      'Plantilla descargada. Ármala y súbela abajo.',
+                      style: TextStyle(fontFamily: kArial, fontSize: 12),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -2156,10 +2287,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
 
   Future<void> _create() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_esFormato && _archivo?.bytes == null) {
+    if (_archivo?.bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Debes seleccionar el archivo del registro.'),
+        SnackBar(
+          content: Text(
+            _esFormato
+                ? 'Descarga la plantilla, arma el formato y súbelo aquí antes de crear.'
+                : 'Debes seleccionar el archivo del registro.',
+          ),
           backgroundColor: GdPalette.error,
         ),
       );
