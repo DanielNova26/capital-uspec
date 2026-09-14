@@ -23,6 +23,8 @@ import 'package:intl/intl.dart';
 import 'package:mime/mime.dart'; // opcional, para adivinar mime
 import 'package:todo/services/company_branding_service.dart';
 
+import '../core/task_permissions.dart';
+
 const Color kMarronOscuro = Color(0xFF145DA0);
 const String kArial = 'Arial';
 
@@ -353,7 +355,10 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
     final pb =
         ui.ParagraphBuilder(ui.ParagraphStyle(maxLines: 8, ellipsis: '…'))
           ..pushStyle(
-            ui.TextStyle(color: Colors.white.withValues(alpha: 0.95), fontSize: 24),
+            ui.TextStyle(
+              color: Colors.white.withValues(alpha: 0.95),
+              fontSize: 24,
+            ),
           );
     pb.addText(lines.join('\n'));
     final p = pb.build()..layout(ui.ParagraphConstraints(width: rText.width));
@@ -413,6 +418,21 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
           .collection('TBL_TAREAS')
           .doc(widget.taskId);
 
+      // La pantalla también puede quedar abierta desde una notificación vieja
+      // o mientras otra persona reasigna la tarea. Validar antes de subir evita
+      // archivos huérfanos; la transacción lo comprueba de nuevo para cerrar la
+      // carrera entre esta lectura y el guardado.
+      final currentTaskSnapshot = await tareaRef.get();
+      final currentTaskData = currentTaskSnapshot.data();
+      if (!currentTaskSnapshot.exists || currentTaskData == null) {
+        throw StateError('La tarea ya no existe.');
+      }
+      if (!isTaskAssignedToUser(currentTaskData, [widget.currentUserId])) {
+        throw StateError(
+          'Solo el responsable actual puede completar esta tarea.',
+        );
+      }
+
       // 1) Subir adjuntos
       final now = DateTime.now();
       final y = DateFormat('yyyy').format(now),
@@ -467,6 +487,11 @@ class _CompleteTaskScreenState extends State<CompleteTaskScreen> {
       await FirebaseFirestore.instance.runTransaction((trx) async {
         final snap = await trx.get(tareaRef);
         final data = snap.data() ?? {};
+        if (!isTaskAssignedToUser(data, [widget.currentUserId])) {
+          throw StateError(
+            'La tarea fue reasignada. Solo el responsable actual puede completarla.',
+          );
+        }
         final currentAdj = (data['adjuntos'] as List<dynamic>? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();

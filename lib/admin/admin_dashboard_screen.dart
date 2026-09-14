@@ -22,6 +22,7 @@ import '../interventoria/interventoria_service.dart';
 import '../facturacion/facturacion_models.dart';
 import '../rutas/rutas_models.dart';
 import '../rutas/rutas_service.dart';
+import '../visitas/visitas_models.dart';
 import '../gestion_documental/correspondencia/gd_roles_screen.dart';
 import '../gestion_documental/correspondencia/gd_permisos.dart';
 import '../gestion_documental/correspondencia/gd_tipos_documentales_screen.dart';
@@ -4911,6 +4912,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
       color: Color(0xFF15803D),
       roles: kRutasRolLabels,
     ),
+    const _AccessMatrixModule(
+      key: 'visitas',
+      label: 'Visitas',
+      appId: kVisitasAppId,
+      icon: Icons.fact_check_rounded,
+      color: Color(0xFF7C3AED),
+    ),
   ];
 
   List<_AccessMatrixModule> _filteredAccessMatrixModules() {
@@ -4945,6 +4953,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         return 'Acceso y etapa de firma';
       case 'tokens_dian':
         return 'Personal autorizado';
+      case 'visitas':
+        return 'Acceso; rol interno en Visitas';
       case 'admin':
         return 'Acceso al panel administrativo';
       default:

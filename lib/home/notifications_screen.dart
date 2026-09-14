@@ -11,6 +11,7 @@ import 'package:todo/widgets/empty_state_widget.dart';
 import 'package:todo/widgets/user_avatar.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
+import '../interventoria/interventoria_dashboard_screen.dart';
 
 import '../compras/compras_dashboard_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
@@ -26,6 +27,33 @@ const Color kMarronOscuro = Color(0xFF145DA0);
 
 bool _isRutasEvidenceRejected(String type) =>
     type.trim().toLowerCase() == 'rutas_evidencia_rechazada';
+
+bool _isInterventoriaActaEliminada(String type) =>
+    type.trim().toLowerCase() == 'interventoria_acta_eliminada';
+
+Future<bool> _openInterventoriaFromNotification(
+  BuildContext context, {
+  required String userId,
+  String? empresaId,
+}) async {
+  final eid = (empresaId ?? '').trim();
+  if (eid.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No se encontró la empresa para abrir Interventoría.'),
+      ),
+    );
+    return false;
+  }
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) =>
+          InterventoriaDashboardScreen(userId: userId, empresaId: eid),
+    ),
+  );
+  return true;
+}
 
 Future<bool> _openRutasModuleFromNotification(
   BuildContext context, {
@@ -64,6 +92,14 @@ Future<bool> _openNotificationTask(
   required String cedula,
   String? empresaId,
 }) async {
+  if (_isInterventoriaActaEliminada(type)) {
+    return _openInterventoriaFromNotification(
+      context,
+      userId: cedula,
+      empresaId: empresaId,
+    );
+  }
+
   if (_isRutasEvidenceRejected(type)) {
     return _openRutasModuleFromNotification(
       context,
@@ -442,7 +478,9 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('assigned')) return 'Asignado por';
     if (t.contains('avance') || t.contains('progress')) return 'Reportado por';
     if (t.contains('novedad') || t.contains('news')) return 'Reportado por';
-    if (t.contains('finaliz') || t.contains('aprobad') || t.contains('devuelt')) {
+    if (t.contains('finaliz') ||
+        t.contains('aprobad') ||
+        t.contains('devuelt')) {
       return 'Gestionado por';
     }
     return 'De';
@@ -450,6 +488,7 @@ class _NotificationList extends StatelessWidget {
 
   String _typeLabel(String type) {
     final t = type.trim().toLowerCase();
+    if (_isInterventoriaActaEliminada(t)) return 'Interventoría';
     if (t == 'rutas_evidencia_rechazada') return 'Rutas';
     if (t.contains('reasign')) return 'Reasignación';
     if (t.contains('assigned')) return 'Asignación';
@@ -476,6 +515,9 @@ class _NotificationList extends StatelessWidget {
 
   IconData _getIconForType(String type) {
     final t = type.trim().toLowerCase();
+    if (_isInterventoriaActaEliminada(t)) {
+      return Icons.assignment_return_outlined;
+    }
     if (t == 'rutas_evidencia_rechazada') {
       return Icons.local_shipping_outlined;
     }
@@ -492,7 +534,9 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('rechazado') || t.contains('correccion')) {
       return Icons.description_outlined;
     }
-    if (t.contains('finaliz') || t.contains('complet') || t.contains('aprobad')) {
+    if (t.contains('finaliz') ||
+        t.contains('complet') ||
+        t.contains('aprobad')) {
       return Icons.check_circle_outline_rounded;
     }
     if (t.contains('devuelt')) return Icons.undo_rounded;
@@ -510,6 +554,9 @@ class _NotificationList extends StatelessWidget {
 
   Color _getColorForType(String type, BuildContext context) {
     final t = type.trim().toLowerCase();
+    if (_isInterventoriaActaEliminada(t)) {
+      return const Color(0xFF0F766E);
+    }
     if (t == 'rutas_evidencia_rechazada') return const Color(0xFF15803D);
     if (t.startsWith('gestion_documental')) return const Color(0xFF145DA0);
     if (t.contains('assigned') || t.contains('reasign')) return Colors.blue;
@@ -642,7 +689,9 @@ class _NotificationList extends StatelessWidget {
                       gradient: LinearGradient(
                         colors: [
                           scheme.primary.withValues(alpha: 0.10),
-                          scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                          scheme.surfaceContainerHighest.withValues(
+                            alpha: 0.55,
+                          ),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -714,7 +763,9 @@ class _NotificationList extends StatelessWidget {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                          color: scheme.surfaceContainerHighest.withValues(
+                            alpha: 0.5,
+                          ),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
@@ -838,6 +889,25 @@ class _NotificationList extends StatelessWidget {
                                       return;
                                     }
 
+                                    if (_isInterventoriaActaEliminada(type)) {
+                                      final opened =
+                                          await _openInterventoriaFromNotification(
+                                            context,
+                                            userId: userId,
+                                            empresaId: notifEmpresaId.isNotEmpty
+                                                ? notifEmpresaId
+                                                : empresaId,
+                                          );
+                                      if (opened && !isRead) {
+                                        try {
+                                          await doc.reference.update({
+                                            'read': true,
+                                          });
+                                        } catch (_) {}
+                                      }
+                                      return;
+                                    }
+
                                     if (taskId == null ||
                                         taskId.trim().isEmpty) {
                                       if (!isRead) {
@@ -881,8 +951,11 @@ class _NotificationList extends StatelessWidget {
                                               height: 48,
                                               decoration: BoxDecoration(
                                                 color: isRead
-                                                    ? scheme.surfaceContainerHighest
-                                                          .withValues(alpha: 0.3)
+                                                    ? scheme
+                                                          .surfaceContainerHighest
+                                                          .withValues(
+                                                            alpha: 0.3,
+                                                          )
                                                     : typeColor.withValues(
                                                         alpha: 0.12,
                                                       ),
@@ -893,7 +966,9 @@ class _NotificationList extends StatelessWidget {
                                                 typeIcon,
                                                 color: isRead
                                                     ? scheme.onSurfaceVariant
-                                                          .withValues(alpha: 0.7)
+                                                          .withValues(
+                                                            alpha: 0.7,
+                                                          )
                                                     : typeColor,
                                                 size: 24,
                                               ),
@@ -953,7 +1028,9 @@ class _NotificationList extends StatelessWidget {
                                                           FontWeight.w600,
                                                       color: scheme
                                                           .onSurfaceVariant
-                                                          .withValues(alpha: 0.6),
+                                                          .withValues(
+                                                            alpha: 0.6,
+                                                          ),
                                                     ),
                                                   ),
                                                 ],
@@ -971,7 +1048,9 @@ class _NotificationList extends StatelessWidget {
                                                         ),
                                                     decoration: BoxDecoration(
                                                       color: typeColor
-                                                          .withValues(alpha: 0.10),
+                                                          .withValues(
+                                                            alpha: 0.10,
+                                                          ),
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             999,
@@ -998,7 +1077,9 @@ class _NotificationList extends StatelessWidget {
                                                       decoration: BoxDecoration(
                                                         color: scheme
                                                             .surfaceContainerHighest
-                                                            .withValues(alpha: 0.55),
+                                                            .withValues(
+                                                              alpha: 0.55,
+                                                            ),
                                                         borderRadius:
                                                             BorderRadius.circular(
                                                               999,
@@ -1041,15 +1122,18 @@ class _NotificationList extends StatelessWidget {
                                                         vertical: 7,
                                                       ),
                                                   decoration: BoxDecoration(
-                                                    color: typeColor
-                                                        .withValues(alpha: 0.08),
+                                                    color: typeColor.withValues(
+                                                      alpha: 0.08,
+                                                    ),
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           10,
                                                         ),
                                                     border: Border.all(
                                                       color: typeColor
-                                                          .withValues(alpha: 0.18),
+                                                          .withValues(
+                                                            alpha: 0.18,
+                                                          ),
                                                     ),
                                                   ),
                                                   child: Row(
@@ -1099,7 +1183,8 @@ class _NotificationList extends StatelessWidget {
                                                         vertical: 4,
                                                       ),
                                                   decoration: BoxDecoration(
-                                                    color: scheme.surfaceContainerHighest
+                                                    color: scheme
+                                                        .surfaceContainerHighest
                                                         .withValues(alpha: 0.3),
                                                     borderRadius:
                                                         BorderRadius.circular(
@@ -1116,7 +1201,9 @@ class _NotificationList extends StatelessWidget {
                                                         size: 12,
                                                         color: scheme
                                                             .onSurfaceVariant
-                                                            .withValues(alpha: 0.7),
+                                                            .withValues(
+                                                              alpha: 0.7,
+                                                            ),
                                                       ),
                                                       const SizedBox(width: 6),
                                                       UserNameText(
@@ -1130,7 +1217,9 @@ class _NotificationList extends StatelessWidget {
                                                               FontWeight.w700,
                                                           color: scheme
                                                               .onSurfaceVariant
-                                                              .withValues(alpha: 0.8),
+                                                              .withValues(
+                                                                alpha: 0.8,
+                                                              ),
                                                         ),
                                                       ),
                                                     ],
@@ -1163,7 +1252,9 @@ class _NotificationList extends StatelessWidget {
                               if (hasBanner) ...[
                                 Divider(
                                   height: 1,
-                                  color: scheme.outlineVariant.withValues(alpha: 0.4),
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.4,
+                                  ),
                                 ),
                                 _ReactionBar(
                                   bannerId: bannerId,
@@ -1172,7 +1263,9 @@ class _NotificationList extends StatelessWidget {
                                 ),
                                 Divider(
                                   height: 1,
-                                  color: scheme.outlineVariant.withValues(alpha: 0.3),
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.3,
+                                  ),
                                 ),
                                 _CommentsSection(
                                   bannerId: bannerId,
@@ -1272,7 +1365,9 @@ class _ReactionBarState extends State<_ReactionBar> {
                     color: isMe
                         ? scheme.primary.withValues(alpha: 0.12)
                         : (count > 0
-                              ? scheme.surfaceContainerHighest.withValues(alpha: 0.5)
+                              ? scheme.surfaceContainerHighest.withValues(
+                                  alpha: 0.5,
+                                )
                               : Colors.transparent),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
@@ -1434,7 +1529,10 @@ class _CommentsSectionState extends State<_CommentsSection> {
           ),
         ),
         if (_expanded) ...[
-          Divider(height: 1, color: scheme.outlineVariant.withValues(alpha: 0.3)),
+          Divider(
+            height: 1,
+            color: scheme.outlineVariant.withValues(alpha: 0.3),
+          ),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _comentColl
                 .orderBy('createdAt', descending: false)
@@ -1483,7 +1581,9 @@ class _CommentsSectionState extends State<_CommentsSection> {
                           userId: userId,
                           nameHint: name,
                           radius: 14,
-                          backgroundColor: scheme.primary.withValues(alpha: 0.15),
+                          backgroundColor: scheme.primary.withValues(
+                            alpha: 0.15,
+                          ),
                           foregroundColor: scheme.primary,
                         ),
                         const SizedBox(width: 8),
@@ -1494,7 +1594,9 @@ class _CommentsSectionState extends State<_CommentsSection> {
                               vertical: 7,
                             ),
                             decoration: BoxDecoration(
-                              color: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                              color: scheme.surfaceContainerHighest.withValues(
+                                alpha: 0.4,
+                              ),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Column(

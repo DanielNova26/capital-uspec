@@ -32,6 +32,7 @@ Uint8List construirExcelCorrespondencia({
     'Respuesta enviada',
     'Fecha de envío',
     'Canal de respuesta',
+    'Contestada por',
     'Adjuntos recibidos',
     'Adjuntos de respuesta',
   ];
@@ -110,6 +111,7 @@ Uint8List construirExcelCorrespondencia({
       xl.TextCellValue(row.respondido ? 'Sí' : 'No'),
       _dateValue(row.enviadoAt),
       xl.TextCellValue(_canalRespuesta(row)),
+      xl.TextCellValue(_contestadaPor(row)),
       xl.IntCellValue(row.adjuntosEntrada.length),
       xl.IntCellValue(row.adjuntosRespuesta.length),
     ];
@@ -180,11 +182,21 @@ String _capitalizar(String value) {
   return clean.isEmpty ? '' : '${clean[0].toUpperCase()}${clean.substring(1)}';
 }
 
+// Sin acceso a TBL_USUARIOS desde aquí: se exporta el nombre que ya trae el
+// expediente y, si no lo hay, la cédula o lo que reporta el buzón.
+String _contestadaPor(GdExpediente row) {
+  if (!row.respondido) return '';
+  if (row.respondidoPorNombre.trim().isNotEmpty) return row.respondidoPorNombre;
+  final userId = row.respondidoPorUsuarioId;
+  if (userId.isNotEmpty) return userId;
+  return row.respondidoPorTexto;
+}
+
 String _canalRespuesta(GdExpediente row) {
   if (!row.respondido) return 'Pendiente';
   if (row.respuestaExternaRegistrada)
-    return 'Declarada fuera de la app, con soporte';
-  if (row.envioOrigen == 'buzon_externo') return 'Detectado en el buzón';
+    return 'Marcada "Ya contesté", con soporte';
+  if (row.envioOrigen == 'buzon_externo') return 'Detectada en el buzón';
   final canal = row.envioCanal.trim().isEmpty ? row.proveedor : row.envioCanal;
   return canal.toLowerCase().contains('microsoft')
       ? 'Microsoft 365'

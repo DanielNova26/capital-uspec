@@ -6,8 +6,10 @@
     "node": "20"
   },
   "scripts": {
-    "build": "tsc",
-    "test": "tsc && node --test test/*.test.js",
+    "clean": "node -e \"require('fs').rmSync('lib',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc",
+    "test": "npm run build && node --test test/*.test.js",
+    "test:rules": "node --test test/firestore_company_rules.rules.js",
     "lint": "eslint --ext .ts src --fix",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions"
@@ -21,11 +23,13 @@
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
     "@types/mailparser": "^3.4.6",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.1",
     "eslint-config-google": "^0.14.0",
+    "firebase": "^11.10.0",
     "typescript": "5.5.4"
   }
 }

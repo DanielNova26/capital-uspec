@@ -15,6 +15,7 @@ import 'firebase_options.dart';
 import 'state/empresa_scope.dart';
 import 'login/auth_gate.dart';
 import 'services/notification_service.dart';
+import 'services/startup_permissions_service.dart';
 import 'theme/app_scroll_behavior.dart';
 
 /// Clave global de navegación para deep-linking desde notificaciones.
@@ -91,18 +92,22 @@ Future<void> main() async {
 
   runApp(EmpresaScope(notifier: empresaState, child: const ToDoApp()));
 
-  // Notificaciones DESPUÉS de runApp y sin await: piden permisos al sistema y
-  // esperan el token de APNs, dos cosas que pueden tardar o no llegar nunca.
-  // Ninguna justifica retrasar el arranque.
+  // Permisos y notificaciones DESPUÉS de runApp y sin await: los diálogos del
+  // sistema y el token de APNs pueden tardar o no llegar nunca. Ninguno debe
+  // retrasar el arranque. La secuencia inicial va primero para que cámara,
+  // micrófono y ubicación queden listos desde la primera apertura.
   if (!kIsWeb) {
     unawaited(
-      NotificationsService.init(navigatorKey: navigatorKey).catchError((
-        Object e,
-      ) {
-        debugPrint('[main] fallo al inicializar notificaciones: $e');
+      _initMobileRuntimeServices().catchError((Object e) {
+        debugPrint('[main] fallo al inicializar servicios móviles: $e');
       }),
     );
   }
+}
+
+Future<void> _initMobileRuntimeServices() async {
+  await StartupPermissionsService.requestInitialPermissions();
+  await NotificationsService.init(navigatorKey: navigatorKey);
 }
 
 class _FadePageTransitionsBuilder extends PageTransitionsBuilder {

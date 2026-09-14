@@ -4476,6 +4476,7 @@ class _VisitasTabState extends State<_VisitasTab> {
                           esAdminDesarrollo: widget.esAdminDesarrollo,
                           userId: widget.userId,
                           rol: widget.rol,
+                          centroFijoId: widget.centroFijoId,
                         ),
                       ),
               ),
@@ -4493,6 +4494,7 @@ class _VisitaCard extends StatefulWidget {
   final InterventoriaService service;
   final bool esAdminDesarrollo;
   final String userId;
+  final String? centroFijoId;
 
   /// Rol en el módulo. Decide quién puede devolver un acta con errores.
   final String rol;
@@ -4504,6 +4506,7 @@ class _VisitaCard extends StatefulWidget {
     this.esAdminDesarrollo = false,
     this.userId = '',
     this.rol = '',
+    this.centroFijoId,
   });
 
   @override
@@ -4637,6 +4640,51 @@ class _VisitaCardState extends State<_VisitaCard> {
               ],
             ),
           ),
+          if (esActaDevueltaParaCorreccion(v))
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFDBA74)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.assignment_return_rounded,
+                    size: 18,
+                    color: Color(0xFF9A3412),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      v.devolucionMotivo.trim().isEmpty
+                          ? 'Acta devuelta para corrección'
+                          : 'Devuelta: ${v.devolucionMotivo.trim()}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF9A3412),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (puedeEditarActaDevuelta(
+                    visita: v,
+                    userId: widget.userId,
+                    esAdminDesarrollo: widget.esAdminDesarrollo,
+                  ))
+                    TextButton.icon(
+                      onPressed: () => _editarActaDevuelta(context, v),
+                      icon: const Icon(Icons.edit_rounded, size: 17),
+                      label: const Text('Corregir'),
+                    ),
+                ],
+              ),
+            ),
           // Detalle expandido
           if (_expanded) ...[
             const Divider(height: 1),
@@ -4804,7 +4852,11 @@ class _VisitaCardState extends State<_VisitaCard> {
     );
     if (ok != true || !context.mounted) return;
     try {
-      await widget.service.eliminarVisita(v.id);
+      await widget.service.eliminarVisita(
+        empresaId: v.empresaId,
+        visitaId: v.id,
+        motivo: 'Se requiere cargar una nueva versión del acta.',
+      );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(backgroundColor: _kOk, content: Text('Acta eliminada.')),
@@ -4844,8 +4896,8 @@ class _VisitaCardState extends State<_VisitaCard> {
               ),
               const SizedBox(height: 4),
               const Text(
-                'El acta vuelve a "Por revisar" y se le crea la tarea de '
-                'corrección al administrador del establecimiento.',
+                'El acta quedará en "Devuelta" hasta que la persona '
+                'responsable la corrija. Después volverá a "Por revisar".',
                 style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
               const SizedBox(height: 12),
@@ -4966,6 +5018,26 @@ class _VisitaCardState extends State<_VisitaCard> {
         ),
       );
     }
+  }
+
+  Future<void> _editarActaDevuelta(
+    BuildContext context,
+    InterventoriaVisita visita,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RegistrarActaSheet(
+        empresaId: visita.empresaId,
+        userId: widget.userId,
+        service: widget.service,
+        centroFijoId: widget.centroFijoId,
+        visitaEditar: visita,
+        permitirEdicionContingencia: widget.esAdminDesarrollo,
+      ),
+    );
   }
 }
 
@@ -6753,11 +6825,17 @@ class _RegistrarActaSheet extends StatefulWidget {
   /// Si no es null, el Registrador solo puede registrar este centro.
   final String? centroFijoId;
 
+  /// Acta devuelta que se corrige sobre el mismo documento.
+  final InterventoriaVisita? visitaEditar;
+  final bool permitirEdicionContingencia;
+
   const _RegistrarActaSheet({
     required this.empresaId,
     required this.userId,
     required this.service,
     this.centroFijoId,
+    this.visitaEditar,
+    this.permitirEdicionContingencia = false,
   });
 
   @override
@@ -6770,7 +6848,7 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   /// División interna del establecimiento, cuando lo está: Cómbita Alta o
   /// Media, Picota ERE 1 o ERE 2.
   SubcentroCosto? _subcentro;
-  DateTime _fecha = DateTime.now();
+  late DateTime _fecha;
   String? _tipoActa;
   String? _tiempoComida;
   // Puntajes por sección
@@ -6786,14 +6864,17 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
     for (final cat in _categorias) cat.key: GlobalKey(),
   };
 
-  late Map<String, InterventoriaItem> _items = _itemsVacios();
+  late Map<String, InterventoriaItem> _items;
   final _ocrCtrl = TextEditingController();
   final List<_PickedActa> _files = [];
+  late List<InterventoriaAdjunto> _adjuntosExistentes;
   bool _saving = false;
   bool _extracting = false;
 
   final _scrollCtrl = ScrollController();
-  late Map<String, GlobalKey> _itemKeys = _clavesDeItems();
+  late Map<String, GlobalKey> _itemKeys;
+
+  bool get _editando => widget.visitaEditar != null;
 
   void _irAlItem(String key) {
     final ctx = _itemKeys[key]?.currentContext;
@@ -6809,20 +6890,59 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   @override
   void initState() {
     super.initState();
-    if (widget.centroFijoId != null && widget.centroFijoId!.isNotEmpty) {
-      _precargarCentroFijo();
+    final existente = widget.visitaEditar;
+    _fecha = existente?.fechaVisita.toDate() ?? DateTime.now();
+    _tipoActa = existente?.tipoActa;
+    _tiempoComida = existente?.tiempoComida;
+    _items = existente == null
+        ? _itemsVacios()
+        : Map<String, InterventoriaItem>.from(existente.items);
+    for (final categoria in _categorias) {
+      _items.putIfAbsent(
+        categoria.key,
+        () => InterventoriaItem.empty(categoria),
+      );
+    }
+    _itemKeys = _clavesDeItems();
+    _adjuntosExistentes = [...?existente?.adjuntos];
+    // Compatibilidad con actas antiguas que solo guardaban la URL principal
+    // y no el objeto completo dentro de `imagenesActa`.
+    if (existente != null &&
+        existente.actaOriginalUrl.trim().isNotEmpty &&
+        !contieneActaPdf(_adjuntosExistentes)) {
+      _adjuntosExistentes.add(
+        InterventoriaAdjunto(
+          url: existente.actaOriginalUrl,
+          nombre: 'Acta actual.pdf',
+          path: '',
+          contentType: 'application/pdf',
+          origen: 'historico',
+          fechaSubida: existente.fechaRegistro,
+        ),
+      );
+    }
+    _ocrCtrl.text = existente?.ocrTextoExtraido ?? '';
+
+    final centroInicial = existente?.centroCostoId.trim().isNotEmpty == true
+        ? existente!.centroCostoId
+        : widget.centroFijoId;
+    if (centroInicial != null && centroInicial.isNotEmpty) {
+      _precargarCentro(centroInicial, subcentroId: existente?.subcentroId);
     }
   }
 
-  Future<void> _precargarCentroFijo() async {
+  Future<void> _precargarCentro(String centroId, {String? subcentroId}) async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection('TBL_CENTROS_COSTOS')
-          .doc(widget.centroFijoId)
+          .doc(centroId)
           .get();
       if (doc.exists && mounted) {
         setState(() {
           _centro = CentroCostoRef.fromMap(doc.id, doc.data()!);
+          _subcentro = _centro!.subcentrosActivos
+              .where((sub) => sub.id == subcentroId)
+              .firstOrNull;
         });
       }
     } catch (_) {}
@@ -6869,21 +6989,25 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 padding: const EdgeInsets.fromLTRB(18, 0, 10, 6),
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Registrar acta de interventoría',
-                            style: TextStyle(
+                            _editando
+                                ? 'Corregir acta devuelta'
+                                : 'Registrar acta de interventoría',
+                            style: const TextStyle(
                               fontFamily: _kFont,
                               fontWeight: FontWeight.w900,
                               fontSize: 18,
                             ),
                           ),
                           Text(
-                            'Solo puntajes — las observaciones se completan en revisión',
-                            style: TextStyle(
+                            _editando
+                                ? 'Se actualizará la misma acta y volverá a revisión'
+                                : 'Solo puntajes — las observaciones se completan en revisión',
+                            style: const TextStyle(
                               fontSize: 11,
                               color: Color(0xFF64748B),
                             ),
@@ -6908,9 +7032,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
               Builder(
                 builder: (_) {
                   final faltantes = _itemsIncompletos();
-                  final faltaActa = !puedeGenerarActaPdf(
-                    _files.map((file) => file.contentType),
-                  );
+                  final faltaActa = !puedeGenerarActaPdf([
+                    ..._adjuntosExistentes.map((file) => file.contentType),
+                    ..._files.map((file) => file.contentType),
+                  ]);
                   final puedeGuardar =
                       !_saving &&
                       !_extracting &&
@@ -6957,7 +7082,11 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                                     )
                                   : const Icon(Icons.save_rounded),
                               label: Text(
-                                _saving ? 'Guardando...' : 'Guardar acta',
+                                _saving
+                                    ? 'Guardando...'
+                                    : _editando
+                                    ? 'Guardar corrección'
+                                    : 'Guardar acta',
                               ),
                             ),
                           ],
@@ -6977,6 +7106,37 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
   Widget _buildCommonHeader(bool isWeb) {
     return Column(
       children: [
+        if (_editando) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFFDBA74)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Motivo de la devolución',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF9A3412),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  widget.visitaEditar!.devolucionMotivo.trim().isEmpty
+                      ? 'Revisa y corrige la información indicada por Interventoría.'
+                      : widget.visitaEditar!.devolucionMotivo.trim(),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         // El Registrador arranca en SU establecimiento, pero puede cambiarlo.
         // Antes era un texto fijo: si el `centroId` del usuario estaba mal
         // (pasó con Ubaté, que quedaba guardado como "Bodega Cota"), cada
@@ -7130,12 +7290,16 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         const SizedBox(height: 10),
         _ActaGeneralCard(
           files: _files,
+          existingFiles: _adjuntosExistentes,
           extracting: _extracting,
           onPickArchivo: _pickArchivo,
           onPickCamera: _pickCamera,
           onPickGallery: _pickGallery,
           onPreview: _showActaPreview,
           onRemove: (file) => setState(() => _files.remove(file)),
+          onOpenExisting: (file) {
+            if (file.url.trim().isNotEmpty) launchUrlString(file.url);
+          },
         ),
       ],
     );
@@ -8169,7 +8333,10 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       );
       return;
     }
-    if (!puedeGenerarActaPdf(_files.map((file) => file.contentType))) {
+    if (!puedeGenerarActaPdf([
+      ..._adjuntosExistentes.map((file) => file.contentType),
+      ..._files.map((file) => file.contentType),
+    ])) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Color(0xFFB91C1C),
@@ -8191,7 +8358,28 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       return;
     }
     setState(() => _saving = true);
+    final nuevosAdjuntosSubidos = <InterventoriaAdjunto>[];
+    var visitaPersistida = false;
     try {
+      if (!_editando) {
+        final duplicada = await widget.service.buscarActaDuplicada(
+          empresaId: widget.empresaId,
+          centroCostoId: _centro!.centroId,
+          subcentroId: _subcentro?.id,
+          fechaVisita: _fecha,
+          tipoActa: _tipoActa,
+          tiempoComida: _tiempoComida,
+        );
+        if (duplicada != null) {
+          final fecha = DateFormat(
+            'dd/MM/yyyy',
+          ).format(duplicada.fechaVisita.toDate());
+          throw StateError(
+            'Ya existe esta acta en ${duplicada.establecimiento} para el $fecha. Elimina o corrige el registro existente; no la cargues otra vez.',
+          );
+        }
+      }
+
       // 1. Preparar el PDF obligatorio. Las imágenes escaneadas se convierten
       // en un PDF general antes de que exista la visita en Firestore.
       final itemsParaGuardar = _itemsParaGuardar();
@@ -8201,17 +8389,28 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
       if (generatedPdf != null) filesToUpload.add(generatedPdf);
       filesToUpload.addAll(_files);
       if (!filesToUpload.any(
-        (file) => file.contentType.toLowerCase() == 'application/pdf',
-      )) {
+            (file) => file.contentType.toLowerCase() == 'application/pdf',
+          ) &&
+          !_adjuntosExistentes.any(
+            (file) => file.contentType.toLowerCase() == 'application/pdf',
+          )) {
         throw StateError('No fue posible generar el acta PDF obligatoria.');
       }
 
       // 2. Reservar el id y subir los archivos. Si la carga falla, no queda
       // una visita registrada sin el PDF que la respalda.
-      final visitaId = widget.service.nuevoVisitaId();
-      final adjuntos = <InterventoriaAdjunto>[];
+      final visitaId =
+          widget.visitaEditar?.id ??
+          widget.service.visitaIdParaActa(
+            empresaId: widget.empresaId,
+            centroCostoId: _centro!.centroId,
+            subcentroId: _subcentro?.id,
+            fechaVisita: _fecha,
+            tipoActa: _tipoActa,
+            tiempoComida: _tiempoComida,
+          );
       for (final f in filesToUpload) {
-        adjuntos.add(
+        nuevosAdjuntosSubidos.add(
           f.base64Data != null
               ? await widget.service.subirActaBase64(
                   base64Data: f.base64Data!,
@@ -8231,11 +8430,25 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
                 ),
         );
       }
-      final actaPdf = adjuntos.firstWhere(
-        (adjunto) => adjunto.contentType.toLowerCase() == 'application/pdf',
-      );
+      final adjuntos = <InterventoriaAdjunto>[
+        ..._adjuntosExistentes,
+        ...nuevosAdjuntosSubidos,
+      ];
+      // Si se adjuntó un PDF nuevo, pasa a ser el principal. Si no, se
+      // conserva el original que ya respaldaba el acta.
+      InterventoriaAdjunto? actaPdf;
+      for (final adjunto in adjuntos.reversed) {
+        if (adjunto.contentType.toLowerCase() == 'application/pdf') {
+          actaPdf = adjunto;
+          break;
+        }
+      }
+      if (actaPdf == null) {
+        throw StateError('No fue posible conservar el acta PDF obligatoria.');
+      }
 
       // 3. Persistir la visita únicamente cuando el PDF ya existe.
+      final existente = widget.visitaEditar;
       final visita = InterventoriaVisita(
         id: visitaId,
         empresaId: widget.empresaId,
@@ -8245,28 +8458,37 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         subcentroId: _subcentro?.id ?? '',
         subcentroNombre: _subcentro?.nombre ?? '',
         fechaVisita: Timestamp.fromDate(_fecha),
-        fechaRegistro: Timestamp.now(),
-        creadoPor: widget.userId,
+        fechaRegistro: existente?.fechaRegistro ?? Timestamp.now(),
+        creadoPor: existente?.creadoPor ?? widget.userId,
+        estado: existente?.estado ?? 'registrada',
         tipoActa: _tipoActa,
         tiempoComida: _tiempoComida,
         porcentajeGeneral: pctGeneral,
         items: itemsParaGuardar,
         adjuntos: adjuntos,
         actaOriginalUrl: actaPdf.url,
-        observaciones: '', // se completa en Fase 2
+        observaciones: existente?.observaciones ?? '',
         ocrTextoExtraido: _ocrCtrl.text.trim(),
-        ocrDatosDetectados: const {},
-        ocrRevisado: false,
+        ocrDatosDetectados: existente?.ocrDatosDetectados ?? const {},
+        ocrRevisado: existente?.ocrRevisado ?? false,
         faseActa: 'puntajes', // Fase 1 completa — pendiente de revisión
-        createdAt: Timestamp.now(),
+        createdAt: existente?.createdAt ?? Timestamp.now(),
       );
-      await widget.service.guardarVisita(visita);
+      if (existente == null) {
+        await widget.service.guardarVisita(visita);
+      } else {
+        await widget.service.corregirActaDevuelta(
+          visita: visita,
+          corregidoPorId: widget.userId,
+          permitirContingencia: widget.permitirEdicionContingencia,
+        );
+      }
+      visitaPersistida = true;
 
-      final hallazgos = _buildHallazgosDesdeComentarios(
-        visitaId,
-        itemsParaGuardar,
-      );
-      if (hallazgos.isNotEmpty) {
+      final hallazgos = existente == null
+          ? _buildHallazgosDesdeComentarios(visitaId, itemsParaGuardar)
+          : <InterventoriaHallazgo>[];
+      if (existente == null && hallazgos.isNotEmpty) {
         await widget.service.guardarHallazgos(hallazgos);
       }
 
@@ -8276,13 +8498,18 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
           SnackBar(
             backgroundColor: _kOk,
             content: Text(
-              'Acta guardada — ${pctGeneral.toStringAsFixed(1)}%'
-              '${hallazgos.isNotEmpty ? ' · ${hallazgos.length} comentarios enlazados' : ''}',
+              _editando
+                  ? 'Corrección guardada — el acta volvió a "Por revisar"'
+                  : 'Acta guardada — ${pctGeneral.toStringAsFixed(1)}%'
+                        '${hallazgos.isNotEmpty ? ' · ${hallazgos.length} comentarios enlazados' : ''}',
             ),
           ),
         );
       }
     } catch (e) {
+      if (!visitaPersistida && nuevosAdjuntosSubidos.isNotEmpty) {
+        await widget.service.eliminarAdjuntosStorage(nuevosAdjuntosSubidos);
+      }
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -9043,21 +9270,25 @@ class _EmptyHallazgos extends StatelessWidget {
 
 class _ActaGeneralCard extends StatelessWidget {
   final List<_PickedActa> files;
+  final List<InterventoriaAdjunto> existingFiles;
   final bool extracting;
   final VoidCallback onPickArchivo;
   final VoidCallback onPickCamera;
   final VoidCallback onPickGallery;
   final ValueChanged<_PickedActa> onPreview;
   final ValueChanged<_PickedActa> onRemove;
+  final ValueChanged<InterventoriaAdjunto> onOpenExisting;
 
   const _ActaGeneralCard({
     required this.files,
+    this.existingFiles = const [],
     required this.extracting,
     required this.onPickArchivo,
     required this.onPickCamera,
     required this.onPickGallery,
     required this.onPreview,
     required this.onRemove,
+    required this.onOpenExisting,
   });
 
   @override
@@ -9086,9 +9317,11 @@ class _ActaGeneralCard extends StatelessWidget {
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
                   ),
                 ),
-                if (files.isNotEmpty)
+                if (files.isNotEmpty || existingFiles.isNotEmpty)
                   Text(
-                    imageCount > 0
+                    files.isEmpty
+                        ? '${existingFiles.length} archivo(s) actual(es)'
+                        : imageCount > 0
                         ? '$imageCount imagen(es) -> PDF'
                         : '$pdfCount PDF',
                     style: const TextStyle(
@@ -9101,13 +9334,19 @@ class _ActaGeneralCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              files.isEmpty
+              files.isEmpty && existingFiles.isEmpty
                   ? 'Obligatorio. Adjunta el PDF o escanea sus páginas para generarlo.'
+                  : existingFiles.isNotEmpty && files.isEmpty
+                  ? 'El archivo actual se conservará. Adjunta uno nuevo solo si debes reemplazar o complementar el soporte.'
                   : 'Las imágenes escaneadas se convierten en el PDF general al guardar.',
               style: TextStyle(
                 fontSize: 11,
-                color: files.isEmpty ? _kDanger : const Color(0xFF64748B),
-                fontWeight: files.isEmpty ? FontWeight.w700 : FontWeight.normal,
+                color: files.isEmpty && existingFiles.isEmpty
+                    ? _kDanger
+                    : const Color(0xFF64748B),
+                fontWeight: files.isEmpty && existingFiles.isEmpty
+                    ? FontWeight.w700
+                    : FontWeight.normal,
               ),
             ),
             const SizedBox(height: 8),
@@ -9159,6 +9398,30 @@ class _ActaGeneralCard extends StatelessWidget {
                   ),
               ],
             ),
+            if (existingFiles.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final file in existingFiles)
+                    ActionChip(
+                      avatar: const Icon(
+                        Icons.picture_as_pdf_rounded,
+                        size: 17,
+                        color: _kAccent,
+                      ),
+                      label: Text(
+                        file.nombre.trim().isEmpty
+                            ? 'Acta actual'
+                            : file.nombre,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onPressed: () => onOpenExisting(file),
+                    ),
+                ],
+              ),
+            ],
             if (files.isNotEmpty) ...[
               const SizedBox(height: 8),
               SizedBox(

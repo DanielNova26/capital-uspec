@@ -2,6 +2,30 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo/core/task_permissions.dart';
 
 void main() {
+  group('isTaskAssignedToUser', () {
+    test('solo reconoce al responsable, no al creador ni al aprobador', () {
+      final task = {
+        'asignado_uid': 'responsable-1',
+        'creador_id': 'creador-1',
+        'aprobador_uid': 'aprobador-1',
+      };
+
+      expect(isTaskAssignedToUser(task, ['responsable-1']), isTrue);
+      expect(isTaskAssignedToUser(task, ['creador-1']), isFalse);
+      expect(isTaskAssignedToUser(task, ['aprobador-1']), isFalse);
+    });
+
+    test('admite assignedTo y los alias conocidos del usuario', () {
+      expect(
+        isTaskAssignedToUser(
+          {'assignedTo': 'cedula-1'},
+          ['doc-1', 'cedula-1', 'uid-1'],
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('canCreateTasksAcrossAreas', () {
     test('permite al desarrollador ver todas las áreas', () {
       expect(canCreateTasksAcrossAreas({'role': 'desarrollador'}), isTrue);

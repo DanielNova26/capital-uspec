@@ -95,32 +95,61 @@ exports.ppWhatsAppCambioFirma = functions
     const nombre = text(after.nombrePlanillaDetectado || after.nombreArchivoOriginal) ||
         `Planilla ${context.params.planillaId}`;
     if (current === "en_revision_auditoria") {
-        await once(`pp_tesoreria_${context.params.planillaId}_${current}`, async () => {
+        // Clave por evento y no por estado: una planilla observada vuelve a
+        // `en_revision_auditoria` al corregirse, y con la clave por estado ese
+        // segundo paso no avisaba a Auditoría. `eventId` es único por cambio y
+        // estable en los reintentos, que es lo que la idempotencia necesita.
+        await once(`pp_tesoreria_${context.params.planillaId}_${context.eventId}`, async () => {
             await (0, whatsapp_1.sendWhatsAppRoute)({
                 empresaId,
                 routeId: "planillas_tesoreria_auditoria",
                 mensaje: `💳 *Planilla firmada por Tesorería*\n📄 ${nombre}\n🔎 Está disponible para revisión de Auditoría.`,
-                metadata: { type: "planillas_tesoreria_auditoria", planillaId: context.params.planillaId },
+                metadata: {
+                    type: "planillas_tesoreria_auditoria",
+                    templateKey: "planilla_pago_actualizacion",
+                    planillaId: context.params.planillaId,
+                    templateVariables: {
+                        planilla: nombre,
+                        estado: "Firmada por Tesorería",
+                        accion: "Revisión de Auditoría",
+                    },
+                },
             });
         });
     }
     if (current === "aprobada_auditoria") {
-        await once(`pp_auditoria_${context.params.planillaId}_${current}`, async () => {
+        await once(`pp_auditoria_${context.params.planillaId}_${context.eventId}`, async () => {
             await (0, whatsapp_1.sendWhatsAppRoute)({
                 empresaId,
                 routeId: "planillas_auditoria_gerencia",
                 mensaje: `✅ *Planilla firmada por Auditoría*\n📄 ${nombre}\n✍️ Está disponible para el proceso de Gerencia.`,
-                metadata: { type: "planillas_auditoria_gerencia", planillaId: context.params.planillaId },
+                metadata: {
+                    type: "planillas_auditoria_gerencia",
+                    templateKey: "planilla_pago_actualizacion",
+                    planillaId: context.params.planillaId,
+                    templateVariables: {
+                        planilla: nombre,
+                        estado: "Firmada por Auditoría",
+                        accion: "Proceso de Gerencia",
+                    },
+                },
             });
         });
     }
 });
+// `onWrite` y no `onUpdate`: el acta se crea en UNA sola escritura con sus
+// imágenes ya adentro (`guardarVisita` hace un `set` completo), así que con
+// `onUpdate` la creación nunca se veía y el aviso de "nueva acta" no salía
+// nunca. Se comprobó el 11 sep 2026: la función se ejecutaba solo en los
+// guardados de revisión y terminaba en 6 ms sin enviar nada.
 exports.interventoriaWhatsAppNuevaActa = functions
     .region(REGION)
     .firestore.document("TBL_INTERVENTORIA_VISITAS/{visitaId}")
-    .onUpdate(async (change, context) => {
-    const before = change.before.data();
-    const after = change.after.data();
+    .onWrite(async (change, context) => {
+    if (!change.after.exists)
+        return;
+    const before = change.before.exists ? change.before.data() ?? {} : {};
+    const after = change.after.data() ?? {};
     const previous = Array.isArray(before.imagenesActa) ? before.imagenesActa.length : 0;
     const current = Array.isArray(after.imagenesActa) ? after.imagenesActa.length : 0;
     if (current <= previous)
@@ -142,7 +171,15 @@ exports.interventoriaWhatsAppNuevaActa = functions
                 fecha ? `📅 Fecha de visita: ${fecha}` : "",
                 "🔎 Ingresa al módulo de Interventoría para revisarla.",
             ].filter(Boolean).join("\n"),
-            metadata: { type: "interventoria_nueva_acta", visitaId: context.params.visitaId },
+            metadata: {
+                type: "interventoria_nueva_acta",
+                templateKey: "interventoria_actividad",
+                visitaId: context.params.visitaId,
+                templateVariables: {
+                    centroCosto: centro || "No informado",
+                    fecha: fecha || "No informada",
+                },
+            },
         });
     });
 });

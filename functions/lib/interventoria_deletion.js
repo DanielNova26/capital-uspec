@@ -23,8 +23,9 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = void 0;
+exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = void 0;
 exports.canApproveInterventoriaDeletion = canApproveInterventoriaDeletion;
+exports.deletedActaResponsibleId = deletedActaResponsibleId;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const crypto_1 = require("crypto");
@@ -109,20 +110,34 @@ function entityLabel(type, data) {
     const number = clean(data.numeroHallazgo, 40);
     return number ? `Hallazgo ${number}` : "Hallazgo";
 }
-async function notifyUser(userId, empresaId, title, description, sourceEntityId) {
+function deletedActaResponsibleId(data) {
+    return clean(data.correccionResponsableId || data.creadoPor, 512);
+}
+async function notifyUser(userId, empresaId, title, description, sourceEntityId, type = "interventoria_delete_request", eventId = sourceEntityId) {
+    // La misma resolución puede reintentarse después de un timeout. Un ID
+    // determinístico evita que al responsable le aparezca el mismo aviso dos o
+    // más veces.
+    const notificationId = (0, crypto_1.createHash)("sha256")
+        .update(`${type}|${eventId}|${userId}`, "utf8")
+        .digest("hex");
     const ref = admin.firestore().collection(NOTIFICATIONS)
-        .doc(userId).collection("notifications").doc();
+        .doc(userId).collection("notifications").doc(notificationId);
     await ref.set({
         title,
         description,
-        type: "interventoria_delete_request",
+        type,
         module: "interventoria",
         sourceType: "interventoria_delete_request",
         sourceEntityId,
         empresaId,
         read: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    }, { merge: true });
+}
+async function notifyActaReplacement(userId, empresaId, actorName, label, visitaId, reason, eventId) {
+    if (!userId)
+        return;
+    await notifyUser(userId, empresaId, "Acta eliminada: carga la nueva versión", `${actorName} eliminó ${label}. Debes registrar nuevamente el acta${reason ? `. Motivo: ${reason}` : "."}`, visitaId, "interventoria_acta_eliminada", eventId);
 }
 async function approverIds(empresaId) {
     const roles = await admin.firestore().collection(ROLES)
@@ -241,6 +256,10 @@ exports.interventoriaSolicitarEliminacion = functions
         solicitadoPorId: actor.id,
         solicitadoPorNombre: actor.name,
         solicitadoPorRol: actor.role,
+        ...(type === "visita" ? {
+            responsableReposicionId: deletedActaResponsibleId(entityData) || actor.id,
+            responsableReposicionNombre: clean(entityData.correccionResponsableNombre, 200),
+        } : {}),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -268,9 +287,12 @@ exports.interventoriaResolverEliminacion = functions
         clean(requestData.estado) !== "pendiente") {
         throw new functions.https.HttpsError("failed-precondition", "La solicitud no existe o ya fue resuelta.");
     }
-    if (clean(requestData.solicitadoPorId) === actor.id) {
-        throw new functions.https.HttpsError("permission-denied", "Quien solicita no puede aprobar su propia eliminación.");
-    }
+    // Antes: "quien solicita no puede aprobar su propia eliminación". Tenía
+    // sentido cuando ningún rol podía borrar directo. Desde el 10 sep 2026
+    // admin, gerente y revisor eliminan sin pedir permiso, así que bloquear la
+    // propia solicitud solo dejaba atascadas las que se pidieron antes de ese
+    // cambio: Gerencia veía su solicitud del 05/09 y nadie más la resolvía.
+    // Quien puede borrar directo puede cerrar lo que él mismo pidió.
     const type = clean(requestData.tipo);
     const entityId = clean(requestData.entidadId, 512);
     const entityRef = admin.firestore().collection(collectionFor(type)).doc(entityId);
@@ -286,6 +308,22 @@ exports.interventoriaResolverEliminacion = functions
             await deleteHallazgo(entityRef, entity.data() || {});
         }
     }
+    const requesterId = clean(requestData.solicitadoPorId, 512);
+    const replacementResponsibleId = clean(requestData.responsableReposicionId ||
+        (entity.exists ? deletedActaResponsibleId(entity.data() || {}) : ""), 512);
+    if (approve && type === "visita" && replacementResponsibleId) {
+        await notifyActaReplacement(replacementResponsibleId, actor.empresaId, actor.name, clean(requestData.entidadNombre) || entityLabel(type, entity.data() || {}), entityId, clean(requestData.motivo, 1200), requestId);
+    }
+    if (requesterId) {
+        // Si quien solicitó es también quien debe reponer el acta, el aviso
+        // accionable anterior reemplaza al mensaje genérico de aprobación.
+        if (!(approve && type === "visita" &&
+            requesterId === replacementResponsibleId)) {
+            await notifyUser(requesterId, actor.empresaId, approve ? "Eliminación aprobada" : "Eliminación rechazada", `${actor.name} ${approve ? "aprobó" : "rechazó"} la solicitud para ${clean(requestData.entidadNombre)}${comment ? `. ${comment}` : ""}`, requestId);
+        }
+    }
+    // Se cierra al final: si una notificación falla, el reintento todavía
+    // puede completar el aviso sin duplicarlo.
     await requestRef.update({
         estado: approve ? "aprobada" : "rechazada",
         resueltoPorId: actor.id,
@@ -295,9 +333,38 @@ exports.interventoriaResolverEliminacion = functions
         resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    const requesterId = clean(requestData.solicitadoPorId, 512);
-    if (requesterId) {
-        await notifyUser(requesterId, actor.empresaId, approve ? "Eliminación aprobada" : "Eliminación rechazada", `${actor.name} ${approve ? "aprobó" : "rechazó"} la solicitud para ${clean(requestData.entidadNombre)}${comment ? `. ${comment}` : ""}`, requestId);
-    }
     return { ok: true, estado: approve ? "aprobada" : "rechazada" };
+});
+/** Eliminación directa del acta por un rol aprobador, sin solicitud previa. */
+exports.interventoriaEliminarActa = functions
+    .region(REGION)
+    .runWith({ memory: "512MB", timeoutSeconds: 300 })
+    .https.onCall(async (raw, context) => {
+    const input = (raw ?? {});
+    const actor = await requireActor(input, context);
+    if (!canApproveInterventoriaDeletion(actor.role)) {
+        throw new functions.https.HttpsError("permission-denied", "Tu rol no puede eliminar actas.");
+    }
+    const visitaId = clean(input.visitaId, 512);
+    const reason = clean(input.motivo, 1200);
+    if (!visitaId) {
+        throw new functions.https.HttpsError("invalid-argument", "Indica el acta que deseas eliminar.");
+    }
+    const visitaRef = admin.firestore()
+        .collection(collectionFor("visita")).doc(visitaId);
+    const visita = await visitaRef.get();
+    const visitaData = visita.data() || {};
+    if (!visita.exists || clean(visitaData.empresaId) !== actor.empresaId) {
+        throw new functions.https.HttpsError("not-found", "El acta ya no existe.");
+    }
+    const label = entityLabel("visita", visitaData);
+    const responsibleId = deletedActaResponsibleId(visitaData) || actor.id;
+    // Versión del acta borrada: si se vuelve a cargar y se borra otra vez, el
+    // responsable recibe un aviso nuevo en vez de fundirse con el anterior.
+    const actaVersion = (0, crypto_1.createHash)("sha256")
+        .update(`${visitaId}|${clean(visitaData.actaOriginalUrl, 3000)}|${clean(visitaData.fechaRegistro, 100)}`, "utf8")
+        .digest("hex");
+    await deleteVisita(visitaRef, visitaData);
+    await notifyActaReplacement(responsibleId, actor.empresaId, actor.name, label, visitaId, reason, actaVersion);
+    return { ok: true, notifiedUserId: responsibleId };
 });

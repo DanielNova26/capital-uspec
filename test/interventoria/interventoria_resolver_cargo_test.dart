@@ -205,10 +205,8 @@ void main() {
       );
     });
 
-    test('vuelve al estado que ya existe, no a uno inventado', () {
-      // 'puntajes' es "pendiente de revisión": reaparece en Por revisar y es
-      // editable desde el histórico, que es justo lo que se pidió.
-      expect(kFaseActaDevuelta, 'puntajes');
+    test('queda separada de la bandeja de revisión hasta corregirse', () {
+      expect(kFaseActaDevuelta, 'devuelta');
     });
 
     test('el título nombra el establecimiento', () {

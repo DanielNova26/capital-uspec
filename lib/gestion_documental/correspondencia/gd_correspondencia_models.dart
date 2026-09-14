@@ -162,6 +162,28 @@ class GdExpediente {
   final DateTime? respuestaExternaRegistradaAt;
   final List<GdCorrespondenciaAdjunto> soportesRespuestaExterna;
 
+  /// Quién contestó, según cómo se contestó:
+  /// - `enviadoPor`: cédula de quien envió desde la app; `sistema_correo`
+  ///   cuando la respuesta se detectó en el buzón.
+  /// - `respondidoPorId`: responsable del expediente al momento de detectar la
+  ///   respuesta en el buzón (el buzón es de la empresa, no de una persona).
+  /// - `respuestaExternaRegistradaPor`: quien marcó "Ya contesté".
+  /// - `respuestaRemitente`: lo que dice el buzón (`Nombre <correo>`); solo
+  ///   trae a la persona si envió "en nombre de" la cuenta compartida.
+  final String enviadoPor;
+  final String respondidoPorId;
+  final String respondidoPorNombre;
+
+  /// `responsable` (estaba asignado) o `firma` (se reconoció el nombre en la
+  /// firma del correo). Vacío cuando no se pudo atribuir.
+  final String respondidoPorOrigen;
+  final String respuestaExternaRegistradaPor;
+  final String respuestaRemitente;
+
+  /// Nombres de los archivos que iban en la respuesta detectada en el buzón.
+  /// No se descargan: el archivo vive en el correo enviado.
+  final List<String> respuestaAdjuntosNombres;
+
   const GdExpediente({
     required this.id,
     required this.empresaId,
@@ -214,6 +236,13 @@ class GdExpediente {
     this.respuestaExternaRegistrada = false,
     this.respuestaExternaRegistradaAt,
     this.soportesRespuestaExterna = const [],
+    this.enviadoPor = '',
+    this.respondidoPorId = '',
+    this.respondidoPorNombre = '',
+    this.respondidoPorOrigen = '',
+    this.respuestaExternaRegistradaPor = '',
+    this.respuestaRemitente = '',
+    this.respuestaAdjuntosNombres = const [],
   });
 
   factory GdExpediente.fromFirestore(
@@ -290,6 +319,21 @@ class GdExpediente {
       soportesRespuestaExterna: _gdMapList(
         data['soportesRespuestaExterna'],
       ).map(GdCorrespondenciaAdjunto.fromMap).toList(),
+      enviadoPor: (data['enviadoPor'] ?? '').toString(),
+      respondidoPorId: (data['respondidoPorId'] ?? '').toString(),
+      respondidoPorNombre: (data['respondidoPorNombre'] ?? '').toString(),
+      respondidoPorOrigen: (data['respondidoPorOrigen'] ?? '').toString(),
+      respuestaExternaRegistradaPor:
+          (data['respuestaExternaRegistradaPor'] ?? '').toString(),
+      respuestaRemitente: gdTextoCorreoLegible(
+        (data['respuestaRemitente'] ?? '').toString(),
+      ),
+      respuestaAdjuntosNombres: (data['respuestaAdjuntosNombres'] is List)
+          ? (data['respuestaAdjuntosNombres'] as List)
+                .map((e) => e.toString())
+                .where((e) => e.trim().isNotEmpty)
+                .toList()
+          : const [],
     );
   }
 
@@ -368,6 +412,36 @@ class GdExpediente {
       (!requiereAprobacion || aprobacionEstado == 'aprobada');
 
   bool get envioDetectadoEnBuzon => envioOrigen == 'buzon_externo';
+
+  /// Cédula de la persona a la que se le atribuye la respuesta, o vacío si
+  /// solo se sabe que salió del buzón. Sirve para `UserAvatar`/`UserNameText`.
+  String get respondidoPorUsuarioId {
+    if (!respondido) return '';
+    if (respuestaExternaRegistrada) {
+      return respuestaExternaRegistradaPor.trim();
+    }
+    final app = enviadoPor.trim();
+    if (app.isNotEmpty && app != 'sistema_correo') return app;
+    return respondidoPorId.trim();
+  }
+
+  /// Texto de respaldo cuando no hay una persona de la app a quien atribuir
+  /// la respuesta: el remitente que reporta el buzón, o el buzón mismo.
+  String get respondidoPorTexto {
+    if (respondidoPorNombre.trim().isNotEmpty) return respondidoPorNombre;
+    final remitente = respuestaRemitente.trim();
+    if (remitente.isNotEmpty) return remitente;
+    final buzon = enviadoDesde.trim();
+    return buzon.isEmpty ? '' : 'Buzón $buzon';
+  }
+
+  /// La atribución salió de la firma del correo, no de una acción en la app.
+  bool get respondidoPorFirma =>
+      envioDetectadoEnBuzon && respondidoPorOrigen == 'firma';
+
+  /// Fecha en que se contestó, venga de donde venga la respuesta.
+  DateTime? get fechaRespuesta =>
+      enviadoAt ?? respuestaExternaRegistradaAt ?? ultimoCorreoSalienteAt;
 }
 
 class GdExpedienteEvento {

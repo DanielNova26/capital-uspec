@@ -13,6 +13,7 @@ import 'gd_correspondencia_screen.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
 import '../../widgets/paged_list.dart';
+import '../../widgets/user_avatar.dart';
 
 const _navy = Color(0xFF17324D);
 const _teal = Color(0xFF157A8A);
@@ -52,6 +53,7 @@ class _GdControlDashboardScreenState extends State<GdControlDashboardScreen> {
     }
     return _expedientes!;
   }
+
   final _search = TextEditingController();
   String _query = '';
   String _filter = 'activos';
@@ -1284,7 +1286,7 @@ class _ProcessTable extends StatelessWidget {
           DataColumn(label: Text('RESPONSABLE')),
           DataColumn(label: Text('FECHA LÍMITE')),
           DataColumn(label: Text('ESTADO')),
-          DataColumn(label: Text('CANAL DE RESPUESTA')),
+          DataColumn(label: Text('RESPUESTA')),
           DataColumn(label: Text('ARCHIVOS')),
         ],
         rows: [
@@ -1374,16 +1376,7 @@ class _ProcessTable extends StatelessWidget {
                 ),
                 DataCell(Text(_formatDate(row.fechaLimite))),
                 DataCell(_DashboardStatus(row: row)),
-                DataCell(
-                  SizedBox(
-                    width: 165,
-                    child: Text(
-                      row.respondido ? _deliveryChannel(row) : 'Pendiente',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
+                DataCell(SizedBox(width: 190, child: _RespuestaCell(row: row))),
                 DataCell(
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1471,8 +1464,15 @@ class _MobileProcessCard extends StatelessWidget {
                   Icons.event_available_outlined,
                   gdEtiquetaFechaRecibido(row.fechaRecepcion),
                 ),
-                if (row.respondido)
-                  _TinyMeta(Icons.outgoing_mail, _deliveryChannel(row)),
+                if (row.respondido) ...[
+                  _TinyMeta(
+                    Icons.mark_email_read_outlined,
+                    _deliveryChannel(row),
+                  ),
+                  if (row.respondidoPorUsuarioId.isNotEmpty ||
+                      row.respondidoPorTexto.isNotEmpty)
+                    _RespondidoPor(row: row, fontSize: 11),
+                ],
               ],
             ),
           ],
@@ -1523,6 +1523,121 @@ class _FilterChoice extends StatelessWidget {
       fontWeight: FontWeight.w700,
     ),
   );
+}
+
+/// Columna "Respuesta" de la tabla: un "Contestado" que se vea de lejos, y
+/// debajo por dónde salió, cuándo y quién la contestó. "Pendiente" mientras
+/// ningún correo de salida haya aparecido en el hilo.
+class _RespuestaCell extends StatelessWidget {
+  final GdExpediente row;
+  const _RespuestaCell({required this.row});
+  @override
+  Widget build(BuildContext context) {
+    if (!row.respondido) {
+      return const Text(
+        'Pendiente',
+        style: TextStyle(color: Color(0xFF64748B)),
+      );
+    }
+    const green = Color(0xFF16A34A);
+    final fecha = row.fechaRespuesta;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: green.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                'Contestado',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: green,
+                ),
+              ),
+            ),
+            if (fecha != null) ...[
+              const SizedBox(width: 6),
+              Text(
+                DateFormat('dd/MM HH:mm').format(fecha.toLocal()),
+                style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          _deliveryChannel(row),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+        ),
+        if (row.respondidoPorUsuarioId.isNotEmpty ||
+            row.respondidoPorTexto.isNotEmpty)
+          _RespondidoPor(row: row, fontSize: 10),
+      ],
+    );
+  }
+}
+
+/// Quién contestó: persona de la app con nombre y foto cuando se le puede
+/// atribuir; si solo se sabe lo que dice el buzón, ese texto.
+class _RespondidoPor extends StatelessWidget {
+  final GdExpediente row;
+  final double fontSize;
+  const _RespondidoPor({required this.row, required this.fontSize});
+  @override
+  Widget build(BuildContext context) {
+    final userId = row.respondidoPorUsuarioId;
+    final style = TextStyle(
+      fontSize: fontSize,
+      color: const Color(0xFF334155),
+      fontWeight: FontWeight.w600,
+    );
+    if (userId.isEmpty) {
+      return Text(
+        'Por ${row.respondidoPorTexto}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: style,
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        UserAvatar(
+          userId: userId,
+          nameHint: row.respondidoPorNombre,
+          radius: fontSize * .7,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: UserNameText(
+            userId,
+            fallbackName: row.respondidoPorNombre,
+            prefix: 'Por ',
+            style: style,
+          ),
+        ),
+        if (row.respondidoPorFirma)
+          Tooltip(
+            message: 'Reconocido por la firma del correo',
+            child: Icon(
+              Icons.draw_outlined,
+              size: fontSize + 2,
+              color: const Color(0xFF94A3B8),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
 class _DashboardStatus extends StatelessWidget {
@@ -1732,13 +1847,12 @@ String _formatDateTime(DateTime? value) => value == null
 
 String _deliveryChannel(GdExpediente row) {
   if (row.respuestaExternaRegistrada)
-    return 'Contestada fuera de la app · con soporte';
-  final provider =
+    return 'Marcada "Ya contesté" · con soporte';
+  final microsoft =
       (row.envioCanal.isEmpty ? row.proveedor : row.envioCanal).toLowerCase() ==
-          'microsoft'
-      ? 'Microsoft 365'
-      : 'Gmail';
+      'microsoft';
+  final provider = microsoft ? 'Outlook' : 'Gmail';
   return row.envioDetectadoEnBuzon
-      ? '$provider · fuera de la app'
-      : '$provider · aplicativo';
+      ? 'Desde $provider (detectada en el buzón)'
+      : 'Desde la app por ${microsoft ? 'Microsoft 365' : 'Gmail'}';
 }

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   canApproveInterventoriaDeletion,
+  deletedActaResponsibleId,
 } = require('../lib/interventoria_deletion.js');
 
 test('solo roles autorizados aprueban eliminaciones de Interventoría', () => {
@@ -22,4 +23,18 @@ test('el registrador no aprueba eliminaciones de Interventoría', () => {
     false,
   );
   assert.equal(canApproveInterventoriaDeletion(''), false);
+});
+
+test('el aviso de reposición llega al responsable de corrección o al creador', () => {
+  assert.equal(
+    deletedActaResponsibleId({
+      correccionResponsableId: 'responsable-correccion',
+      creadoPor: 'creador-original',
+    }),
+    'responsable-correccion',
+  );
+  assert.equal(
+    deletedActaResponsibleId({creadoPor: 'creador-original'}),
+    'creador-original',
+  );
 });

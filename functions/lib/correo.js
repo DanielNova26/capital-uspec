@@ -23,13 +23,17 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.gdRevisarRespuesta = exports.correoPrepararExpediente = exports.gdTerminarExpediente = exports.gdRegistrarRespuestaExterna = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = void 0;
+exports.correoEstadoIntegracion = exports.correoMiRol = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.gdRevisarRespuesta = exports.correoPrepararExpediente = exports.gdTerminarExpediente = exports.gdRegistrarRespuestaExterna = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = void 0;
 exports.readableEmailBody = readableEmailBody;
 exports.documentTypeCode = documentTypeCode;
+exports.validOptionalDocumentTypeCode = validOptionalDocumentTypeCode;
 exports.bogotaDayStamp = bogotaDayStamp;
+exports.isDeveloper = isDeveloper;
 exports.normalizeRole = normalizeRole;
 exports.roleAllows = roleAllows;
 exports.ruleMatches = ruleMatches;
+exports.signaturePattern = signaturePattern;
+exports.ownReplyText = ownReplyText;
 exports.classifyCorreoAccountError = classifyCorreoAccountError;
 exports.enviarWhatsAppAListado = enviarWhatsAppAListado;
 /**
@@ -70,6 +74,9 @@ const MAX_MESSAGES_PER_RUN = 200;
 const GMAIL_SCAN_OVERLAP_MS = 10 * 60 * 1000;
 const STALE_ALERT_MS = 10 * 60 * 1000;
 const MAX_STALE_ALERTS_PER_RUN = 200;
+// Máximo de respuestas detectadas antes de este cambio que se completan
+// (texto, remitente, adjuntos) en cada corrida del cron.
+const MAX_RESPONSE_BACKFILL_PER_RUN = 5;
 function db() {
     return admin.firestore();
 }
@@ -203,6 +210,19 @@ function documentTypeCode(value) {
         .slice(0, 3);
 }
 /**
+ * El maestro de tipos documentales se incorporó después de que ya existían
+ * expedientes y empresas operando. Por eso el código es obligatorio cuando
+ * viene informado, pero su ausencia sigue siendo válida para el flujo legacy:
+ * se clasifica y asigna el expediente sin inventar un código interno.
+ *
+ * @param {unknown} value Código crudo enviado por el cliente.
+ * @return {boolean} true cuando está vacío o normaliza a tres caracteres.
+ */
+function validOptionalDocumentTypeCode(value) {
+    const raw = text(value);
+    return raw.length === 0 || documentTypeCode(raw).length === 3;
+}
+/**
  * `ddMMyy` en hora de Bogotá. Con la fecha en UTC, todo lo clasificado después
  * de las 7 p.m. caería en el día siguiente y el consecutivo del día no
  * coincidiría con lo que ve quien clasifica.
@@ -225,16 +245,63 @@ function bogotaDayStamp(date) {
 function sha256(value) {
     return (0, crypto_1.createHash)("sha256").update(value).digest("hex");
 }
-function isDeveloper(user) {
+/**
+ * Rol que el usuario tiene DENTRO de una empresa concreta.
+ *
+ * Sin esto solo se miraba la raiz del documento (`role`, `rol`,
+ * `tipoUsuario`), y en una aplicacion multiempresa el rol vive en
+ * `empresasDetalle[empresaId]`: la raiz puede estar vacia o traer el de otra
+ * empresa. Es el mismo criterio que `resolveScopedRoleKey` en el cliente.
+ *
+ * @param {admin.firestore.DocumentData} user Documento del usuario.
+ * @param {string} empresaId Empresa activa.
+ * @return {string} Rol normalizado, o cadena vacia.
+ */
+function scopedRoleKey(user, empresaId) {
+    const detail = user.empresasDetalle && typeof user.empresasDetalle === "object"
+        ? user.empresasDetalle[empresaId]
+        : null;
+    const key = normalizeText(detail?.roleKey || detail?.role_key);
+    if (key)
+        return key;
+    const roleId = text(detail?.roleId || user.roleId);
+    if (roleId) {
+        const prefix = `${empresaId}_`;
+        return normalizeText(roleId.startsWith(prefix) ? roleId.slice(prefix.length) : roleId);
+    }
+    return normalizeText(user.role || user.rol || user.tipoUsuario);
+}
+/**
+ * Reconoce al desarrollador, con o sin empresa activa.
+ *
+ * Antes solo miraba una bandera booleana y los campos de la raiz. El
+ * desarrollador de esta aplicacion tambien puede venir marcado por el rol de la
+ * empresa o por un `roleId` terminado en `_desarrollador`, que es como los crea
+ * el sembrado; con la comprobacion vieja, quien administra el modulo caia al
+ * rol por defecto y el servidor le rechazaba clasificar.
+ *
+ * @param {admin.firestore.DocumentData} user Documento del usuario.
+ * @param {string} empresaId Empresa activa, si se conoce.
+ * @return {boolean} true si es desarrollador.
+ */
+function isDeveloper(user, empresaId = "") {
     if (user.desarrollador === true || user.developer === true)
         return true;
     const roles = [user.role, user.rol, user.tipoUsuario]
         .map(normalizeText)
         .filter(Boolean);
+    if (empresaId)
+        roles.push(scopedRoleKey(user, empresaId));
+    const roleId = normalizeText(user.roleId);
+    if (roleId.endsWith("_desarrollador") || roleId.endsWith("_developer")) {
+        return true;
+    }
     return roles.some((role) => ["desarrollador", "developer", "superadmin", "administrador_sistema"].includes(role));
 }
 function userBelongsToEmpresa(user, empresaId) {
-    if (isDeveloper(user))
+    // Con la empresa, para que al desarrollador se le reconozca tambien cuando
+    // su marca vive dentro de esa empresa y no en la raiz.
+    if (isDeveloper(user, empresaId))
         return true;
     if (textList(user.empresas).includes(empresaId))
         return true;
@@ -291,30 +358,50 @@ async function findUserByIdentity(identity) {
     return byCedula.empty ? null : byCedula.docs[0];
 }
 async function resolveCorreoRole(userId, user, empresaId) {
-    if (isDeveloper(user))
+    if (isDeveloper(user, empresaId))
         return "administrador";
     const scoped = user.empresasDetalle && typeof user.empresasDetalle === "object"
         ? user.empresasDetalle[empresaId]
         : null;
-    const fromUser = normalizeRole(scoped?.rolCorreo || user.rolCorreo);
-    if (fromUser)
-        return fromUser;
+    // Manda `TBL_CORREO_ROLES` sobre `rolCorreo` del usuario.
+    //
+    // El backend lo tenia al reves que el cliente, y el comentario del cliente
+    // decia ser "un espejo del control que hace el backend". No lo era: a quien
+    // tuviera los dos puestos con valores distintos, la pantalla y el servidor le
+    // daban permisos distintos, asi que se le enseñaba u ocultaba lo que no
+    // correspondia.
+    //
+    // Manda la coleccion porque es lo que escribe la pantalla de roles del
+    // modulo: es la asignacion explicita y la mas reciente. `rolCorreo` en el
+    // usuario es el camino viejo, de cuando el rol se ponia a mano.
     const byId = await db()
         .collection("TBL_CORREO_ROLES")
         .doc(`${safeId(empresaId)}_${safeId(userId)}`)
         .get();
-    if (byId.exists)
-        return normalizeRole(byId.get("rol"));
+    const fromDoc = byId.exists ? normalizeRole(byId.get("rol")) : null;
+    if (fromDoc)
+        return fromDoc;
     const byFields = await db()
         .collection("TBL_CORREO_ROLES")
         .where("empresaId", "==", empresaId)
         .where("usuarioId", "==", userId)
         .limit(1)
         .get();
-    if (!byFields.empty)
-        return normalizeRole(byFields.docs[0].get("rol"));
+    const fromFields = byFields.empty
+        ? null
+        : normalizeRole(byFields.docs[0].get("rol"));
+    if (fromFields)
+        return fromFields;
+    // Un texto que no se reconoce NO corta aqui: se sigue buscando, igual que en
+    // el cliente. Antes un documento con el rol mal escrito devolvia null y
+    // denegaba todo, mientras la pantalla seguia mostrando el rol por defecto.
+    const fromUser = normalizeRole(scoped?.rolCorreo || user.rolCorreo);
+    if (fromUser)
+        return fromUser;
     // Permite la configuración inicial del módulo al administrador existente.
-    const global = normalizeText(user.role || user.rol);
+    // Se mira el rol DE LA EMPRESA y no solo el de la raíz, por lo mismo que
+    // explica `scopedRoleKey`.
+    const global = scopedRoleKey(user, empresaId);
     return ["administrador", "admin", "superadmin"].includes(global)
         ? "administrador"
         : null;
@@ -843,6 +930,15 @@ async function getGmailOutboundMessage(accessToken, messageId) {
         asunto: text(headers.subject) || "(Sin asunto)",
         fecha: Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
         internetMessageId: text(headers["message-id"]),
+        remitente: text(headers.from),
+    };
+}
+async function getGmailOutboundBody(accessToken, messageId) {
+    const raw = await gmailRequest(accessToken, `/messages/${encodeURIComponent(messageId)}`, { format: "full" });
+    return {
+        cuerpo: readableEmailBody(extractBody(raw.payload)),
+        adjuntos: collectAttachments(raw.payload).map((item) => item.filename),
+        remitente: text(headersFromPayload(raw.payload).from),
     };
 }
 async function listGmailOutboundMessages(accessToken, since) {
@@ -876,7 +972,179 @@ function parseMicrosoftOutboundMessage(raw) {
         asunto: text(raw?.subject) || "(Sin asunto)",
         fecha: Number.isNaN(sent.getTime()) ? new Date() : sent,
         internetMessageId: text(raw?.internetMessageId),
+        // `sender` es quien realmente pulsó Enviar cuando se envía "en nombre de";
+        // `from` es el buzón. Se prefiere la persona.
+        remitente: microsoftSender({ from: raw?.sender }) || microsoftSender(raw),
     };
+}
+async function getMicrosoftOutboundBody(accessToken, messageId) {
+    const raw = await graphRequest(accessToken, `/me/messages/${encodeURIComponent(messageId)}`, { "$select": "body,hasAttachments,from,sender" });
+    const attachments = raw?.hasAttachments
+        ? await graphRequest(accessToken, `/me/messages/${encodeURIComponent(messageId)}/attachments`, { "$select": "name,isInline" })
+        : { value: [] };
+    return {
+        cuerpo: readableEmailBody(raw?.body?.content),
+        adjuntos: (attachments.value ?? [])
+            .filter((item) => item?.isInline !== true)
+            .map((item) => text(item?.name))
+            .filter(Boolean),
+        remitente: microsoftSender({ from: raw?.sender }) || microsoftSender(raw),
+    };
+}
+async function getOutboundBody(account, accessToken, providerMessageId) {
+    try {
+        return account.proveedor === "microsoft"
+            ? await getMicrosoftOutboundBody(accessToken, providerMessageId)
+            : await getGmailOutboundBody(accessToken, providerMessageId);
+    }
+    catch (error) {
+        // El cuerpo es informativo: si no se puede leer, la respuesta igual queda
+        // trazada como contestada.
+        functions.logger.warn("correo.outbound.body", {
+            cuentaId: account.id,
+            messageId: providerMessageId,
+            error: `${error}`,
+        });
+        return { cuerpo: "", adjuntos: [], remitente: "" };
+    }
+}
+const signatureCandidatesCache = new Map();
+function signaturePattern(words) {
+    const clean = words.map(normalizeText).filter((w) => w.length > 1);
+    if (clean.length < 2)
+        return null;
+    const escaped = clean.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    // Entre palabra y palabra caben hasta dos más: "María [Fernanda] Gómez".
+    const gap = "\\s+(?:\\S+\\s+){0,2}";
+    return new RegExp(`(^|[^a-z0-9])${escaped.join(gap)}([^a-z0-9]|$)`);
+}
+// Personal de la empresa con los patrones de nombre que pueden aparecer en
+// una firma: el nombre completo y "primer nombre + primer apellido".
+async function signatureCandidates(empresaId) {
+    const cached = signatureCandidatesCache.get(empresaId);
+    if (cached && Date.now() - cached.at < 5 * 60 * 1000)
+        return cached.users;
+    const users = db().collection("TBL_USUARIOS");
+    const [byArray, byField] = await Promise.all([
+        users.where("empresas", "array-contains", empresaId).get(),
+        users.where("empresaId", "==", empresaId).get(),
+    ]);
+    const seen = new Map();
+    for (const doc of [...byArray.docs, ...byField.docs]) {
+        if (seen.has(doc.id))
+            continue;
+        const data = doc.data();
+        const full = text(data.nombre ||
+            data.nombreCompleto ||
+            `${text(data.nombres || data.primerNombre)} ${text(data.apellidos || data.primerApellido)}`);
+        const nombres = text(data.nombres || data.primerNombre).split(/\s+/);
+        const apellidos = text(data.apellidos || data.primerApellido).split(/\s+/);
+        const patrones = [
+            signaturePattern(full.split(/\s+/)),
+            signaturePattern([nombres[0], apellidos[0]]),
+        ].filter((p) => p !== null);
+        if (!full || patrones.length === 0)
+            continue;
+        seen.set(doc.id, { id: doc.id, nombre: full, patrones });
+    }
+    const list = [...seen.values()];
+    signatureCandidatesCache.set(empresaId, { at: Date.now(), users: list });
+    return list;
+}
+// Parte del correo que escribió quien contesta: se corta en la primera marca
+// de texto citado (De:, From:, "El ... escribió:", etc.).
+function ownReplyText(cuerpo) {
+    const lines = cuerpo.replace(/\r/g, "").split("\n");
+    const own = [];
+    for (const line of lines) {
+        const t = line.trim();
+        if (/^(de|from|enviado|sent|para|to)\s*:/i.test(t) ||
+            /^-{3,}\s*(mensaje original|original message|forwarded)/i.test(t) ||
+            /^(el|on)\s.+(escribi[oó]|wrote)\s*:?$/i.test(t) ||
+            t.startsWith(">")) {
+            break;
+        }
+        own.push(t);
+    }
+    return normalizeText(own.join("\n")).replace(/\s+/g, " ");
+}
+// Quién firmó la respuesta. Solo se atribuye cuando coincide exactamente una
+// persona de la empresa; con dudas se deja vacío antes que inventar.
+async function matchSignature(empresaId, cuerpo) {
+    const own = ownReplyText(cuerpo);
+    if (!own || !empresaId)
+        return null;
+    const candidates = await signatureCandidates(empresaId);
+    const byFull = candidates.filter((c) => c.patrones[0]?.test(own));
+    if (byFull.length === 1)
+        return { id: byFull[0].id, nombre: byFull[0].nombre };
+    if (byFull.length > 1)
+        return null;
+    const byShort = candidates.filter((c) => c.patrones.some((p) => p.test(own)));
+    return byShort.length === 1
+        ? { id: byShort[0].id, nombre: byShort[0].nombre }
+        : null;
+}
+// Campos con los que se describe una respuesta detectada en el buzón:
+// quién la contestó, qué decía y qué adjuntos llevaba.
+async function detectedResponseDetail(expediente, body, fallback) {
+    const remitente = body.remitente || fallback.remitente;
+    // El buzón es de la empresa y la respuesta sale del mismo buzón en que
+    // entró: el remitente no dice quién fue. La persona sale del responsable
+    // asignado; si no hay, de la firma del correo.
+    let respondidoPorId = text(expediente.responsableId);
+    let respondidoPorNombre = text(expediente.responsableNombre);
+    let respondidoPorOrigen = respondidoPorId ? "responsable" : "";
+    if (!respondidoPorId && body.cuerpo) {
+        const firmante = await matchSignature(text(expediente.empresaId), body.cuerpo);
+        if (firmante) {
+            respondidoPorId = firmante.id;
+            respondidoPorNombre = firmante.nombre;
+            respondidoPorOrigen = "firma";
+        }
+    }
+    return {
+        respuestaRemitente: remitente,
+        respondidoPorId,
+        respondidoPorNombre,
+        respondidoPorOrigen,
+        respuestaAdjuntosNombres: body.adjuntos,
+        respuestaDetalleAt: admin.firestore.FieldValue.serverTimestamp(),
+        ...(text(expediente.respuestaAsunto)
+            ? {}
+            : { respuestaAsunto: fallback.asunto }),
+        ...(text(expediente.respuestaCuerpo) || !body.cuerpo
+            ? {}
+            : { respuestaCuerpo: body.cuerpo }),
+    };
+}
+// Respuestas que el cron detectó antes de que se guardara el detalle: se
+// completan de a pocas por corrida hasta que no quede ninguna sin
+// `respuestaDetalleAt`.
+async function backfillDetectedResponses(account, accessToken) {
+    const snap = await db()
+        .collection("TBL_GD_EXPEDIENTES")
+        .where("cuentaId", "==", account.id)
+        .where("envioOrigen", "==", "buzon_externo")
+        .limit(60)
+        .get();
+    const pending = snap.docs
+        .filter((doc) => text(doc.get("empresaId")) === account.empresaId &&
+        !doc.get("respuestaDetalleAt") &&
+        text(doc.get("providerSentMessageId")))
+        .slice(0, MAX_RESPONSE_BACKFILL_PER_RUN);
+    for (const doc of pending) {
+        const data = doc.data();
+        const body = await getOutboundBody(account, accessToken, text(data.providerSentMessageId));
+        await doc.ref.set({
+            ...(await detectedResponseDetail(data, body, {
+                remitente: "",
+                asunto: text(data.respuestaAsunto),
+            })),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+    }
+    return pending.length;
 }
 async function listMicrosoftOutboundMessages(accessToken, since) {
     const overlap = new Date(since.toMillis() - GMAIL_SCAN_OVERLAP_MS);
@@ -888,6 +1156,8 @@ async function listMicrosoftOutboundMessages(accessToken, since) {
             "subject",
             "sentDateTime",
             "internetMessageId",
+            "from",
+            "sender",
         ].join(","),
         "$filter": `sentDateTime ge ${overlap.toISOString()}`,
         "$orderby": "sentDateTime desc",
@@ -1111,7 +1381,10 @@ async function sendRuleAlerts(input) {
                 mensaje: messageText,
                 fechaCorreo: admin.firestore.Timestamp.fromDate(input.message.fecha),
                 templateKey: "correo_alerta",
-                templateVariables: messageTemplateVariables,
+                templateVariables: {
+                    ...messageTemplateVariables,
+                    destinatario: recipient.nombre || "Usuario",
+                },
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -1158,7 +1431,10 @@ async function sendRuleAlerts(input) {
                     reglaId: input.rule.id,
                     categoria: input.rule.categoria,
                     templateKey: "correo_alerta",
-                    templateVariables: messageTemplateVariables,
+                    templateVariables: {
+                        ...messageTemplateVariables,
+                        destinatario: recipient.nombre || "Usuario",
+                    },
                 },
             });
             await alertRef.update({
@@ -1519,7 +1795,7 @@ async function claimOutboundMessage(account, message) {
     });
     return claimed ? ref : null;
 }
-async function syncOutboundCorrespondence(account, message) {
+async function syncOutboundCorrespondence(account, accessToken, message) {
     const messageRef = await claimOutboundMessage(account, message);
     if (!messageRef)
         return "duplicate";
@@ -1559,6 +1835,7 @@ async function syncOutboundCorrespondence(account, message) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (!wasResponded) {
+        const body = await getOutboundBody(account, accessToken, message.providerMessageId);
         Object.assign(expedienteUpdate, {
             providerSentMessageId: message.providerMessageId,
             providerSentThreadId: message.providerThreadId,
@@ -1582,6 +1859,10 @@ async function syncOutboundCorrespondence(account, message) {
             ...(text(expediente.get("respuestaDestinatario"))
                 ? {}
                 : { respuestaDestinatario: message.destinatarios }),
+            ...(await detectedResponseDetail(expediente.data(), body, {
+                remitente: message.remitente,
+                asunto: message.asunto,
+            })),
         });
     }
     else if (sameApplicationSend) {
@@ -1608,7 +1889,9 @@ async function syncOutboundCorrespondence(account, message) {
             userId: "sistema_correo",
             detail: wasResponded
                 ? `Se detectó un nuevo correo enviado desde ${providerName} (${account.email}) a ${message.destinatarios}.`
-                : `Respuesta enviada directamente desde ${providerName} (${account.email}) a ${message.destinatarios}; la respuesta quedó trazada sin cerrar el proceso.`,
+                : `Respuesta enviada directamente desde ${providerName} (${account.email}` +
+                    `${message.remitente ? `, remitente ${message.remitente}` : ""}) ` +
+                    `a ${message.destinatarios}; la respuesta quedó trazada sin cerrar el proceso.`,
         }));
     }
     await batch.commit();
@@ -1708,13 +1991,25 @@ async function processAccount(account) {
         pendingAlerts.push({ message, messageRef, rule: result.rule, palabrasClave: result.outcome.palabrasClave });
     }
     for (const message of outboundMessages) {
-        const result = await syncOutboundCorrespondence(account, message);
+        const result = await syncOutboundCorrespondence(account, accessToken, message);
         if (result === "linked")
             enviosVinculados += 1;
         if (result === "unlinked")
             enviosSinExpediente += 1;
         if (result === "duplicate")
             enviosDuplicados += 1;
+    }
+    let respuestasCompletadas = 0;
+    if (account.enviosBaselineCompletedAt) {
+        try {
+            respuestasCompletadas = await backfillDetectedResponses(account, accessToken);
+        }
+        catch (error) {
+            functions.logger.warn("correo.outbound.backfill", {
+                cuentaId: account.id,
+                error: `${error}`,
+            });
+        }
     }
     // Primero conciliar Enviados; después decidir si el aviso todavía aplica.
     for (const pending of pendingAlerts) {
@@ -1777,6 +2072,7 @@ async function processAccount(account) {
         enviosVinculados,
         enviosSinExpediente,
         enviosDuplicados,
+        respuestasCompletadas,
         scanned: messages.length,
         outboundScanned: outboundMessages.length,
     };
@@ -2394,8 +2690,9 @@ exports.gdAsignarExpediente = functions
     }
     const responsableNombre = text(data?.responsableNombre) || await userName(responsable.id);
     const creadorNombre = await userName(caller.userId);
-    const tipoCodigo = documentTypeCode(data?.tipoDocumentalCodigo);
-    if (tipoCodigo.length !== 3) {
+    const tipoCodigoRaw = text(data?.tipoDocumentalCodigo);
+    const tipoCodigo = documentTypeCode(tipoCodigoRaw);
+    if (!validOptionalDocumentTypeCode(tipoCodigoRaw)) {
         throw new functions.https.HttpsError("invalid-argument", "El tipo documental debe tener un código de exactamente 3 caracteres.");
     }
     const codigoExterno = text(data?.codigoExterno).slice(0, 80);
@@ -3503,6 +3800,43 @@ exports.correoProbarWhatsApp = functions
     };
 });
 /** Estado no sensible para la pantalla de configuración. */
+/**
+ * Rol de Correo del usuario que llama, resuelto por el servidor.
+ *
+ * La interfaz lo pedía leyendo Firestore bajo las reglas, y eso tenía dos
+ * formas de fallar sin que el usuario tuviera nada mal: un documento
+ * inexistente en TBL_CORREO_ROLES responde permission-denied (la regla mira
+ * `resource.data` y `resource` es nulo), y cualquier diferencia entre cómo
+ * lee la regla la pertenencia a la empresa y cómo la lee la app deja al
+ * usuario sin módulo. Aquí manda `resolveCorreoRole`, que es exactamente lo
+ * que el backend aplica en cada acción: si esto dice "administrador", las
+ * acciones de administrador van a pasar.
+ */
+exports.correoMiRol = functions
+    .region(REGION)
+    .https.onCall(async (data, context) => {
+    const empresaId = text(data?.empresaId);
+    const authUid = text(context.auth?.uid);
+    const appIdentity = text(data?.userId || data?.cedula);
+    if (!empresaId || !authUid) {
+        throw new functions.https.HttpsError("unauthenticated", "Se requiere una sesión autenticada y empresaId.");
+    }
+    let userSnap = await findUserByIdentity(authUid);
+    if (!userSnap?.exists && appIdentity) {
+        const candidate = await findUserByIdentity(appIdentity);
+        if (candidate?.exists)
+            userSnap = candidate;
+    }
+    if (!userSnap?.exists) {
+        throw new functions.https.HttpsError("unauthenticated", "Usuario no encontrado.");
+    }
+    const user = userSnap.data() ?? {};
+    if (!userBelongsToEmpresa(user, empresaId)) {
+        return { rol: null, motivo: "no_pertenece" };
+    }
+    const rol = await resolveCorreoRole(userSnap.id, user, empresaId);
+    return { rol, motivo: rol ? null : "sin_rol" };
+});
 exports.correoEstadoIntegracion = functions
     .region(REGION)
     .https.onCall(async (data, context) => {

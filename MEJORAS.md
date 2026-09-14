@@ -101,6 +101,35 @@ retome.
 
 ---
 
+## Entrega de Codex integrada — 14 sep 2026 (commit por Claude)
+
+Codex terminó su lista pero la dejó sin commit en el árbol de trabajo (y
+sin nota aquí). Claude verificó el árbol completo —analizador sin errores,
+745 pruebas Flutter y 56 de functions en verde, `tsc` limpio— y lo commiteó
+tal cual, sin cambiar nada suyo. Lo que trae, leído del diff:
+
+- **Interventoría:** acta devuelta con estado propio `devuelta` (la corrige
+  quien la registró o a quien se le asignó; no reaparece en Por revisar
+  hasta corregirla); ID determinístico del acta para que dos dispositivos no
+  creen dos visitas de la misma; asignación masiva que vuelve a resolver con
+  datos actuales y rechaza responsables de otra sede; selector de centro en
+  el tablero con reparación de nombres viejos.
+- **Correspondencia:** detección de la respuesta contestada desde el buzón
+  (quién firmó, texto sin citas, adjuntos) y su exportación.
+- **Tareas / notificaciones:** propiedad operativa de la tarea
+  (`asignado_uid` y alias, nunca el creador ni el jefe) antes de permitir
+  avances o cierre; pantalla de notificaciones ampliada.
+- **Arranque móvil:** `StartupPermissionsService` pide cámara, micrófono y
+  ubicación en la primera apertura.
+- **Talento Humano:** selección de centro de costo del personal como
+  desplegable, con reparación de ids viejos.
+- **WhatsApp Cloud:** variables de entorno de Meta en `.env.example`,
+  `package.json` con build limpio y `test:rules`.
+
+`functions/lib-deploy/` queda ignorado (es artefacto de deploy).
+
+---
+
 ## "Dart exception thrown from converted Future" al guardar actas — 14 sep 2026 (Claude)
 
 Varios registradores desde el viernes: al tocar "Guardar acta" sale ese

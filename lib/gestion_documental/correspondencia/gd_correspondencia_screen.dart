@@ -8,6 +8,7 @@ import 'gd_colaboracion_panel.dart';
 import 'gd_correspondencia_models.dart';
 import 'gd_correspondencia_service.dart';
 import 'gd_permisos.dart';
+import '../../widgets/user_avatar.dart';
 
 const _ink = Color(0xFF17324D);
 const _accent = Color(0xFF157A8A);
@@ -63,6 +64,7 @@ class _GdCorrespondenciaScreenState extends State<GdCorrespondenciaScreen> {
     }
     return _expedientes!;
   }
+
   final _search = TextEditingController();
   String _query = '';
   String _status = 'activos';
@@ -555,7 +557,17 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
   }
 
   void _load(GdExpediente value, List<GdResponsable> users) {
-    if (_loadedId == value.id) return;
+    if (_loadedId == value.id) {
+      // La respuesta detectada en el buzón llega por el cron mientras el
+      // detalle puede estar abierto: se muestra en cuanto exista.
+      if (value.envioDetectadoEnBuzon &&
+          _body.text.trim().isEmpty &&
+          value.respuestaCuerpo.trim().isNotEmpty) {
+        _subject.text = value.respuestaAsunto;
+        _body.text = value.respuestaCuerpo;
+      }
+      return;
+    }
     _loadedId = value.id;
     _to.text = value.respuestaDestinatario;
     _cc.text = value.respuestaCc.join(', ');
@@ -793,6 +805,17 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                                       if (expediente.enviadoAt != null)
                                         Text(
                                           'Fecha de envío: ${_longDate(expediente.enviadoAt)}',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      _RespondidoPorLinea(
+                                        expediente: expediente,
+                                      ),
+                                      if (expediente
+                                          .respuestaAdjuntosNombres
+                                          .isNotEmpty)
+                                        Text(
+                                          'Adjuntos en la respuesta: '
+                                          '${expediente.respuestaAdjuntosNombres.join(', ')}',
                                           style: const TextStyle(fontSize: 12),
                                         ),
                                     ],
@@ -2041,9 +2064,54 @@ String _longDate(DateTime? value) =>
     value == null ? 'Sin fecha' : DateFormat('dd/MM/yyyy HH:mm').format(value);
 String _providerLabel(String provider) =>
     provider.toLowerCase() == 'microsoft' ? 'Microsoft 365' : 'Gmail';
+
+/// "Contestada por Fulano" con nombre y foto cuando la respuesta se le puede
+/// atribuir a alguien de la app; si no, lo que reporta el buzón.
+class _RespondidoPorLinea extends StatelessWidget {
+  final GdExpediente expediente;
+  const _RespondidoPorLinea({required this.expediente});
+  @override
+  Widget build(BuildContext context) {
+    final userId = expediente.respondidoPorUsuarioId;
+    const style = TextStyle(fontSize: 12, fontWeight: FontWeight.w600);
+    if (userId.isEmpty) {
+      final texto = expediente.respondidoPorTexto;
+      if (texto.isEmpty) return const SizedBox.shrink();
+      return Text('Contestada por $texto', style: style);
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          UserAvatar(
+            userId: userId,
+            nameHint: expediente.respondidoPorNombre,
+            radius: 9,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: UserNameText(
+              userId,
+              fallbackName: expediente.respondidoPorNombre,
+              prefix: 'Contestada por ',
+              style: style,
+            ),
+          ),
+          if (expediente.respondidoPorFirma)
+            const Text(
+              ' (según la firma del correo)',
+              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 String _deliveryLabel(GdExpediente expediente) {
   if (expediente.respuestaExternaRegistrada)
-    return 'Contestada fuera de la app · soporte registrado';
+    return 'Marcada "Ya contesté" · soporte registrado';
   final provider = _providerLabel(
     expediente.envioCanal.isEmpty
         ? expediente.proveedor
@@ -2051,8 +2119,8 @@ String _deliveryLabel(GdExpediente expediente) {
   );
   final mailbox = expediente.enviadoDesde.trim();
   final source = expediente.envioDetectadoEnBuzon
-      ? 'Detectado automáticamente en $provider'
-      : 'Enviado desde la aplicación por $provider';
+      ? 'Contestada desde ${provider == 'Microsoft 365' ? 'Outlook' : 'Gmail'}, detectada en el buzón'
+      : 'Enviada desde la aplicación por $provider';
   return mailbox.isEmpty ? source : '$source · $mailbox';
 }
 

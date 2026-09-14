@@ -19,6 +19,7 @@ import 'personnel_requisition_service.dart'
         personnelNeedsTemporaryPassword,
         personnelTemporaryPassword;
 import 'personnel_access_service.dart';
+import 'personnel_cost_center_selection.dart';
 import '../widgets/user_avatar.dart';
 import '../utils/user_company.dart';
 import 'disciplinary_management_screen.dart';
@@ -412,19 +413,33 @@ class _OrganizationalStructureScreenState
     return (m['search'] ?? '').toLowerCase().contains(term);
   }
 
-  Future<List<Map<String, String>>> _fetchCostCenters(String pattern) async {
+  Future<List<PersonnelCostCenterOption>> _fetchCostCenters(
+    String pattern,
+  ) async {
     final snap = await FirebaseFirestore.instance
         .collection(_ccCollection)
+        .where('empresaId', isEqualTo: widget.empresaId)
         .get();
-    return snap.docs
+    final rows = snap.docs
+        .where((d) => d.data()['enabled'] != false)
         .map((d) {
           final data = d.data();
-          return {'code': d.id, 'nombre': data['nombre'] as String? ?? ''};
+          final centroId = (data['centroId'] ?? d.id).toString().trim();
+          return PersonnelCostCenterOption(
+            id: centroId.isEmpty ? d.id : centroId,
+            nombre: (data['nombre'] ?? '').toString().trim(),
+          );
         })
         .where(
-          (m) => m['nombre']!.toLowerCase().contains(pattern.toLowerCase()),
+          (opcion) => opcion.nombre.toLowerCase().contains(
+            pattern.trim().toLowerCase(),
+          ),
         )
         .toList();
+    rows.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
+    return rows;
   }
 
   Future<List<Map<String, String>>> _fetchEmpleados(String pattern) async {
@@ -1541,6 +1556,19 @@ class _OrganizationalStructureScreenState
           : ui.centroId;
     }
 
+    // Se carga una sola vez para que el campo sea realmente una selección y
+    // no un texto libre. También permite reparar al guardar los registros
+    // antiguos cuyo nombre cambió pero conservaron el id del centro anterior.
+    final centrosCosto = await _fetchCostCenters('');
+    var selectedCentro = resolvePersonnelCostCenterSelection(
+      centroId: initialCentroCode,
+      centroNombre: initialCentroName,
+      opciones: centrosCosto,
+    );
+    if (selectedCentro != null) {
+      initialCentroName = selectedCentro.nombre;
+    }
+
     final ctrId = TextEditingController(text: initialId);
     final ctrName = TextEditingController(text: initialName);
     final ctrArea = TextEditingController(text: initialArea);
@@ -1553,10 +1581,6 @@ class _OrganizationalStructureScreenState
     String selectedArea = initialArea;
     String selectedBossCode = initialBossCode;
     String selectedBossDirectId = initialBossDirectId;
-    String? selectedCentroCode = initialCentroCode.isEmpty
-        ? null
-        : initialCentroCode;
-
     // ── Accesos a módulos ──────────────────────────────────────────────────
     // Se resuelve antes de abrir el formulario para que Talento Humano decida
     // en el mismo acto qué va a usar la persona. Los módulos apagados para la
@@ -1847,19 +1871,32 @@ class _OrganizationalStructureScreenState
                   keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 8),
-                TypeAheadField<Map<String, String>>(
+                TypeAheadField<PersonnelCostCenterOption>(
                   textFieldConfiguration: TextFieldConfiguration(
                     controller: ctrCentro,
                     decoration: const InputDecoration(
                       labelText: 'Centro de costos',
+                      helperText: 'Selecciona una opción de la lista',
+                    ),
+                    onChanged: (value) {
+                      if (selectedCentro != null &&
+                          value.trim().toLowerCase() !=
+                              selectedCentro!.nombre.trim().toLowerCase()) {
+                        selectedCentro = null;
+                      }
+                    },
+                  ),
+                  suggestionsCallback: (pattern) => centrosCosto.where(
+                    (opcion) => opcion.nombre.toLowerCase().contains(
+                      pattern.trim().toLowerCase(),
                     ),
                   ),
-                  suggestionsCallback: _fetchCostCenters,
-                  itemBuilder: (_, m) => ListTile(title: Text(m['nombre']!)),
-                  onSuggestionSelected: (m) {
+                  itemBuilder: (_, opcion) =>
+                      ListTile(title: Text(opcion.nombre)),
+                  onSuggestionSelected: (opcion) {
                     setStateDialog(() {
-                      ctrCentro.text = m['nombre']!;
-                      selectedCentroCode = m['code']!;
+                      ctrCentro.text = opcion.nombre;
+                      selectedCentro = opcion;
                     });
                   },
                   minCharsForSuggestions: 0,
@@ -1920,6 +1957,21 @@ class _OrganizationalStructureScreenState
               onPressed: () async {
                 final id = ctrId.text.trim();
                 if (id.isEmpty) return;
+                final centroError = validatePersonnelCostCenterSelection(
+                  texto: ctrCentro.text,
+                  seleccion: selectedCentro,
+                );
+                if (centroError != null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(
+                      content: Text(centroError),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+                final centroIdGuardado = selectedCentro?.id ?? '';
+                final centroNombreGuardado = selectedCentro?.nombre ?? '';
                 final docRef = FirebaseFirestore.instance
                     .collection(_orgCollection)
                     .doc(id);
@@ -1936,10 +1988,10 @@ class _OrganizationalStructureScreenState
                   'jefeNombre': ctrBossName.text.trim(),
                   'jefeId': selectedBossDirectId,
                   'correo': ctrMail.text.trim(),
-                  'centro_codigo': selectedCentroCode ?? '',
-                  'centro_nombre': ctrCentro.text.trim(),
-                  'centroId': selectedCentroCode ?? '',
-                  'centroCostos': ctrCentro.text.trim(),
+                  'centro_codigo': centroIdGuardado,
+                  'centro_nombre': centroNombreGuardado,
+                  'centroId': centroIdGuardado,
+                  'centroCostos': centroNombreGuardado,
                   'estado': _statusOf(data),
                   'updatedAt': FieldValue.serverTimestamp(),
                 };
@@ -2064,8 +2116,8 @@ class _OrganizationalStructureScreenState
                     'correo': ctrMail.text.trim(),
                     'areaNombre': ctrArea.text.trim(),
                     'cargoNombre': ctrCargo.text.trim(),
-                    'centroId': selectedCentroCode ?? '',
-                    'centroCostos': ctrCentro.text.trim(),
+                    'centroId': centroIdGuardado,
+                    'centroCostos': centroNombreGuardado,
                     'jefeId': selectedBossDirectId,
                     'jefeNombre': ctrBossName.text.trim(),
                     'cargoJefe': ctrBossCargo.text.trim(),

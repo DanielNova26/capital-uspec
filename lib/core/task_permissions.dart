@@ -43,6 +43,29 @@ bool? _scopedTaskPermission(
   return null;
 }
 
+/// Verifica la propiedad operativa de una tarea antes de mostrar o ejecutar
+/// acciones que cambian su avance o finalización.
+///
+/// Algunas tareas históricas conservan `assignedTo`, mientras que el contrato
+/// actual usa `asignado_uid`. Se aceptan además los alias conocidos del usuario
+/// (por ejemplo, id del documento, cédula o uid de Auth), pero nunca el creador,
+/// jefe o aprobador: supervisar una tarea no convierte a esa persona en su
+/// responsable.
+bool isTaskAssignedToUser(
+  Map<String, dynamic> taskData,
+  Iterable<String> userIds,
+) {
+  final assignedId = [taskData['asignado_uid'], taskData['assignedTo']]
+      .map((value) => value?.toString().trim() ?? '')
+      .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+  if (assignedId.isEmpty) return false;
+
+  final knownIds = userIds
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty);
+  return knownIds.contains(assignedId);
+}
+
 /// Define si un usuario puede crear tareas para cualquier área de la empresa
 /// activa. El rol desarrollador mantiene el mismo bypass funcional que el
 /// guard central de módulos, sin saltarse el contexto de empresa seleccionado.

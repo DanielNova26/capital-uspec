@@ -10,6 +10,10 @@ InterventoriaVisita _visita({
   required double total,
   double? categoria,
   bool categoriaNoEvaluada = false,
+  String creadoPor = 'usuario',
+  String faseActa = 'completa',
+  String devolucionMotivo = '',
+  String correccionResponsableId = '',
 }) {
   final items = defaultInterventoriaItems();
   final categoriaKey = kInterventoriaCategorias.first.key;
@@ -26,14 +30,59 @@ InterventoriaVisita _visita({
     centroCostoNombre: centroNombre,
     fechaVisita: Timestamp.fromDate(fecha),
     fechaRegistro: Timestamp.fromDate(fecha),
-    creadoPor: 'usuario',
+    creadoPor: creadoPor,
     porcentajeGeneral: total,
     items: items,
+    faseActa: faseActa,
+    devolucionMotivo: devolucionMotivo,
+    correccionResponsableId: correccionResponsableId,
     createdAt: Timestamp.fromDate(fecha),
   );
 }
 
 void main() {
+  group('edición de acta devuelta', () {
+    final devuelta = _visita(
+      id: 'acta-1',
+      centroId: 'ubate',
+      centroNombre: 'Ubaté',
+      fecha: DateTime(2026, 9, 11),
+      total: 80,
+      creadoPor: 'registrador-1',
+      faseActa: kFaseActaDevuelta,
+      devolucionMotivo: 'Corregir los puntajes de almacenamiento',
+      correccionResponsableId: 'administrador-1',
+    );
+
+    test('la puede corregir quien la subió o quien recibió la tarea', () {
+      expect(
+        puedeEditarActaDevuelta(visita: devuelta, userId: 'registrador-1'),
+        isTrue,
+      );
+      expect(
+        puedeEditarActaDevuelta(visita: devuelta, userId: 'administrador-1'),
+        isTrue,
+      );
+      expect(
+        puedeEditarActaDevuelta(visita: devuelta, userId: 'otro'),
+        isFalse,
+      );
+    });
+
+    test('reconoce devoluciones creadas por la versión anterior', () {
+      final legado = _visita(
+        id: 'acta-legado',
+        centroId: 'ubate',
+        centroNombre: 'Ubaté',
+        fecha: DateTime(2026, 9, 10),
+        total: 70,
+        faseActa: 'puntajes',
+        devolucionMotivo: 'Falta corregir el PDF adjunto',
+      );
+      expect(esActaDevueltaParaCorreccion(legado), isTrue);
+    });
+  });
+
   test('solo el aprobador asignado puede resolver una subsanación', () {
     final hallazgo = InterventoriaHallazgo(
       empresaId: 'empresa',

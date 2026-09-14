@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:crypto/crypto.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +20,64 @@ export 'interventoria_numerales_catalogo.dart';
 
 // Re-exportamos Area para que el dashboard no tenga que importar org_service.dart
 export '../services/org_service.dart' show Area;
+
+String _normalizarParteClaveActa(String? value) =>
+    (value ?? '').trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
+
+/// Identidad funcional de un acta. Una visita puede tener varios archivos,
+/// pero no puede existir dos veces para la misma empresa, establecimiento,
+/// subcentro, fecha, tipo y tiempo de comida.
+String claveUnicaActaInterventoria({
+  required String empresaId,
+  required String centroCostoId,
+  String? subcentroId,
+  required DateTime fechaVisita,
+  String? tipoActa,
+  String? tiempoComida,
+}) {
+  final local = fechaVisita.toLocal();
+  final tipoNormalizado = (tipoActa ?? '').trim().isEmpty
+      ? kActaRegular
+      : tipoActa;
+  final fecha =
+      '${local.year.toString().padLeft(4, '0')}-'
+      '${local.month.toString().padLeft(2, '0')}-'
+      '${local.day.toString().padLeft(2, '0')}';
+  return [
+    _normalizarParteClaveActa(empresaId),
+    _normalizarParteClaveActa(centroCostoId),
+    _normalizarParteClaveActa(subcentroId),
+    fecha,
+    _normalizarParteClaveActa(tipoNormalizado),
+    _normalizarParteClaveActa(tiempoComida),
+  ].join('|');
+}
+
+bool esLaMismaActaInterventoria(
+  InterventoriaVisita visita, {
+  required String empresaId,
+  required String centroCostoId,
+  String? subcentroId,
+  required DateTime fechaVisita,
+  String? tipoActa,
+  String? tiempoComida,
+}) =>
+    claveUnicaActaInterventoria(
+      empresaId: visita.empresaId,
+      centroCostoId: visita.centroCostoId,
+      subcentroId: visita.subcentroId,
+      fechaVisita: visita.fechaVisita.toDate(),
+      tipoActa: visita.tipoActa,
+      tiempoComida: visita.tiempoComida,
+    ) ==
+    claveUnicaActaInterventoria(
+      empresaId: empresaId,
+      centroCostoId: centroCostoId,
+      subcentroId: subcentroId,
+      fechaVisita: fechaVisita,
+      tipoActa: tipoActa,
+      tiempoComida: tiempoComida,
+    );
 
 class InterventoriaOcrResult {
   final DateTime? fechaVisita;
@@ -52,6 +111,19 @@ class InterventoriaUsuario {
     required this.centroId,
     required this.areaId,
   });
+}
+
+/// Los campos planos del usuario solo describen la empresa indicada en
+/// `empresaId`. Sin esa marca, se aceptan únicamente para una cuenta que
+/// pertenece a una sola empresa; en las demás manda `empresasDetalle`.
+bool puedeUsarDatosRaizInterventoria(
+  Map<String, dynamic> data,
+  String empresaId,
+) {
+  final empresaRaiz = normalizeEmpresaId(data['empresaId']?.toString());
+  if (empresaRaiz != null) return empresaRaiz == empresaId;
+  final empresas = extractUserEmpresaIds(data);
+  return empresas.length == 1 && empresas.single == empresaId;
 }
 
 /// Persona concreta a la que se resolvió un cargo de la matriz de numerales.
@@ -188,6 +260,22 @@ InterventoriaPersona? resolverPrimerCargoQueResuelva(
     fuera ??= persona;
   }
   return fuera;
+}
+
+/// Conserva la prioridad de cargos del maestro, pero primero busca una
+/// coincidencia dentro del establecimiento entre TODAS las alternativas.
+/// Los candidatos externos solo se ofrecen para elección manual.
+List<InterventoriaPersona> priorizarResponsablesEnSede(
+  Iterable<List<InterventoriaPersona>> alternativas,
+) {
+  List<InterventoriaPersona>? fueraDelCentro;
+  for (final personas in alternativas) {
+    if (personas.isEmpty) continue;
+    final enSede = personas.where((persona) => persona.delCentro).toList();
+    if (enSede.isNotEmpty) return enSede;
+    fueraDelCentro ??= personas;
+  }
+  return fueraDelCentro ?? const [];
 }
 
 class InterventoriaService {
@@ -847,13 +935,14 @@ class InterventoriaService {
     return entrada;
   }
 
-  /// Devuelve el centroId asignado al usuario en esta empresa.
-  /// Busca primero en empresasDetalle[empresaId].centroId, luego en raíz.
+  /// Devuelve el centroId asignado al usuario en esta empresa. La raíz solo
+  /// sirve de respaldo cuando pertenece a esta misma empresa.
   Future<String> getCentroCostoId(String empresaId, String userId) async {
     try {
       final doc = await _db.collection('TBL_USUARIOS').doc(userId).get();
       if (!doc.exists) return '';
       final data = doc.data()!;
+      if (!userBelongsToEmpresa(data, empresaId)) return '';
       final detalle = data['empresasDetalle'];
       if (detalle is Map) {
         final scoped = detalle[empresaId];
@@ -862,7 +951,9 @@ class InterventoriaService {
           if (id.isNotEmpty) return id;
         }
       }
-      return (data['centroId'] ?? '').toString().trim();
+      return puedeUsarDatosRaizInterventoria(data, empresaId)
+          ? (data['centroId'] ?? '').toString().trim()
+          : '';
     } catch (_) {
       return '';
     }
@@ -870,6 +961,60 @@ class InterventoriaService {
 
   String nuevoVisitaId() =>
       _db.collection('TBL_INTERVENTORIA_VISITAS').doc().id;
+
+  /// ID determinístico para que dos dispositivos que intenten registrar la
+  /// misma acta compitan por el mismo documento en vez de crear dos visitas.
+  String visitaIdParaActa({
+    required String empresaId,
+    required String centroCostoId,
+    String? subcentroId,
+    required DateTime fechaVisita,
+    String? tipoActa,
+    String? tiempoComida,
+  }) {
+    final key = claveUnicaActaInterventoria(
+      empresaId: empresaId,
+      centroCostoId: centroCostoId,
+      subcentroId: subcentroId,
+      fechaVisita: fechaVisita,
+      tipoActa: tipoActa,
+      tiempoComida: tiempoComida,
+    );
+    return 'acta_${sha256.convert(utf8.encode(key))}';
+  }
+
+  /// Incluye los registros históricos que todavía tienen IDs aleatorios.
+  Future<InterventoriaVisita?> buscarActaDuplicada({
+    required String empresaId,
+    required String centroCostoId,
+    String? subcentroId,
+    required DateTime fechaVisita,
+    String? tipoActa,
+    String? tiempoComida,
+    String excludeId = '',
+  }) async {
+    final snapshot = await _db
+        .collection('TBL_INTERVENTORIA_VISITAS')
+        .where('empresaId', isEqualTo: empresaId)
+        .where('centroCostoId', isEqualTo: centroCostoId)
+        .get();
+    for (final doc in snapshot.docs) {
+      if (doc.id == excludeId) continue;
+      final visita = InterventoriaVisita.fromMap(doc.id, doc.data());
+      if (esLaMismaActaInterventoria(
+        visita,
+        empresaId: empresaId,
+        centroCostoId: centroCostoId,
+        subcentroId: subcentroId,
+        fechaVisita: fechaVisita,
+        tipoActa: tipoActa,
+        tiempoComida: tiempoComida,
+      )) {
+        return visita;
+      }
+    }
+    return null;
+  }
 
   Future<String> guardarVisita(InterventoriaVisita visita) async {
     if (!contieneActaPdf(visita.adjuntos)) {
@@ -880,8 +1025,45 @@ class InterventoriaService {
     final ref = visita.id.isEmpty
         ? _db.collection('TBL_INTERVENTORIA_VISITAS').doc()
         : _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
-    await ref.set(visita.toMap(), SetOptions(merge: true));
+    final duplicate = await buscarActaDuplicada(
+      empresaId: visita.empresaId,
+      centroCostoId: visita.centroCostoId,
+      subcentroId: visita.subcentroId,
+      fechaVisita: visita.fechaVisita.toDate(),
+      tipoActa: visita.tipoActa,
+      tiempoComida: visita.tiempoComida,
+      excludeId: ref.id,
+    );
+    if (duplicate != null) {
+      throw StateError(
+        'Esta acta ya está registrada para el mismo establecimiento, fecha, tipo y tiempo de comida.',
+      );
+    }
+    await _db.runTransaction((transaction) async {
+      final existing = await transaction.get(ref);
+      if (existing.exists) {
+        throw StateError(
+          'Esta acta ya fue registrada. Actualiza el histórico antes de intentarlo de nuevo.',
+        );
+      }
+      transaction.set(ref, visita.toMap());
+    });
     return ref.id;
+  }
+
+  Future<void> eliminarAdjuntosStorage(
+    Iterable<InterventoriaAdjunto> adjuntos,
+  ) async {
+    for (final adjunto in adjuntos) {
+      try {
+        final path = adjunto.path.trim();
+        if (path.isNotEmpty) {
+          await _storage.ref(path).delete();
+        } else if (adjunto.url.trim().isNotEmpty) {
+          await _storage.refFromURL(adjunto.url).delete();
+        }
+      } catch (_) {}
+    }
   }
 
   /// Guarda la corrección sobre la misma acta y la devuelve a la bandeja de
@@ -959,69 +1141,18 @@ class InterventoriaService {
     } catch (_) {}
   }
 
-  Future<void> eliminarVisita(String visitaId) async {
-    // 1. Cargar visita (también para filtrar los hallazgos por empresa: la
-    //    regla de lectura no acepta consultas sin ese filtro).
-    final visitaDoc = await _db
-        .collection('TBL_INTERVENTORIA_VISITAS')
-        .doc(visitaId)
-        .get();
-    final empresaVisita = (visitaDoc.data()?['empresaId'] ?? '').toString();
-
-    // 2. Cargar hallazgos de esta visita
-    final hallazgosSnap = await _db
-        .collection('TBL_INTERVENTORIA_HALLAZGOS')
-        .where('empresaId', isEqualTo: empresaVisita)
-        .where('visitaId', isEqualTo: visitaId)
-        .get();
-
-    // 3. Borrar archivos en Storage del acta (adjuntos de la visita)
-    final visitaData = visitaDoc.data() ?? {};
-    final actaAdjuntos = (visitaData['adjuntos'] as List? ?? [])
-        .cast<Map<String, dynamic>>();
-    for (final adj in actaAdjuntos) {
-      final url = adj['url']?.toString() ?? '';
-      if (url.isNotEmpty) {
-        try {
-          await _storage.refFromURL(url).delete();
-        } catch (_) {}
-      }
-    }
-
-    // 4. Por cada hallazgo: borrar tarea asociada + adjuntos de subsanación en Storage
-    final tareaIds = <String>{};
-    for (final hdoc in hallazgosSnap.docs) {
-      final hdata = hdoc.data();
-      // Tarea asociada
-      final tareaId = (hdata['tareaId'] ?? '').toString();
-      if (tareaId.isNotEmpty) tareaIds.add(tareaId);
-      // Adjuntos de subsanación en Storage
-      final adjSubs = (hdata['adjuntosSubsanacion'] as List? ?? [])
-          .cast<Map<String, dynamic>>();
-      for (final adj in adjSubs) {
-        final url = adj['url']?.toString() ?? '';
-        if (url.isNotEmpty) {
-          try {
-            await _storage.refFromURL(url).delete();
-          } catch (_) {}
-        }
-      }
-    }
-
-    // 5. Borrar tareas asociadas en Firestore
-    for (final tareaId in tareaIds) {
-      try {
-        await _db.collection('TBL_TAREAS').doc(tareaId).delete();
-      } catch (_) {}
-    }
-
-    // 6. Batch: borrar hallazgos + visita
-    final batch = _db.batch();
-    for (final doc in hallazgosSnap.docs) {
-      batch.delete(doc.reference);
-    }
-    batch.delete(_db.collection('TBL_INTERVENTORIA_VISITAS').doc(visitaId));
-    await batch.commit();
+  Future<void> eliminarVisita({
+    required String empresaId,
+    required String visitaId,
+    String motivo = '',
+  }) async {
+    // Firestore impide borrar actas desde el cliente. La función valida el rol,
+    // limpia hallazgos/archivos/tareas y genera el aviso de reposición.
+    await _functions.httpsCallable('interventoriaEliminarActa').call({
+      'empresaId': empresaId,
+      'visitaId': visitaId,
+      'motivo': motivo,
+    });
   }
 
   Future<InterventoriaAdjunto> subirActaBytes({
@@ -1903,23 +2034,26 @@ class InterventoriaService {
       if (detalle is Map && detalle[empresaId] is Map) {
         scoped = Map<String, dynamic>.from(detalle[empresaId] as Map);
       }
-      final empresas = data['empresas'];
-      final pertenece =
-          scoped != null ||
-          (empresas is Iterable &&
-              empresas.map((e) => e.toString()).contains(empresaId)) ||
-          (data['empresaId'] ?? '').toString() == empresaId ||
-          data['desarrollador'] == true;
-      if (!pertenece) continue;
+      // El acceso técnico del desarrollador no lo convierte en candidato a
+      // recibir tareas de todas las empresas.
+      if (!userBelongsToEmpresa(data, empresaId)) continue;
+      final usarRaiz = puedeUsarDatosRaizInterventoria(data, empresaId);
+      final raiz = usarRaiz ? data : const <String, dynamic>{};
+      final datosParaMarca = usarRaiz
+          ? data
+          : <String, dynamic>{'empresasDetalle': data['empresasDetalle']};
 
       var cargo =
           (scoped?['cargo'] ??
                   scoped?['cargoNombre'] ??
-                  data['cargo'] ??
-                  data['cargoNombre'] ??
+                  raiz['cargo'] ??
+                  raiz['cargoNombre'] ??
                   '')
               .toString()
               .trim();
+      // Algunas importaciones dejan el id del catálogo en `cargo`, no en
+      // `cargoId`. Se resuelve antes de compararlo con la regla del maestro.
+      cargo = nombrePorCargoId[cargo] ?? cargo;
       // Puente por id: muchos usuarios guardan `cargoId` (referencia a
       // TBL_CARGOS) y no el nombre. Sin esto quedaban descartados por el
       // `continue` de abajo, la lista de asignables salia vacia, y el tablero
@@ -1928,9 +2062,9 @@ class InterventoriaService {
       if (cargo.isEmpty) {
         final cargoId =
             (scoped?['cargoId'] ??
-                    data['cargoId'] ??
+                    raiz['cargoId'] ??
                     scoped?['cargoID'] ??
-                    data['cargoID'] ??
+                    raiz['cargoID'] ??
                     '')
                 .toString()
                 .trim();
@@ -1945,17 +2079,17 @@ class InterventoriaService {
       final perfilCargo = perfilPorCargo[_claveCargo(cargo)];
       if (soloAsignables &&
           !recibeAsignacionesEnEmpresa(
-            data,
+            datosParaMarca,
             empresaId,
             marcaDelCargo: perfilCargo?.recibeAsignaciones,
           )) {
         continue;
       }
 
-      final centroId = (scoped?['centroId'] ?? data['centroId'] ?? '')
+      final centroId = (scoped?['centroId'] ?? raiz['centroId'] ?? '')
           .toString()
           .trim();
-      var areaId = (scoped?['areaId'] ?? data['areaId'] ?? '')
+      var areaId = (scoped?['areaId'] ?? raiz['areaId'] ?? '')
           .toString()
           .trim();
       if (areaId.isEmpty) {
@@ -2086,15 +2220,10 @@ class InterventoriaService {
     List<InterventoriaUsuario> usuarios, {
     Map<String, dynamic> reglas = const {},
   }) {
-    for (final cargo in cargosResponsablesDe(hallazgo, reglas)) {
-      final personas = resolverCargoTodos(
-        cargo,
-        hallazgo.centroCostoId,
-        usuarios,
-      );
-      if (personas.isNotEmpty) return personas;
-    }
-    return const [];
+    return priorizarResponsablesEnSede([
+      for (final cargo in cargosResponsablesDe(hallazgo, reglas))
+        resolverCargoTodos(cargo, hallazgo.centroCostoId, usuarios),
+    ]);
   }
 
   InterventoriaPersona? sugerirResponsable(
@@ -2421,12 +2550,15 @@ class InterventoriaService {
   /// [responsableForzado] = se eligió a una persona concreta desde el tablero.
   /// Es la de mayor prioridad: manda sobre la matriz y sobre el área. Sirve
   /// para los hallazgos cuyo numeral no se puede identificar.
+  /// [exigirResponsableEnCentro] protege la asignación masiva: se vuelve a
+  /// resolver con datos actuales y se rechaza cualquier resultado de otra sede.
   Future<String?> crearTareaYNotificarHallazgo({
     required InterventoriaHallazgo hallazgo,
     required String creadorId,
     String creadorNombre = '',
     bool preferirAreaManual = false,
     InterventoriaPersona? responsableForzado,
+    bool exigirResponsableEnCentro = false,
   }) async {
     // ── 1. Resolver nombre real del creador ──────────────────────────────────
     String creadorNombreReal = creadorNombre;
@@ -2454,6 +2586,12 @@ class InterventoriaService {
       desde: hallazgo.fechaHallazgo.toDate(),
       tipoActa: hallazgo.tipoActa,
     );
+    if (exigirResponsableEnCentro &&
+        asignacion?.responsable?.delCentro != true) {
+      throw StateError(
+        'La asignación masiva solo admite responsables del establecimiento.',
+      );
+    }
 
     String destinatarioId = responsableForzado?.id ?? '';
     String destinatarioNombre = responsableForzado?.nombre ?? '';

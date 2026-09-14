@@ -1,9 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
+
+/// Solo ofrece áreas existentes en el catálogo de la empresa activa. Los
+/// nombres legados sí se pueden resolver, pero nunca un id de otra empresa.
+String? areaVigenteInterventoria(
+  String areaId,
+  Map<String, String> areasEmpresa,
+) {
+  final raw = areaId.trim();
+  if (raw.isEmpty) return null;
+  if (areasEmpresa.containsKey(raw)) return raw;
+  if (pareceAreaId(raw)) return null;
+  final nombre = areaClave(raw);
+  for (final area in areasEmpresa.entries) {
+    if (areaClave(area.value) == nombre) return area.key;
+  }
+  return null;
+}
 
 /// Tablero de asignación de hallazgos.
 ///
@@ -55,6 +75,11 @@ class _InterventoriaTableroAsignacionState
 
   List<InterventoriaUsuario> _usuarios = const [];
   bool _cargandoUsuarios = true;
+  bool _errorUsuarios = false;
+  Map<String, dynamic> _reglas = const {};
+  StreamSubscription<Map<String, dynamic>>? _reglasSub;
+  bool _reglasListas = false;
+  bool _errorReglas = false;
   final Set<String> _asignando = {};
   bool _asignandoMasivo = false;
 
@@ -70,34 +95,86 @@ class _InterventoriaTableroAsignacionState
   void initState() {
     super.initState();
     _cargarUsuarios();
+    _escucharReglas();
   }
 
   @override
   void didUpdateWidget(InterventoriaTableroAsignacion old) {
     super.didUpdateWidget(old);
-    if (old.empresaId != widget.empresaId) _cargarUsuarios();
+    if (old.empresaId != widget.empresaId || old.service != widget.service) {
+      _reglasSub?.cancel();
+      _reglas = const {};
+      _reglasListas = false;
+      _errorReglas = false;
+      _cargarUsuarios();
+      _escucharReglas();
+    }
+  }
+
+  @override
+  void dispose() {
+    _reglasSub?.cancel();
+    super.dispose();
+  }
+
+  void _escucharReglas() {
+    final empresaId = widget.empresaId;
+    final service = widget.service;
+    if (empresaId.trim().isEmpty) return;
+    _reglasSub = service
+        .streamReglasSubsanacion(empresaId)
+        .listen(
+          (reglas) {
+            if (mounted &&
+                widget.empresaId == empresaId &&
+                identical(widget.service, service)) {
+              setState(() {
+                _reglas = reglas;
+                _reglasListas = true;
+                _errorReglas = false;
+              });
+            }
+          },
+          onError: (Object _) {
+            if (mounted &&
+                widget.empresaId == empresaId &&
+                identical(widget.service, service)) {
+              setState(() {
+                _reglasListas = false;
+                _errorReglas = true;
+              });
+            }
+          },
+        );
   }
 
   /// Los usuarios se cargan UNA vez y las sugerencias se resuelven en memoria.
   /// Consultarlos por tarjeta haría una lectura completa de TBL_USUARIOS por
   /// cada hallazgo en pantalla.
   Future<void> _cargarUsuarios() async {
-    setState(() => _cargandoUsuarios = true);
+    final empresaId = widget.empresaId;
+    final service = widget.service;
+    setState(() {
+      _cargandoUsuarios = true;
+      _errorUsuarios = false;
+      _usuarios = const [];
+      _areas = const {};
+    });
     try {
-      final rows = await widget.service.listarUsuariosAsignables(
-        widget.empresaId,
-      );
-      // Las áreas son opcionales: si fallan, el selector cae a mostrar el
-      // areaId crudo en vez de quedarse sin lista de gente.
+      final rows = await service.listarUsuariosAsignables(empresaId);
+      // El catálogo ya viene acotado a la empresa. Si falla, no se muestran
+      // ids crudos de áreas que podrían pertenecer a otra empresa.
       var areas = <String, String>{};
       try {
-        final lista = await widget.service.getAreas(widget.empresaId);
+        final lista = await service.getAreas(empresaId);
         areas = {
           for (final a in lista)
             if (a.nombre.trim().isNotEmpty) a.id: a.nombre.trim(),
         };
       } catch (_) {}
-      if (mounted) {
+      if (mounted &&
+          widget.empresaId == empresaId &&
+          identical(widget.service, service)) {
         setState(() {
           _usuarios = rows;
           _areas = areas;
@@ -105,7 +182,14 @@ class _InterventoriaTableroAsignacionState
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _cargandoUsuarios = false);
+      if (mounted &&
+          widget.empresaId == empresaId &&
+          identical(widget.service, service)) {
+        setState(() {
+          _cargandoUsuarios = false;
+          _errorUsuarios = true;
+        });
+      }
     }
   }
 
@@ -479,23 +563,32 @@ class _InterventoriaTableroAsignacionState
         style: TextStyle(fontSize: 12, color: _muted),
       );
     }
+    if (_errorUsuarios) {
+      return const Text(
+        'No se pudo cargar el personal de la empresa.',
+        style: TextStyle(fontSize: 12, color: _warn),
+      );
+    }
+    if (!_reglasListas) {
+      return Text(
+        _errorReglas
+            ? 'No se pudieron cargar las reglas del maestro.'
+            : 'Cargando reglas del maestro…',
+        style: const TextStyle(fontSize: 12, color: _muted),
+      );
+    }
     final sinNumeral = h.numeralParaMatriz.isEmpty;
+    final cargos = sinNumeral
+        ? const <String>[]
+        : widget.service.cargosResponsablesDe(h, _reglas);
 
-    // Antes esta linea afirmaba "Nadie tiene el cargo" sin haber consultado la
-    // matriz: la pintaba para CUALQUIER hallazgo sin dueno. El resultado era que
-    // el boton de la cabecera contaba 598 sugerencias mientras las 600 tarjetas
-    // decian que nadie respondia. Ahora se pregunta de verdad.
-    if (!sinNumeral) {
-      // La palabra "sugerido" se quito el 9 sep 2026. No era un matiz de
-      // redaccion: una lista de "sugeridos" que incluia gente de otras sedes
-      // invitaba a aceptarla en bloque, y asi es como una responsable de Tunja
-      // termino con hallazgos de otro establecimiento. Ahora la tarjeta solo
-      // afirma algo cuando la persona trabaja en el establecimiento del
-      // hallazgo; en ese caso no es una sugerencia, es lo que dice el maestro.
-      final delCentro = widget.service
-          .sugerirResponsables(h, _usuarios)
-          .where((p) => p.delCentro)
-          .toList();
+    if (cargos.isNotEmpty) {
+      final candidatos = widget.service.sugerirResponsables(
+        h,
+        _usuarios,
+        reglas: _reglas,
+      );
+      final delCentro = candidatos.where((p) => p.delCentro).toList();
       if (delCentro.isNotEmpty) {
         final uno = delCentro.first;
         final texto = delCentro.length == 1
@@ -525,6 +618,29 @@ class _InterventoriaTableroAsignacionState
           ],
         );
       }
+      // Los candidatos de otra sede sirven para una elección consciente,
+      // nunca para asignación masiva ni para afirmar que ya responden.
+      if (candidatos.isNotEmpty) {
+        final nombres = candidatos.take(2).map((p) => p.nombre).join(', ');
+        final restantes = candidatos.length > 2
+            ? ' y ${candidatos.length - 2} más'
+            : '';
+        return Row(
+          children: [
+            const Icon(Icons.info_outline, size: 14, color: _warn),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                'Candidatos de esta empresa fuera de la sede: '
+                '$nombres$restantes. Confirma con «Elegir persona».',
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: _warn),
+              ),
+            ),
+          ],
+        );
+      }
     }
 
     return Row(
@@ -535,9 +651,12 @@ class _InterventoriaTableroAsignacionState
           child: Text(
             sinNumeral
                 ? 'No se pudo identificar el numeral: elige tú el responsable'
-                : 'Nadie de este establecimiento tiene el cargo que responde '
-                      'por ${h.numeralParaMatriz}: elige tú',
-            maxLines: 2,
+                : cargos.isEmpty
+                ? 'El maestro no define responsable para '
+                      '${h.numeralParaMatriz}: elige tú'
+                : 'No hay personal asignable en esta empresa para '
+                      '${h.numeralParaMatriz} (${cargos.join(' o ')}): elige tú',
+            maxLines: 3,
             style: const TextStyle(fontSize: 12, color: _warn),
           ),
         ),
@@ -558,7 +677,9 @@ class _InterventoriaTableroAsignacionState
       runSpacing: 6,
       children: [
         OutlinedButton.icon(
-          onPressed: () => _elegirPersona(h),
+          onPressed: _cargandoUsuarios || _errorUsuarios
+              ? null
+              : () => _elegirPersona(h),
           style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
           icon: Icon(
             asignado ? Icons.swap_horiz_rounded : Icons.person_search_outlined,
@@ -580,6 +701,12 @@ class _InterventoriaTableroAsignacionState
   }
 
   Future<void> _elegirPersona(InterventoriaHallazgo h) async {
+    final sugeridos = _reglasListas
+        ? widget.service.sugerirResponsables(h, _usuarios, reglas: _reglas)
+        : const <InterventoriaPersona>[];
+    final fueraDeSede =
+        sugeridos.isNotEmpty &&
+        sugeridos.every((persona) => !persona.delCentro);
     final elegido = await showModalBottomSheet<InterventoriaUsuario>(
       context: context,
       isScrollControlled: true,
@@ -588,6 +715,8 @@ class _InterventoriaTableroAsignacionState
         centroCostoId: h.centroCostoId,
         centroCostoNombre: h.centroCostoNombre,
         areas: _areas,
+        sugeridosIds: {for (final persona in sugeridos) persona.id},
+        mostrarTodaEmpresaInicialmente: fueraDeSede,
       ),
     );
     if (elegido == null) return;
@@ -613,7 +742,12 @@ class _InterventoriaTableroAsignacionState
   /// establecimiento le crea una tarea real y le manda una notificacion por un
   /// hallazgo que no puede resolver.
   InterventoriaPersona? _responsableEnSede(InterventoriaHallazgo h) {
-    final persona = widget.service.sugerirResponsable(h, _usuarios);
+    if (_cargandoUsuarios || _errorUsuarios || !_reglasListas) return null;
+    final persona = widget.service.sugerirResponsable(
+      h,
+      _usuarios,
+      reglas: _reglas,
+    );
     if (persona == null || !persona.delCentro) return null;
     return persona;
   }
@@ -679,6 +813,7 @@ class _InterventoriaTableroAsignacionState
           hallazgo: hallazgo,
           creadorId: widget.userId,
           creadorNombre: widget.userId,
+          exigirResponsableEnCentro: true,
         );
         ok++;
       } catch (_) {
@@ -768,6 +903,8 @@ class InterventoriaSelectorPersona extends StatefulWidget {
 
   /// areaId → nombre. Vacío = no se muestra el desplegable de áreas.
   final Map<String, String> areas;
+  final Set<String> sugeridosIds;
+  final bool mostrarTodaEmpresaInicialmente;
 
   const InterventoriaSelectorPersona({
     super.key,
@@ -775,6 +912,8 @@ class InterventoriaSelectorPersona extends StatefulWidget {
     required this.centroCostoId,
     this.centroCostoNombre = '',
     this.areas = const {},
+    this.sugeridosIds = const {},
+    this.mostrarTodaEmpresaInicialmente = false,
   });
 
   @override
@@ -797,7 +936,9 @@ class InterventoriaSelectorPersonaState
     super.initState();
     // widget.centroCostoId no está disponible de forma segura como
     // inicializador de campo (el framework aún no ha enlazado `widget`).
-    _soloEstablecimiento = widget.centroCostoId.isNotEmpty;
+    _soloEstablecimiento =
+        widget.centroCostoId.isNotEmpty &&
+        !widget.mostrarTodaEmpresaInicialmente;
   }
 
   /// Áreas que tienen al menos una persona. Se calcula sobre TODO el personal
@@ -809,10 +950,10 @@ class InterventoriaSelectorPersonaState
   ) {
     final ids = <String>{};
     for (final u in base) {
-      final id = u.areaId.trim();
-      if (id.isNotEmpty) ids.add(id);
+      final id = areaVigenteInterventoria(u.areaId, widget.areas);
+      if (id != null) ids.add(id);
     }
-    final rows = ids.map((id) => MapEntry(id, widget.areas[id] ?? id)).toList()
+    final rows = ids.map((id) => MapEntry(id, widget.areas[id]!)).toList()
       ..sort((a, b) => a.value.toLowerCase().compareTo(b.value.toLowerCase()));
     return rows;
   }
@@ -844,7 +985,9 @@ class InterventoriaSelectorPersonaState
           !'${u.nombre} ${u.cargo}'.toLowerCase().contains(query)) {
         return false;
       }
-      if (areaActiva.isNotEmpty) return u.areaId.trim() == areaActiva;
+      if (areaActiva.isNotEmpty) {
+        return areaVigenteInterventoria(u.areaId, widget.areas) == areaActiva;
+      }
       if (!filtraPorSitio) return true;
       final delCentro = u.centroId == widget.centroCostoId;
       // Los cargos sin centro (Gerencia, Dirección de operaciones…) no
@@ -853,14 +996,16 @@ class InterventoriaSelectorPersonaState
       return delCentro || corporativo;
     }).toList();
 
-    // Primero las personas del establecimiento y luego cargos corporativos.
+    // Los sugeridos por el maestro encabezan la lista, pero la elección sigue
+    // siendo manual cuando trabajan fuera del establecimiento.
     rows.sort((a, b) {
       int rango(InterventoriaUsuario u) {
+        if (widget.sugeridosIds.contains(u.id)) return 0;
         if (widget.centroCostoId.isNotEmpty &&
             u.centroId == widget.centroCostoId) {
-          return 0;
+          return 1;
         }
-        return 1;
+        return 2;
       }
 
       final byRango = rango(a).compareTo(rango(b));
@@ -1008,6 +1153,7 @@ class InterventoriaSelectorPersonaState
                         final delCentro =
                             widget.centroCostoId.isNotEmpty &&
                             u.centroId == widget.centroCostoId;
+                        final sugerido = widget.sugeridosIds.contains(u.id);
                         return ListTile(
                           onTap: () => Navigator.pop(context, u),
                           leading: CircleAvatar(
@@ -1022,7 +1168,17 @@ class InterventoriaSelectorPersonaState
                           subtitle: Text(
                             u.cargo.isEmpty ? 'Sin cargo registrado' : u.cargo,
                           ),
-                          trailing: delCentro
+                          trailing: sugerido
+                              ? Text(
+                                  delCentro
+                                      ? 'Coincide con maestro'
+                                      : 'Sugerido · otra sede',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF0F766E),
+                                  ),
+                                )
+                              : delCentro
                               ? const Text(
                                   'Mismo establecimiento',
                                   style: TextStyle(

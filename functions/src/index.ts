@@ -106,6 +106,7 @@ export {
 export {
   interventoriaSolicitarEliminacion,
   interventoriaResolverEliminacion,
+  interventoriaEliminarActa,
 } from "./interventoria_deletion";
 export {
   rutasResumenEvidencia,

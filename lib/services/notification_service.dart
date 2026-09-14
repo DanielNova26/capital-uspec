@@ -38,6 +38,7 @@ import '../home/created_tasks_screen.dart';
 import '../home/task_history_screen.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
+import '../interventoria/interventoria_dashboard_screen.dart';
 
 typedef CedulaProvider = FutureOr<String?> Function();
 
@@ -70,6 +71,9 @@ class NotificationsService {
 
   static bool _isRutasEvidenceRejected(String type) =>
       type.trim().toLowerCase() == 'rutas_evidencia_rechazada';
+
+  static bool _isInterventoriaActaEliminada(String type) =>
+      type.trim().toLowerCase() == 'interventoria_acta_eliminada';
 
   static Future<void> setActiveCedula(String? cedula) async {
     final normalized = cedula?.trim();
@@ -299,6 +303,29 @@ class NotificationsService {
             userId: cedula,
             empresaId: eid,
             rolRutas: kRutasRolConductor,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (_isInterventoriaActaEliminada(notifType)) {
+      final eid = (notifEmpresaId ?? '').trim();
+      if (eid.isEmpty) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se encontró la empresa para abrir Interventoría.',
+            ),
+          ),
+        );
+        return;
+      }
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => InterventoriaDashboardScreen(
+            userId: cedula,
+            empresaId: eid,
           ),
         ),
       );

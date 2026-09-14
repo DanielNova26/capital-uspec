@@ -15,6 +15,7 @@ import 'package:todo/widgets/user_avatar.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/task_route_guard.dart';
+import '../core/task_permissions.dart';
 import '../compras/compras_dashboard_screen.dart';
 import '../facturacion/facturacion_models.dart';
 import '../facturacion/facturacion_navigation.dart';
@@ -232,6 +233,12 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
 
     return nombre.isNotEmpty ? nombre : widget.userId;
   }
+
+  Set<String> _currentUserIds() => {
+    widget.userId,
+    (_userData['cedula'] ?? '').toString(),
+    (_userData['uid'] ?? '').toString(),
+  }..removeWhere((value) => value.trim().isEmpty);
 
   String _resolvedStatus(Map<String, dynamic> data) => resolveTaskStatus(data);
 
@@ -917,6 +924,7 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
             (data['sourceModule'] ?? source['moduleId'] ?? '').toString() ==
                 'gestion_documental');
     final finishPending = _finishPending(data);
+    final canComplete = isTaskAssignedToUser(data, _currentUserIds());
     final enRevisionCalidad =
         esCorreccionCompras &&
         (data['solicitud_finalizacion_estado'] ?? '').toString() ==
@@ -1045,81 +1053,82 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
               ),
             ),
             const Divider(height: 1),
-            _ActionTile(
-              icon: finishPending
-                  ? Icons.hourglass_top
-                  : Icons.check_circle_rounded,
-              color: finishPending ? Colors.orange : Colors.green,
-              title: completionTitle,
-              subtitle: completionSubtitle,
-              onTap: finishPending
-                  ? null
-                  : () async {
-                      Navigator.pop(context);
-                      if (esCorrespondencia) {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => GdCorrespondenciaScreen(
-                              userId: widget.userId,
-                              empresaId: (data['empresaId'] ?? '').toString(),
-                              initialExpedienteId: correspondenciaId,
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      if (esCorreccionCompras) {
-                        final opened = await abrirCorreccionComprasDesdeTarea(
-                          context,
-                          userId: widget.userId,
-                          taskId: taskId,
-                          tarea: data,
-                        );
-                        if (!opened && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'No se pudo abrir el documento para corregir.',
+            if (canComplete)
+              _ActionTile(
+                icon: finishPending
+                    ? Icons.hourglass_top
+                    : Icons.check_circle_rounded,
+                color: finishPending ? Colors.orange : Colors.green,
+                title: completionTitle,
+                subtitle: completionSubtitle,
+                onTap: finishPending
+                    ? null
+                    : () async {
+                        Navigator.pop(context);
+                        if (esCorrespondencia) {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => GdCorrespondenciaScreen(
+                                userId: widget.userId,
+                                empresaId: (data['empresaId'] ?? '').toString(),
+                                initialExpedienteId: correspondenciaId,
                               ),
                             ),
                           );
+                          return;
                         }
-                        return;
-                      }
-                      if (esRequerimientoFacturacion) {
-                        final opened = await tryOpenFacturacionDocumentTask(
-                          context,
-                          userId: widget.userId,
-                          taskId: taskId,
-                          taskData: data,
-                        );
-                        if (!opened && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'No se pudo abrir el documento solicitado.',
+                        if (esCorreccionCompras) {
+                          final opened = await abrirCorreccionComprasDesdeTarea(
+                            context,
+                            userId: widget.userId,
+                            taskId: taskId,
+                            tarea: data,
+                          );
+                          if (!opened && mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'No se pudo abrir el documento para corregir.',
+                                ),
+                              ),
+                            );
+                          }
+                          return;
+                        }
+                        if (esRequerimientoFacturacion) {
+                          final opened = await tryOpenFacturacionDocumentTask(
+                            context,
+                            userId: widget.userId,
+                            taskId: taskId,
+                            taskData: data,
+                          );
+                          if (!opened && mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'No se pudo abrir el documento solicitado.',
+                                ),
+                              ),
+                            );
+                          }
+                          return;
+                        }
+                        if (requiresAttachment) {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => CompleteTaskScreen(
+                                taskId: taskId,
+                                currentUserId: widget.userId,
+                                requestFinish: true,
+                                requestFinishByName: _currentUserName(),
                               ),
                             ),
                           );
+                        } else {
+                          await _quickRequestFinish(doc);
                         }
-                        return;
-                      }
-                      if (requiresAttachment) {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => CompleteTaskScreen(
-                              taskId: taskId,
-                              currentUserId: widget.userId,
-                              requestFinish: true,
-                              requestFinishByName: _currentUserName(),
-                            ),
-                          ),
-                        );
-                      } else {
-                        await _quickRequestFinish(doc);
-                      }
-                    },
-            ),
+                      },
+              ),
             _ActionTile(
               icon: Icons.markunread_mailbox_rounded,
               color: Colors.indigo,

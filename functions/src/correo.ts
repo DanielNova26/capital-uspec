@@ -113,7 +113,22 @@ interface ParsedOutboundMessage {
   asunto: string;
   fecha: Date;
   internetMessageId?: string;
+  // Quién aparece como remitente en el buzón. En un buzón compartido suele
+  // ser el buzón mismo; solo trae a la persona cuando envió "en nombre de".
+  remitente: string;
 }
+
+// Lo que se contestó. Se lee aparte del listado, y solo cuando el enviado
+// quedó enlazado a un expediente, para no descargar cuerpos que nadie va a ver.
+interface OutboundMessageBody {
+  cuerpo: string;
+  adjuntos: string[];
+  remitente: string;
+}
+
+// Máximo de respuestas detectadas antes de este cambio que se completan
+// (texto, remitente, adjuntos) en cada corrida del cron.
+const MAX_RESPONSE_BACKFILL_PER_RUN = 5;
 
 interface GmailAttachment {
   filename: string;
@@ -1111,6 +1126,23 @@ async function getGmailOutboundMessage(
     asunto: text(headers.subject) || "(Sin asunto)",
     fecha: Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
     internetMessageId: text(headers["message-id"]),
+    remitente: text(headers.from),
+  };
+}
+
+async function getGmailOutboundBody(
+  accessToken: string,
+  messageId: string
+): Promise<OutboundMessageBody> {
+  const raw = await gmailRequest<any>(
+    accessToken,
+    `/messages/${encodeURIComponent(messageId)}`,
+    { format: "full" }
+  );
+  return {
+    cuerpo: readableEmailBody(extractBody(raw.payload)),
+    adjuntos: collectAttachments(raw.payload).map((item) => item.filename),
+    remitente: text(headersFromPayload(raw.payload).from),
   };
 }
 
@@ -1155,7 +1187,224 @@ function parseMicrosoftOutboundMessage(raw: any): ParsedOutboundMessage {
     asunto: text(raw?.subject) || "(Sin asunto)",
     fecha: Number.isNaN(sent.getTime()) ? new Date() : sent,
     internetMessageId: text(raw?.internetMessageId),
+    // `sender` es quien realmente pulsó Enviar cuando se envía "en nombre de";
+    // `from` es el buzón. Se prefiere la persona.
+    remitente: microsoftSender({ from: raw?.sender }) || microsoftSender(raw),
   };
+}
+
+async function getMicrosoftOutboundBody(
+  accessToken: string,
+  messageId: string
+): Promise<OutboundMessageBody> {
+  const raw = await graphRequest<any>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(messageId)}`,
+    { "$select": "body,hasAttachments,from,sender" }
+  );
+  const attachments = raw?.hasAttachments
+    ? await graphRequest<{ value?: any[] }>(
+      accessToken,
+      `/me/messages/${encodeURIComponent(messageId)}/attachments`,
+      { "$select": "name,isInline" }
+    )
+    : { value: [] };
+  return {
+    cuerpo: readableEmailBody(raw?.body?.content),
+    adjuntos: (attachments.value ?? [])
+      .filter((item) => item?.isInline !== true)
+      .map((item) => text(item?.name))
+      .filter(Boolean),
+    remitente: microsoftSender({ from: raw?.sender }) || microsoftSender(raw),
+  };
+}
+
+async function getOutboundBody(
+  account: GmailAccount,
+  accessToken: string,
+  providerMessageId: string
+): Promise<OutboundMessageBody> {
+  try {
+    return account.proveedor === "microsoft"
+      ? await getMicrosoftOutboundBody(accessToken, providerMessageId)
+      : await getGmailOutboundBody(accessToken, providerMessageId);
+  } catch (error) {
+    // El cuerpo es informativo: si no se puede leer, la respuesta igual queda
+    // trazada como contestada.
+    functions.logger.warn("correo.outbound.body", {
+      cuentaId: account.id,
+      messageId: providerMessageId,
+      error: `${error}`,
+    });
+    return { cuerpo: "", adjuntos: [], remitente: "" };
+  }
+}
+
+interface SignatureCandidate {
+  id: string;
+  nombre: string;
+  patrones: RegExp[];
+}
+
+const signatureCandidatesCache = new Map<
+  string,
+  { at: number; users: SignatureCandidate[] }
+>();
+
+export function signaturePattern(words: string[]): RegExp | null {
+  const clean = words.map(normalizeText).filter((w) => w.length > 1);
+  if (clean.length < 2) return null;
+  const escaped = clean.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // Entre palabra y palabra caben hasta dos más: "María [Fernanda] Gómez".
+  const gap = "\\s+(?:\\S+\\s+){0,2}";
+  return new RegExp(`(^|[^a-z0-9])${escaped.join(gap)}([^a-z0-9]|$)`);
+}
+
+// Personal de la empresa con los patrones de nombre que pueden aparecer en
+// una firma: el nombre completo y "primer nombre + primer apellido".
+async function signatureCandidates(empresaId: string): Promise<SignatureCandidate[]> {
+  const cached = signatureCandidatesCache.get(empresaId);
+  if (cached && Date.now() - cached.at < 5 * 60 * 1000) return cached.users;
+  const users = db().collection("TBL_USUARIOS");
+  const [byArray, byField] = await Promise.all([
+    users.where("empresas", "array-contains", empresaId).get(),
+    users.where("empresaId", "==", empresaId).get(),
+  ]);
+  const seen = new Map<string, SignatureCandidate>();
+  for (const doc of [...byArray.docs, ...byField.docs]) {
+    if (seen.has(doc.id)) continue;
+    const data = doc.data();
+    const full = text(
+      data.nombre ||
+      data.nombreCompleto ||
+      `${text(data.nombres || data.primerNombre)} ${text(data.apellidos || data.primerApellido)}`
+    );
+    const nombres = text(data.nombres || data.primerNombre).split(/\s+/);
+    const apellidos = text(data.apellidos || data.primerApellido).split(/\s+/);
+    const patrones = [
+      signaturePattern(full.split(/\s+/)),
+      signaturePattern([nombres[0], apellidos[0]]),
+    ].filter((p): p is RegExp => p !== null);
+    if (!full || patrones.length === 0) continue;
+    seen.set(doc.id, { id: doc.id, nombre: full, patrones });
+  }
+  const list = [...seen.values()];
+  signatureCandidatesCache.set(empresaId, { at: Date.now(), users: list });
+  return list;
+}
+
+// Parte del correo que escribió quien contesta: se corta en la primera marca
+// de texto citado (De:, From:, "El ... escribió:", etc.).
+export function ownReplyText(cuerpo: string): string {
+  const lines = cuerpo.replace(/\r/g, "").split("\n");
+  const own: string[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (
+      /^(de|from|enviado|sent|para|to)\s*:/i.test(t) ||
+      /^-{3,}\s*(mensaje original|original message|forwarded)/i.test(t) ||
+      /^(el|on)\s.+(escribi[oó]|wrote)\s*:?$/i.test(t) ||
+      t.startsWith(">")
+    ) {
+      break;
+    }
+    own.push(t);
+  }
+  return normalizeText(own.join("\n")).replace(/\s+/g, " ");
+}
+
+// Quién firmó la respuesta. Solo se atribuye cuando coincide exactamente una
+// persona de la empresa; con dudas se deja vacío antes que inventar.
+async function matchSignature(
+  empresaId: string,
+  cuerpo: string
+): Promise<{ id: string; nombre: string } | null> {
+  const own = ownReplyText(cuerpo);
+  if (!own || !empresaId) return null;
+  const candidates = await signatureCandidates(empresaId);
+  const byFull = candidates.filter((c) => c.patrones[0]?.test(own));
+  if (byFull.length === 1) return { id: byFull[0].id, nombre: byFull[0].nombre };
+  if (byFull.length > 1) return null;
+  const byShort = candidates.filter((c) => c.patrones.some((p) => p.test(own)));
+  return byShort.length === 1
+    ? { id: byShort[0].id, nombre: byShort[0].nombre }
+    : null;
+}
+
+// Campos con los que se describe una respuesta detectada en el buzón:
+// quién la contestó, qué decía y qué adjuntos llevaba.
+async function detectedResponseDetail(
+  expediente: FirebaseFirestore.DocumentData,
+  body: OutboundMessageBody,
+  fallback: { remitente: string; asunto: string }
+): Promise<Record<string, unknown>> {
+  const remitente = body.remitente || fallback.remitente;
+  // El buzón es de la empresa y la respuesta sale del mismo buzón en que
+  // entró: el remitente no dice quién fue. La persona sale del responsable
+  // asignado; si no hay, de la firma del correo.
+  let respondidoPorId = text(expediente.responsableId);
+  let respondidoPorNombre = text(expediente.responsableNombre);
+  let respondidoPorOrigen = respondidoPorId ? "responsable" : "";
+  if (!respondidoPorId && body.cuerpo) {
+    const firmante = await matchSignature(text(expediente.empresaId), body.cuerpo);
+    if (firmante) {
+      respondidoPorId = firmante.id;
+      respondidoPorNombre = firmante.nombre;
+      respondidoPorOrigen = "firma";
+    }
+  }
+  return {
+    respuestaRemitente: remitente,
+    respondidoPorId,
+    respondidoPorNombre,
+    respondidoPorOrigen,
+    respuestaAdjuntosNombres: body.adjuntos,
+    respuestaDetalleAt: admin.firestore.FieldValue.serverTimestamp(),
+    ...(text(expediente.respuestaAsunto)
+      ? {}
+      : { respuestaAsunto: fallback.asunto }),
+    ...(text(expediente.respuestaCuerpo) || !body.cuerpo
+      ? {}
+      : { respuestaCuerpo: body.cuerpo }),
+  };
+}
+
+// Respuestas que el cron detectó antes de que se guardara el detalle: se
+// completan de a pocas por corrida hasta que no quede ninguna sin
+// `respuestaDetalleAt`.
+async function backfillDetectedResponses(
+  account: GmailAccount,
+  accessToken: string
+): Promise<number> {
+  const snap = await db()
+    .collection("TBL_GD_EXPEDIENTES")
+    .where("cuentaId", "==", account.id)
+    .where("envioOrigen", "==", "buzon_externo")
+    .limit(60)
+    .get();
+  const pending = snap.docs
+    .filter((doc) =>
+      text(doc.get("empresaId")) === account.empresaId &&
+      !doc.get("respuestaDetalleAt") &&
+      text(doc.get("providerSentMessageId"))
+    )
+    .slice(0, MAX_RESPONSE_BACKFILL_PER_RUN);
+  for (const doc of pending) {
+    const data = doc.data();
+    const body = await getOutboundBody(
+      account,
+      accessToken,
+      text(data.providerSentMessageId)
+    );
+    await doc.ref.set({
+      ...(await detectedResponseDetail(data, body, {
+        remitente: "",
+        asunto: text(data.respuestaAsunto),
+      })),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  }
+  return pending.length;
 }
 
 async function listMicrosoftOutboundMessages(
@@ -1174,6 +1423,8 @@ async function listMicrosoftOutboundMessages(
         "subject",
         "sentDateTime",
         "internetMessageId",
+        "from",
+        "sender",
       ].join(","),
       "$filter": `sentDateTime ge ${overlap.toISOString()}`,
       "$orderby": "sentDateTime desc",
@@ -1905,6 +2156,7 @@ async function claimOutboundMessage(
 
 async function syncOutboundCorrespondence(
   account: GmailAccount,
+  accessToken: string,
   message: ParsedOutboundMessage
 ): Promise<"linked" | "unlinked" | "duplicate"> {
   const messageRef = await claimOutboundMessage(account, message);
@@ -1949,6 +2201,11 @@ async function syncOutboundCorrespondence(
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
   if (!wasResponded) {
+    const body = await getOutboundBody(
+      account,
+      accessToken,
+      message.providerMessageId
+    );
     Object.assign(expedienteUpdate, {
       providerSentMessageId: message.providerMessageId,
       providerSentThreadId: message.providerThreadId,
@@ -1972,6 +2229,10 @@ async function syncOutboundCorrespondence(
       ...(text(expediente.get("respuestaDestinatario"))
         ? {}
         : { respuestaDestinatario: message.destinatarios }),
+      ...(await detectedResponseDetail(expediente.data(), body, {
+        remitente: message.remitente,
+        asunto: message.asunto,
+      })),
     });
   } else if (sameApplicationSend) {
     // Microsoft puede cambiar el id al mover el borrador a Elementos enviados.
@@ -2000,7 +2261,9 @@ async function syncOutboundCorrespondence(
         userId: "sistema_correo",
         detail: wasResponded
           ? `Se detectó un nuevo correo enviado desde ${providerName} (${account.email}) a ${message.destinatarios}.`
-          : `Respuesta enviada directamente desde ${providerName} (${account.email}) a ${message.destinatarios}; la respuesta quedó trazada sin cerrar el proceso.`,
+          : `Respuesta enviada directamente desde ${providerName} (${account.email}` +
+            `${message.remitente ? `, remitente ${message.remitente}` : ""}) ` +
+            `a ${message.destinatarios}; la respuesta quedó trazada sin cerrar el proceso.`,
       })
     );
   }
@@ -2116,10 +2379,21 @@ async function processAccount(account: GmailAccount): Promise<Record<string, num
   }
 
   for (const message of outboundMessages) {
-    const result = await syncOutboundCorrespondence(account, message);
+    const result = await syncOutboundCorrespondence(account, accessToken, message);
     if (result === "linked") enviosVinculados += 1;
     if (result === "unlinked") enviosSinExpediente += 1;
     if (result === "duplicate") enviosDuplicados += 1;
+  }
+  let respuestasCompletadas = 0;
+  if (account.enviosBaselineCompletedAt) {
+    try {
+      respuestasCompletadas = await backfillDetectedResponses(account, accessToken);
+    } catch (error) {
+      functions.logger.warn("correo.outbound.backfill", {
+        cuentaId: account.id,
+        error: `${error}`,
+      });
+    }
   }
   // Primero conciliar Enviados; después decidir si el aviso todavía aplica.
   for (const pending of pendingAlerts) {
@@ -2187,6 +2461,7 @@ async function processAccount(account: GmailAccount): Promise<Record<string, num
     enviosVinculados,
     enviosSinExpediente,
     enviosDuplicados,
+    respuestasCompletadas,
     scanned: messages.length,
     outboundScanned: outboundMessages.length,
   };
