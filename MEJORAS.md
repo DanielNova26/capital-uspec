@@ -44,9 +44,9 @@ carpetas.
     eliminar. Nada de enviar a revisión, aprobar, firmar ni marcar vigente.
   - Quien no tiene rol documental ve solo vigentes, así que estos documentos
     quedan visibles para todos desde que se cargan.
-- El flujo de formatos (check único) queda pendiente de una revisión
-  posterior: debe ser menos cíclico y coordinarse con el Excel base y su
-  encabezado.
+- Flujo de formatos (revisado 14 sep): crear registro → descargar
+  plantilla con encabezado → armar contenido y subir → Calidad da el check.
+  Solo vuelve atrás si Calidad observa.
 - `actualizarClasificacionBiblioteca`: edita carpeta/alias/código externo de
   un documento ya cargado sin tocar archivo ni versión. Solo el creador o
   admin_doc/desarrollador; en contrato la carpeta es obligatoria, en
@@ -73,11 +73,41 @@ carpetas.
   de 3 pasos (Creación → Revisión → Validado) para formatos y botón
   **VALIDAR FORMATO** en lugar de "Aprobar revisión".
 
-**Plantilla Excel** (`assets/templates/plantilla_formato_institucional_base.xlsx`)
-- Provisional. Encabezado con sello/logo a la izquierda, nombre del formato al
-  centro, dependencia debajo, versión y fecha a los lados, y un área editable
-  de contenido. Colores corporativos y plantilla oficial pendientes de Oscar
-  (compromiso de la reunión).
+**Plantilla Excel generada por registro** (`gd_formato_plantilla.dart`)
+- Daniel (14 sep): el encabezado debe ser uno solo y que "nadie lo pueda
+  dañar"; el logo sale de la app. Se retiró el Excel suelto de Codex
+  (`assets/templates/...`, botón "DESCARGAR EXCEL BASE") y en su lugar el
+  detalle de cada formato tiene **PLANTILLA EXCEL CON ENCABEZADO**
+  (`GdService.generarPlantillaFormato`), visible para cualquier rol
+  documental.
+- El `.xlsx` se escribe como OOXML a mano (zip con `archive`): el paquete
+  `excel` no inserta imágenes ni protege hojas. Estructura fija:
+  - Filas 1-5: logo de la empresa (`TBL_EMPRESAS.logoUrl`, PNG o JPEG,
+    centrado sin deformar en A1:B5; si no hay o falla la descarga, va el
+    nombre de la empresa), nombre del formato (C1:G3), dependencia (C4:G4),
+    empresa (C5:G5) y a la derecha Versión / Aprobado / Fecha / Código /
+    Empresa. "Aprobado" dice *Pendiente de validación* hasta que el formato
+    esté vigente; después lleva nombre (nunca cédula) y fecha del check.
+  - Fila 6: separador. Paneles congelados en A7.
+  - **Protección de hoja** con clave `kGdPlantillaClaveHoja`
+    (`CALIDAD-USPEC`, hash heredado de Excel, verificado contra openpyxl).
+    Encabezado bloqueado y no seleccionable (así tampoco se le insertan
+    filas). Todo lo demás desbloqueado —estilo Normal y xf 0 con
+    `locked=0`— y con permiso de formato, filas, ordenar y filtrar, para que
+    cada dependencia arme el contenido a su gusto. Insertar columnas y
+    tablas dinámicas quedan bloqueados.
+  - Colores: `kGdPlantillaColorPrimario` / `Secundario` (provisionales);
+    `TBL_EMPRESAS.colorPrimario` / `colorSecundario` (hex) los reemplazan por
+    empresa cuando Oscar entregue los corporativos.
+- Descarga con `FileSaver` (web y móvil); nombre `LOG-001_Acta_de_baja_v1.xlsx`.
+- Pruebas: `test/gestion_documental/gd_formato_plantilla_test.dart` (hash de
+  clave, bloqueo, merges, logo, escape XML, nombre). Además se abrió un
+  archivo generado con openpyxl: protección, clave, merges, imagen y
+  paneles correctos.
+- Límite conocido: el archivo que el usuario sube después NO se reescribe
+  (el paquete `excel` daña formato ajeno). El sello de validación real vive
+  en la app; si hace falta el aprobador impreso, la plantilla se vuelve a
+  descargar ya vigente y sale con nombre y fecha en "Aprobado".
 
 **Pendiente / decisiones abiertas**
 - Reglas de Firestore: `TBL_GD_DOCUMENTOS`, `TBL_GD_VERSIONES` y

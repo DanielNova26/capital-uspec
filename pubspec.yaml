@@ -113,5 +113,4 @@ flutter:
     - assets/icons/security_shield.svg
     - assets/seeds/catalogos_base.xlsx
     - assets/seeds/plantilla_personal_talento_humano.xlsx
-    - assets/templates/plantilla_formato_institucional_base.xlsx
     - assets/diagnosticos_template.xlsx

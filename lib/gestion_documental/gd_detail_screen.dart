@@ -3,6 +3,7 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -596,6 +597,17 @@ class _GdDetailScreenState extends State<GdDetailScreen>
                 ),
             ],
           ),
+          if (rolDocumental != null &&
+              gdIsInstitutionalFormat(doc.categoria)) ...[
+            const SizedBox(height: 18),
+            OutlinedButton.icon(
+              onPressed: _loadingAction
+                  ? null
+                  : () => _downloadFormatTemplate(doc),
+              icon: const Icon(Icons.table_view_outlined, size: 18),
+              label: const Text('PLANTILLA EXCEL CON ENCABEZADO'),
+            ),
+          ],
           if (GdRoles.puedeEjecutar('subir_pdf', rolDocumental) &&
               (doc.creadoPor == widget.userId ||
                   rolDocumental == GdRoles.adminDoc ||
@@ -1870,6 +1882,28 @@ class _GdDetailScreenState extends State<GdDetailScreen>
         );
       },
     );
+  }
+
+  /// Plantilla con el encabezado bloqueado. Está para cualquiera con rol
+  /// documental: quien redacta la baja para armar el formato, y Calidad para
+  /// cotejar el encabezado.
+  Future<void> _downloadFormatTemplate(DocumentoDoc doc) async {
+    await _handleAction(() async {
+      final (bytes, fileName) = await _service.generarPlantillaFormato(
+        docId: doc.docId,
+        empresaId: widget.empresaId,
+      );
+      await FileSaver.instance.saveFile(
+        name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
+        bytes: bytes,
+        fileExtension: 'xlsx',
+        mimeType: MimeType.microsoftExcel,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Plantilla descargada: $fileName')),
+      );
+    });
   }
 
   Future<void> _handleAction(Future<void> Function() action) async {

@@ -1,8 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../core/guarded_module_page.dart';
 import '../utils/user_company.dart';
@@ -39,7 +37,6 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   List<DocumentoDoc> _knownDocuments = const [];
   bool _selectionMode = false;
   bool _deletingSelection = false;
-  bool _downloadingTemplate = false;
   final Set<String> _selectedDocIds = <String>{};
 
   @override
@@ -362,30 +359,6 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
     });
   }
 
-  Future<void> _downloadFormatTemplate() async {
-    if (_downloadingTemplate) return;
-    setState(() => _downloadingTemplate = true);
-    try {
-      final data = await rootBundle.load(
-        'assets/templates/plantilla_formato_institucional_base.xlsx',
-      );
-      await FileSaver.instance.saveFile(
-        name: 'plantilla_formato_institucional_base',
-        bytes: data.buffer.asUint8List(),
-        fileExtension: 'xlsx',
-        mimeType: MimeType.microsoftExcel,
-      );
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo descargar la plantilla: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _downloadingTemplate = false);
-    }
-  }
-
   Widget _buildWebWorkspace({
     required List<DocumentoDoc> allDocs,
     required List<DocumentoDoc> sectionDocs,
@@ -602,20 +575,6 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                       color: GdPalette.muted,
                     ),
                   ),
-                  if (_selectedSection == GdLibrarySection.formatos) ...[
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: _downloadingTemplate
-                          ? null
-                          : _downloadFormatTemplate,
-                      icon: const Icon(Icons.download_outlined, size: 18),
-                      label: Text(
-                        _downloadingTemplate
-                            ? 'DESCARGANDO...'
-                            : 'DESCARGAR EXCEL BASE',
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -676,7 +635,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
 
   String _sectionDescription(GdLibrarySection section) => switch (section) {
     GdLibrarySection.formatos =>
-      'Modelos oficiales para descargar y usar, con código, versión y aprobación de Calidad.',
+      'Cada formato nace con su registro; desde ahí se descarga la plantilla Excel con el encabezado bloqueado (logo, nombre, código, versión) y Calidad lo valida con un check.',
     GdLibrarySection.contrato =>
       'Documentos ya existentes, publicados al cargarlos, organizados por carpetas temáticas y localizables por nombre, alias o código externo.',
     GdLibrarySection.normograma =>

@@ -35,7 +35,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'gd_models.dart';
+import 'gd_formato_plantilla.dart';
 import 'gd_library_logic.dart';
+import '../core/user_directory.dart';
 import '../services/task_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -584,6 +586,74 @@ class GdService {
         'aprobadoEn': FieldValue.serverTimestamp(),
       },
     );
+  }
+
+  /// Plantilla Excel del formato con el encabezado bloqueado: logo y nombre
+  /// de la empresa, nombre del formato, dependencia, código, versión, fecha
+  /// y, si ya pasó por Calidad, quién lo validó y cuándo. Devuelve los bytes
+  /// y el nombre de archivo sugerido.
+  Future<(Uint8List, String)> generarPlantillaFormato({
+    required String docId,
+    required String empresaId,
+  }) async {
+    final docSnap = await _docCol.doc(docId).get();
+    final data = docSnap.data();
+    if (data == null || data['empresaId'] != empresaId) {
+      throw const GdException('El formato no existe en la empresa activa.');
+    }
+    if (!gdIsInstitutionalFormat(data['categoria']?.toString())) {
+      throw const GdException(
+        'Solo los formatos institucionales usan plantilla con encabezado.',
+      );
+    }
+    final empresaSnap = await _db
+        .collection('TBL_EMPRESAS')
+        .doc(empresaId)
+        .get();
+    final empresa = empresaSnap.data() ?? const <String, dynamic>{};
+
+    // El logo es opcional: si falla la descarga, la plantilla sale con el
+    // nombre de la empresa en su lugar.
+    Uint8List? logo;
+    final logoUrl = (empresa['logoUrl'] ?? '').toString().trim();
+    if (logoUrl.isNotEmpty) {
+      try {
+        final response = await http
+            .get(Uri.parse(logoUrl))
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode == 200) logo = response.bodyBytes;
+      } catch (e) {
+        debugPrint('[GdService] Logo no disponible para la plantilla: $e');
+      }
+    }
+
+    String? aprobadoPor;
+    DateTime? aprobadoEn;
+    final aprobadorId = (data['aprobadoPor'] ?? '').toString().trim();
+    if (data['estado'] == GdEstado.vigente.valor && aprobadorId.isNotEmpty) {
+      final info = await UserDirectory.instance.resolve(aprobadorId);
+      // Nunca la cédula en el papel: si no hay nombre, queda el área.
+      aprobadoPor = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
+      aprobadoEn = (data['aprobadoEn'] as Timestamp?)?.toDate();
+    }
+
+    final datos = GdPlantillaFormatoDatos(
+      empresaNombre: (empresa['nombre'] ?? '').toString().trim(),
+      titulo: (data['titulo'] ?? '').toString(),
+      codigo: (data['codigo'] ?? '').toString(),
+      dependencia: (data['area'] ?? '').toString(),
+      version: (data['versionActual'] ?? 'v1').toString(),
+      fecha: DateTime.now(),
+      aprobadoPor: aprobadoPor,
+      aprobadoEn: aprobadoEn,
+      logo: logo,
+      colorPrimario: (empresa['colorPrimario'] ?? kGdPlantillaColorPrimario)
+          .toString(),
+      colorSecundario:
+          (empresa['colorSecundario'] ?? kGdPlantillaColorSecundario)
+              .toString(),
+    );
+    return (gdGenerarPlantillaFormato(datos), gdNombreArchivoPlantilla(datos));
   }
 
   /// Calidad valida y publica un formato institucional con un único check.
