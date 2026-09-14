@@ -1,2 +1,3 @@
 node_modules/
-*.locallib-deploy/
+*.local
+lib-deploy/
