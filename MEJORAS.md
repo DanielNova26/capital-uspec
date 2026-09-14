@@ -97,17 +97,31 @@ carpetas.
     cada dependencia arme el contenido a su gusto. Insertar columnas y
     tablas dinámicas quedan bloqueados.
   - Colores: `kGdPlantillaColorPrimario` / `Secundario` (provisionales);
-    `TBL_EMPRESAS.colorPrimario` / `colorSecundario` (hex) los reemplazan por
-    empresa cuando Oscar entregue los corporativos.
+    `TBL_EMPRESAS.colorPrimario` / `colorSecundario` (hex de 6 dígitos sin
+    `#`) los reemplazan por empresa. **Admin → Editar empresa** tiene ahora
+    la sección "Colores corporativos" con los dos campos y una vista previa
+    del encabezado; vacío = defecto, y un hex inválido no se guarda.
 - Descarga con `FileSaver` (web y móvil); nombre `LOG-001_Acta_de_baja_v1.xlsx`.
 - Pruebas: `test/gestion_documental/gd_formato_plantilla_test.dart` (hash de
   clave, bloqueo, merges, logo, escape XML, nombre). Además se abrió un
   archivo generado con openpyxl: protección, clave, merges, imagen y
   paneles correctos.
-- Límite conocido: el archivo que el usuario sube después NO se reescribe
-  (el paquete `excel` daña formato ajeno). El sello de validación real vive
-  en la app; si hace falta el aprobador impreso, la plantilla se vuelve a
-  descargar ya vigente y sale con nombre y fecha en "Aprobado".
+- **Sello dentro del archivo subido** (`gdSellarPlantillaValidada`): Daniel
+  pidió revisar si de verdad era imposible. No lo es: re-serializar el libro
+  entero con `excel` sí lo daña, pero cambiar UNA celda del XML de la hoja
+  dentro del zip (igual que Planillas hace con `styles.xml`) deja todo lo
+  demás byte a byte. Al dar el check, `validarFormatoInstitucional` descarga
+  el `.xlsx`, escribe "Nombre · dd/mm/aaaa HH:mm" en la celda *Aprobado*
+  (I2, que está bloqueada y por eso siempre está ahí), sube el resultado como
+  `validado_<nombre>` y lo deja como archivo de la versión; el original
+  queda en `archivoOriginalUrl/Path`. Reconoce la hoja por la clave de
+  protección o, si la desprotegieron, por la combinación C1:G3; acepta la
+  celda como inlineStr (nuestra) o como sharedString (como la deja Excel).
+  Si el archivo es PDF/Word, no conserva el encabezado o falla la red, el
+  check sigue igual y el motivo queda en el evento
+  (`selloEnArchivo`, `selloDetalle`). Probado con un archivo re-guardado por
+  openpyxl con contenido y combinaciones del usuario: sello escrito,
+  contenido intacto, protección intacta.
 
 **Pendiente / decisiones abiertas**
 - Reglas de Firestore: `TBL_GD_DOCUMENTOS`, `TBL_GD_VERSIONES` y

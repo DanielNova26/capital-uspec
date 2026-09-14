@@ -9015,9 +9015,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
         )
         ? empresa.notificacionColor.toUpperCase()
         : '#2563EB';
+    String colorPrimario = empresa.colorPrimario.trim();
+    String colorSecundario = empresa.colorSecundario.trim();
     Uint8List? logoBytes;
     String? logoFileName;
     String? logoContentType;
+
+    // Vista previa del encabezado de los formatos con los colores escritos.
+    Color? hexColor(String valor) {
+      final limpio = valor.trim().replaceAll('#', '');
+      if (!RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(limpio)) return null;
+      return Color(int.parse('FF$limpio', radix: 16));
+    }
 
     await showDialog(
       context: context,
@@ -9316,6 +9325,125 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           ),
                         ),
                       ),
+                      const SizedBox(height: 18),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Colores corporativos',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontWeight: FontWeight.w900,
+                            color: kAdminPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Van en el encabezado de la plantilla Excel de los formatos institucionales. Hex de 6 dígitos; vacío usa los colores por defecto.',
+                          style: TextStyle(
+                            fontFamily: kArial,
+                            fontSize: 12,
+                            color: kAdminMuted,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              initialValue: colorPrimario,
+                              decoration: const InputDecoration(
+                                labelText: 'Color primario',
+                                hintText: '1F3A5F',
+                                prefixText: '# ',
+                                border: OutlineInputBorder(),
+                              ),
+                              style: const TextStyle(fontFamily: kArial),
+                              onChanged: (v) =>
+                                  setLocal(() => colorPrimario = v.trim()),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextFormField(
+                              initialValue: colorSecundario,
+                              decoration: const InputDecoration(
+                                labelText: 'Color secundario',
+                                hintText: 'E8EEF5',
+                                prefixText: '# ',
+                                border: OutlineInputBorder(),
+                              ),
+                              style: const TextStyle(fontFamily: kArial),
+                              onChanged: (v) =>
+                                  setLocal(() => colorSecundario = v.trim()),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Builder(
+                        builder: (_) {
+                          final p =
+                              hexColor(colorPrimario) ?? const Color(0xFF1F3A5F);
+                          final s =
+                              hexColor(colorSecundario) ??
+                              const Color(0xFFE8EEF5);
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 70,
+                                  height: 44,
+                                  color: s,
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    'Logo',
+                                    style: TextStyle(
+                                      fontFamily: kArial,
+                                      fontSize: 11,
+                                      color: p,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Container(
+                                    height: 44,
+                                    color: p,
+                                    alignment: Alignment.center,
+                                    child: const Text(
+                                      'Nombre del formato',
+                                      style: TextStyle(
+                                        fontFamily: kArial,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  width: 90,
+                                  height: 44,
+                                  color: s,
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    'Versión · Fecha',
+                                    style: TextStyle(
+                                      fontFamily: kArial,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: p,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -9339,6 +9467,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       _snack('El nombre de la empresa es obligatorio');
                       return;
                     }
+                    for (final c in [colorPrimario, colorSecundario]) {
+                      if (c.trim().isNotEmpty && hexColor(c) == null) {
+                        _snack('Color inválido: usa 6 dígitos hex, ej. 1F3A5F');
+                        return;
+                      }
+                    }
                     await _repo.updateEmpresaPerfil(
                       empresaId: empresa.empresaId,
                       nombre: nombre,
@@ -9350,6 +9484,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                       notificacionNombreCorto: notificacionNombreCorto,
                       notificacionEmoji: notificacionEmoji,
                       notificacionColor: notificacionColor,
+                      colorPrimario: colorPrimario,
+                      colorSecundario: colorSecundario,
                       logoBytes: logoBytes,
                       logoFileName: logoFileName,
                       logoContentType: logoContentType,

@@ -540,3 +540,92 @@ String _hex(String valor, String defecto) {
 }
 
 double _min(double a, double b) => a < b ? a : b;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sello de validación sobre el archivo que subió el usuario
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Escribe "quién · cuándo" en la celda *Aprobado* (I2) del archivo que el
+/// usuario subió, sin re-serializar el libro: se abre el zip, se cambia esa
+/// única celda en el XML de la hoja y se vuelve a cerrar. Todo lo demás
+/// (formato del contenido, imágenes, fórmulas) queda byte a byte igual.
+///
+/// Devuelve los bytes nuevos, o `null` con el motivo cuando el archivo no es
+/// un `.xlsx` que conserve el encabezado de la plantilla.
+({Uint8List? bytes, String detalle}) gdSellarPlantillaValidada(
+  Uint8List xlsx, {
+  required String aprobadoPor,
+  required DateTime aprobadoEn,
+}) {
+  Archive archive;
+  try {
+    archive = ZipDecoder().decodeBytes(xlsx, verify: true);
+  } catch (_) {
+    return (bytes: null, detalle: 'El archivo no es un .xlsx legible.');
+  }
+
+  // La hoja de la plantilla: la que sigue protegida con nuestra clave o, si
+  // la desprotegieron, la que conserva la combinación del título (C1:G3).
+  final hash = gdHashClaveHoja(kGdPlantillaClaveHoja);
+  ArchiveFile? hoja;
+  String? xml;
+  for (final criterio in ['password="$hash"', '<mergeCell ref="C1:G3"/>']) {
+    for (final f in archive.files) {
+      if (!f.isFile || !f.name.startsWith('xl/worksheets/sheet')) continue;
+      final texto = utf8.decode(f.content as List<int>, allowMalformed: true);
+      if (texto.contains(criterio)) {
+        hoja = f;
+        xml = texto;
+        break;
+      }
+    }
+    if (hoja != null) break;
+  }
+  if (hoja == null || xml == null) {
+    return (
+      bytes: null,
+      detalle: 'El archivo no conserva el encabezado de la plantilla.',
+    );
+  }
+
+  String dos(int n) => n.toString().padLeft(2, '0');
+  final texto =
+      '${aprobadoPor.trim()} · ${_fecha(aprobadoEn)} ${dos(aprobadoEn.hour)}:${dos(aprobadoEn.minute)}';
+  String celda(String estilo) =>
+      '<c r="I2"$estilo t="inlineStr"><is><t xml:space="preserve">${_esc(texto)}</t></is></c>';
+
+  // La celda puede venir como la escribimos (inlineStr) o como la deja Excel
+  // al guardar (t="s" con índice a sharedStrings); se conserva su estilo.
+  final celdaI2 = RegExp(r'<c r="I2"(\s[^>]*?)?(?:/>|>.*?</c>)', dotAll: true);
+  String nuevoXml;
+  final m = celdaI2.firstMatch(xml);
+  if (m != null) {
+    final attrs = m.group(1) ?? '';
+    final s = RegExp(r'\ss="\d+"').firstMatch(attrs)?.group(0) ?? '';
+    nuevoXml = xml.replaceRange(m.start, m.end, celda(s));
+  } else {
+    // Sin celda I2 (raro: está bloqueada), se cuelga detrás de la etiqueta.
+    final h2 = RegExp(r'<c r="H2"(\s[^>]*?)?(?:/>|>.*?</c>)', dotAll: true)
+        .firstMatch(xml);
+    if (h2 == null) {
+      return (bytes: null, detalle: 'No se encontró la celda "Aprobado".');
+    }
+    final s = RegExp(r'\ss="\d+"').firstMatch(h2.group(1) ?? '')?.group(0) ?? '';
+    nuevoXml = xml.replaceRange(h2.end, h2.end, celda(s));
+  }
+
+  final salida = Archive();
+  for (final f in archive.files) {
+    if (f.name == hoja.name) {
+      final encoded = utf8.encode(nuevoXml);
+      salida.addFile(ArchiveFile(f.name, encoded.length, encoded));
+    } else {
+      salida.addFile(f);
+    }
+  }
+  final zipped = ZipEncoder().encode(salida);
+  if (zipped == null) {
+    return (bytes: null, detalle: 'No se pudo volver a empaquetar el archivo.');
+  }
+  return (bytes: Uint8List.fromList(zipped), detalle: 'Sello escrito en I2.');
+}

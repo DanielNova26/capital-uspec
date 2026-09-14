@@ -30,6 +30,7 @@ Map<String, String> _partes(Uint8List xlsx) {
 }
 
 void main() {
+  _selloTests();
   group('plantilla Excel de formato institucional', () {
     test('la clave de hoja usa el mismo hash que Excel/openpyxl', () {
       expect(gdHashClaveHoja('CALIDAD-USPEC'), '88EA');
@@ -137,6 +138,82 @@ void main() {
         ),
         'LOG-001_Acta_de_baja_mercancía_v1.xlsx',
       );
+    });
+  });
+}
+
+void _selloTests() {
+  group('sello de validación sobre el archivo subido', () {
+    final base = GdPlantillaFormatoDatos(
+      empresaNombre: 'UT Alfa',
+      titulo: 'Acta de baja',
+      codigo: 'LOG-001',
+      dependencia: 'Logística',
+      version: 'v1',
+      fecha: DateTime(2026, 9, 14),
+    );
+
+    test('escribe quién y cuándo en I2 y no toca nada más', () {
+      final original = gdGenerarPlantillaFormato(base);
+      final r = gdSellarPlantillaValidada(
+        original,
+        aprobadoPor: 'María Pérez',
+        aprobadoEn: DateTime(2026, 9, 15, 10, 5),
+      );
+      expect(r.bytes, isNotNull, reason: r.detalle);
+      final antes = _partes(original);
+      final despues = _partes(r.bytes!);
+      final hoja = despues['xl/worksheets/sheet1.xml']!;
+      expect(hoja, contains('<c r="I2" s="5" t="inlineStr"><is><t xml:space="preserve">María Pérez · 15/09/2026 10:05</t></is></c>'));
+      expect(hoja, isNot(contains('Pendiente de validación')));
+      expect(hoja, contains('password="88EA"'));
+      // Las demás partes quedan idénticas.
+      for (final k in antes.keys.where((k) => !k.endsWith('sheet1.xml'))) {
+        expect(despues[k], antes[k], reason: k);
+      }
+    });
+
+    test('acepta la celda como la guarda Excel (sharedStrings)', () {
+      final original = gdGenerarPlantillaFormato(base);
+      final archive = ZipDecoder().decodeBytes(original);
+      final salida = Archive();
+      for (final f in archive.files) {
+        if (f.name == 'xl/worksheets/sheet1.xml') {
+          var xml = utf8.decode(f.content as List<int>);
+          xml = xml.replaceFirst(
+            RegExp(r'<c r="I2"[^>]*>.*?</c>'),
+            '<c r="I2" s="5" t="s"><v>3</v></c>',
+          );
+          final b = utf8.encode(xml);
+          salida.addFile(ArchiveFile(f.name, b.length, b));
+        } else {
+          salida.addFile(f);
+        }
+      }
+      final guardadoPorExcel = Uint8List.fromList(ZipEncoder().encode(salida)!);
+      final r = gdSellarPlantillaValidada(
+        guardadoPorExcel,
+        aprobadoPor: 'Calidad',
+        aprobadoEn: DateTime(2026, 9, 15, 8, 0),
+      );
+      expect(r.bytes, isNotNull, reason: r.detalle);
+      expect(_partes(r.bytes!)['xl/worksheets/sheet1.xml'], contains('Calidad · 15/09/2026 08:00'));
+      expect(_partes(r.bytes!)['xl/worksheets/sheet1.xml'], isNot(contains('<v>3</v>')));
+    });
+
+    test('rechaza lo que no es la plantilla', () {
+      final noEsZip = Uint8List.fromList(List.filled(100, 1));
+      expect(gdSellarPlantillaValidada(noEsZip, aprobadoPor: 'x', aprobadoEn: DateTime(2026)).bytes, isNull);
+
+      final ajeno = Archive()
+        ..addFile(ArchiveFile('xl/worksheets/sheet1.xml', 30, utf8.encode('<worksheet><sheetData/></worksheet>')));
+      final r = gdSellarPlantillaValidada(
+        Uint8List.fromList(ZipEncoder().encode(ajeno)!),
+        aprobadoPor: 'x',
+        aprobadoEn: DateTime(2026),
+      );
+      expect(r.bytes, isNull);
+      expect(r.detalle, contains('no conserva el encabezado'));
     });
   });
 }

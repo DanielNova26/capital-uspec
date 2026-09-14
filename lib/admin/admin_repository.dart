@@ -21,6 +21,12 @@ class EmpresaItem {
   final String notificacionEmoji;
   final String notificacionColor;
 
+  /// Colores corporativos (hex de 6 dígitos, sin `#`). Hoy los usa el
+  /// encabezado de la plantilla Excel de formatos institucionales; vacío =
+  /// los provisionales de `gd_formato_plantilla.dart`.
+  final String colorPrimario;
+  final String colorSecundario;
+
   const EmpresaItem({
     required this.empresaId,
     required this.nombre,
@@ -34,6 +40,8 @@ class EmpresaItem {
     this.notificacionNombreCorto = '',
     this.notificacionEmoji = '🏢',
     this.notificacionColor = '#2563EB',
+    this.colorPrimario = '',
+    this.colorSecundario = '',
   });
 }
 
@@ -186,6 +194,10 @@ class AdminRepository {
             notificacionColor: (data['notificacionColor'] ?? '#2563EB')
                 .toString()
                 .trim(),
+            colorPrimario: (data['colorPrimario'] ?? '').toString().trim(),
+            colorSecundario: (data['colorSecundario'] ?? '')
+                .toString()
+                .trim(),
           ),
         );
       }
@@ -205,6 +217,8 @@ class AdminRepository {
     String? notificacionNombreCorto,
     String? notificacionEmoji,
     String? notificacionColor,
+    String? colorPrimario,
+    String? colorSecundario,
     Uint8List? logoBytes,
     String? logoFileName,
     String? logoContentType,
@@ -213,6 +227,18 @@ class AdminRepository {
     if (eid.isEmpty) {
       throw ArgumentError('empresaId es obligatorio');
     }
+    // Se guardan como hex de 6 dígitos sin `#`, o vacío para "sin color".
+    String hexLimpio(String? valor) {
+      final limpio = (valor ?? '').trim().replaceAll('#', '').toUpperCase();
+      if (limpio.isEmpty) return '';
+      if (!RegExp(r'^[0-9A-F]{6}$').hasMatch(limpio)) {
+        throw ArgumentError('Color inválido: usa 6 dígitos hex, ej. 1F3A5F');
+      }
+      return limpio;
+    }
+
+    final primario = hexLimpio(colorPrimario);
+    final secundario = hexLimpio(colorSecundario);
 
     String? logoUrl;
     String? logoPath;
@@ -243,6 +269,8 @@ class AdminRepository {
       'notificacionNombreCorto': (notificacionNombreCorto ?? '').trim(),
       'notificacionEmoji': (notificacionEmoji ?? '🏢').trim(),
       'notificacionColor': (notificacionColor ?? '#2563EB').trim(),
+      'colorPrimario': primario,
+      'colorSecundario': secundario,
       if (logoUrl != null) 'logoUrl': logoUrl,
       if (logoPath != null) 'logoPath': logoPath,
       'updatedAt': FieldValue.serverTimestamp(),

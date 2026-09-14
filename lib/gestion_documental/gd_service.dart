@@ -693,6 +693,20 @@ class GdService {
         .where('esVigente', isEqualTo: true)
         .limit(1)
         .get();
+
+    // Sello dentro del archivo: si es el .xlsx de la plantilla, se escribe
+    // "quién · cuándo" en la celda Aprobado y se sube como archivo de la
+    // versión (el original queda en Storage como respaldo). Si no se puede
+    // —PDF, Word, encabezado dañado, red— el check sigue igual y el motivo
+    // queda en el historial.
+    final sello = await _sellarArchivoValidado(
+      empresaId: empresaId,
+      docId: docId,
+      verData: verData,
+      actorId: actorId,
+      nombreActor: nombreActor,
+    );
+
     final now = FieldValue.serverTimestamp();
     final batch = _db.batch();
     if (previous.docs.isNotEmpty && previous.docs.first.id != versionId) {
@@ -708,6 +722,12 @@ class GdService {
       'aprobadoEn': now,
       'validadoPor': actorId,
       'validadoEn': now,
+      if (sello.url != null) ...{
+        'urlPdf': sello.url,
+        'pathPdf': sello.path,
+        'archivoOriginalUrl': verData['urlPdf'],
+        'archivoOriginalPath': verData['pathPdf'],
+      },
     });
     batch.update(docSnap.reference, {
       'estado': GdEstado.vigente.valor,
@@ -735,8 +755,63 @@ class GdService {
       accion: GdAccion.formato_validado,
       actorId: actorId,
       nombreActor: nombreActor,
-      metadatos: {'sello': 'Formato validado'},
+      metadatos: {
+        'sello': 'Formato validado',
+        'selloEnArchivo': sello.url != null,
+        'selloDetalle': sello.detalle,
+      },
     );
+  }
+
+  /// Descarga el archivo de la versión, le escribe el sello en el
+  /// encabezado (solo .xlsx de la plantilla) y sube el resultado.
+  Future<({String? url, String? path, String detalle})> _sellarArchivoValidado({
+    required String empresaId,
+    required String docId,
+    required Map<String, dynamic> verData,
+    required String actorId,
+    String? nombreActor,
+  }) async {
+    final nombre = (verData['nombreArchivo'] ?? '').toString();
+    if (!nombre.toLowerCase().endsWith('.xlsx')) {
+      return (url: null, path: null, detalle: 'El archivo no es .xlsx.');
+    }
+    try {
+      final response = await http
+          .get(Uri.parse(verData['urlPdf'].toString()))
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) {
+        return (
+          url: null,
+          path: null,
+          detalle: 'No se pudo descargar el archivo (${response.statusCode}).',
+        );
+      }
+      var quien = (nombreActor ?? '').trim();
+      if (quien.isEmpty) {
+        final info = await UserDirectory.instance.resolve(actorId);
+        quien = info.nombre.trim().isEmpty ? 'Calidad' : info.nombre.trim();
+      }
+      final sello = gdSellarPlantillaValidada(
+        response.bodyBytes,
+        aprobadoPor: quien,
+        aprobadoEn: DateTime.now(),
+      );
+      if (sello.bytes == null) {
+        return (url: null, path: null, detalle: sello.detalle);
+      }
+      final (url, path) = await _subirArchivoBytes(
+        empresaId: empresaId,
+        docId: docId,
+        numero: (verData['numero'] as int?) ?? 1,
+        bytes: sello.bytes!,
+        nombre: 'validado_$nombre',
+      );
+      return (url: url, path: path, detalle: sello.detalle);
+    } catch (e) {
+      debugPrint('[GdService] Sello en archivo falló: $e');
+      return (url: null, path: null, detalle: 'Error al sellar: $e');
+    }
   }
 
   /// Firma internamente el documento aprobado.
