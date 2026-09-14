@@ -123,15 +123,36 @@ class _EditLibraryMetadataDialogState
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isContract) ...[
-                TextFormField(
-                  controller: _folderController,
-                  decoration: const InputDecoration(
-                    labelText: 'Carpeta temática',
-                    hintText: 'Ej: Legales, Nutricionales, Jurídicas',
+                // Carpetas fijas del jefe como sugerencia; se puede escribir
+                // otra distinta.
+                Autocomplete<String>(
+                  initialValue: TextEditingValue(
+                    text: widget.document.carpeta ?? '',
                   ),
-                  validator: (value) => (value ?? '').trim().isEmpty
-                      ? 'Indica una carpeta'
-                      : null,
+                  optionsBuilder: (value) {
+                    final q = value.text.trim().toLowerCase();
+                    return gdContractFolders.where(
+                      (c) => q.isEmpty || c.toLowerCase().contains(q),
+                    );
+                  },
+                  onSelected: (value) => _folderController.text = value,
+                  fieldViewBuilder:
+                      (context, controller, focusNode, onFieldSubmitted) {
+                        controller.addListener(
+                          () => _folderController.text = controller.text,
+                        );
+                        return TextFormField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          decoration: const InputDecoration(
+                            labelText: 'Carpeta',
+                            hintText: 'Ej: Documentos básicos',
+                          ),
+                          validator: (value) => (value ?? '').trim().isEmpty
+                              ? 'Indica una carpeta'
+                              : null,
+                        );
+                      },
                 ),
                 const SizedBox(height: 12),
               ],
@@ -140,12 +161,12 @@ class _EditLibraryMetadataDialogState
                 decoration: InputDecoration(
                   labelText: isContract
                       ? 'Código externo o resolución'
-                      : 'Número de ley o norma',
+                      : 'Número de ley o resolución',
                 ),
                 validator: isContract
                     ? null
                     : (value) => (value ?? '').trim().isEmpty
-                          ? 'Indica el número de la norma'
+                          ? 'Indica el número de la ley o resolución'
                           : null,
               ),
               const SizedBox(height: 12),
@@ -578,7 +599,8 @@ class _GdDetailScreenState extends State<GdDetailScreen>
             children: [
               _buildInfoItem('Codigo', doc.codigo),
               _buildInfoItem('Categoria', doc.categoria ?? '-'),
-              _buildInfoItem('Area', doc.area ?? '-'),
+              if ((doc.area ?? '').trim().isNotEmpty)
+                _buildInfoItem('Área', doc.area!),
               if ((doc.carpeta ?? '').trim().isNotEmpty)
                 _buildInfoItem('Carpeta', doc.carpeta!),
               if ((doc.codigoExterno ?? '').trim().isNotEmpty)

@@ -11,6 +11,7 @@ const List<String> gdFormatCategories = [
 
 const List<String> gdContractCategories = [
   'Documento contractual',
+  'Documentacion interna',
   'RUT',
   'Certificado de existencia',
   'Certificacion bancaria',
@@ -18,6 +19,18 @@ const List<String> gdContractCategories = [
   'Anexo',
   'Otrosi',
   'Circular externa',
+];
+
+/// Carpetas fijas de los documentos del contrato (estructura que entregó el
+/// jefe el 14 sep 2026). Se ofrecen siempre; además se puede escribir otra.
+const List<String> gdContractFolders = [
+  'Documentos básicos',
+  'Documentos precontractuales',
+  'Documentos presentados en licitación',
+  'Normas aplicables',
+  'Formatos',
+  'Correspondencia enviada',
+  'Imagen corporativa',
 ];
 
 const List<String> gdNormogramCategories = [
@@ -69,11 +82,44 @@ List<String> gdNormalizeKeywords(String raw) {
   return result;
 }
 
-String gdNextDocumentCode({
+/// Prefijo del código según la sección: los formatos lo toman del área
+/// responsable; contrato y normograma, del tipo de documento (ahí el área no
+/// es obligatoria ni necesaria).
+String gdCodePrefixFor({
+  required GdLibrarySection section,
   required String area,
+  required String categoria,
+}) => switch (section) {
+  GdLibrarySection.formatos => gdDepartmentPrefix(area),
+  GdLibrarySection.contrato ||
+  GdLibrarySection.normograma => gdCategoryPrefix(categoria),
+};
+
+/// Prefijo de tres letras para un tipo de documento de contrato o norma.
+String gdCategoryPrefix(String rawCategory) {
+  const known = <String, String>{
+    'documento contractual': 'DOC',
+    'documentacion interna': 'DIN',
+    'rut': 'RUT',
+    'certificado de existencia': 'CEX',
+    'certificacion bancaria': 'CBA',
+    'contrato': 'CTR',
+    'anexo': 'ANX',
+    'otrosi': 'OTR',
+    'circular externa': 'CIE',
+    'norma aplicable': 'NOR',
+    'ley': 'LEY',
+    'decreto': 'DEC',
+    'resolucion': 'RES',
+    'circular normativa': 'CIN',
+  };
+  return known[_normalize(rawCategory)] ?? gdDepartmentPrefix(rawCategory);
+}
+
+String gdNextDocumentCode({
+  required String prefix,
   required Iterable<String> existingCodes,
 }) {
-  final prefix = gdDepartmentPrefix(area);
   final expression = RegExp(
     '^${RegExp.escape(prefix)}-(\\d+)\$',
     caseSensitive: false,

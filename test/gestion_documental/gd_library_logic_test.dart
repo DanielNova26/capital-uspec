@@ -28,16 +28,55 @@ void main() {
       );
     });
 
-    test('genera código por dependencia y consecutivo', () {
+    test('genera código por área (formatos) o tipo (contrato y normas)', () {
       expect(
         gdNextDocumentCode(
-          area: 'Talento Humano',
+          prefix: gdDepartmentPrefix('Talento Humano'),
           existingCodes: const ['TAL-001', 'TAL-004', 'CAL-010'],
         ),
         'TAL-005',
       );
       expect(gdDepartmentPrefix('Gestión Ambiental'), 'GA');
+      expect(
+        gdCodePrefixFor(
+          section: GdLibrarySection.formatos,
+          area: 'Calidad',
+          categoria: 'Formato',
+        ),
+        'CAL',
+      );
+      // Contrato y normograma no piden área: el prefijo sale del tipo.
+      expect(
+        gdCodePrefixFor(
+          section: GdLibrarySection.contrato,
+          area: '',
+          categoria: 'Documentación interna',
+        ),
+        'DIN',
+      );
+      expect(
+        gdCodePrefixFor(
+          section: GdLibrarySection.normograma,
+          area: '',
+          categoria: 'Resolución',
+        ),
+        'RES',
+      );
+      expect(gdContractCategories, contains('Documentacion interna'));
+      expect(gdContractFolders.first, 'Documentos básicos');
     });
+
+    test(
+      'el título sale en mayúscula aunque se haya guardado en minúscula',
+      () {
+        final doc = DocumentoDoc.fromMap('x', {
+          'empresaId': 'e1',
+          'codigo': 'RES-001',
+          'titulo': '  Estatuto general de contratación ',
+        });
+        expect(doc.titulo, 'ESTATUTO GENERAL DE CONTRATACIÓN');
+      },
+    );
 
     test('normaliza palabras clave sin duplicarlas', () {
       expect(

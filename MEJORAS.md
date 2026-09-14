@@ -5652,3 +5652,32 @@ protegida y tiene `D1:L4` desbloqueadas; eso contradice el acuerdo del 12 sep
 (encabezado intocable), así que el candado se mantiene. Tampoco la columna
 S oculta, que no aporta nada al usuario. Y el blanco sin rellenos del modelo
 tampoco: el jefe aclaró después que los rellenos van.
+
+## Biblioteca: área en vez de dependencia, carpetas fijas y normograma (14 sep 2026)
+
+Instrucciones del jefe sobre la Biblioteca Documental:
+
+- **Títulos siempre en mayúscula.** El servicio guarda `titulo` en mayúscula
+  al crear, el campo del formulario capitaliza mientras se escribe y la
+  plantilla Excel pone en mayúscula el nombre del formato y la empresa.
+  Los registros anteriores también se ven en mayúscula: `DocumentoDoc.fromMap`
+  normaliza al leer, así que no hay migración de datos.
+- **"Dependencia" pasa a llamarse "Área"** en formulario, tabla, detalle,
+  plantilla y mensajes. El campo de datos sigue siendo `area`.
+- **El área solo se pide en formatos.** En documentos del contrato y en
+  normograma el campo no aparece y se guarda `null`. El código automático
+  ahí sale del **tipo de documento** (`gdCodePrefixFor`): Resolución →
+  `RES-001`, Contrato → `CTR-001`, Documentación interna → `DIN-001`…
+  Los formatos siguen tomando el prefijo del área.
+- **Nuevo tipo de documento del contrato:** `Documentación interna`.
+- **Carpetas fijas del contrato** (`gdContractFolders`, sin numerar, solo
+  el nombre): Documentos básicos · Documentos precontractuales · Documentos
+  presentados en licitación · Normas aplicables · Formatos · Correspondencia
+  enviada · Imagen corporativa. El alta las ofrece en un desplegable (más las que ya
+  existan y "Otra carpeta…"), el filtro las lista siempre en ese orden y el
+  detalle las sugiere al editar.
+- **Normograma:** el título se registra como "Título de la ley o norma" y el
+  número como "Número de ley o resolución" (obligatorio). En la tabla el
+  título va unido a su número y a los documentos asociados, y hay una
+  columna nueva **N° LEY / RESOLUCIÓN**; las palabras clave pasan a la
+  columna siguiente.

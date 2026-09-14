@@ -159,7 +159,8 @@ class GdService {
     batch.set(docRef, {
       'empresaId': empresaId,
       'codigo': codigo.trim(),
-      'titulo': titulo.trim(),
+      // Los títulos van siempre en mayúscula (regla del jefe, 14 sep 2026).
+      'titulo': titulo.trim().toUpperCase(),
       'descripcion': descripcion,
       'categoria': categoria,
       'area': area,
@@ -589,7 +590,7 @@ class GdService {
   }
 
   /// Plantilla Excel del formato con el encabezado bloqueado: logo y nombre
-  /// de la empresa, nombre del formato, dependencia, código, versión, fecha
+  /// de la empresa, nombre del formato, área, código, versión, fecha
   /// y, si ya pasó por Calidad, quién lo validó y cuándo. Devuelve los bytes
   /// y el nombre de archivo sugerido.
   Future<(Uint8List, String)> generarPlantillaFormato({
@@ -619,7 +620,7 @@ class GdService {
       empresaId: empresaId,
       titulo: (data['titulo'] ?? '').toString(),
       codigo: (data['codigo'] ?? '').toString(),
-      dependencia: (data['area'] ?? '').toString(),
+      area: (data['area'] ?? '').toString(),
       version: (data['versionActual'] ?? 'v1').toString(),
       aprobadoPor: aprobadoPor,
       aprobadoEn: aprobadoEn,
@@ -628,23 +629,23 @@ class GdService {
 
   /// Plantilla para un formato que todavía no existe: se descarga desde el
   /// mismo diálogo de alta con los datos escritos (código previsto, nombre,
-  /// dependencia), se arma y se sube ahí mismo. Así el flujo no se rompe.
+  /// área), se arma y se sube ahí mismo. Así el flujo no se rompe.
   Future<(Uint8List, String)> generarPlantillaFormatoPrevia({
     required String empresaId,
     required String titulo,
     required String codigo,
-    required String dependencia,
+    required String area,
   }) {
-    if (titulo.trim().isEmpty || dependencia.trim().isEmpty) {
+    if (titulo.trim().isEmpty || area.trim().isEmpty) {
       throw const GdException(
-        'Escribe la dependencia y el nombre del formato antes de descargar.',
+        'Escribe el área y el nombre del formato antes de descargar.',
       );
     }
     return _armarPlantillaFormato(
       empresaId: empresaId,
       titulo: titulo,
       codigo: codigo,
-      dependencia: dependencia,
+      area: area,
       version: 'v1',
     );
   }
@@ -653,7 +654,7 @@ class GdService {
     required String empresaId,
     required String titulo,
     required String codigo,
-    required String dependencia,
+    required String area,
     required String version,
     String? aprobadoPor,
     DateTime? aprobadoEn,
@@ -683,7 +684,7 @@ class GdService {
       empresaNombre: (empresa['nombre'] ?? '').toString().trim(),
       titulo: titulo,
       codigo: codigo,
-      dependencia: dependencia,
+      area: area,
       version: version,
       fecha: DateTime.now(),
       aprobadoPor: aprobadoPor,
@@ -737,7 +738,7 @@ class GdService {
         .get();
 
     // Sello dentro del archivo: si es el .xlsx de la plantilla, se escribe
-    // "quién · cuándo" en la celda Aprobado y se sube como archivo de la
+    // el nombre de quien validó en la celda Aprobado (O2) y se sube como archivo de la
     // versión (el original queda en Storage como respaldo). Si no se puede
     // —PDF, Word, encabezado dañado, red— el check sigue igual y el motivo
     // queda en el historial.
@@ -1118,7 +1119,7 @@ class GdService {
       metadatos: {
         'etiqueta': nuevaEtiqueta,
         'numero': nuevoNumero,
-        'tituloDoc': (data['titulo'] ?? '').toString(),
+        'tituloDoc': (data['titulo'] ?? '').toString().toUpperCase(),
       },
     );
 

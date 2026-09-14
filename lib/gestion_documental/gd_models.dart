@@ -204,7 +204,9 @@ class DocumentoDoc {
       docId: docId,
       empresaId: (m['empresaId'] ?? '').toString(),
       codigo: (m['codigo'] ?? '').toString(),
-      titulo: (m['titulo'] ?? '').toString(),
+      // Títulos siempre en mayúscula, también los registrados antes de la
+      // regla (14 sep 2026): se normaliza al leer, sin migrar datos.
+      titulo: (m['titulo'] ?? '').toString().trim().toUpperCase(),
       descripcion: m['descripcion'] as String?,
       categoria: m['categoria'] as String?,
       area: m['area'] as String?,

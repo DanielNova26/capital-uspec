@@ -3,7 +3,7 @@
 // Oscar (reunión 12 sep 2026) no quiere que cada quien arme su encabezado:
 // "unos ponen un logo, otros otro, otros un código arriba, otros abajo".
 // Por eso la plantilla no es un archivo suelto: se genera por registro con
-// los datos que ya tiene la Biblioteca (código, nombre, dependencia, versión)
+// los datos que ya tiene la Biblioteca (código, nombre, área, versión)
 // y el logo de la empresa, y el encabezado queda BLOQUEADO con protección de
 // hoja. De la fila 7 hacia abajo todas las celdas están desbloqueadas: ahí
 // cada dependencia arma el contenido como necesite (bordes, combinaciones,
@@ -13,6 +13,15 @@
 // paquete no sabe insertar imágenes ni proteger hojas, y post-procesar su
 // salida sería más frágil que armar una estructura fija y pequeña.
 //
+// La geometría reproduce el modelo que entregó el jefe el 14 sep 2026
+// ("1. Formato modelo v1.xlsx"): bordes finos azul marino, logo en A1:C4,
+// empresa en D1:L1, nombre del formato en D2:L3, área en D4:L4,
+// etiquetas en M:N y valores en O:Q; filas 1-4 de 14.25 pt y dos filas
+// separadoras (5 y 6) de 2 y 8 pt. Los rellenos son los de la versión del
+// 12 sep, que el jefe sí quiere: título en blanco sobre el color primario,
+// empresa/área/etiquetas sobre el secundario claro y una franja del
+// primario en la fila 6.
+//
 // Sin dependencias de Flutter: se prueba en `flutter test` sin widgets.
 
 import 'dart:convert';
@@ -20,10 +29,12 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
-/// Colores del encabezado. Provisionales hasta que Oscar entregue los
-/// corporativos; `TBL_EMPRESAS.colorPrimario` / `colorSecundario` (hex sin
-/// `#`) los reemplazan por empresa si existen.
-const String kGdPlantillaColorPrimario = '1F3A5F';
+/// Colores del encabezado. El primario (azul marino del modelo del jefe)
+/// pinta bordes, el fondo del título, la franja separadora y el texto de
+/// etiquetas, empresa y área; el secundario es el relleno claro de
+/// etiquetas, empresa y área. `TBL_EMPRESAS.colorPrimario` /
+/// `colorSecundario` (hex sin `#`) los reemplazan por empresa si existen.
+const String kGdPlantillaColorPrimario = '0D1B68';
 const String kGdPlantillaColorSecundario = 'E8EEF5';
 
 /// Clave de la protección de hoja. No es un secreto fuerte (Excel usa un
@@ -31,15 +42,19 @@ const String kGdPlantillaColorSecundario = 'E8EEF5';
 /// accidente. Calidad la conoce por si hay que corregir algo a mano.
 const String kGdPlantillaClaveHoja = 'CALIDAD-USPEC';
 
-/// Primera fila editable. Las filas 1-5 son el encabezado y la 6 un
-/// separador; todo lo demás queda desbloqueado.
+/// Primera fila editable. Las filas 1-4 son el encabezado y la 5 y 6 son
+/// separadores; todo lo demás queda desbloqueado.
 const int kGdPlantillaPrimeraFilaLibre = 7;
+
+/// Celda donde va "quién · cuándo" validó (etiqueta *Aprobado* en M2). El
+/// sello de Calidad la reescribe sobre el archivo subido.
+const String kGdPlantillaCeldaAprobado = 'O2';
 
 class GdPlantillaFormatoDatos {
   final String empresaNombre;
   final String titulo;
   final String codigo;
-  final String dependencia;
+  final String area;
   final String version;
   final DateTime fecha;
 
@@ -57,7 +72,7 @@ class GdPlantillaFormatoDatos {
     required this.empresaNombre,
     required this.titulo,
     required this.codigo,
-    required this.dependencia,
+    required this.area,
     required this.version,
     required this.fecha,
     this.aprobadoPor,
@@ -118,8 +133,11 @@ Uint8List gdGenerarPlantillaFormato(GdPlantillaFormatoDatos datos) {
     add('xl/drawings/drawing1.xml', _drawing(logo));
     add('xl/drawings/_rels/drawing1.xml.rels', _drawingRels(logo));
     archive.addFile(
-      ArchiveFile('xl/media/image1.${logo.extension}', logo.bytes.length,
-          logo.bytes),
+      ArchiveFile(
+        'xl/media/image1.${logo.extension}',
+        logo.bytes.length,
+        logo.bytes,
+      ),
     );
   }
   final zipped = ZipEncoder().encode(archive);
@@ -130,18 +148,46 @@ Uint8List gdGenerarPlantillaFormato(GdPlantillaFormatoDatos datos) {
 // Geometría del encabezado
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Anchos de columna en "caracteres" de Excel. A-B: logo, C-G: título,
-// H: etiquetas, I-J: valores.
-const List<double> _anchosColumnas = [14, 14, 16, 16, 16, 16, 16, 12, 14, 14];
-const double _altoFilaEncabezadoPt = 22;
-const double _altoFilaSeparadorPt = 6;
+// Anchos de columna (atributo `width` de OOXML, que ya incluye el relleno;
+// Excel lo muestra como 4.86). En el modelo TODAS las columnas A-Q son
+// angostas e iguales: el encabezado mide 497 pt y cabe en carta vertical, y
+// la cuadrícula fina le sirve a cada dependencia para armar el contenido.
+// R es un margen derecho casi invisible. A-C: logo, D-L: empresa/título/
+// dependencia, M-N: etiquetas, O-Q: valores.
+const double _anchoColumna = 5.63;
+const double _anchoColumnaMargen = 0.82;
+final List<double> _anchosColumnas = [
+  ...List.filled(17, _anchoColumna), // A-Q
+  _anchoColumnaMargen, // R
+];
+const String _ultimaColumna = 'R';
+const List<String> _columnasLogo = ['A', 'B', 'C'];
+const List<String> _columnasTitulo = [
+  'D',
+  'E',
+  'F',
+  'G',
+  'H',
+  'I',
+  'J',
+  'K',
+  'L',
+];
+const List<String> _columnasEtiqueta = ['M', 'N'];
+const List<String> _columnasValor = ['O', 'P', 'Q'];
+
+const double _altoFilaEncabezadoPt = 14.25;
+const double _altoFilaSeparador1Pt = 2;
+const double _altoFilaSeparador2Pt = 8;
+const int _filasEncabezado = 4;
 const int _emuPorPixel = 9525;
 const int _emuPorPunto = 12700;
 
 int _anchoColumnaEmu(int index) {
-  // Aproximación estándar de Excel: px = chars*7 + 5 (fuente de 10-11 pt).
-  final px = _anchosColumnas[index] * 7 + 5;
-  return (px * _emuPorPixel).round();
+  // `width` ya trae el relleno: px = width * 7 (ancho de dígito de Arial 10).
+  // Verificado en Excel: width 5.63 -> 39 px -> 29.25 pt.
+  final px = (_anchosColumnas[index] * 7).round();
+  return px * _emuPorPixel;
 }
 
 int _altoFilaEncabezadoEmu() => (_altoFilaEncabezadoPt * _emuPorPunto).round();
@@ -226,6 +272,7 @@ class _Xf {
   static const etiqueta = 4;
   static const valor = 5;
   static const separador = 6;
+  static const hueco = 8;
   static const empresa = 7;
 }
 
@@ -236,12 +283,13 @@ String _styles(GdPlantillaFormatoDatos datos) {
       '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
       '<fonts count="6">'
       '<font><sz val="10"/><name val="Arial"/></font>' // 0 base
-      '<font><b/><sz val="14"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>' // 1 título
-      '<font><b/><sz val="9"/><color rgb="FF$primario"/><name val="Arial"/></font>' // 2 etiqueta
-      '<font><sz val="9"/><name val="Arial"/></font>' // 3 valor
-      '<font><b/><sz val="11"/><color rgb="FF$primario"/><name val="Arial"/></font>' // 4 dependencia
-      '<font><i/><sz val="8"/><color rgb="FF64748B"/><name val="Arial"/></font>' // 5 empresa
+      '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>' // 1 título (blanco sobre primario)
+      '<font><b/><sz val="11"/><color rgb="FF$primario"/><name val="Arial"/></font>' // 2 etiqueta / empresa
+      '<font><sz val="11"/><name val="Arial"/></font>' // 3 valor
+      '<font><sz val="11"/><color rgb="FF$primario"/><name val="Arial"/></font>' // 4 dependencia
+      '<font><i/><sz val="11"/><color rgb="FF64748B"/><name val="Arial"/></font>' // 5 logo (texto de respaldo)
       '</fonts>'
+      // Los dos primeros rellenos son obligatorios en el esquema.
       '<fills count="4">'
       '<fill><patternFill patternType="none"/></fill>'
       '<fill><patternFill patternType="gray125"/></fill>'
@@ -260,29 +308,31 @@ String _styles(GdPlantillaFormatoDatos datos) {
       // El estilo "Normal" también sin candado: es lo que Excel aplica a
       // cualquier celda que no tenga estilo propio.
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyProtection="1"><protection locked="0"/></xf></cellStyleXfs>'
-      '<cellXfs count="8">'
+      '<cellXfs count="9">'
       // 0 libre: sin candado. Es el estilo de todo lo que no sea encabezado.
       '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="0"/></xf>'
       // 1 logo
       '<xf numFmtId="0" fontId="5" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" wrapText="1"/><protection locked="1"/></xf>'
-      // 2 título
+      // 2 título: blanco sobre primario
       '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" wrapText="1"/><protection locked="1"/></xf>'
-      // 3 dependencia
+      // 3 dependencia sobre secundario (una sola fila: se encoge la letra)
       '<xf numFmtId="0" fontId="4" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
-      '<alignment horizontal="center" vertical="center" wrapText="1"/><protection locked="1"/></xf>'
-      // 4 etiqueta
+      '<alignment horizontal="center" vertical="center" shrinkToFit="1"/><protection locked="1"/></xf>'
+      // 4 etiqueta sobre secundario
       '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
-      '<alignment horizontal="left" vertical="center" indent="1"/><protection locked="1"/></xf>'
-      // 5 valor
+      '<alignment horizontal="left" vertical="center"/><protection locked="1"/></xf>'
+      // 5 valor (nombres largos en "Aprobado": se encoge la letra)
       '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
-      '<alignment horizontal="left" vertical="center" indent="1" wrapText="1"/><protection locked="1"/></xf>'
-      // 6 separador
+      '<alignment horizontal="center" vertical="center" shrinkToFit="1"/><protection locked="1"/></xf>'
+      // 6 franja separadora (fila 6) en primario, con candado.
       '<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1" applyProtection="1"><protection locked="1"/></xf>'
-      // 7 empresa (línea pequeña bajo la dependencia)
-      '<xf numFmtId="0" fontId="5" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
-      '<alignment horizontal="center" vertical="center"/><protection locked="1"/></xf>'
+      // 7 empresa (D1:L1): negrilla primario sobre secundario, una sola fila.
+      '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
+      '<alignment horizontal="center" vertical="center" shrinkToFit="1"/><protection locked="1"/></xf>'
+      // 8 hueco (fila 5): en blanco, con candado.
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="1"/></xf>'
       '</cellXfs>'
       '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
       '</styleSheet>';
@@ -290,60 +340,65 @@ String _styles(GdPlantillaFormatoDatos datos) {
 
 String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
   final fecha = _fecha(datos.fecha);
-  final aprobado = datos.aprobadoPor == null || datos.aprobadoPor!.trim().isEmpty
-      ? 'Pendiente de validación'
-      : datos.aprobadoEn == null
-      ? datos.aprobadoPor!.trim()
-      : '${datos.aprobadoPor!.trim()} · ${_fecha(datos.aprobadoEn!)}';
+  // La celda "Aprobado" (O2:Q2) mide 87 pt: cabe el nombre, no el nombre
+  // con fecha y hora. El modelo del jefe pone ahí solo "[usuario]"; la fecha
+  // y hora exactas de validación quedan en el registro de la Biblioteca.
+  final aprobado =
+      datos.aprobadoPor == null || datos.aprobadoPor!.trim().isEmpty
+      ? 'Pendiente'
+      : datos.aprobadoPor!.trim();
 
   // Celdas del encabezado. Las combinadas solo llevan valor en la primera;
   // las demás se escriben vacías con el mismo estilo para que el borde y el
   // candado cubran todo el bloque.
+  List<_Celda> bloque(List<String> columnas, int estilo, [String? texto]) => [
+    for (var i = 0; i < columnas.length; i++)
+      _Celda(columnas[i], estilo, i == 0 ? texto : null),
+  ];
+  List<_Celda> filaDato(List<_Celda> centro, String etiqueta, String valor) => [
+    ...bloque(_columnasLogo, _Xf.logo),
+    ...centro,
+    ...bloque(_columnasEtiqueta, _Xf.etiqueta, etiqueta),
+    ...bloque(_columnasValor, _Xf.valor, valor),
+  ];
+  final todas = [
+    ..._columnasLogo,
+    ..._columnasTitulo,
+    ..._columnasEtiqueta,
+    ..._columnasValor,
+    _ultimaColumna,
+  ];
+
   final filas = <int, List<_Celda>>{
     1: [
-      _Celda('A', _Xf.logo, conLogo ? '' : datos.empresaNombre),
-      _Celda('B', _Xf.logo),
-      _Celda('C', _Xf.titulo, datos.titulo),
-      for (final c in ['D', 'E', 'F', 'G']) _Celda(c, _Xf.titulo),
-      _Celda('H', _Xf.etiqueta, 'Versión'),
-      _Celda('I', _Xf.valor, datos.version),
-      _Celda('J', _Xf.valor),
+      ...bloque(_columnasLogo, _Xf.logo, conLogo ? '' : datos.empresaNombre),
+      ...bloque(
+        _columnasTitulo,
+        _Xf.empresa,
+        datos.empresaNombre.toUpperCase(),
+      ),
+      ...bloque(_columnasEtiqueta, _Xf.etiqueta, 'Versión'),
+      ...bloque(_columnasValor, _Xf.valor, datos.version),
     ],
-    2: [
-      _Celda('A', _Xf.logo),
-      _Celda('B', _Xf.logo),
-      for (final c in ['C', 'D', 'E', 'F', 'G']) _Celda(c, _Xf.titulo),
-      _Celda('H', _Xf.etiqueta, 'Aprobado'),
-      _Celda('I', _Xf.valor, aprobado),
-      _Celda('J', _Xf.valor),
-    ],
-    3: [
-      _Celda('A', _Xf.logo),
-      _Celda('B', _Xf.logo),
-      for (final c in ['C', 'D', 'E', 'F', 'G']) _Celda(c, _Xf.titulo),
-      _Celda('H', _Xf.etiqueta, 'Fecha'),
-      _Celda('I', _Xf.valor, fecha),
-      _Celda('J', _Xf.valor),
-    ],
-    4: [
-      _Celda('A', _Xf.logo),
-      _Celda('B', _Xf.logo),
-      _Celda('C', _Xf.dependencia, datos.dependencia),
-      for (final c in ['D', 'E', 'F', 'G']) _Celda(c, _Xf.dependencia),
-      _Celda('H', _Xf.etiqueta, 'Código'),
-      _Celda('I', _Xf.valor, datos.codigo),
-      _Celda('J', _Xf.valor),
-    ],
-    5: [
-      _Celda('A', _Xf.logo),
-      _Celda('B', _Xf.logo),
-      _Celda('C', _Xf.empresa, datos.empresaNombre),
-      for (final c in ['D', 'E', 'F', 'G']) _Celda(c, _Xf.empresa),
-      _Celda('H', _Xf.etiqueta, 'Empresa'),
-      _Celda('I', _Xf.valor, datos.empresaNombre),
-      _Celda('J', _Xf.valor),
-    ],
-    6: [for (final c in 'ABCDEFGHIJ'.split('')) _Celda(c, _Xf.separador)],
+    2: filaDato(
+      // Títulos siempre en mayúscula (regla del jefe, 14 sep 2026).
+      bloque(_columnasTitulo, _Xf.titulo, datos.titulo.toUpperCase()),
+      'Aprobado',
+      aprobado,
+    ),
+    3: filaDato(bloque(_columnasTitulo, _Xf.titulo), 'Fecha', fecha),
+    4: filaDato(
+      bloque(_columnasTitulo, _Xf.dependencia, datos.area),
+      'Código',
+      datos.codigo,
+    ),
+    5: bloque(todas, _Xf.hueco),
+    6: bloque(todas, _Xf.separador),
+  };
+  final altos = <int, double>{
+    for (var f = 1; f <= _filasEncabezado; f++) f: _altoFilaEncabezadoPt,
+    5: _altoFilaSeparador1Pt,
+    6: _altoFilaSeparador2Pt,
   };
 
   final b = StringBuffer()
@@ -352,7 +407,7 @@ String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
       '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
       'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
     )
-    ..write('<dimension ref="A1:J6"/>')
+    ..write('<dimension ref="A1:${_ultimaColumna}6"/>')
     ..write(
       '<sheetViews><sheetView workbookViewId="0" tabSelected="1">'
       '<pane ySplit="6" topLeftCell="A$kGdPlantillaPrimeraFilaLibre" activePane="bottomLeft" state="frozen"/>'
@@ -370,8 +425,7 @@ String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
     ..write('</cols>')
     ..write('<sheetData>');
   filas.forEach((fila, celdas) {
-    final alto = fila == 6 ? _altoFilaSeparadorPt : _altoFilaEncabezadoPt;
-    b.write('<row r="$fila" ht="$alto" customHeight="1">');
+    b.write('<row r="$fila" ht="${altos[fila]}" customHeight="1">');
     for (final c in celdas) {
       b.write(c.xml(fila));
     }
@@ -392,17 +446,23 @@ String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
       'selectLockedCells="1" selectUnlockedCells="0"/>',
     )
     ..write(
-      '<mergeCells count="4">'
-      '<mergeCell ref="A1:B5"/>'
-      '<mergeCell ref="C1:G3"/>'
-      '<mergeCell ref="C4:G4"/>'
-      '<mergeCell ref="C5:G5"/>'
+      '<mergeCells count="11">'
+      '<mergeCell ref="A1:C4"/>'
+      '<mergeCell ref="D1:L1"/>'
+      '<mergeCell ref="D2:L3"/>'
+      '<mergeCell ref="D4:L4"/>'
+      '<mergeCell ref="M1:N1"/><mergeCell ref="O1:Q1"/>'
+      '<mergeCell ref="M2:N2"/><mergeCell ref="O2:Q2"/>'
+      '<mergeCell ref="M3:N3"/><mergeCell ref="O3:Q3"/>'
+      '<mergeCell ref="M4:N4"/><mergeCell ref="O4:Q4"/>'
       '</mergeCells>',
     )
     ..write(
       '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>',
     )
-    ..write('<pageSetup orientation="portrait" fitToWidth="1" fitToHeight="0"/>');
+    ..write(
+      '<pageSetup orientation="portrait" fitToWidth="1" fitToHeight="0"/>',
+    );
   if (conLogo) b.write('<drawing r:id="rId1"/>');
   b.write('</worksheet>');
   return b.toString();
@@ -422,10 +482,13 @@ class _Celda {
 }
 
 String _drawing(_ImagenInfo logo) {
-  // Recuadro A1:B5 en EMU, con margen, y el logo centrado sin deformar.
-  const margen = 60000;
-  final anchoCaja = _anchoColumnaEmu(0) + _anchoColumnaEmu(1) - 2 * margen;
-  final altoCaja = _altoFilaEncabezadoEmu() * 5 - 2 * margen;
+  // Recuadro A1:C4 en EMU, con margen, y el logo centrado sin deformar.
+  const margen = 40000;
+  var anchoCaja = -2 * margen;
+  for (var i = 0; i < _columnasLogo.length; i++) {
+    anchoCaja += _anchoColumnaEmu(i);
+  }
+  final altoCaja = _altoFilaEncabezadoEmu() * _filasEncabezado - 2 * margen;
   final escala = _min(anchoCaja / logo.ancho, altoCaja / logo.alto);
   final cx = (logo.ancho * escala).round();
   final cy = (logo.alto * escala).round();
@@ -433,9 +496,12 @@ String _drawing(_ImagenInfo logo) {
   final y = margen + ((altoCaja - cy) / 2).round();
 
   // Excel espera el offset dentro de la columna/fila de origen.
-  final anchoA = _anchoColumnaEmu(0);
-  final col = x >= anchoA ? 1 : 0;
-  final colOff = x >= anchoA ? x - anchoA : x;
+  var col = 0;
+  var colOff = x;
+  while (col < _columnasLogo.length - 1 && colOff >= _anchoColumnaEmu(col)) {
+    colOff -= _anchoColumnaEmu(col);
+    col++;
+  }
   final altoFila = _altoFilaEncabezadoEmu();
   final row = y ~/ altoFila;
   final rowOff = y - row * altoFila;
@@ -471,7 +537,13 @@ class _ImagenInfo {
   final int ancho;
   final int alto;
 
-  const _ImagenInfo(this.bytes, this.extension, this.mime, this.ancho, this.alto);
+  const _ImagenInfo(
+    this.bytes,
+    this.extension,
+    this.mime,
+    this.ancho,
+    this.alto,
+  );
 
   static _ImagenInfo? detectar(Uint8List? bytes) {
     if (bytes == null || bytes.length < 24) return null;
@@ -499,7 +571,8 @@ class _ImagenInfo {
           i++;
           continue;
         }
-        final esSof = marker >= 0xC0 &&
+        final esSof =
+            marker >= 0xC0 &&
             marker <= 0xCF &&
             marker != 0xC4 &&
             marker != 0xC8 &&
@@ -545,10 +618,16 @@ double _min(double a, double b) => a < b ? a : b;
 // Sello de validación sobre el archivo que subió el usuario
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Escribe "quién · cuándo" en la celda *Aprobado* (I2) del archivo que el
-/// usuario subió, sin re-serializar el libro: se abre el zip, se cambia esa
-/// única celda en el XML de la hoja y se vuelve a cerrar. Todo lo demás
-/// (formato del contenido, imágenes, fórmulas) queda byte a byte igual.
+/// Escribe quién validó en la celda *Aprobado* del archivo que el usuario
+/// subió, sin re-serializar el libro: se abre el zip, se cambia esa única
+/// celda en el XML de la hoja y se vuelve a cerrar. Todo lo demás (formato
+/// del contenido, imágenes, fórmulas) queda byte a byte igual. La fecha y
+/// hora ([aprobadoEn]) no caben en la celda del modelo: quedan en el
+/// registro de la Biblioteca, no en el Excel.
+///
+/// La celda es [kGdPlantillaCeldaAprobado] (O2) en el encabezado actual, e
+/// I2 en las plantillas descargadas antes del modelo del 14 sep 2026 (se
+/// reconocen por la combinación C1:G3); esas siguen sellándose.
 ///
 /// Devuelve los bytes nuevos, o `null` con el motivo cuando el archivo no es
 /// un `.xlsx` que conserve el encabezado de la plantilla.
@@ -565,11 +644,14 @@ double _min(double a, double b) => a < b ? a : b;
   }
 
   // La hoja de la plantilla: la que sigue protegida con nuestra clave o, si
-  // la desprotegieron, la que conserva la combinación del título (C1:G3).
+  // la desprotegieron, la que conserva la combinación del título (D2:L3 hoy,
+  // C1:G3 en el encabezado anterior).
   final hash = gdHashClaveHoja(kGdPlantillaClaveHoja);
+  const mergeActual = '<mergeCell ref="D2:L3"/>';
+  const mergeAnterior = '<mergeCell ref="C1:G3"/>';
   ArchiveFile? hoja;
   String? xml;
-  for (final criterio in ['password="$hash"', '<mergeCell ref="C1:G3"/>']) {
+  for (final criterio in ['password="$hash"', mergeActual, mergeAnterior]) {
     for (final f in archive.files) {
       if (!f.isFile || !f.name.startsWith('xl/worksheets/sheet')) continue;
       final texto = utf8.decode(f.content as List<int>, allowMalformed: true);
@@ -588,29 +670,33 @@ double _min(double a, double b) => a < b ? a : b;
     );
   }
 
-  String dos(int n) => n.toString().padLeft(2, '0');
-  final texto =
-      '${aprobadoPor.trim()} · ${_fecha(aprobadoEn)} ${dos(aprobadoEn.hour)}:${dos(aprobadoEn.minute)}';
+  // Encabezado anterior: la celda "Aprobado" era I2 y su etiqueta H2.
+  final esAnterior = !xml.contains(mergeActual) && xml.contains(mergeAnterior);
+  final celdaAprobado = esAnterior ? 'I2' : kGdPlantillaCeldaAprobado;
+  final celdaEtiqueta = esAnterior ? 'H2' : 'M2';
+
+  final texto = aprobadoPor.trim();
   String celda(String estilo) =>
-      '<c r="I2"$estilo t="inlineStr"><is><t xml:space="preserve">${_esc(texto)}</t></is></c>';
+      '<c r="$celdaAprobado"$estilo t="inlineStr"><is><t xml:space="preserve">${_esc(texto)}</t></is></c>';
+  RegExp celdaRe(String ref) =>
+      RegExp('<c r="$ref"(\\s[^>]*?)?(?:/>|>.*?</c>)', dotAll: true);
 
   // La celda puede venir como la escribimos (inlineStr) o como la deja Excel
   // al guardar (t="s" con índice a sharedStrings); se conserva su estilo.
-  final celdaI2 = RegExp(r'<c r="I2"(\s[^>]*?)?(?:/>|>.*?</c>)', dotAll: true);
   String nuevoXml;
-  final m = celdaI2.firstMatch(xml);
+  final m = celdaRe(celdaAprobado).firstMatch(xml);
   if (m != null) {
     final attrs = m.group(1) ?? '';
     final s = RegExp(r'\ss="\d+"').firstMatch(attrs)?.group(0) ?? '';
     nuevoXml = xml.replaceRange(m.start, m.end, celda(s));
   } else {
-    // Sin celda I2 (raro: está bloqueada), se cuelga detrás de la etiqueta.
-    final h2 = RegExp(r'<c r="H2"(\s[^>]*?)?(?:/>|>.*?</c>)', dotAll: true)
-        .firstMatch(xml);
+    // Sin la celda (raro: está bloqueada), se cuelga detrás de la etiqueta.
+    final h2 = celdaRe(celdaEtiqueta).firstMatch(xml);
     if (h2 == null) {
       return (bytes: null, detalle: 'No se encontró la celda "Aprobado".');
     }
-    final s = RegExp(r'\ss="\d+"').firstMatch(h2.group(1) ?? '')?.group(0) ?? '';
+    final s =
+        RegExp(r'\ss="\d+"').firstMatch(h2.group(1) ?? '')?.group(0) ?? '';
     nuevoXml = xml.replaceRange(h2.end, h2.end, celda(s));
   }
 
@@ -627,5 +713,8 @@ double _min(double a, double b) => a < b ? a : b;
   if (zipped == null) {
     return (bytes: null, detalle: 'No se pudo volver a empaquetar el archivo.');
   }
-  return (bytes: Uint8List.fromList(zipped), detalle: 'Sello escrito en I2.');
+  return (
+    bytes: Uint8List.fromList(zipped),
+    detalle: 'Sello escrito en $celdaAprobado.',
+  );
 }

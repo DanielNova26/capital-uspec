@@ -766,12 +766,20 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
   }
 
   Widget _buildFolderFilter(List<DocumentoDoc> documents) {
-    final folders =
+    // Las carpetas fijas van siempre y en su orden; después las demás que
+    // existan en los documentos (incluida la vacía, "Sin carpeta").
+    final restantes =
         documents
             .map((document) => (document.carpeta ?? '').trim())
+            .where(
+              (c) => !gdContractFolders.any(
+                (fija) => fija.toLowerCase() == c.toLowerCase(),
+              ),
+            )
             .toSet()
             .toList()
           ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final folders = [...gdContractFolders, ...restantes];
     final selected = folders.contains(_selectedFolder) ? _selectedFolder : null;
     return Container(
       height: 45,
@@ -857,7 +865,7 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
           isExpanded: true,
           value: _selectedCategory,
           hint: const Text(
-            'Categoria',
+            'Tipo',
             style: TextStyle(fontFamily: kArial, fontSize: 13),
           ),
           items: [
@@ -993,15 +1001,15 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                   _buildTableHeader('TITULO'),
                   _buildTableHeader(
                     _selectedSection == GdLibrarySection.normograma
-                        ? 'PALABRAS CLAVE'
+                        ? 'N° LEY / RESOLUCION'
                         : 'TIPO',
                   ),
                   _buildTableHeader(
                     _selectedSection == GdLibrarySection.normograma
-                        ? 'ASOCIADOS'
+                        ? 'PALABRAS CLAVE'
                         : _selectedSection == GdLibrarySection.contrato
                         ? 'CARPETA'
-                        : 'DEPENDENCIA',
+                        : 'AREA',
                   ),
                   _buildTableHeader('VERSION'),
                   _buildTableHeader('ESTADO'),
@@ -1026,17 +1034,22 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
                         ),
                       ),
                     _buildTableCell(d.codigo, isBold: true),
-                    _buildTableCell(d.titulo),
+                    _selectedSection == GdLibrarySection.normograma
+                        ? _buildNormTitleCell(d, allDocs)
+                        : _buildTableCell(d.titulo),
+                    _buildTableCell(
+                      _selectedSection == GdLibrarySection.normograma
+                          ? ((d.codigoExterno ?? '').trim().isEmpty
+                                ? '-'
+                                : d.codigoExterno!)
+                          : (d.categoria ?? '-'),
+                      isBold: _selectedSection == GdLibrarySection.normograma,
+                    ),
                     _buildTableCell(
                       _selectedSection == GdLibrarySection.normograma
                           ? (d.palabrasClave.isEmpty
                                 ? '-'
                                 : d.palabrasClave.take(3).join(', '))
-                          : (d.categoria ?? '-'),
-                    ),
-                    _buildTableCell(
-                      _selectedSection == GdLibrarySection.normograma
-                          ? '${gdRelatedDocumentsCount(d, allDocs)} documento(s)'
                           : _selectedSection == GdLibrarySection.contrato
                           ? ((d.carpeta ?? '').trim().isEmpty
                                 ? 'Sin carpeta'
@@ -1070,6 +1083,44 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Normograma: el título va unido a su número de ley o resolución y a
+  /// cuántos documentos se relacionan con él por palabras clave.
+  Widget _buildNormTitleCell(DocumentoDoc d, List<DocumentoDoc> allDocs) {
+    final numero = (d.codigoExterno ?? '').trim();
+    final asociados = gdRelatedDocumentsCount(d, allDocs);
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            d.titulo,
+            style: const TextStyle(
+              fontFamily: kArial,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: GdPalette.primary,
+            ),
+          ),
+          if (numero.isNotEmpty || asociados > 0) ...[
+            const SizedBox(height: 2),
+            Text(
+              [
+                if (numero.isNotEmpty) numero,
+                if (asociados > 0) '$asociados documento(s) asociado(s)',
+              ].join(' · '),
+              style: const TextStyle(
+                fontFamily: kArial,
+                fontSize: 12,
+                color: GdPalette.muted,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1209,6 +1260,9 @@ class _GdDashboardScreenState extends State<GdDashboardScreen> {
         service: _service,
         section: _selectedSection,
         existingCodes: _knownDocuments.map((document) => document.codigo),
+        existingFolders: _knownDocuments.map(
+          (document) => document.carpeta ?? '',
+        ),
       ),
     );
     // Un formato recién creado se abre de una vez: ahí está la plantilla
@@ -1671,6 +1725,7 @@ class _CreateDocumentDialog extends StatefulWidget {
   final GdService service;
   final GdLibrarySection section;
   final Iterable<String> existingCodes;
+  final Iterable<String> existingFolders;
 
   const _CreateDocumentDialog({
     required this.empresaId,
@@ -1679,6 +1734,7 @@ class _CreateDocumentDialog extends StatefulWidget {
     required this.service,
     required this.section,
     required this.existingCodes,
+    this.existingFolders = const [],
   });
 
   @override
@@ -1691,6 +1747,8 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   final _codigoController = TextEditingController();
   String _titulo = '';
   String _carpeta = '';
+  // Carpeta elegida en el desplegable; `_kOtraCarpeta` habilita escribir una.
+  String? _carpetaSeleccionada;
   String _alias = '';
   String _codigoExterno = '';
   late String _categoria;
@@ -1699,18 +1757,26 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   bool _loading = false;
   bool _descargandoPlantilla = false;
   bool _plantillaDescargada = false;
-  // Dependencia desde el catálogo de áreas de la empresa (nunca id crudo ni
+  // Área desde el catálogo de áreas de la empresa (nunca id crudo ni
   // repetidas). Si la empresa no tiene áreas cargadas, se escribe a mano.
+  // Solo los formatos la piden: contrato y normograma no la necesitan.
   AreaCatalogo _areas = const AreaCatalogo.vacio();
   bool _areasCargadas = false;
 
+  static const String _kOtraCarpeta = '__otra__';
+
   bool get _esFormato => widget.section == GdLibrarySection.formatos;
+  bool get _esNormograma => widget.section == GdLibrarySection.normograma;
 
   @override
   void initState() {
     super.initState();
     _categoria = gdCategoriesForSection(widget.section).first;
-    _cargarAreas();
+    if (_esFormato) {
+      _cargarAreas();
+    } else {
+      _updateGeneratedCode();
+    }
   }
 
   Future<void> _cargarAreas() async {
@@ -1746,9 +1812,18 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
 
   void _updateGeneratedCode() {
     final area = _areaController.text.trim();
-    _codigoController.text = area.isEmpty
-        ? ''
-        : gdNextDocumentCode(area: area, existingCodes: widget.existingCodes);
+    if (_esFormato && area.isEmpty) {
+      _codigoController.text = '';
+      return;
+    }
+    _codigoController.text = gdNextDocumentCode(
+      prefix: gdCodePrefixFor(
+        section: widget.section,
+        area: area,
+        categoria: _categoria,
+      ),
+      existingCodes: widget.existingCodes,
+    );
   }
 
   @override
@@ -1776,11 +1851,11 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           Text(
             switch (widget.section) {
               GdLibrarySection.formatos =>
-                'Todo aquí: escribe dependencia y nombre, descarga la plantilla con el encabezado, arma el formato y súbelo. Calidad lo valida con un check.',
+                'Todo aquí: escribe área y nombre, descarga la plantilla con el encabezado, arma el formato y súbelo. Calidad lo valida con un check.',
               GdLibrarySection.contrato =>
-                'Un registro, un archivo. Se publica para consulta al cargarlo.',
+                'Un registro, un archivo, en su carpeta. Se publica para consulta al cargarlo.',
               GdLibrarySection.normograma =>
-                'Número de norma y tema tratado. Se publica para consulta al cargarla.',
+                'Título de la norma y su número de ley o resolución. Se publica para consulta al cargarla.',
             },
             style: TextStyle(
               fontFamily: kArial,
@@ -1824,56 +1899,60 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                 const SizedBox(height: 16),
                 TextFormField(
                   decoration: InputDecoration(
-                    labelText: widget.section == GdLibrarySection.normograma
-                        ? 'Tema tratado'
+                    labelText: _esNormograma
+                        ? 'Título de la ley o norma'
                         : 'Título del documento',
-                    hintText: widget.section == GdLibrarySection.normograma
-                        ? 'Ej: Dotación de elementos para PPL'
+                    hintText: _esNormograma
+                        ? 'Ej: Estatuto general de contratación'
                         : 'Nombre descriptivo del documento',
+                    helperText: 'Se guarda en mayúsculas.',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
                     prefixIcon: const Icon(Icons.title, size: 20),
                   ),
-                  onChanged: (v) => setState(() => _titulo = v.trim()),
-                  onSaved: (v) => _titulo = (v ?? '').trim(),
+                  textCapitalization: TextCapitalization.characters,
+                  onChanged: (v) =>
+                      setState(() => _titulo = v.trim().toUpperCase()),
+                  onSaved: (v) => _titulo = (v ?? '').trim().toUpperCase(),
                   validator: (v) =>
                       v == null || v.trim().isEmpty ? 'Requerido' : null,
                 ),
                 if (widget.section == GdLibrarySection.contrato) ...[
                   const SizedBox(height: 16),
-                  TextFormField(
-                    decoration: const InputDecoration(
-                      labelText: 'Carpeta temática',
-                      hintText: 'Ej: Legales, Nutricionales, Jurídicas',
-                      helperText:
-                          'Escribe una carpeta existente o crea una nueva.',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.folder_outlined),
+                  _buildFolderField(),
+                  if (_carpetaSeleccionada == _kOtraCarpeta) ...[
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de la carpeta nueva',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.create_new_folder_outlined),
+                      ),
+                      onSaved: (value) => _carpeta = (value ?? '').trim(),
+                      validator: (value) => (value ?? '').trim().isEmpty
+                          ? 'Escribe el nombre de la carpeta'
+                          : null,
                     ),
-                    onSaved: (value) => _carpeta = (value ?? '').trim(),
-                    validator: (value) => (value ?? '').trim().isEmpty
-                        ? 'Indica la carpeta temática'
-                        : null,
-                  ),
+                  ],
                 ],
                 if (widget.section != GdLibrarySection.formatos) ...[
                   const SizedBox(height: 16),
                   TextFormField(
                     decoration: InputDecoration(
-                      labelText: widget.section == GdLibrarySection.normograma
-                          ? 'Número de ley o norma'
+                      labelText: _esNormograma
+                          ? 'Número de ley o resolución'
                           : 'Código externo o número de resolución',
-                      hintText: widget.section == GdLibrarySection.normograma
-                          ? 'Ej: Ley 123 de 2026'
+                      hintText: _esNormograma
+                          ? 'Ej: Ley 80 de 1993'
                           : 'Ej: Resolución USPEC 001-26',
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.tag_outlined),
                     ),
                     onSaved: (value) => _codigoExterno = (value ?? '').trim(),
-                    validator: widget.section == GdLibrarySection.normograma
+                    validator: _esNormograma
                         ? (value) => (value ?? '').trim().isEmpty
-                              ? 'Indica el número de la norma'
+                              ? 'Indica el número de la ley o resolución'
                               : null
                         : null,
                   ),
@@ -1888,15 +1967,15 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                     onSaved: (value) => _alias = (value ?? '').trim(),
                   ),
                 ],
-                const SizedBox(height: 16),
-                if (_areas.isNotEmpty)
+                if (_esFormato) const SizedBox(height: 16),
+                if (_esFormato && _areas.isNotEmpty)
                   DropdownButtonFormField<String>(
                     initialValue: _areaController.text.isEmpty
                         ? null
                         : _areaController.text,
                     isExpanded: true,
                     decoration: InputDecoration(
-                      labelText: 'Dependencia responsable',
+                      labelText: 'Área responsable',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -1920,14 +1999,14 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                       setState(_updateGeneratedCode);
                     },
                     validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Selecciona la dependencia'
+                        ? 'Selecciona el área'
                         : null,
                   )
-                else
+                else if (_esFormato)
                   TextFormField(
                     controller: _areaController,
                     decoration: InputDecoration(
-                      labelText: 'Dependencia responsable',
+                      labelText: 'Área responsable',
                       hintText: _areasCargadas
                           ? 'La empresa no tiene áreas registradas: escríbela'
                           : 'Cargando áreas...',
@@ -1941,7 +2020,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
                     ),
                     onChanged: (_) => setState(_updateGeneratedCode),
                     validator: (value) => value == null || value.trim().isEmpty
-                        ? 'Selecciona o escribe la dependencia'
+                        ? 'Selecciona o escribe el área'
                         : null,
                   ),
                 if (widget.section == GdLibrarySection.normograma) ...[
@@ -2054,8 +2133,12 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
       readOnly: true,
       decoration: InputDecoration(
         labelText: 'Código automático',
-        hintText: 'Se asigna al escribir la dependencia',
-        helperText: 'Ejemplo: Talento Humano → TAL-001',
+        hintText: _esFormato
+            ? 'Se asigna al escribir el área'
+            : 'Se asigna según el tipo',
+        helperText: _esFormato
+            ? 'Ejemplo: Talento Humano → TAL-001'
+            : 'Ejemplo: Resolución → RES-001',
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         prefixIcon: const Icon(Icons.auto_awesome_outlined, size: 20),
         filled: true,
@@ -2087,9 +2170,61 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           )
           .toList(),
       onChanged: (value) {
-        if (value != null) setState(() => _categoria = value);
+        if (value == null) return;
+        setState(() {
+          _categoria = value;
+          if (!_esFormato) _updateGeneratedCode();
+        });
       },
       validator: (value) => value == null ? 'Requerido' : null,
+    );
+  }
+
+  /// Carpeta del documento del contrato: las fijas del jefe, las que ya
+  /// existen en la biblioteca y la opción de crear otra.
+  Widget _buildFolderField() {
+    final existentes =
+        widget.existingFolders
+            .map((c) => c.trim())
+            .where((c) => c.isNotEmpty)
+            .where(
+              (c) => !gdContractFolders.any(
+                (fija) => fija.toLowerCase() == c.toLowerCase(),
+              ),
+            )
+            .toSet()
+            .toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return DropdownButtonFormField<String>(
+      initialValue: _carpetaSeleccionada,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Carpeta',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.folder_outlined),
+      ),
+      items: [
+        for (final carpeta in gdContractFolders)
+          DropdownMenuItem(
+            value: carpeta,
+            child: Text(carpeta, overflow: TextOverflow.ellipsis),
+          ),
+        for (final carpeta in existentes)
+          DropdownMenuItem(
+            value: carpeta,
+            child: Text(carpeta, overflow: TextOverflow.ellipsis),
+          ),
+        const DropdownMenuItem(
+          value: _kOtraCarpeta,
+          child: Text('Otra carpeta…'),
+        ),
+      ],
+      onChanged: (value) => setState(() {
+        _carpetaSeleccionada = value;
+        _carpeta = value == _kOtraCarpeta ? '' : (value ?? '');
+      }),
+      validator: (value) =>
+          value == null || value.isEmpty ? 'Elige la carpeta' : null,
     );
   }
 
@@ -2105,7 +2240,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
             empresaId: widget.empresaId,
             titulo: _titulo,
             codigo: _codigoController.text.trim(),
-            dependencia: _areaController.text.trim(),
+            area: _areaController.text.trim(),
           );
       await FileSaver.instance.saveFile(
         name: fileName.replaceAll(RegExp(r'\.xlsx$'), ''),
@@ -2129,7 +2264,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
   }
 
   /// Paso 1 del alta de un formato: la plantilla con el encabezado ya lleno
-  /// (logo, nombre, dependencia, código previsto, v1) se baja desde aquí.
+  /// (logo, nombre, área, código previsto, v1) se baja desde aquí.
   Widget _buildTemplateStep() {
     final listo = _puedeDescargarPlantilla;
     return Container(
@@ -2163,7 +2298,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
           Text(
             listo
                 ? 'Excel con logo, "$_titulo", ${_areaController.text.trim()}, código ${_codigoController.text.trim()} y versión v1. El encabezado va bloqueado; de la fila 7 hacia abajo arma el formato como necesites.'
-                : 'Escribe la dependencia y el nombre del formato para habilitar la descarga.',
+                : 'Escribe el área y el nombre del formato para habilitar la descarga.',
             style: const TextStyle(
               fontFamily: kArial,
               fontSize: 12,
@@ -2311,7 +2446,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
         actorId: widget.userId,
         rolDocumental: widget.rolDocumental,
         categoria: _categoria,
-        area: _areaController.text.trim(),
+        area: _esFormato ? _areaController.text.trim() : null,
         carpeta: _carpeta.isEmpty ? null : _carpeta,
         alias: _alias.isEmpty ? null : _alias,
         codigoExterno: _codigoExterno.isEmpty ? null : _codigoExterno,

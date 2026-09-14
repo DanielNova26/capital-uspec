@@ -42,7 +42,7 @@ void main() {
         empresaNombre: 'UT Alfa',
         titulo: 'Acta de baja de mercancía',
         codigo: 'LOG-001',
-        dependencia: 'Logística',
+        area: 'Logística',
         version: 'v1',
         fecha: DateTime(2026, 9, 14),
       );
@@ -53,19 +53,94 @@ void main() {
       expect(hoja, contains('<sheetProtection password="88EA" sheet="1"'));
       expect(hoja, contains('selectLockedCells="1"'));
       expect(hoja, contains('formatCells="0"'));
-      expect(hoja, contains('<mergeCell ref="C1:G3"/>'));
-      expect(hoja, contains('Acta de baja de mercancía'));
-      expect(hoja, contains('Pendiente de validación'));
+      // Geometría del modelo del jefe (14 sep 2026).
+      expect(hoja, contains('<mergeCell ref="A1:C4"/>'));
+      expect(hoja, contains('<mergeCell ref="D1:L1"/>'));
+      expect(hoja, contains('<mergeCell ref="D2:L3"/>'));
+      expect(hoja, contains('<mergeCell ref="D4:L4"/>'));
+      expect(
+        hoja,
+        contains('<mergeCell ref="M2:N2"/><mergeCell ref="O2:Q2"/>'),
+      );
+      expect(hoja, contains('<row r="1" ht="14.25" customHeight="1">'));
+      expect(hoja, contains('<row r="5" ht="2.0" customHeight="1">'));
+      expect(hoja, contains('<row r="6" ht="8.0" customHeight="1">'));
+      expect(
+        hoja,
+        contains('<col min="1" max="1" width="5.63" customWidth="1"/>'),
+      );
+      expect(
+        hoja,
+        contains('<col min="18" max="18" width="0.82" customWidth="1"/>'),
+      );
+      // Empresa en D1, título en D2, dependencia en D4, etiquetas en M.
+      expect(
+        hoja,
+        contains(
+          '<c r="D1" s="7" t="inlineStr"><is><t xml:space="preserve">UT ALFA',
+        ),
+      );
+      expect(
+        hoja,
+        contains(
+          '<c r="D2" s="2" t="inlineStr"><is><t xml:space="preserve">ACTA DE BAJA',
+        ),
+      );
+      expect(
+        hoja,
+        contains(
+          '<c r="D4" s="3" t="inlineStr"><is><t xml:space="preserve">Logística',
+        ),
+      );
+      expect(
+        hoja,
+        contains(
+          '<c r="M1" s="4" t="inlineStr"><is><t xml:space="preserve">Versión',
+        ),
+      );
+      expect(
+        hoja,
+        contains(
+          '<c r="O4" s="5" t="inlineStr"><is><t xml:space="preserve">LOG-001',
+        ),
+      );
+      // Rellenos: título sobre primario, etiquetas sobre secundario claro,
+      // franja de la fila 6 en primario y fila 5 en blanco.
+      expect(estilos, contains('<fills count="4">'));
+      expect(
+        estilos,
+        contains('<fgColor rgb="FF$kGdPlantillaColorPrimario"/>'),
+      );
+      expect(
+        estilos,
+        contains('<fgColor rgb="FF$kGdPlantillaColorSecundario"/>'),
+      );
+      expect(hoja, contains('<c r="A5" s="8"/>'));
+      expect(hoja, contains('<c r="A6" s="6"/>'));
+      // Títulos siempre en mayúscula.
+      expect(hoja, contains('ACTA DE BAJA DE MERCANCÍA'));
+      expect(hoja, isNot(contains('Acta de baja de mercancía')));
+      expect(
+        hoja,
+        contains(
+          '<c r="O2" s="5" t="inlineStr"><is><t xml:space="preserve">Pendiente</t></is></c>',
+        ),
+      );
       expect(hoja, contains('14/09/2026'));
       expect(hoja, contains('topLeftCell="A7"'));
       expect(hoja, isNot(contains('<drawing')));
       // Sin logo, el recuadro muestra el nombre de la empresa.
-      expect(hoja, contains('<c r="A1" s="1" t="inlineStr"><is><t xml:space="preserve">UT Alfa'));
+      expect(
+        hoja,
+        contains(
+          '<c r="A1" s="1" t="inlineStr"><is><t xml:space="preserve">UT Alfa',
+        ),
+      );
       // El estilo 0 (todas las celdas no escritas) está desbloqueado.
       expect(
         estilos,
         contains(
-          '<cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="0"/></xf>',
+          '<cellXfs count="9"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="0"/></xf>',
         ),
       );
       expect(partes.containsKey('xl/drawings/drawing1.xml'), isFalse);
@@ -76,7 +151,7 @@ void main() {
         empresaNombre: 'UT Alfa',
         titulo: 'Lista de chequeo <cocina>',
         codigo: 'NUT-003',
-        dependencia: 'Nutrición',
+        area: 'Nutrición',
         version: 'v2',
         fecha: DateTime(2026, 9, 14),
         aprobadoPor: 'María Pérez',
@@ -91,23 +166,43 @@ void main() {
       final dibujo = partes['xl/drawings/drawing1.xml']!;
 
       expect(hoja, contains('<drawing r:id="rId1"/>'));
-      expect(hoja, contains('Lista de chequeo &lt;cocina&gt;'));
-      expect(hoja, contains('María Pérez · 15/09/2026'));
+      expect(hoja, contains('LISTA DE CHEQUEO &lt;COCINA&gt;'));
+      // Solo el nombre: la celda del modelo no da para fecha y hora.
+      expect(
+        hoja,
+        contains(
+          '<c r="O2" s="5" t="inlineStr"><is><t xml:space="preserve">María Pérez</t></is></c>',
+        ),
+      );
+      expect(hoja, isNot(contains('15/09/2026')));
       expect(dibujo, contains('<xdr:oneCellAnchor>'));
       expect(dibujo, contains('noChangeAspect="1"'));
-      expect(partes['xl/drawings/_rels/drawing1.xml.rels'], contains('image1.png'));
+      expect(
+        partes['xl/drawings/_rels/drawing1.xml.rels'],
+        contains('image1.png'),
+      );
       expect(partes['[Content_Types].xml'], contains('Extension="png"'));
       expect(
-        ZipDecoder().decodeBytes(xlsx).files.any((f) => f.name == 'xl/media/image1.png'),
+        ZipDecoder()
+            .decodeBytes(xlsx)
+            .files
+            .any((f) => f.name == 'xl/media/image1.png'),
         isTrue,
       );
       // Color válido se usa; inválido cae al defecto.
       expect(partes['xl/styles.xml'], contains('FFAABBCC'));
-      expect(partes['xl/styles.xml'], contains('FF$kGdPlantillaColorSecundario'));
-      // Logo 4x2 dentro de un recuadro más alto que ancho: se escala al
-      // ancho y conserva proporción 2:1.
-      final ext = RegExp(r'<xdr:ext cx="(\d+)" cy="(\d+)"/>').firstMatch(dibujo)!;
-      expect(int.parse(ext.group(1)!), int.parse(ext.group(2)!) * 2);
+      expect(
+        partes['xl/styles.xml'],
+        contains('FF$kGdPlantillaColorSecundario'),
+      );
+      // Logo 4x2 dentro del recuadro A1:C4 (más ancho que alto): se escala
+      // al alto y conserva proporción 2:1.
+      final ext = RegExp(
+        r'<xdr:ext cx="(\d+)" cy="(\d+)"/>',
+      ).firstMatch(dibujo)!;
+      final cx = int.parse(ext.group(1)!);
+      final cy = int.parse(ext.group(2)!);
+      expect((cx - cy * 2).abs() <= 1, isTrue, reason: '$cx x $cy');
     });
 
     test('un logo que no es imagen se ignora sin romper el archivo', () {
@@ -115,7 +210,7 @@ void main() {
         empresaNombre: 'UT Alfa',
         titulo: 'X',
         codigo: 'X-1',
-        dependencia: 'X',
+        area: 'X',
         version: 'v1',
         fecha: DateTime(2026, 1, 1),
         logo: Uint8List.fromList(List.filled(64, 7)),
@@ -131,7 +226,7 @@ void main() {
             empresaNombre: '',
             titulo: '  Acta de baja / mercancía  ',
             codigo: 'LOG-001',
-            dependencia: '',
+            area: '',
             version: 'v1',
             fecha: DateTime(2026),
           ),
@@ -148,12 +243,12 @@ void _selloTests() {
       empresaNombre: 'UT Alfa',
       titulo: 'Acta de baja',
       codigo: 'LOG-001',
-      dependencia: 'Logística',
+      area: 'Logística',
       version: 'v1',
       fecha: DateTime(2026, 9, 14),
     );
 
-    test('escribe quién y cuándo en I2 y no toca nada más', () {
+    test('escribe quién validó en O2 y no toca nada más', () {
       final original = gdGenerarPlantillaFormato(base);
       final r = gdSellarPlantillaValidada(
         original,
@@ -164,8 +259,14 @@ void _selloTests() {
       final antes = _partes(original);
       final despues = _partes(r.bytes!);
       final hoja = despues['xl/worksheets/sheet1.xml']!;
-      expect(hoja, contains('<c r="I2" s="5" t="inlineStr"><is><t xml:space="preserve">María Pérez · 15/09/2026 10:05</t></is></c>'));
-      expect(hoja, isNot(contains('Pendiente de validación')));
+      expect(
+        hoja,
+        contains(
+          '<c r="O2" s="5" t="inlineStr"><is><t xml:space="preserve">María Pérez</t></is></c>',
+        ),
+      );
+      expect(r.detalle, contains('O2'));
+      expect(hoja, isNot(contains('Pendiente')));
       expect(hoja, contains('password="88EA"'));
       // Las demás partes quedan idénticas.
       for (final k in antes.keys.where((k) => !k.endsWith('sheet1.xml'))) {
@@ -181,8 +282,8 @@ void _selloTests() {
         if (f.name == 'xl/worksheets/sheet1.xml') {
           var xml = utf8.decode(f.content as List<int>);
           xml = xml.replaceFirst(
-            RegExp(r'<c r="I2"[^>]*>.*?</c>'),
-            '<c r="I2" s="5" t="s"><v>3</v></c>',
+            RegExp(r'<c r="O2"[^>]*>.*?</c>'),
+            '<c r="O2" s="5" t="s"><v>3</v></c>',
           );
           final b = utf8.encode(xml);
           salida.addFile(ArchiveFile(f.name, b.length, b));
@@ -197,16 +298,61 @@ void _selloTests() {
         aprobadoEn: DateTime(2026, 9, 15, 8, 0),
       );
       expect(r.bytes, isNotNull, reason: r.detalle);
-      expect(_partes(r.bytes!)['xl/worksheets/sheet1.xml'], contains('Calidad · 15/09/2026 08:00'));
-      expect(_partes(r.bytes!)['xl/worksheets/sheet1.xml'], isNot(contains('<v>3</v>')));
+      expect(
+        _partes(r.bytes!)['xl/worksheets/sheet1.xml'],
+        contains('<t xml:space="preserve">Calidad</t>'),
+      );
+      expect(
+        _partes(r.bytes!)['xl/worksheets/sheet1.xml'],
+        isNot(contains('<v>3</v>')),
+      );
+    });
+
+    test('sella en I2 las plantillas del encabezado anterior', () {
+      // Hoja mínima como la generaba la app antes del modelo del 14 sep 2026.
+      const hojaVieja =
+          '<worksheet><sheetData>'
+          '<row r="2"><c r="H2" s="4" t="inlineStr"><is><t>Aprobado</t></is></c>'
+          '<c r="I2" s="5" t="inlineStr"><is><t>Pendiente de validación</t></is></c></row>'
+          '</sheetData><mergeCells count="1"><mergeCell ref="C1:G3"/></mergeCells></worksheet>';
+      final vieja = Archive()
+        ..addFile(
+          ArchiveFile(
+            'xl/worksheets/sheet1.xml',
+            utf8.encode(hojaVieja).length,
+            utf8.encode(hojaVieja),
+          ),
+        );
+      final r = gdSellarPlantillaValidada(
+        Uint8List.fromList(ZipEncoder().encode(vieja)!),
+        aprobadoPor: 'Calidad',
+        aprobadoEn: DateTime(2026, 9, 15, 8, 0),
+      );
+      expect(r.bytes, isNotNull, reason: r.detalle);
+      final hoja = _partes(r.bytes!)['xl/worksheets/sheet1.xml']!;
+      expect(hoja, contains('<t xml:space="preserve">Calidad</t>'));
+      expect(hoja, isNot(contains('r="O2"')));
     });
 
     test('rechaza lo que no es la plantilla', () {
       final noEsZip = Uint8List.fromList(List.filled(100, 1));
-      expect(gdSellarPlantillaValidada(noEsZip, aprobadoPor: 'x', aprobadoEn: DateTime(2026)).bytes, isNull);
+      expect(
+        gdSellarPlantillaValidada(
+          noEsZip,
+          aprobadoPor: 'x',
+          aprobadoEn: DateTime(2026),
+        ).bytes,
+        isNull,
+      );
 
       final ajeno = Archive()
-        ..addFile(ArchiveFile('xl/worksheets/sheet1.xml', 30, utf8.encode('<worksheet><sheetData/></worksheet>')));
+        ..addFile(
+          ArchiveFile(
+            'xl/worksheets/sheet1.xml',
+            30,
+            utf8.encode('<worksheet><sheetData/></worksheet>'),
+          ),
+        );
       final r = gdSellarPlantillaValidada(
         Uint8List.fromList(ZipEncoder().encode(ajeno)!),
         aprobadoPor: 'x',
