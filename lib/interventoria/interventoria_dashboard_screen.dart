@@ -26,6 +26,7 @@ import '../utils/mobile_ocr.dart';
 import '../utils/pdf_extractor.dart';
 import '../utils/user_company.dart';
 import '../widgets/internal_module_layout.dart';
+import '../widgets/memo_stream_builder.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import 'interventoria_hallazgo_panel.dart';
@@ -320,19 +321,29 @@ class _InterventoriaDashboardScreenState
                   ),
                 // Tab: Hallazgos — oculto temporalmente (kMostrarTabHallazgos)
                 if (kMostrarTabHallazgos)
-                  StreamBuilder<List<InterventoriaVisita>>(
-                    stream: _svc.streamVisitas(
+                  // MemoStreamBuilder: el IndexedStack mantiene TODAS las
+                  // pestañas construidas y cada setState del tablero las
+                  // redibuja; con StreamBuilder a secas eso abría listeners
+                  // nuevos en cada clic.
+                  MemoStreamBuilder<List<InterventoriaVisita>>(
+                    memoKey: (widget.empresaId, centroEfectivo),
+                    create: () => _svc.streamVisitas(
                       widget.empresaId,
                       centroId: centroEfectivo,
                     ),
                     builder: (context, visitasSnap) {
-                      return StreamBuilder<List<InterventoriaHallazgo>>(
-                        stream: _svc.streamHallazgos(
+                      final centroH =
+                          centroEfectivo ??
+                          (_centroFiltro.isEmpty ? null : _centroFiltro);
+                      final estadoH = _estadoFiltro.isEmpty
+                          ? null
+                          : _estadoFiltro;
+                      return MemoStreamBuilder<List<InterventoriaHallazgo>>(
+                        memoKey: (widget.empresaId, centroH, estadoH),
+                        create: () => _svc.streamHallazgos(
                           widget.empresaId,
-                          centroId:
-                              centroEfectivo ??
-                              (_centroFiltro.isEmpty ? null : _centroFiltro),
-                          estado: _estadoFiltro.isEmpty ? null : _estadoFiltro,
+                          centroId: centroH,
+                          estado: estadoH,
                         ),
                         builder: (context, snap) {
                           final todos = _mergeHallazgosConVisitas(
@@ -372,14 +383,16 @@ class _InterventoriaDashboardScreenState
                     },
                   ),
                 // Tab: Subsanaciones (antes "Seguimiento")
-                StreamBuilder<List<InterventoriaVisita>>(
-                  stream: _svc.streamVisitas(
+                MemoStreamBuilder<List<InterventoriaVisita>>(
+                  memoKey: (widget.empresaId, centroEfectivo),
+                  create: () => _svc.streamVisitas(
                     widget.empresaId,
                     centroId: centroEfectivo,
                   ),
                   builder: (context, visitasSnap) {
-                    return StreamBuilder<List<InterventoriaHallazgo>>(
-                      stream: _svc.streamHallazgos(
+                    return MemoStreamBuilder<List<InterventoriaHallazgo>>(
+                      memoKey: (widget.empresaId, centroEfectivo),
+                      create: () => _svc.streamHallazgos(
                         widget.empresaId,
                         centroId: centroEfectivo,
                       ),
@@ -753,8 +766,9 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      stream: service.streamSolicitudesEliminacion(empresaId),
+    return MemoStreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      memoKey: empresaId,
+      create: () => service.streamSolicitudesEliminacion(empresaId),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
@@ -3044,8 +3058,11 @@ class _TareaEstadoMiniState extends State<_TareaEstadoMini> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+    // Un listener por fila de la tabla; sin memo, cada redibujo del tablero
+    // abría decenas de listeners nuevos de golpe.
+    return MemoStreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      memoKey: widget.tareaId,
+      create: () => FirebaseFirestore.instance
           .collection('TBL_TAREAS')
           .doc(widget.tareaId)
           .snapshots(),
@@ -4300,8 +4317,9 @@ class _VisitasTabState extends State<_VisitasTab> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<InterventoriaVisita>>(
-      stream: widget.service.streamVisitas(
+    return MemoStreamBuilder<List<InterventoriaVisita>>(
+      memoKey: (widget.empresaId, widget.centroFijoId),
+      create: () => widget.service.streamVisitas(
         widget.empresaId,
         centroId: widget.centroFijoId,
       ),
@@ -5215,8 +5233,9 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<InterventoriaVisita>>(
-      stream: widget.service.streamVisitas(widget.empresaId),
+    return MemoStreamBuilder<List<InterventoriaVisita>>(
+      memoKey: widget.empresaId,
+      create: () => widget.service.streamVisitas(widget.empresaId),
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -6963,8 +6982,9 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
         // (pasó con Ubaté, que quedaba guardado como "Bodega Cota"), cada
         // acta se registraba en el establecimiento equivocado y quien
         // registraba no tenía forma de corregirlo ni de notarlo.
-        StreamBuilder<List<CentroCostoRef>>(
-          stream: widget.service.streamCentrosCosto(widget.empresaId),
+        MemoStreamBuilder<List<CentroCostoRef>>(
+          memoKey: widget.empresaId,
+          create: () => widget.service.streamCentrosCosto(widget.empresaId),
           builder: (_, snap) {
             final centros = snap.data ?? [];
             final esFijo =
@@ -8319,8 +8339,9 @@ class _CentroCostoFilterDropdown extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<CentroCostoRef>>(
-      stream: service.streamCentrosCosto(empresaId),
+    return MemoStreamBuilder<List<CentroCostoRef>>(
+      memoKey: empresaId,
+      create: () => service.streamCentrosCosto(empresaId),
       builder: (context, snapshot) {
         final centrosPorId = <String, CentroCostoRef>{
           for (final centro in snapshot.data ?? const <CentroCostoRef>[])
@@ -8799,8 +8820,9 @@ class _AdjuntosDeTareaState extends State<_AdjuntosDeTarea> {
   @override
   Widget build(BuildContext context) {
     if (widget.tareaId.isEmpty) return const SizedBox.shrink();
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+    return MemoStreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      memoKey: widget.tareaId,
+      create: () => FirebaseFirestore.instance
           .collection('TBL_TAREAS')
           .doc(widget.tareaId)
           .snapshots(),
@@ -10455,8 +10477,9 @@ class _PorRevisarTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<InterventoriaVisita>>(
-      stream: service.streamActasPendientesRevision(empresaId),
+    return MemoStreamBuilder<List<InterventoriaVisita>>(
+      memoKey: empresaId,
+      create: () => service.streamActasPendientesRevision(empresaId),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());

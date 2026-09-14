@@ -101,6 +101,44 @@ retome.
 
 ---
 
+## "Dart exception thrown from converted Future" al guardar actas — 14 sep 2026 (Claude)
+
+Varios registradores desde el viernes: al tocar "Guardar acta" sale ese
+error y el acta no se guarda. Ese texto es lo que muestra Flutter web cuando
+el SDK de Firestore en JavaScript lanza un error que no es FirebaseError, y
+el que lo provoca en esta app es el conocido `FIRESTORE INTERNAL ASSERTION
+FAILED` por recrear listeners en cada build (ver memoria
+`firestore-listener-churn`). A partir de ahí toda escritura de la sesión
+falla hasta recargar la pestaña.
+
+Qué lo disparó ahora: el viernes la hoja "Registrar acta" pasó a mostrar el
+establecimiento en un desplegable también para el Registrador, y ese
+desplegable creaba `streamCentrosCosto(...).snapshots()` DENTRO de build.
+Esa hoja se redibuja con cada puntaje y cada nota: decenas de listeners
+nuevos por acta. Y no era el único: el tablero principal recreaba
+`streamVisitas` + `streamHallazgos` en cada setState (el IndexedStack
+mantiene todas las pestañas construidas), y la tabla de Subsanaciones un
+listener de `TBL_TAREAS` por fila.
+
+Arreglo: `lib/widgets/memo_stream_builder.dart`, un `StreamBuilder` que
+conserva la stream mientras su `memoKey` (empresa, centro, filtros) no
+cambie. Reemplazados los 11 puntos de Interventoría (tablero, histórico,
+por revisar, análisis, solicitudes, selector de centro, hoja de registro,
+chips de tarea, panel del hallazgo). Es la misma corrección que
+Correspondencia recibió el 11 sep; conviene pasarla al resto de módulos.
+
+Mientras sale el build: recargar la pestaña (F5) después de un error de
+estos y volver a guardar; el acta no se pierde porque los puntajes se
+vuelven a escribir.
+
+Nota de árbol: HEAD lleva mezclado trabajo a medias de Codex en
+`interventoria_models.dart` (estado `devuelta`), arrastrado por `git add`
+de directorio en `1ad591c`/`8a0e2e5`. La prueba "devolución de un acta
+vuelve al estado que ya existe" falla en HEAD limpio y pasa con el árbol de
+trabajo. Codex debe commitear su parte para cerrar eso.
+
+---
+
 ## Devolver un acta también en Fase 1 — 12 sep 2026 (Claude)
 
 El botón "Devolver acta con errores" solo salía en actas ya completas

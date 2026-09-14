@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/user_directory.dart';
+import '../widgets/memo_stream_builder.dart';
 import '../widgets/user_avatar.dart';
 import 'interventoria_models.dart';
 import 'interventoria_service.dart';
@@ -1053,8 +1054,9 @@ class _AvanceDeTarea extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: db.collection('TBL_TAREAS').doc(tareaId).snapshots(),
+          MemoStreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            memoKey: tareaId,
+            create: () => db.collection('TBL_TAREAS').doc(tareaId).snapshots(),
             builder: (context, snap) {
               if (!snap.hasData) {
                 return const Text(
@@ -1134,8 +1136,9 @@ class _AvanceDeTarea extends StatelessWidget {
             },
           ),
           const Divider(height: 18),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: db
+          MemoStreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            memoKey: 'avances_$tareaId',
+            create: () => db
                 .collection('TBL_TAREAS')
                 .doc(tareaId)
                 .collection('avances')
