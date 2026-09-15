@@ -242,6 +242,25 @@ retome.
 
 ---
 
+## Facturación: la devolución llega pero "Sin observaciones" — 14 sep 2026 (Claude)
+
+Yolmaider recibió la notificación de un documento devuelto (Proyectos
+Productivos, agosto) y al abrir el chat de observaciones: "Sin observaciones
+para este documento", en todos los documentos. La observación SÍ está en
+`TBL_FAC_OBSERVACIONES` (verificado en producción). La consulta era
+`where empresaId + where establecimientoId + orderBy fecha`, que exige un
+índice compuesto que nunca se creó; Firestore responde
+FAILED_PRECONDITION, y las tres suscripciones de la pantalla no escuchaban
+el error: lista vacía, como si no hubiera nada.
+
+Arreglo sin índice ni deploy de Firestore: la consulta ya no ordena en el
+servidor (se ordena en memoria; son pocas por establecimiento), y cualquier
+error de la stream se muestra en pantalla en vez de parecer "sin
+observaciones". De paso el autor sale con `UserNameText`: en el dato quedó
+la cédula en `autorNombre`.
+
+---
+
 ## Compras: "Indica el motivo por el cual se está editando la recepción" — 14 sep 2026 (Claude)
 
 La auditoría de ediciones de recepción (Codex, `ea52583`) exige un motivo

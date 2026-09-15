@@ -2532,9 +2532,21 @@ class _DetalleEstablecimientoScreenState
     _observaciones = [];
     _obsSub = widget.svc
         .streamObservaciones(widget.empresaId, widget.estId, mes: _activeMes)
-        .listen((obs) {
-          if (mounted) setState(() => _observaciones = obs);
-        });
+        .listen(
+          (obs) {
+            if (mounted) setState(() => _observaciones = obs);
+          },
+          // Un error de la consulta no puede parecer "no hay observaciones".
+          onError: (Object e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No se pudieron cargar las observaciones: $e'),
+                backgroundColor: Colors.red.shade700,
+              ),
+            );
+          },
+        );
   }
 
   Future<void> _cambiarMes(String? mes) async {
@@ -3141,9 +3153,21 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
     _observaciones = [];
     _obsSub = widget.svc
         .streamObservaciones(widget.empresaId, widget.estId, mes: _activeMes)
-        .listen((obs) {
-          if (mounted) setState(() => _observaciones = obs);
-        });
+        .listen(
+          (obs) {
+            if (mounted) setState(() => _observaciones = obs);
+          },
+          // Un error de la consulta no puede parecer "no hay observaciones".
+          onError: (Object e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No se pudieron cargar las observaciones: $e'),
+                backgroundColor: Colors.red.shade700,
+              ),
+            );
+          },
+        );
   }
 
   Future<void> _cargar({String? mesSeleccionado}) async {
@@ -5169,6 +5193,11 @@ class _ObservacionesScreen extends StatelessWidget {
               child: CircularProgressIndicator(color: _kPrimary),
             );
           }
+          if (snap.hasError) {
+            return _emptyState(
+              'No se pudieron cargar las observaciones: ${snap.error}',
+            );
+          }
           final obs = snap.data ?? [];
           if (obs.isEmpty) return _emptyState('Sin observaciones.');
           return ListView.builder(
@@ -5193,8 +5222,10 @@ class _ObservacionesScreen extends StatelessWidget {
                           color: Colors.grey,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          obs[i].autorNombre,
+                        // Nombre y no cédula: en el dato quedó la cédula.
+                        UserNameText(
+                          obs[i].autorId,
+                          fallbackName: obs[i].autorNombre,
                           style: const TextStyle(
                             fontFamily: _kFont,
                             fontWeight: FontWeight.w600,

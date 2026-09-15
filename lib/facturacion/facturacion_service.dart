@@ -1190,17 +1190,24 @@ class FacturacionService {
   }) {
     final mesBuscado = normalizeFacMesKey((mes ?? '').trim());
     final docBuscado = (docTipo ?? '').trim();
+    // Sin `orderBy('fecha')` en la consulta: con dos `where` más un orden
+    // Firestore exige un índice compuesto que nunca se creó, la consulta
+    // fallaba con FAILED_PRECONDITION y las pantallas, que no escuchaban el
+    // error, mostraban "Sin observaciones" aunque la devolución estuviera
+    // guardada (14 sep 2026). Las observaciones de un establecimiento son
+    // pocas: se ordenan aquí.
     return _db
         .collection(_colObs)
         .where('empresaId', isEqualTo: empresaId)
         .where('establecimientoId', isEqualTo: estId)
-        .orderBy('fecha', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => FacObservacion.fromMap(d.id, d.data()))
-              .where((o) => coincideObservacion(o, mesBuscado, docBuscado))
-              .toList(),
+          (snap) =>
+              snap.docs
+                  .map((d) => FacObservacion.fromMap(d.id, d.data()))
+                  .where((o) => coincideObservacion(o, mesBuscado, docBuscado))
+                  .toList()
+                ..sort((a, b) => b.fecha.compareTo(a.fecha)),
         );
   }
 
