@@ -618,6 +618,7 @@ class GdService {
     }
     return _armarPlantillaFormato(
       empresaId: empresaId,
+      tipo: (data['categoria'] ?? '').toString(),
       titulo: (data['titulo'] ?? '').toString(),
       codigo: (data['codigo'] ?? '').toString(),
       area: (data['area'] ?? '').toString(),
@@ -632,6 +633,7 @@ class GdService {
   /// área), se arma y se sube ahí mismo. Así el flujo no se rompe.
   Future<(Uint8List, String)> generarPlantillaFormatoPrevia({
     required String empresaId,
+    required String tipo,
     required String titulo,
     required String codigo,
     required String area,
@@ -643,6 +645,7 @@ class GdService {
     }
     return _armarPlantillaFormato(
       empresaId: empresaId,
+      tipo: tipo,
       titulo: titulo,
       codigo: codigo,
       area: area,
@@ -652,6 +655,7 @@ class GdService {
 
   Future<(Uint8List, String)> _armarPlantillaFormato({
     required String empresaId,
+    required String tipo,
     required String titulo,
     required String codigo,
     required String area,
@@ -682,6 +686,7 @@ class GdService {
 
     final datos = GdPlantillaFormatoDatos(
       empresaNombre: (empresa['nombre'] ?? '').toString().trim(),
+      tipo: tipo,
       titulo: titulo,
       codigo: codigo,
       area: area,

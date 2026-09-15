@@ -40,6 +40,7 @@ void main() {
     test('el encabezado va bloqueado y el contenido libre', () {
       final datos = GdPlantillaFormatoDatos(
         empresaNombre: 'UT Alfa',
+        tipo: 'Formato',
         titulo: 'Acta de baja de mercancía',
         codigo: 'LOG-001',
         area: 'Logística',
@@ -73,13 +74,14 @@ void main() {
         hoja,
         contains('<col min="18" max="18" width="0.82" customWidth="1"/>'),
       );
-      // Empresa en D1, título en D2, dependencia en D4, etiquetas en M.
+      // Tipo en D1 (no la empresa), título en D2, área en D4, etiquetas en M.
       expect(
         hoja,
         contains(
-          '<c r="D1" s="7" t="inlineStr"><is><t xml:space="preserve">UT ALFA',
+          '<c r="D1" s="7" t="inlineStr"><is><t xml:space="preserve">FORMATO',
         ),
       );
+      expect(hoja, isNot(contains('UT ALFA')));
       expect(
         hoja,
         contains(
@@ -104,17 +106,20 @@ void main() {
           '<c r="O4" s="5" t="inlineStr"><is><t xml:space="preserve">LOG-001',
         ),
       );
-      // Rellenos: título sobre primario, etiquetas sobre secundario claro,
-      // franja de la fila 6 en primario y fila 5 en blanco.
-      expect(estilos, contains('<fills count="4">'));
-      expect(
-        estilos,
-        contains('<fgColor rgb="FF$kGdPlantillaColorPrimario"/>'),
-      );
+      // Color solo en las etiquetas (estilo 4, relleno secundario); título,
+      // tipo, área y separadores sin relleno.
       expect(
         estilos,
         contains('<fgColor rgb="FF$kGdPlantillaColorSecundario"/>'),
       );
+      final xfs = RegExp(r'<xf [^>]*>')
+          .allMatches(estilos.substring(estilos.indexOf('<cellXfs')))
+          .map((m) => m.group(0)!)
+          .toList();
+      expect(xfs[4], contains('fillId="3"'));
+      for (final i in [2, 3, 6, 7, 8]) {
+        expect(xfs[i], contains('fillId="0"'), reason: 'estilo $i');
+      }
       expect(hoja, contains('<c r="A5" s="8"/>'));
       expect(hoja, contains('<c r="A6" s="6"/>'));
       // Títulos siempre en mayúscula.

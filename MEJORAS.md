@@ -5700,3 +5700,14 @@ Instrucciones del jefe sobre la Biblioteca Documental:
   título va unido a su número y a los documentos asociados, y hay una
   columna nueva **N° LEY / RESOLUCIÓN**; las palabras clave pasan a la
   columna siguiente.
+
+### Ajuste del jefe por la tarde (14 sep 2026): color solo en etiquetas y tipo en la fila 1
+
+- **Color solo en Versión, Aprobado, Fecha y Código** (relleno secundario
+  claro). Título, tipo, área y las filas separadoras van sin relleno, en
+  azul marino sobre blanco.
+- **La fila 1 (`D1:L1`) muestra el TIPO del documento** (FORMATO,
+  PROCEDIMIENTO, POLÍTICA…) en vez del nombre de la empresa. El nombre de la
+  empresa solo aparece como texto de respaldo cuando no hay logo. El tipo
+  sale de `categoria` (`GdPlantillaFormatoDatos.tipo`); la descarga previa
+  desde el diálogo de alta lo toma del tipo elegido.

@@ -2238,6 +2238,7 @@ class _CreateDocumentDialogState extends State<_CreateDocumentDialog> {
       final (bytes, fileName) = await widget.service
           .generarPlantillaFormatoPrevia(
             empresaId: widget.empresaId,
+            tipo: _categoria,
             titulo: _titulo,
             codigo: _codigoController.text.trim(),
             area: _areaController.text.trim(),

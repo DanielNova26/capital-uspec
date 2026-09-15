@@ -17,10 +17,11 @@
 // ("1. Formato modelo v1.xlsx"): bordes finos azul marino, logo en A1:C4,
 // empresa en D1:L1, nombre del formato en D2:L3, área en D4:L4,
 // etiquetas en M:N y valores en O:Q; filas 1-4 de 14.25 pt y dos filas
-// separadoras (5 y 6) de 2 y 8 pt. Los rellenos son los de la versión del
-// 12 sep, que el jefe sí quiere: título en blanco sobre el color primario,
-// empresa/área/etiquetas sobre el secundario claro y una franja del
-// primario en la fila 6.
+// separadoras (5 y 6) de 2 y 8 pt. Color solo en las etiquetas (Versión,
+// Aprobado, Fecha, Código: relleno secundario claro); título, tipo y área
+// van en azul marino sobre blanco. La fila 1 muestra el TIPO del documento
+// (FORMATO, PROCEDIMIENTO, POLÍTICA...), no el nombre de la empresa (ajustes
+// del jefe, 14 sep 2026 por la tarde).
 //
 // Sin dependencias de Flutter: se prueba en `flutter test` sin widgets.
 
@@ -30,9 +31,8 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 /// Colores del encabezado. El primario (azul marino del modelo del jefe)
-/// pinta bordes, el fondo del título, la franja separadora y el texto de
-/// etiquetas, empresa y área; el secundario es el relleno claro de
-/// etiquetas, empresa y área. `TBL_EMPRESAS.colorPrimario` /
+/// pinta bordes y el texto de tipo, título, área y etiquetas; el secundario
+/// es el relleno claro de las etiquetas, único bloque con color. `TBL_EMPRESAS.colorPrimario` /
 /// `colorSecundario` (hex sin `#`) los reemplazan por empresa si existen.
 const String kGdPlantillaColorPrimario = '0D1B68';
 const String kGdPlantillaColorSecundario = 'E8EEF5';
@@ -51,7 +51,12 @@ const int kGdPlantillaPrimeraFilaLibre = 7;
 const String kGdPlantillaCeldaAprobado = 'O2';
 
 class GdPlantillaFormatoDatos {
+  /// Solo se usa como texto de respaldo cuando no hay logo.
   final String empresaNombre;
+
+  /// Tipo del documento (Formato, Procedimiento, Política...): va en la fila
+  /// 1 del encabezado, en mayúscula.
+  final String tipo;
   final String titulo;
   final String codigo;
   final String area;
@@ -70,6 +75,7 @@ class GdPlantillaFormatoDatos {
 
   const GdPlantillaFormatoDatos({
     required this.empresaNombre,
+    this.tipo = '',
     required this.titulo,
     required this.codigo,
     required this.area,
@@ -314,22 +320,22 @@ String _styles(GdPlantillaFormatoDatos datos) {
       // 1 logo
       '<xf numFmtId="0" fontId="5" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" wrapText="1"/><protection locked="1"/></xf>'
-      // 2 título: blanco sobre primario
-      '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
+      // 2 título: negrilla primario sobre blanco
+      '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" wrapText="1"/><protection locked="1"/></xf>'
-      // 3 dependencia sobre secundario (una sola fila: se encoge la letra)
-      '<xf numFmtId="0" fontId="4" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
+      // 3 área sobre blanco (una sola fila: se encoge la letra)
+      '<xf numFmtId="0" fontId="4" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" shrinkToFit="1"/><protection locked="1"/></xf>'
-      // 4 etiqueta sobre secundario
+      // 4 etiqueta sobre secundario: el único bloque con color
       '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="left" vertical="center"/><protection locked="1"/></xf>'
       // 5 valor (nombres largos en "Aprobado": se encoge la letra)
       '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" shrinkToFit="1"/><protection locked="1"/></xf>'
-      // 6 franja separadora (fila 6) en primario, con candado.
-      '<xf numFmtId="0" fontId="0" fillId="2" borderId="0" xfId="0" applyFill="1" applyProtection="1"><protection locked="1"/></xf>'
-      // 7 empresa (D1:L1): negrilla primario sobre secundario, una sola fila.
-      '<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
+      // 6 separador (fila 6): en blanco, con candado.
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="1"/></xf>'
+      // 7 tipo (D1:L1): negrilla primario sobre blanco, una sola fila.
+      '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1" applyProtection="1">'
       '<alignment horizontal="center" vertical="center" shrinkToFit="1"/><protection locked="1"/></xf>'
       // 8 hueco (fila 5): en blanco, con candado.
       '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyProtection="1"><protection locked="1"/></xf>'
@@ -372,10 +378,13 @@ String _sheet(GdPlantillaFormatoDatos datos, bool conLogo) {
   final filas = <int, List<_Celda>>{
     1: [
       ...bloque(_columnasLogo, _Xf.logo, conLogo ? '' : datos.empresaNombre),
+      // Fila 1: el tipo del documento (FORMATO, PROCEDIMIENTO...). Si no
+      // viene, queda el nombre de la empresa para no dejar la celda vacía.
       ...bloque(
         _columnasTitulo,
         _Xf.empresa,
-        datos.empresaNombre.toUpperCase(),
+        (datos.tipo.trim().isEmpty ? datos.empresaNombre : datos.tipo)
+            .toUpperCase(),
       ),
       ...bloque(_columnasEtiqueta, _Xf.etiqueta, 'Versión'),
       ...bloque(_columnasValor, _Xf.valor, datos.version),
