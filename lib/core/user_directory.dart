@@ -164,14 +164,38 @@ class UserDirectory {
     }
   }
 
+  /// Arma la info de una persona a partir de su doc de TBL_USUARIOS (público
+  /// para quien ya tiene el documento en mano y no quiere otra lectura).
+  UserDisplayInfo fromUsuario(String id, Map<String, dynamic> u) =>
+      _fromUsuario(id, u);
+
   UserDisplayInfo _fromUsuario(String id, Map<String, dynamic> u) {
-    final nombres =
-        (u['nombres'] as String? ?? u['primerNombre'] as String? ?? '').trim();
-    final apellidos =
-        (u['apellidos'] as String? ?? u['primerApellido'] as String? ?? '')
-            .trim();
-    var nombre = '$nombres $apellidos'.trim();
-    if (nombre.isEmpty) nombre = (u['nombre'] as String? ?? '').trim();
+    String texto(String key) => (u[key] ?? '').toString().trim();
+    // Un campo presente pero vacío ('nombres': '') no debe tapar al siguiente:
+    // por eso se toma el primero NO vacío, no el primero no nulo.
+    String primero(List<String> keys) {
+      for (final k in keys) {
+        final v = texto(k);
+        if (v.isNotEmpty) return v;
+      }
+      return '';
+    }
+
+    var nombre = primero(['nombres', 'primerNombre']);
+    final segundoNombre = texto('nombres').isEmpty
+        ? texto('segundoNombre')
+        : '';
+    final apellidos = primero(['apellidos', 'primerApellido']);
+    final segundoApellido = texto('apellidos').isEmpty
+        ? texto('segundoApellido')
+        : '';
+    nombre = [
+      nombre,
+      segundoNombre,
+      apellidos,
+      segundoApellido,
+    ].where((s) => s.isNotEmpty).join(' ');
+    if (nombre.isEmpty) nombre = primero(['nombre', 'name', 'nombreCompleto']);
     return UserDisplayInfo(
       id: id,
       nombre: nombre,

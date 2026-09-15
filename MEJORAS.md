@@ -5711,3 +5711,24 @@ Instrucciones del jefe sobre la Biblioteca Documental:
   empresa solo aparece como texto de respaldo cuando no hay logo. El tipo
   sale de `categoria` (`GdPlantillaFormatoDatos.tipo`); la descarga previa
   desde el diálogo de alta lo toma del tipo elegido.
+
+## Facturación: el autor de las observaciones salía como cédula (14 sep 2026)
+
+En "Observaciones" de Proyectos Productivos el autor aparecía como
+`1073241667`. El widget correcto (`UserAvatar`/`UserNameText`) ya estaba,
+pero el nombre no llegaba por dos causas:
+
+- Facturación resolvía el autor leyendo solo `nombre`/`name` de
+  `TBL_USUARIOS`, y la mayoría de personas tienen el nombre partido en
+  `primerNombre`/`primerApellido`; así guardaba la cédula en `autorNombre`.
+  Ahora los tres puntos (comentario nuevo, detalle de establecimiento y
+  planilla) y el buscador de responsable del establecimiento usan
+  `UserDirectory`.
+- `UserDirectory._fromUsuario` tomaba `nombres ?? primerNombre`: un
+  `nombres: ''` presente pero vacío tapaba a `primerNombre`. Ahora toma el
+  primer campo NO vacío y arma nombre + segundo nombre + apellidos. Se
+  expone `fromUsuario()` para quien ya tiene el doc en mano.
+
+Las observaciones antiguas que guardaron la cédula en `autorNombre` se
+resuelven al abrir la hoja (`_idDe`: `autorId` o, si venía vacío, la cédula
+de `autorNombre`). Prueba nueva: `test/core/user_directory_nombre_test.dart`.

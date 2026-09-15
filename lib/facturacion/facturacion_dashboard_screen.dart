@@ -17,6 +17,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/guarded_module_page.dart';
+import '../core/user_directory.dart';
 import '../utils/doc_preview.dart';
 import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
@@ -2028,18 +2029,9 @@ class _GestionTabState extends State<_GestionTab> {
       orElse: () => widget.ests.first,
     );
 
-    // Nombre del autor
-    String autorNombre = widget.userId;
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.userId)
-          .get();
-      if (snap.exists) {
-        final d = snap.data()!;
-        autorNombre = (d['nombre'] ?? d['name'] ?? widget.userId).toString();
-      }
-    } catch (_) {}
+    // Nombre del autor: nunca la cédula si hay forma de resolverlo.
+    final autorNombre = (await UserDirectory.instance.resolve(widget.userId))
+        .displayName;
 
     try {
       final recipient = await widget.svc.findEstablishmentRecipient(
@@ -2423,19 +2415,12 @@ class _DetalleEstablecimientoScreenState
   }
 
   Future<void> _loadAutor() async {
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.userId)
-          .get();
-      if (snap.exists && mounted) {
-        final d = snap.data()!;
-        setState(
-          () => _autorNombre = (d['nombre'] ?? d['name'] ?? widget.userId)
-              .toString(),
-        );
-      }
-    } catch (_) {}
+    // Nombre y foto salen de UserDirectory (arma el nombre aunque esté
+    // partido en primerNombre/primerApellido); nunca se guarda la cédula.
+    final info = await UserDirectory.instance.resolve(widget.userId);
+    if (mounted && info.hasNombre) {
+      setState(() => _autorNombre = info.nombre);
+    }
   }
 
   @override
@@ -3095,19 +3080,10 @@ class _EstablecimientoViewState extends State<_EstablecimientoView> {
   }
 
   Future<void> _loadAutorNombre() async {
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('TBL_USUARIOS')
-          .doc(widget.userId)
-          .get();
-      if (snap.exists && mounted) {
-        final d = snap.data()!;
-        setState(
-          () => _autorNombre = (d['nombre'] ?? d['name'] ?? widget.userId)
-              .toString(),
-        );
-      }
-    } catch (_) {}
+    final info = await UserDirectory.instance.resolve(widget.userId);
+    if (mounted && info.hasNombre) {
+      setState(() => _autorNombre = info.nombre);
+    }
   }
 
   @override
@@ -4677,27 +4653,28 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   }
 
   Future<void> _resolveNames() async {
-    // Buscar autores cuyo autorNombre parece una cédula (solo dígitos)
+    // Autores cuyo autorNombre quedó como cédula (solo dígitos): se resuelven
+    // por UserDirectory, que arma el nombre aunque esté partido en campos.
     final cedulas = widget.observaciones
-        .map((o) => o.autorNombre.trim())
+        .map((o) => _idDe(o))
         .where((n) => RegExp(r'^\d{6,12}$').hasMatch(n))
         .toSet();
     if (cedulas.isEmpty) return;
-    try {
-      for (final ced in cedulas) {
-        final snap = await FirebaseFirestore.instance
-            .collection('TBL_USUARIOS')
-            .doc(ced)
-            .get();
-        if (snap.exists && mounted) {
-          final d = snap.data()!;
-          final nombre = (d['nombre'] ?? d['name'] ?? ced).toString().trim();
-          if (nombre.isNotEmpty && nombre != ced) {
-            setState(() => _nombres[ced] = nombre);
-          }
-        }
-      }
-    } catch (_) {}
+    await UserDirectory.instance.warm(cedulas);
+    for (final ced in cedulas) {
+      final info = await UserDirectory.instance.resolve(ced);
+      if (!mounted) return;
+      if (info.hasNombre) setState(() => _nombres[ced] = info.nombre);
+    }
+  }
+
+  /// Cédula del autor: `autorId` y, si venía vacío, el `autorNombre` cuando
+  /// es solo dígitos (observaciones antiguas guardaron ahí la cédula).
+  String _idDe(FacObservacion o) {
+    final id = o.autorId.trim();
+    if (id.isNotEmpty) return id;
+    final n = o.autorNombre.trim();
+    return RegExp(r'^\d{6,12}$').hasMatch(n) ? n : '';
   }
 
   String _displayName(String autorNombre) =>
@@ -4894,7 +4871,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           UserAvatar(
-                            userId: o.autorId,
+                            userId: _idDe(o),
                             nameHint: _displayName(o.autorNombre),
                             radius: 16,
                             backgroundColor: _kPrimary.withValues(alpha: 0.12),
@@ -4908,7 +4885,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                                 Row(
                                   children: [
                                     UserNameText(
-                                      o.autorId,
+                                      _idDe(o),
                                       fallbackName: _displayName(o.autorNombre),
                                       style: const TextStyle(
                                         fontFamily: _kFont,

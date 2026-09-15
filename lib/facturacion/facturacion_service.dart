@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import '../core/user_directory.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
 import 'facturacion_models.dart';
@@ -1226,9 +1227,11 @@ class FacturacionService {
         continue;
       }
       final cedula = (data['cedula'] ?? doc.id).toString().trim();
-      final nombre = (data['nombre'] ?? data['name'] ?? cedula)
-          .toString()
-          .trim();
+      // Nombre armado aunque venga partido (primerNombre/primerApellido);
+      // la cédula solo si de verdad no hay nombre.
+      final nombre = UserDirectory.instance
+          .fromUsuario(cedula, data)
+          .displayName;
       final hoja = data['hojaDeVida'] is Map
           ? Map<String, dynamic>.from(data['hojaDeVida'] as Map)
           : const <String, dynamic>{};
