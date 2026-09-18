@@ -712,25 +712,31 @@ class _AssignedTasksScreenState extends State<AssignedTasksScreen> {
         return;
       }
 
-      // Notificar al creador y al jefe que hay una solicitud pendiente
+      // La solicitud solo avisa al jefe inmediato del responsable.
       final taskData = doc.data();
-      final creadorId = _str(taskData, ['creador_id', 'creatorId']);
       final jefeId = _str(taskData, ['jefe_uid', 'bossId']);
       final titulo = _str(taskData, ['titulo', 'title'], def: 'Tarea');
       final empresaId = _str(taskData, ['empresaId', 'empresa_id']);
       final actorName = _currentUserName();
       final toName = pickedUser!['nombre'] ?? '';
       final recipients = <String>{};
-      if (creadorId.isNotEmpty && creadorId != widget.userId) {
-        recipients.add(creadorId);
-      }
       if (jefeId.isNotEmpty && jefeId != widget.userId) recipients.add(jefeId);
       if (recipients.isNotEmpty) {
         try {
+          final fecha = DateTime.now();
+          final fechaTexto = '${fecha.day.toString().padLeft(2, '0')}/'
+              '${fecha.month.toString().padLeft(2, '0')}/${fecha.year}';
+          final responsable = _str(
+            taskData,
+            ['asignado_nombre', 'assignedToName'],
+            def: widget.userId,
+          );
           await TaskService().pushNotificationToMany(
             toUserIds: recipients.toList(),
             title: 'Solicitud de reasignación',
-            description: '$titulo · $actorName solicita reasignar a $toName',
+            description: '$titulo · $actorName solicita reasignar a $toName'
+                ' · Fecha: $fechaTexto · Emisor: $actorName'
+                ' · Responsable: $responsable',
             taskId: doc.id,
             type: 'task_solicitud_reasignacion',
             fromId: widget.userId,

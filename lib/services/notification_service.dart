@@ -39,6 +39,7 @@ import '../home/task_history_screen.dart';
 import '../core/task_route_guard.dart';
 import '../facturacion/facturacion_navigation.dart';
 import '../interventoria/interventoria_dashboard_screen.dart';
+import '../visitas/visitas_navigation.dart';
 
 typedef CedulaProvider = FutureOr<String?> Function();
 
@@ -72,8 +73,15 @@ class NotificationsService {
   static bool _isRutasEvidenceRejected(String type) =>
       type.trim().toLowerCase() == 'rutas_evidencia_rechazada';
 
-  static bool _isInterventoriaActaEliminada(String type) =>
-      type.trim().toLowerCase() == 'interventoria_acta_eliminada';
+  // También el acta devuelta para corregir: abre el mismo histórico.
+  static bool _isInterventoriaActaEliminada(String type) {
+    final t = type.trim().toLowerCase();
+    return t == 'interventoria_acta_eliminada' ||
+        t == 'interventoria_acta_devuelta';
+  }
+
+  static bool _isInterventoriaDeleteRequest(String type) =>
+      type.trim().toLowerCase() == 'interventoria_delete_request';
 
   static Future<void> setActiveCedula(String? cedula) async {
     final normalized = cedula?.trim();
@@ -203,8 +211,10 @@ class NotificationsService {
 
     final title = n?.title ?? data['title'] ?? 'Nueva tarea';
     final body = n?.body ?? data['body'] ?? 'Tienes una notificación';
-    final rawPayload = (data['deepLink'] ?? data['taskId'])?.toString();
     final type = (data['type'] ?? '').toString().trim();
+    final rawPayload = (data['deepLink'] ?? data['taskId'] ??
+        (_isInterventoriaDeleteRequest(type) ? data['sourceEntityId'] : null))
+        ?.toString();
     final empresaId = (data['empresaId'] ?? '').toString().trim();
     final combinedPayload = jsonEncode({
       'type': type,
@@ -233,9 +243,12 @@ class NotificationsService {
   static Future<void> _onMessageOpenedApp(RemoteMessage m) async {
     final data = m.data;
     if (kDebugMode) print('[FCM TAP] data=$data');
-    final rawPayload =
-        data['deepLink']?.toString() ?? data['taskId']?.toString();
     final type = (data['type'] ?? '').toString().trim();
+    final rawPayload = data['deepLink']?.toString() ??
+        data['taskId']?.toString() ??
+        (_isInterventoriaDeleteRequest(type)
+            ? data['sourceEntityId']?.toString()
+            : null);
     final empresaId = (data['empresaId'] ?? '').toString().trim();
     final combinedPayload = type.isNotEmpty
         ? '$type::${rawPayload ?? ''}'
@@ -332,6 +345,40 @@ class NotificationsService {
       return;
     }
 
+    if (_isInterventoriaDeleteRequest(notifType)) {
+      final eid = (notifEmpresaId ?? '').trim();
+      if (eid.isEmpty) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('No se encontró la empresa para abrir Interventoría.'),
+          ),
+        );
+        return;
+      }
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) => InterventoriaDashboardScreen(
+            userId: cedula,
+            empresaId: eid,
+            openDeleteRequests: true,
+            focusedDeleteRequestId: taskId,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (notifType == 'visita_programada' ||
+        notifType == 'visita_terminada' ||
+        (taskId?.startsWith('visita:') ?? false)) {
+      await abrirVisitasDesdeNotificacion(
+        context,
+        userId: cedula,
+        empresaId: notifEmpresaId,
+      );
+      return;
+    }
+
     if (taskId == null) {
       navigator.push(
         MaterialPageRoute(
@@ -380,7 +427,8 @@ class NotificationsService {
       }
       return;
     }
-    if ((notifType == 'recepcion_doc_rechazado' ||
+    if ((notifType == 'recepcion_cargada_calidad' ||
+            notifType == 'recepcion_doc_rechazado' ||
             notifType == 'documento_por_vencer') &&
         taskId.startsWith('recepcion:')) {
       await abrirDetalleRecepcionCompras(

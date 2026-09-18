@@ -24,7 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.comprasNotificarNuevoProveedorWhatsApp = exports.comprasConsolidarRequerimiento = exports.comprasLimpiarRechazadosVencidos = exports.facturacionWhatsAppDocumentoRechazado = exports.interventoriaWhatsAppNuevaActa = exports.ppWhatsAppCambioFirma = exports.ppStampDirectPdf = exports.ppNotificaciones1600 = exports.ppNotificaciones1200 = exports.ppNotificaciones0800 = exports.dianBuzonProgramado = exports.dianBuzonDesconectar = exports.dianBuzonSincronizar = exports.dianBuzonConectar = exports.dianBuzonEstado = exports.dianTokenCambiarEstado = exports.dianTokenAbrir = exports.dianTokenAccesos = exports.dianTokensListar = exports.gdRevisarRespuesta = exports.correoEnviarRespuesta = exports.correoGuardarBorradorGmail = exports.correoPrepararExpediente = exports.gdRegistrarRespuestaExterna = exports.gdTerminarExpediente = exports.gdCodificarExpedientesHistoricos = exports.gdAsignarExpediente = exports.correoCrearExpediente = exports.correoMiRol = exports.correoEstadoIntegracion = exports.correoProbarWhatsApp = exports.correoProbarRegla = exports.correoProcesarProgramado = exports.correoProcesarHttp = exports.correoProcesar = exports.correoMicrosoftCallback = exports.correoMicrosoftAuthorize = exports.correoGmailCallback = exports.correoGmailAuthorize = exports.icd11Search = exports.carnetPublico = exports.securityAdminClearLoginBlocks = exports.securityAdminResetTemporaryPassword = exports.securityAdminRevokeSessions = exports.securityAdminRequirePasswordChange = exports.securityAdminOverview = exports.authCompletarRecuperacion = exports.authPrepararRecuperacion = exports.authCambiarClave = exports.authIniciarSesion = void 0;
-exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappOpenWaMonitor = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = void 0;
+exports.notifyTaskNews = exports.notifyTaskCompleted = exports.sendTestPushHttp = exports.registerDeviceToken = exports.sendTestPush = exports.citasNutricionRecordatorios0800 = exports.onTaskUpdated = exports.onTaskCreated = exports.retryPendingNotificationDeliveries = exports.onNotificationCreated = exports.comprasGenerarReporteAbastecimiento = exports.comprasReporteAbastecimiento1700 = exports.rutasMovilidadMedirAhora = exports.rutasMovilidadTick = exports.rutasGenerarZip = exports.rutasGenerarInforme = exports.rutasResumenEvidencia = exports.interventoriaEliminarActa = exports.interventoriaResolverEliminacion = exports.interventoriaSolicitarEliminacion = exports.thNotificarCitacionDescargos = exports.thNotificarPlazosDisciplinarios = exports.whatsappOpenWaMonitor = exports.whatsappAdminProbar = exports.whatsappAdminDirectorio = exports.whatsappAdminAsignarListado = exports.whatsappAdminGuardarListado = exports.whatsappAdminEnviarPlantillaRevision = exports.whatsappAdminSincronizarPlantillas = exports.whatsappAdminGuardar = exports.whatsappAdminEstado = exports.comprasNotificarVigenciasDocumentales = exports.comprasNotificarRecepcionCalidad = void 0;
 // functions/src/index.ts
 const functions = __importStar(require("firebase-functions/v1")); // compat v1
 const crypto_1 = require("crypto");
@@ -100,6 +100,7 @@ var compras_requirements_1 = require("./compras_requirements");
 Object.defineProperty(exports, "comprasConsolidarRequerimiento", { enumerable: true, get: function () { return compras_requirements_1.comprasConsolidarRequerimiento; } });
 var compras_notifications_1 = require("./compras_notifications");
 Object.defineProperty(exports, "comprasNotificarNuevoProveedorWhatsApp", { enumerable: true, get: function () { return compras_notifications_1.comprasNotificarNuevoProveedorWhatsApp; } });
+Object.defineProperty(exports, "comprasNotificarRecepcionCalidad", { enumerable: true, get: function () { return compras_notifications_1.comprasNotificarRecepcionCalidad; } });
 var compras_expiration_notifications_1 = require("./compras_expiration_notifications");
 Object.defineProperty(exports, "comprasNotificarVigenciasDocumentales", { enumerable: true, get: function () { return compras_expiration_notifications_1.comprasNotificarVigenciasDocumentales; } });
 var whatsapp_1 = require("./whatsapp");
@@ -158,24 +159,6 @@ function getBossId(d) {
         return null;
     return d.jefe_uid || d.jefeId || d.jefe || null;
 }
-function getCreatorId(d) {
-    if (!d)
-        return null;
-    return (d.creador_id ||
-        d.creatorId ||
-        d.creador_uid ||
-        d.creadorUid ||
-        null);
-}
-function getApproverId(d) {
-    if (!d)
-        return null;
-    return (d.aprobador_uid ||
-        d.approverId ||
-        getBossId(d) ||
-        getCreatorId(d) ||
-        null);
-}
 function getTaskTitle(d) {
     if (!d)
         return "Nueva tarea";
@@ -193,6 +176,22 @@ async function resolveBossIdFor(assignedId, fromTask) {
     const u = await db.collection("TBL_USUARIOS").doc(assignedId).get();
     const jid = u.exists ? (u.get("jefeId") || u.get("jefe_uid") || u.get("jefe")) : null;
     return jid ? String(jid) : null;
+}
+function taskNotificationDescription(data, detail) {
+    const date = new Intl.DateTimeFormat("es-CO", {
+        timeZone: "America/Bogota", day: "2-digit", month: "2-digit",
+        year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(new Date());
+    const responsible = (data?.asignado_nombre ||
+        data?.assignedToName || getAssignedId(data) || "Sin asignar").toString();
+    const eventType = (data?.lastEventType || "").toString();
+    const emitter = (eventType === "solicitud_finalizacion"
+        ? (data?.solicitud_finalizacion_by_nombre || responsible)
+        : eventType === "finalizado"
+            ? responsible
+            : (data?.lastEventByName || data?.creador_nombre ||
+                data?.creatorName || "Sistema")).toString();
+    return `${getTaskTitle(data)} · ${detail} · Fecha: ${date} · Emisor: ${emitter} · Responsable: ${responsible}`;
 }
 function isTrue(v) {
     return v === true;
@@ -595,8 +594,9 @@ exports.onNotificationCreated = functions
     const type = data.type ? String(data.type) : "";
     const empresaId = data.empresaId ? String(data.empresaId) : "";
     const module = data.module ? String(data.module) : "";
+    const sourceEntityId = data.sourceEntityId ? String(data.sourceEntityId) : "";
     const notifId = ctx.params.notifId;
-    const queueRef = await enqueuePushDelivery(snap.ref, userId, notifId, title, body || title, { taskId, type, empresaId, module, notifId });
+    const queueRef = await enqueuePushDelivery(snap.ref, userId, notifId, title, body || title, { taskId, type, empresaId, module, sourceEntityId, notifId });
     await processPushQueueItem(queueRef);
 });
 exports.retryPendingNotificationDeliveries = functions
@@ -624,7 +624,7 @@ exports.onTaskCreated = functions
     if (!assignedId)
         return;
     const title = getTaskTitle(data);
-    const description = getTaskDescription(data);
+    const description = taskNotificationDescription(data, getTaskDescription(data) || "Nueva tarea asignada");
     const notificationContext = taskNotificationContext(data);
     const isFacturacionRequirement = (data.origen ?? "").toString() === "facturacion_observacion";
     // Notif al asignado (in-app + push normal)
@@ -642,20 +642,17 @@ exports.onTaskCreated = functions
     catch (e) {
         console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
-    // Aviso al jefe y al aprobador. El Set evita duplicar cuando son la misma
-    // persona o cuando el creador también cumple el rol de aprobador.
+    // Solo el responsable y su jefe inmediato reciben la asignación.
     const bossId = await resolveBossIdFor(assignedId, data);
-    const approverId = getApproverId(data);
-    const supervisors = new Set([bossId, approverId].filter((uid) => !!uid && uid !== assignedId));
-    for (const supervisorId of supervisors) {
+    if (bossId && bossId !== assignedId) {
         try {
-            await saveInAppNotification(supervisorId, {
+            await saveInAppNotification(bossId, {
                 title: "Nueva tarea asignada",
-                description: `${title} (para ${data.asignado_nombre || assignedId})`,
+                description,
                 taskId,
                 type: "task_assigned_report",
                 ...notificationContext,
-            }, `${ctx.eventId}:${supervisorId}:assigned_report`);
+            }, `${ctx.eventId}:${bossId}:assigned_report`);
         }
         catch (e) {
             console.error("[onTaskCreated] supervisor save notif error:", e);
@@ -678,7 +675,7 @@ exports.onTaskUpdated = functions
     const newAssigned = getAssignedId(after || null);
     const taskId = ctx.params.taskId;
     const title = getTaskTitle(after || null);
-    const description = getTaskDescription(after || null);
+    const description = taskNotificationDescription(after || null, getTaskDescription(after || null) || "Tarea asignada");
     const statusBefore = resolveTaskStatus(before || null);
     const statusAfter = resolveTaskStatus(after || null);
     const statusChanged = statusBefore !== statusAfter;
@@ -708,7 +705,7 @@ exports.onTaskUpdated = functions
             try {
                 await saveInAppNotification(bossId2, {
                     title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada",
-                    description: `${title} (ahora para ${after?.asignado_nombre || newAssigned})`,
+                    description,
                     taskId,
                     type: "task_reassigned_report",
                     ...notificationContext,
@@ -719,25 +716,6 @@ exports.onTaskUpdated = functions
                 console.error("[onTaskUpdated] boss save notif error:", e);
             }
         }
-        // Aviso al creador cuando es una reasignación (no primera asignación)
-        if (prevAssigned) {
-            const creatorId2 = getCreatorId(after || null);
-            if (creatorId2 && !notifiedIds.has(creatorId2)) {
-                try {
-                    await saveInAppNotification(creatorId2, {
-                        title: "Tarea reasignada",
-                        description: `${title} · Nuevo responsable: ${after?.asignado_nombre || newAssigned}`,
-                        taskId,
-                        type: "task_reassigned_info",
-                        ...notificationContext,
-                    }, `${ctx.eventId}:${creatorId2}:reassigned_info`);
-                    notifiedIds.add(creatorId2);
-                }
-                catch (e) {
-                    console.error("[onTaskUpdated] creator reassign notif error:", e);
-                }
-            }
-        }
     }
     if (statusChanged) {
         const label = statusLabel(statusAfter);
@@ -745,11 +723,11 @@ exports.onTaskUpdated = functions
         const notifTitle = isPorAprobar
             ? "Solicitud de finalización"
             : `Estado de tarea: ${label}`;
-        const notifBody = `${title} · ${isPorAprobar ? "pendiente de aprobación" : label}`;
+        const notifBody = taskNotificationDescription(after || null, isPorAprobar ? "pendiente de aprobación" : label);
         const notifType = isPorAprobar ? "solicitud_finalizacion" : `task_status_${statusAfter}`;
-        const creatorId = getCreatorId(after || null);
-        const bossId = getBossId(after || null);
-        const approverId = getApproverId(after || null);
+        const bossId = newAssigned
+            ? await resolveBossIdFor(newAssigned, after || null)
+            : null;
         // Solo notificar a quienes NO recibieron ya la notificación de cambio de asignado
         // Para solicitud_finalizacion: no notificar al propio solicitante (asignado)
         const solicitanteUid = isPorAprobar
@@ -758,13 +736,8 @@ exports.onTaskUpdated = functions
         const recipients = new Set();
         if (!isPorAprobar && newAssigned && !notifiedIds.has(newAssigned))
             recipients.add(newAssigned);
-        if (creatorId && !notifiedIds.has(creatorId) && creatorId !== solicitanteUid)
-            recipients.add(creatorId);
         if (bossId && !notifiedIds.has(bossId) && bossId !== solicitanteUid)
             recipients.add(bossId);
-        if (approverId && !notifiedIds.has(approverId) && approverId !== solicitanteUid) {
-            recipients.add(approverId);
-        }
         if (recipients.size === 0)
             return;
         await Promise.all(Array.from(recipients).map(async (uid) => {
@@ -950,32 +923,64 @@ exports.sendTestPushHttp = functions
 });
 exports.notifyTaskCompleted = functions
     .region("us-central1")
-    .https.onCall(async (data, _context) => {
-    const creatorId = (data?.creatorId || "").toString().trim();
+    .https.onCall(async (data, context) => {
     const taskId = (data?.taskId || "").toString().trim();
-    const title = (data?.title || "Tarea completada").toString();
-    const body = (data?.body || "").toString();
-    const type = (data?.type || "task_completed").toString();
-    if (!creatorId || !taskId) {
-        throw new functions.https.HttpsError("invalid-argument", "creatorId y taskId requeridos");
+    if (!context.auth || context.auth.token.authVersion !== 2 ||
+        !context.auth.token.userDocId) {
+        throw new functions.https.HttpsError("unauthenticated", "Inicia sesión para notificar la tarea.");
     }
-    await saveInAppNotification(creatorId, { title, description: body, taskId, type });
-    return { ok: true };
+    if (!taskId) {
+        throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
+    }
+    const snap = await db.collection("TBL_TAREAS").doc(taskId).get();
+    if (!snap.exists)
+        throw new functions.https.HttpsError("not-found", "Tarea no encontrada");
+    const task = snap.data() || {};
+    const assignedId = getAssignedId(task);
+    const bossId = assignedId ? await resolveBossIdFor(assignedId, task) : null;
+    const callerId = String(context.auth.token.userDocId);
+    if (callerId !== assignedId && callerId !== bossId) {
+        throw new functions.https.HttpsError("permission-denied", "No puedes notificar esta tarea.");
+    }
+    const recipients = [...new Set([assignedId, bossId].filter((id) => !!id))];
+    await Promise.all(recipients.map((uid) => saveInAppNotification(uid, {
+        title: "Tarea completada",
+        description: taskNotificationDescription(task, "finalizada"),
+        taskId,
+        type: "task_completed",
+        ...taskNotificationContext(task),
+    })));
+    return { ok: true, count: recipients.length };
 });
 exports.notifyTaskNews = functions
     .region("us-central1")
-    .https.onCall(async (data, _context) => {
+    .https.onCall(async (data, context) => {
     const taskId = (data?.taskId || "").toString().trim();
-    const creator = (data?.creatorId || "").toString().trim();
-    const boss = (data?.bossId || "").toString().trim();
-    const title = (data?.title || "Novedad en tarea").toString();
-    const body = (data?.body || "").toString();
-    const type = (data?.type || "task_news").toString();
+    if (!context.auth || context.auth.token.authVersion !== 2 ||
+        !context.auth.token.userDocId) {
+        throw new functions.https.HttpsError("unauthenticated", "Inicia sesión para notificar la tarea.");
+    }
     if (!taskId)
         throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
-    const recipients = [creator, boss].filter((x) => !!x && x.length > 0);
+    const snap = await db.collection("TBL_TAREAS").doc(taskId).get();
+    if (!snap.exists)
+        throw new functions.https.HttpsError("not-found", "Tarea no encontrada");
+    const task = snap.data() || {};
+    const assignedId = getAssignedId(task);
+    const bossId = assignedId ? await resolveBossIdFor(assignedId, task) : null;
+    const callerId = String(context.auth.token.userDocId);
+    if (callerId !== assignedId && callerId !== bossId) {
+        throw new functions.https.HttpsError("permission-denied", "No puedes notificar esta tarea.");
+    }
+    const recipients = [...new Set([assignedId, bossId].filter((id) => !!id))];
     await Promise.all(recipients.map(async (uid) => {
-        await saveInAppNotification(uid, { title, description: body, taskId, type });
+        await saveInAppNotification(uid, {
+            title: "Novedad en tarea",
+            description: taskNotificationDescription(task, (data?.body || "Novedad registrada").toString()),
+            taskId,
+            type: "task_news",
+            ...taskNotificationContext(task),
+        });
     }));
     return { ok: true, count: recipients.length };
 });

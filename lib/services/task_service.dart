@@ -54,6 +54,25 @@ class TaskService {
     return def;
   }
 
+  String _taskEventDescription(
+    Map<String, dynamic> task,
+    String detail,
+    String? emitterName,
+  ) {
+    final now = DateTime.now();
+    final date = '${now.day.toString().padLeft(2, '0')}/'
+        '${now.month.toString().padLeft(2, '0')}/${now.year}';
+    final responsible = _s(
+      task,
+      ['asignado_nombre', 'assignedToName', 'asignado_uid', 'assignedTo'],
+      def: 'Sin asignar',
+    );
+    final emitter = (emitterName ?? '').trim().isEmpty
+        ? 'Sistema'
+        : emitterName!.trim();
+    return '$detail · Fecha: $date · Emisor: $emitter · Responsable: $responsible';
+  }
+
   String _slug(String value, {String fallback = 'archivo'}) {
     final lowered = value.trim().toLowerCase();
     final cleaned = lowered
@@ -367,7 +386,6 @@ class TaskService {
     // notificar DESPUÉS de que la transacción commitee (sin riesgo de retry duplicado).
     final taskSnap = await taskRef.get();
     final t = taskSnap.data() ?? <String, dynamic>{};
-    final creadorId = _s(t, ['creador_id', 'creatorId']);
     final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
     final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
@@ -422,18 +440,19 @@ class TaskService {
 
     // Notificar DESPUÉS de que la transacción commitee
     final recipients = <String>[];
-    if (creadorId.isNotEmpty && creadorId != byUserId) {
-      recipients.add(creadorId);
-    }
     if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
     if (recipients.isNotEmpty) {
       try {
         await pushNotificationToMany(
           toUserIds: recipients,
           title: 'Avance en tarea',
-          description: nextDate == null
+          description: _taskEventDescription(
+            t,
+            nextDate == null
               ? '$titulo · $message'
               : '$titulo · $message · Próxima: ${nextDate.toString().split(" ").first}',
+            byUserName,
+          ),
           taskId: taskId,
           type: 'task_avance',
           fromId: byUserId,
@@ -470,7 +489,6 @@ class TaskService {
     // DESPUÉS de que la transacción commitee.
     final taskSnap = await taskRef.get();
     final t = taskSnap.data() ?? <String, dynamic>{};
-    final creadorId = _s(t, ['creador_id', 'creatorId']);
     final jefeId = _s(t, ['jefe_uid', 'bossId', 'delegatedTo']);
     final titulo = _s(t, ['titulo', 'title'], def: 'Tarea');
     final empresaIdTask = _s(t, ['empresaId', 'empresa_id']);
@@ -519,16 +537,13 @@ class TaskService {
 
     // Notificar DESPUÉS de que la transacción commitee
     final recipients = <String>[];
-    if (creadorId.isNotEmpty && creadorId != byUserId) {
-      recipients.add(creadorId);
-    }
     if (jefeId.isNotEmpty && jefeId != byUserId) recipients.add(jefeId);
     if (recipients.isNotEmpty) {
       try {
         await pushNotificationToMany(
           toUserIds: recipients,
           title: 'Novedad en tarea',
-          description: '$titulo · $message',
+          description: _taskEventDescription(t, '$titulo · $message', byUserName),
           taskId: taskId,
           type: 'task_novedad',
           fromId: byUserId,

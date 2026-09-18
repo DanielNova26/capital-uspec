@@ -1473,6 +1473,12 @@ class _MobileProcessCard extends StatelessWidget {
                       row.respondidoPorTexto.isNotEmpty)
                     _RespondidoPor(row: row, fontSize: 11),
                 ],
+                if (row.terminado && row.motivoCierreEtiqueta.isNotEmpty)
+                  _TinyMeta(
+                    Icons.flag_outlined,
+                    'Cierre: ${row.motivoCierreEtiqueta}'
+                    '${row.cierreJustificacion.trim().isEmpty ? '' : ' · ${row.cierreJustificacion.trim()}'}',
+                  ),
               ],
             ),
           ],
@@ -1648,7 +1654,10 @@ class _DashboardStatus extends StatelessWidget {
     final (label, color) = switch (row.estadoOperativo) {
       GdEstadoExpediente.recibido => ('Recibido', const Color(0xFF7C3AED)),
       GdEstadoExpediente.asignado => ('Asignado', const Color(0xFF2563EB)),
-      GdEstadoExpediente.terminado => ('Terminado', const Color(0xFF16A34A)),
+      GdEstadoExpediente.terminado =>
+        row.cerradoSinRespuesta
+            ? ('Cerrado sin respuesta', const Color(0xFF9A3412))
+            : ('Terminado', const Color(0xFF16A34A)),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),

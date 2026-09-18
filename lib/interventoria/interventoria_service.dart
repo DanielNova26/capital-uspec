@@ -278,6 +278,47 @@ List<InterventoriaPersona> priorizarResponsablesEnSede(
   return fueraDelCentro ?? const [];
 }
 
+/// Jerarquía de cargos para elegir quién responde por un área.
+/// El índice más bajo = mayor rango. Si el cargo contiene cualquiera de
+/// estas palabras se asigna ese nivel; de lo contrario nivel máximo (99).
+int nivelJerarquiaCargo(String cargo) {
+  final c = cargo.toLowerCase();
+  const niveles = [
+    'director',
+    'gerente',
+    'subdirector',
+    'coordinador',
+    'jefe',
+    'supervisor',
+    'encargado',
+    'responsable',
+    'lider',
+    'líder',
+  ];
+  for (int i = 0; i < niveles.length; i++) {
+    if (c.contains(niveles[i])) return i;
+  }
+  return 99;
+}
+
+/// Quién responde por un área entre [usuarios]: si hay una sola persona, esa;
+/// si hay varias, la de mayor jerarquía según [nivelJerarquiaCargo]. Quién es
+/// "del área" lo decide [esDelArea], porque la misma área existe con varios
+/// ids (ver `core/area_directory.dart`) y compararlos a secas se pierde gente.
+InterventoriaUsuario? resolverDirectorDeArea(
+  List<InterventoriaUsuario> usuarios, {
+  required bool Function(InterventoriaUsuario) esDelArea,
+}) {
+  final candidatos = usuarios.where(esDelArea).toList();
+  if (candidatos.isEmpty) return null;
+  if (candidatos.length == 1) return candidatos.first;
+  candidatos.sort(
+    (a, b) =>
+        nivelJerarquiaCargo(a.cargo).compareTo(nivelJerarquiaCargo(b.cargo)),
+  );
+  return candidatos.first;
+}
+
 class InterventoriaService {
   final FirebaseFirestore _db;
   final FirebaseStorage _storage;
@@ -302,6 +343,24 @@ class InterventoriaService {
       'empresaId': empresaId,
       'tipo': tipo,
       'entidadId': entidadId,
+      'motivo': motivo,
+    });
+  }
+
+  /// Pide corregir un acta ya revisada. Va por la misma función y la misma
+  /// bandeja que la eliminación (`accion: 'correccion'`); al aprobarse, el
+  /// backend deja el acta en "Devuelta" a nombre de quien la pidió, sin
+  /// borrar nada.
+  Future<void> solicitarCorreccionActa({
+    required String empresaId,
+    required String visitaId,
+    required String motivo,
+  }) async {
+    await _functions.httpsCallable('interventoriaSolicitarEliminacion').call({
+      'empresaId': empresaId,
+      'tipo': 'visita',
+      'accion': 'correccion',
+      'entidadId': visitaId,
       'motivo': motivo,
     });
   }
@@ -603,6 +662,61 @@ class InterventoriaService {
       },
     );
     return responsable;
+  }
+
+  /// Quien registró el acta la abre para corregirla él mismo (Fase 1, sin
+  /// revisar: ver `puedeCorregirActaPropia`).
+  ///
+  /// Deja el acta exactamente como la deja una devolución de calidad —así
+  /// `corregirActaDevuelta` y el botón "Corregir" del histórico funcionan sin
+  /// un camino aparte— pero no crea tarea: quien la abre es quien la va a
+  /// corregir, y ya está mirándola. El motivo queda en `devoluciones` con la
+  /// marca `autocorreccion` para que cuente aparte de las devoluciones que le
+  /// hace calidad al establecimiento.
+  Future<void> abrirCorreccionPropia({
+    required InterventoriaVisita visita,
+    required String motivo,
+    required String userId,
+    required String userNombre,
+  }) async {
+    final problema = validarDevolucionActa(motivo);
+    if (problema != null) throw ArgumentError(problema);
+    if (visita.id.isEmpty) {
+      throw StateError('El acta todavía no se ha guardado.');
+    }
+    final motivoLimpio = motivo.trim();
+    final ref = _db.collection('TBL_INTERVENTORIA_VISITAS').doc(visita.id);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw StateError('El acta ya no existe.');
+      final actual = InterventoriaVisita.fromMap(snapshot.id, snapshot.data()!);
+      // Se vuelve a comprobar dentro de la transacción: entre el clic y aquí
+      // calidad pudo haberla revisado, y entonces ya no es solo suya.
+      if (!puedeCorregirActaPropia(visita: actual, userId: userId)) {
+        throw StateError(
+          'El acta ya fue revisada o no es tuya: pide la corrección.',
+        );
+      }
+      transaction.update(ref, {
+        'faseActa': kFaseActaDevuelta,
+        'devolucionMotivo': motivoLimpio,
+        'devolucionPorId': userId,
+        'devolucionPorNombre': userNombre,
+        'devolucionEn': FieldValue.serverTimestamp(),
+        'devoluciones': FieldValue.arrayUnion([
+          {
+            'motivo': motivoLimpio,
+            'porId': userId,
+            'porNombre': userNombre,
+            'fecha': Timestamp.now(),
+            'autocorreccion': true,
+          },
+        ]),
+        'correccionResponsableId': userId,
+        'correccionResponsableNombre': userNombre,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   /// Fase 2 — el revisor completa el acta con observaciones y conclusiones.
@@ -1337,6 +1451,33 @@ class InterventoriaService {
       });
       return list;
     });
+  }
+
+  /// Hallazgos de una o varias empresas a la vez. Lo usa Gerencia, que puede
+  /// estar mirando "Todas las empresas"; Firestore admite hasta 10 en el
+  /// `whereIn`, el mismo tope que ya aplica Gerencia a las tareas.
+  Stream<List<InterventoriaHallazgo>> streamHallazgosEmpresas(
+    List<String> empresaIds,
+  ) {
+    final ids = empresaIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .take(10)
+        .toList();
+    if (ids.isEmpty) return Stream.value(const []);
+    if (ids.length == 1) return streamHallazgos(ids.first);
+    return _db
+        .collection('TBL_INTERVENTORIA_HALLAZGOS')
+        .where('empresaId', whereIn: ids)
+        .snapshots()
+        .map((snap) {
+          final list = snap.docs
+              .map((d) => InterventoriaHallazgo.fromMap(d.id, d.data()))
+              .toList();
+          list.sort((a, b) => b.fechaHallazgo.compareTo(a.fechaHallazgo));
+          return list;
+        });
   }
 
   Future<String> guardarHallazgo(
@@ -2345,6 +2486,147 @@ class InterventoriaService {
     });
   }
 
+  /// Empresas del usuario, distintas de [origenId], a las que podría copiar
+  /// las reglas del maestro.
+  ///
+  /// Se devuelven TODAS las empresas del usuario y no solo las que administra:
+  /// ver la empresa deshabilitada con el motivo es mejor que preguntarse por
+  /// qué no aparece. Cada una trae sus reglas y sus cargos para que la pantalla
+  /// avise qué se va a pisar y qué cargos no existen allí.
+  Future<List<InterventoriaEmpresaCopiaReglas>> empresasParaCopiarReglas({
+    required String userId,
+    required String origenId,
+  }) async {
+    final userDoc = await _db.collection('TBL_USUARIOS').doc(userId).get();
+    final userData = userDoc.data() ?? const <String, dynamic>{};
+    final ids = extractUserEmpresaIds(
+      userData,
+    ).where((id) => id != origenId).toList();
+    final out = <InterventoriaEmpresaCopiaReglas>[];
+    for (final id in ids) {
+      String nombre = id;
+      try {
+        final doc = await _db.collection('TBL_EMPRESAS').doc(id).get();
+        final n = (doc.data()?['nombre'] ?? '').toString().trim();
+        if (n.isNotEmpty) nombre = n;
+      } catch (_) {}
+
+      // Mismo criterio que `administraInterventoria` en firestore.rules.
+      var administra = isDeveloperUser(userData, empresaId: id);
+      if (!administra) {
+        try {
+          final rol = await getRolUsuario(id, userId);
+          administra = rol?.rol == kRolInterventoriaAdmin;
+        } catch (_) {}
+      }
+
+      Map<String, dynamic> reglas = const {};
+      List<String> cargos = const [];
+      try {
+        reglas = await _reglasSubsanacion(id);
+      } catch (_) {}
+      try {
+        cargos = await listarCargosDeEmpresa(id);
+      } catch (_) {}
+
+      out.add(
+        InterventoriaEmpresaCopiaReglas(
+          id: id,
+          nombre: nombre,
+          administra: administra,
+          reglasActuales: reglas,
+          cargos: cargos,
+        ),
+      );
+    }
+    out.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
+    return out;
+  }
+
+  /// Copia las reglas del maestro de [origenId] a cada empresa de [destinos].
+  ///
+  /// [tipoActa] acota la copia a la familia de esa acta; nulo copia todas.
+  /// Con [sobrescribir] en false se conservan las reglas que el destino ya
+  /// tenía para el mismo numeral: sirve para "completar" una empresa a medio
+  /// configurar sin deshacer lo que ya decidieron allí.
+  ///
+  /// Cada destino va en su propia transacción: si una falla por permisos, las
+  /// demás quedan copiadas y el error sale con el nombre de la que falló.
+  /// Las reglas se copian por NOMBRE de cargo, igual que están; si el cargo no
+  /// existe en el destino la regla queda sin resolver a nadie. La pantalla lo
+  /// advierte antes con [cargosSinEquivalenteEnDestino].
+  Future<Map<String, InterventoriaResultadoCopiaReglas>>
+  copiarReglasSubsanacion({
+    required String origenId,
+    required List<String> destinos,
+    String? tipoActa,
+    required bool sobrescribir,
+    required String actualizadoPor,
+  }) async {
+    final familia = tipoActa == null ? null : familiaReglasActa(tipoActa);
+    final origen = reglasDeFamilia(await _reglasSubsanacion(origenId), familia);
+    final resultados = <String, InterventoriaResultadoCopiaReglas>{};
+    for (final destino in destinos) {
+      if (destino.isEmpty || destino == origenId) continue;
+      final ref = _db.collection('TBL_INTERVENTORIA_CONFIG').doc(destino);
+      var copiadas = 0;
+      var conservadas = 0;
+      await _db.runTransaction((trx) async {
+        copiadas = 0;
+        conservadas = 0;
+        final snap = await trx.get(ref);
+        final actual = snap.data()?['reglasSubsanacion'];
+        final reglas = actual is Map
+            ? Map<String, dynamic>.from(actual)
+            : <String, dynamic>{};
+        for (final entry in origen.entries) {
+          final raw = entry.value;
+          if (raw is! Map) continue;
+          if (!sobrescribir && reglas[entry.key] is Map) {
+            conservadas++;
+            continue;
+          }
+          final resp = cargosDeRegla(raw['responsables'], raw['responsable']);
+          final aprob = cargosDeRegla(raw['aprobadores'], raw['aprobador']);
+          // Las reglas viejas (clave sin familia) no siempre traen estos dos
+          // campos: se deducen de la clave para no copiar un hueco.
+          final sep = entry.key.indexOf('::');
+          final numeral = (raw['numeral'] ?? '').toString().trim();
+          reglas[entry.key] = {
+            'tipoActa':
+                (raw['tipoActa'] ??
+                        (sep == -1
+                            ? kActaRegular
+                            : entry.key.substring(0, sep)))
+                    .toString(),
+            'numeral': numeral.isNotEmpty
+                ? numeral
+                : (sep == -1 ? entry.key : entry.key.substring(sep + 2)),
+            'responsables': resp,
+            'aprobadores': aprob,
+            'responsable': resp.isEmpty ? '' : resp.first,
+            'aprobador': aprob.isEmpty ? '' : aprob.first,
+            'actualizadoPor': actualizadoPor,
+            'actualizadoEn': Timestamp.now(),
+            'copiadoDe': origenId,
+          };
+          copiadas++;
+        }
+        trx.set(ref, {
+          'reglasSubsanacion': reglas,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      });
+      resultados[destino] = InterventoriaResultadoCopiaReglas(
+        copiadas: copiadas,
+        conservadas: conservadas,
+      );
+    }
+    return resultados;
+  }
+
   /// Días hábiles para subsanar, configurables por sección del acta en
   /// `TBL_INTERVENTORIA_CONFIG/{empresaId}.plazoSubsanacion`.
   Future<int> plazoSubsanacionDias(String empresaId, int seccion) async {
@@ -2466,28 +2748,7 @@ class InterventoriaService {
 
   /// Busca en TBL_USUARIOS el usuario del área cuyo cargo contenga 'director'.
   /// Devuelve un map con los campos: id (cédula/docId), nombre, cargo, areaId.
-  /// Jerarquía de cargos para seleccionar el responsable del área.
-  /// El índice más bajo = mayor rango. Si el cargo contiene cualquiera de
-  /// estas palabras se asigna ese nivel; de lo contrario nivel máximo (99).
-  static int _nivelCargo(String cargo) {
-    final c = cargo.toLowerCase();
-    const niveles = [
-      'director',
-      'gerente',
-      'subdirector',
-      'coordinador',
-      'jefe',
-      'supervisor',
-      'encargado',
-      'responsable',
-      'lider',
-      'líder',
-    ];
-    for (int i = 0; i < niveles.length; i++) {
-      if (c.contains(niveles[i])) return i;
-    }
-    return 99;
-  }
+  static int _nivelCargo(String cargo) => nivelJerarquiaCargo(cargo);
 
   /// Retorna el responsable del área [areaId] dentro de [empresaId]:
   /// 1. Si hay una sola persona en el área → esa persona.
@@ -2499,29 +2760,18 @@ class InterventoriaService {
     String areaId,
   ) async {
     if (areaId.trim().isEmpty) return null;
-    final candidatos = (await _usuariosDeEmpresa(empresaId))
-        .where((user) => user.areaId == areaId)
-        .map(
-          (user) => <String, dynamic>{
-            'id': user.id,
-            'nombre': user.nombre,
-            'cargo': user.cargo,
-            'areaId': user.areaId,
-            '_nivel': _nivelCargo(user.cargo),
-          },
-        )
-        .toList();
-
-    if (candidatos.isEmpty) return null;
-
-    // ── 3. Área con una sola persona → esa persona ───────────────────────────
-    if (candidatos.length == 1) return candidatos.first;
-
-    // ── 4. Varias personas → la de mayor jerarquía ───────────────────────────
-    candidatos.sort(
-      (a, b) => (a['_nivel'] as int).compareTo(b['_nivel'] as int),
+    final director = resolverDirectorDeArea(
+      await _usuariosDeEmpresa(empresaId),
+      esDelArea: (user) => user.areaId == areaId,
     );
-    return candidatos.first;
+    if (director == null) return null;
+    return <String, dynamic>{
+      'id': director.id,
+      'nombre': director.nombre,
+      'cargo': director.cargo,
+      'areaId': director.areaId,
+      '_nivel': _nivelCargo(director.cargo),
+    };
   }
 
   String _nombreUsuario(Map<String, dynamic> data, {String fallbackId = ''}) {

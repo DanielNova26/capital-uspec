@@ -14388,7 +14388,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   children: [
                     const Text(
                       'Si el establecimiento está dividido, al registrar un '
-                      'acta habrá que decir a cuál corresponde. El responsable '
+                      'acta se puede indicar de qué subcentro es; si no se '
+                      'indica, el acta es del establecimiento. El responsable '
                       'se sigue resolviendo por el establecimiento.',
                       style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                     ),

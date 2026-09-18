@@ -549,21 +549,67 @@ class GdCorrespondenciaService {
     });
   }
 
+  /// Cierra el proceso con motivo y justificación. Si el expediente se cierra
+  /// sin respuesta registrada, [justificacion] es obligatoria (el backend lo
+  /// vuelve a exigir). [soporte] es opcional: un pantallazo o PDF que explique
+  /// el cierre (el correo donde otra entidad asumió el caso, por ejemplo).
   Future<void> terminar({
     required String empresaId,
     required String userId,
     required String expedienteId,
+    GdMotivoCierre motivo = GdMotivoCierre.gestionCompleta,
+    String justificacion = '',
+    PlatformFile? soporte,
   }) async {
+    var soportePath = '';
+    if (soporte != null) {
+      soportePath = await _subirSoporte(
+        empresaId: empresaId,
+        expedienteId: expedienteId,
+        userId: userId,
+        carpeta: 'soportes-cierre',
+        file: soporte,
+      );
+    }
     await _functions.httpsCallable('gdTerminarExpediente').call({
       'empresaId': empresaId,
       'userId': userId,
       'expedienteId': expedienteId,
+      'motivoCierre': motivo.valor,
+      'justificacion': justificacion.trim(),
+      'soporteStoragePath': soportePath,
     });
   }
 
   Future<void> registrarRespuestaExterna({
     required GdExpediente expediente,
     required String userId,
+    required PlatformFile file,
+  }) async {
+    final path = await _subirSoporte(
+      empresaId: expediente.empresaId,
+      expedienteId: expediente.id,
+      userId: userId,
+      carpeta: 'soportes-contestado',
+      file: file,
+    );
+    await _functions.httpsCallable('gdRegistrarRespuestaExterna').call({
+      'empresaId': expediente.empresaId,
+      'userId': userId,
+      'expedienteId': expediente.id,
+      'storagePath': path,
+    });
+  }
+
+  /// Sube un soporte (pantallazo o PDF) a la carpeta del expediente y devuelve
+  /// la ruta. El backend valida que la ruta sea de este expediente y de quien
+  /// la sube, así que la [carpeta] tiene que coincidir con la que espera la
+  /// función que la recibe (`soportes-contestado` o `soportes-cierre`).
+  Future<String> _subirSoporte({
+    required String empresaId,
+    required String expedienteId,
+    required String userId,
+    required String carpeta,
     required PlatformFile file,
   }) async {
     final bytes = file.bytes;
@@ -580,17 +626,12 @@ class GdCorrespondenciaService {
         .replaceAll(RegExp(r'[^\w.\- áéíóúñÁÉÍÓÚÑ]'), '_')
         .replaceAll('..', '_');
     final path =
-        'gestion_documental/correspondencia/${expediente.empresaId}/${expediente.id}'
-        '/soportes-contestado/$userId/${DateTime.now().millisecondsSinceEpoch}_$name';
+        'gestion_documental/correspondencia/$empresaId/$expedienteId'
+        '/$carpeta/$userId/${DateTime.now().millisecondsSinceEpoch}_$name';
     await _storage
         .ref(path)
         .putData(bytes, SettableMetadata(contentType: mime));
-    await _functions.httpsCallable('gdRegistrarRespuestaExterna').call({
-      'empresaId': expediente.empresaId,
-      'userId': userId,
-      'expedienteId': expediente.id,
-      'storagePath': path,
-    });
+    return path;
   }
 
   String _userName(Map<String, dynamic> data, String fallback) {

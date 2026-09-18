@@ -161,7 +161,12 @@ class _InterventoriaMaestroSubsanacionesState
         builder: (context, constraints) {
           final esMovil = constraints.maxWidth < 900;
           final contenido = <Widget>[
-            _CabeceraBiblioteca(total: _maestro.length),
+            _CabeceraBiblioteca(
+              total: _maestro.length,
+              onCopiar: widget.canEdit && _reglas.isNotEmpty
+                  ? _copiarAOtrasEmpresas
+                  : null,
+            ),
             const SizedBox(height: 14),
             _SelectorTipoActa(
               tipoActa: _tipoActa,
@@ -434,12 +439,292 @@ class _InterventoriaMaestroSubsanacionesState
       );
     }
   }
+
+  /// Copia las reglas guardadas de esta empresa a otras del usuario.
+  ///
+  /// Las reglas se guardan por nombre de cargo y cada empresa tiene sus
+  /// propios cargos: antes de escribir se muestra qué cargos no existen en el
+  /// destino, porque una regla con un cargo inexistente deja el hallazgo sin
+  /// responsable y nada lo avisa después.
+  Future<void> _copiarAOtrasEmpresas() async {
+    final service = widget.service;
+    if (service == null || widget.empresaId.isEmpty) return;
+
+    List<InterventoriaEmpresaCopiaReglas> empresas;
+    try {
+      empresas = await service.empresasParaCopiarReglas(
+        userId: widget.userId,
+        origenId: widget.empresaId,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudieron cargar las empresas: $e')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    if (empresas.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes otras empresas a las que copiar.'),
+        ),
+      );
+      return;
+    }
+
+    final reglasActa = reglasDeFamilia(_reglas, familiaReglasActa(_tipoActa));
+    final decision = await showDialog<_DecisionCopia>(
+      context: context,
+      builder: (context) => _DialogoCopiaReglas(
+        empresas: empresas,
+        tipoActa: _tipoActa,
+        reglasActa: reglasActa,
+        reglasTodas: _reglas,
+      ),
+    );
+    if (decision == null || !mounted) return;
+
+    try {
+      final resultados = await service.copiarReglasSubsanacion(
+        origenId: widget.empresaId,
+        destinos: decision.destinos,
+        tipoActa: decision.soloActaActual ? _tipoActa : null,
+        sobrescribir: decision.sobrescribir,
+        actualizadoPor: widget.userId,
+      );
+      if (!mounted) return;
+      final nombres = {for (final e in empresas) e.id: e.nombre};
+      final lineas = resultados.entries
+          .map((entry) {
+            final r = entry.value;
+            final extra = r.conservadas > 0
+                ? ' (${r.conservadas} ya existían y se conservaron)'
+                : '';
+            return '${nombres[entry.key] ?? entry.key}: '
+                '${r.copiadas} reglas copiadas$extra';
+          })
+          .join('\n');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text('Copia terminada.\n$lineas'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo copiar: $e')));
+    }
+  }
+}
+
+/// Lo que el usuario decidió en [_DialogoCopiaReglas].
+class _DecisionCopia {
+  final List<String> destinos;
+  final bool soloActaActual;
+  final bool sobrescribir;
+
+  const _DecisionCopia({
+    required this.destinos,
+    required this.soloActaActual,
+    required this.sobrescribir,
+  });
+}
+
+class _DialogoCopiaReglas extends StatefulWidget {
+  final List<InterventoriaEmpresaCopiaReglas> empresas;
+  final String tipoActa;
+  final Map<String, dynamic> reglasActa;
+  final Map<String, dynamic> reglasTodas;
+
+  const _DialogoCopiaReglas({
+    required this.empresas,
+    required this.tipoActa,
+    required this.reglasActa,
+    required this.reglasTodas,
+  });
+
+  @override
+  State<_DialogoCopiaReglas> createState() => _DialogoCopiaReglasState();
+}
+
+class _DialogoCopiaReglasState extends State<_DialogoCopiaReglas> {
+  final Set<String> _destinos = {};
+  bool _soloActaActual = true;
+  bool _sobrescribir = true;
+
+  Map<String, dynamic> get _reglas =>
+      _soloActaActual ? widget.reglasActa : widget.reglasTodas;
+
+  /// Reglas del destino que la copia va a pisar.
+  int _pisadas(InterventoriaEmpresaCopiaReglas empresa) => _reglas.keys
+      .where((clave) => empresa.reglasActuales[clave] is Map)
+      .length;
+
+  String _estadoDestino(InterventoriaEmpresaCopiaReglas empresa) {
+    if (empresa.reglasActuales.isEmpty) return 'Sin reglas propias todavía.';
+    final pisadas = _pisadas(empresa);
+    final base = '${empresa.reglasActuales.length} reglas guardadas';
+    if (pisadas == 0) return '$base.';
+    final accion = _sobrescribir ? 'se reemplazan' : 'se conservan';
+    return '$base · $pisadas $accion.';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reglas = _reglas;
+    const gris = TextStyle(fontSize: 11.5, color: Color(0xFF64748B));
+    const ambar = TextStyle(fontSize: 11.5, color: Color(0xFFB45309));
+
+    return AlertDialog(
+      title: const Text('Copiar reglas a otras empresas'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Se copian los responsables y aprobadores que esta empresa '
+                'ya asignó por numeral. Los numerales sin regla propia no se '
+                'tocan en el destino.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF475569)),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Qué copiar',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              ),
+              RadioGroup<bool>(
+                groupValue: _soloActaActual,
+                onChanged: (v) => setState(() => _soloActaActual = v ?? true),
+                child: Column(
+                  children: [
+                    RadioListTile<bool>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: true,
+                      title: Text(
+                        'Solo el acta ${etiquetaTipoActa(widget.tipoActa)} '
+                        '(${widget.reglasActa.length} reglas)',
+                      ),
+                    ),
+                    RadioListTile<bool>(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: false,
+                      title: Text(
+                        'Todas las actas (${widget.reglasTodas.length} reglas)',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                value: _sobrescribir,
+                title: const Text('Reemplazar las reglas que ya existan'),
+                subtitle: const Text(
+                  'Apagado: solo se completan los numerales que el destino '
+                  'aún no tiene.',
+                  style: gris,
+                ),
+                onChanged: (v) => setState(() => _sobrescribir = v),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Empresas destino',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+              ),
+              for (final empresa in widget.empresas)
+                Builder(
+                  builder: (context) {
+                    final faltantes = cargosSinEquivalenteEnDestino(
+                      reglas,
+                      empresa.cargos,
+                    );
+                    return CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: _destinos.contains(empresa.id),
+                      enabled: empresa.administra,
+                      title: Text(empresa.nombre),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (!empresa.administra)
+                            const Text(
+                              'No administras Interventoría en esta empresa.',
+                              style: ambar,
+                            )
+                          else ...[
+                            Text(_estadoDestino(empresa), style: gris),
+                            if (faltantes.isNotEmpty)
+                              Text(
+                                'Cargos que no existen allí: '
+                                '${faltantes.join(', ')}. Esas reglas '
+                                'quedarán sin resolver a nadie hasta crear '
+                                'el cargo.',
+                                style: ambar,
+                              ),
+                          ],
+                        ],
+                      ),
+                      onChanged: !empresa.administra
+                          ? null
+                          : (v) => setState(() {
+                              if (v == true) {
+                                _destinos.add(empresa.id);
+                              } else {
+                                _destinos.remove(empresa.id);
+                              }
+                            }),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _destinos.isEmpty || reglas.isEmpty
+              ? null
+              : () => Navigator.pop(
+                  context,
+                  _DecisionCopia(
+                    destinos: _destinos.toList(),
+                    soloActaActual: _soloActaActual,
+                    sobrescribir: _sobrescribir,
+                  ),
+                ),
+          child: Text(
+            'Copiar a ${_destinos.length} '
+            '${_destinos.length == 1 ? 'empresa' : 'empresas'}',
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _CabeceraBiblioteca extends StatelessWidget {
   final int total;
 
-  const _CabeceraBiblioteca({required this.total});
+  /// Nulo cuando el usuario no puede editar o la empresa no tiene reglas
+  /// propias: sin reglas guardadas no hay nada que copiar.
+  final VoidCallback? onCopiar;
+
+  const _CabeceraBiblioteca({required this.total, this.onCopiar});
 
   @override
   Widget build(BuildContext context) {
@@ -507,6 +792,12 @@ class _CabeceraBiblioteca extends StatelessWidget {
             value: '11',
             label: 'secciones',
           ),
+          if (onCopiar != null)
+            FilledButton.tonalIcon(
+              onPressed: onCopiar,
+              icon: const Icon(Icons.copy_all_rounded, size: 18),
+              label: const Text('Copiar a otras empresas'),
+            ),
         ],
       ),
     );

@@ -30,6 +30,7 @@ import 'compras_document_scanner_stub.dart'
 import 'compras_recepcion_logic.dart';
 import 'compras_service.dart';
 import 'compras_req_engine.dart';
+import 'compras_tiempos_calidad.dart';
 import 'compras_validation.dart';
 import 'abastecimiento_models.dart';
 import 'abastecimiento_service.dart';
@@ -3227,7 +3228,9 @@ class _DocAttachButton extends StatefulWidget {
   final Future<void> Function(Uint8List bytes, String name)?
   onRequirementUpload;
 
-  /// Solo web: elimina el documento ya adjunto (limpia la referencia en el estado del padre).
+  /// Elimina el documento ya adjunto (limpia la referencia en el estado del
+  /// padre; el archivo en Storage no se toca). Antes solo existía en web, y
+  /// Bodega en móvil se quedaba sin forma de quitar lo rechazado.
   final VoidCallback? onDelete;
 
   /// Revierte una aprobación dada por error. Solo se muestra cuando el
@@ -3881,8 +3884,25 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               ),
             ],
+            if (tiene &&
+                widget.onDelete != null &&
+                widget.doc?.aprobadoConRequerimientos != true) ...[
+              const SizedBox(width: 2),
+              IconButton(
+                onPressed: _isUploading ? null : widget.onDelete,
+                icon: Icon(
+                  Icons.delete_outline,
+                  size: 18,
+                  color: Colors.red.shade400,
+                ),
+                tooltip: 'Eliminar documento',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ],
           ],
         ),
+        if (tiene) _buildTiempoCalidad(),
         if (widget.showCalendar && tiene) _buildExpiryPicker(),
         if (widget.doc?.rechazado == true &&
             widget.doc?.observacionCalidad != null) ...[
@@ -3907,6 +3927,17 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
         _buildRequirementPanel(),
         _buildRevertirAprobacion(),
       ],
+    );
+  }
+
+  /// Cronómetro de Calidad: cuánto lleva esperando el documento o cuánto
+  /// tardó la decisión. No sale nada si no hay qué medir.
+  Widget _buildTiempoCalidad() {
+    final tiempo = tiempoCalidadDocumento(widget.doc);
+    if (tiempo == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, left: 2),
+      child: TiempoCalidadBadge(tiempo: tiempo),
     );
   }
 
@@ -4369,17 +4400,28 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Icon(statusIcon, size: 11, color: statusColor),
-                    const SizedBox(width: 3),
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        fontFamily: _kFont,
-                        fontSize: 10,
-                        color: statusColor,
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(statusIcon, size: 11, color: statusColor),
+                        const SizedBox(width: 3),
+                        Text(
+                          statusText,
+                          style: TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 10,
+                            color: statusColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    TiempoCalidadBadge(
+                      tiempo: tiempoCalidadDocumento(doc),
+                      fontSize: 10,
                     ),
                   ],
                 ),
@@ -4400,15 +4442,24 @@ class _DocAttachButtonState extends State<_DocAttachButton> {
               ),
             ),
           if (widget.onWebUpload != null && !doc.aprobadoConRequerimientos)
+            // Sobre un documento rechazado la acción es reemplazarlo; decir
+            // "Agregar" hacía pensar que no se podía volver a subir.
             TextButton.icon(
               onPressed: _isUploading ? null : _handleWebFilePick,
-              icon: const Icon(Icons.add_circle_outline, size: 14),
-              label: const Text(
-                'Agregar',
-                style: TextStyle(fontFamily: _kFont, fontSize: 11),
+              icon: Icon(
+                doc.rechazado
+                    ? Icons.published_with_changes
+                    : Icons.add_circle_outline,
+                size: 14,
+              ),
+              label: Text(
+                doc.rechazado ? 'Reemplazar' : 'Agregar',
+                style: const TextStyle(fontFamily: _kFont, fontSize: 11),
               ),
               style: TextButton.styleFrom(
-                foregroundColor: Colors.grey.shade600,
+                foregroundColor: doc.rechazado
+                    ? kComprasRed
+                    : Colors.grey.shade600,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               ),
             ),
@@ -9647,6 +9698,13 @@ class _RecepcionesScreenState extends State<_RecepcionesScreen> {
                     '${recepcion.productos.length} producto${recepcion.productos.length == 1 ? '' : 's'}',
                     kComprasPrimary,
                   ),
+                  const SizedBox(width: 10),
+                  // Cuánto lleva (o tardó) toda la recepción en Calidad.
+                  Flexible(
+                    child: TiempoCalidadBadge(
+                      tiempo: tiempoCalidadRecepcion(recepcion),
+                    ),
+                  ),
                   const Spacer(),
                   if (widget.puedeEliminar)
                     IconButton(
@@ -10840,6 +10898,39 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
     }
   }
 
+  /// Quita el archivo adjunto de un documento.
+  ///
+  /// En una recepción nueva basta con olvidar la clave. En corrección no: si
+  /// se borra del todo, el "Motivo" del rechazo desaparece de la pantalla y
+  /// quien corrige ya no sabe qué tenía que arreglar. Se deja el rechazo sin
+  /// archivo: el cuadro muestra la zona de carga con el motivo debajo, y si
+  /// intentan reenviar sin subir nada la validación del servicio lo detiene
+  /// ("Debes corregir todos los documentos rechazados"). El archivo en Storage
+  /// no se toca: es la política del módulo.
+  void _eliminarDocProducto(int idx, String key) {
+    if (idx < 0 || idx >= _entries.length || !_puedeEditarDocumento(idx, key)) {
+      return;
+    }
+    setState(() {
+      final actual = _entries[idx].documentos[key];
+      if (_modoCorreccion && actual?.rechazado == true) {
+        _entries[idx].documentos[key] = DocAdjunto(
+          estadoCalidad: actual!.estadoCalidad,
+          observacionCalidad: actual.observacionCalidad,
+          revisadoPor: actual.revisadoPor,
+          fechaRevision: actual.fechaRevision,
+          subidoPor: actual.subidoPor,
+        );
+        _correccionModificada = true;
+      } else {
+        _entries[idx].documentos.remove(key);
+      }
+      if (_esDocumentoCorreccion(idx, key)) {
+        _documentoCorreccionCargado = false;
+      }
+    });
+  }
+
   void _onDateChangedDoc(int idx, String key, DateTime? date) {
     if (idx < 0 || idx >= _entries.length || !_puedeEditarDocumento(idx, key)) {
       return;
@@ -11440,10 +11531,9 @@ class _NuevaRecepcionScreenState extends State<_NuevaRecepcionScreen> {
                               }
                             }
                           : null,
-                      onWebDeleteDoc: isNew || esProductoAgregado
-                          ? (key) => setState(
-                              () => _entries[idx].documentos.remove(key),
-                            )
+                      onDeleteDoc:
+                          isNew || esProductoAgregado || _modoCorreccion
+                          ? (key) => _eliminarDocProducto(idx, key)
                           : null,
                       onDateChangedDoc: (key, date) =>
                           _onDateChangedDoc(idx, key, date),
@@ -11727,8 +11817,8 @@ class _ProductoEntryCard extends StatelessWidget {
   final Future<void> Function(String key, Uint8List bytes, String name)?
   onRequirementUploadDoc;
 
-  /// Solo web: elimina el documento ya adjunto para la clave indicada.
-  final void Function(String key)? onWebDeleteDoc;
+  /// Elimina el documento ya adjunto para la clave indicada (web y móvil).
+  final void Function(String key)? onDeleteDoc;
 
   final void Function(String key, DateTime? date)? onDateChangedDoc;
 
@@ -11748,7 +11838,7 @@ class _ProductoEntryCard extends StatelessWidget {
     this.fichaTecnicaDoc,
     this.onWebUploadDoc,
     this.onRequirementUploadDoc,
-    this.onWebDeleteDoc,
+    this.onDeleteDoc,
     this.onDateChangedDoc,
     this.readOnlyStructure = false,
     this.canEditDocument,
@@ -12289,6 +12379,14 @@ class _ProductoEntryCard extends StatelessWidget {
                                         bytes,
                                         name,
                                       ),
+                                onDelete:
+                                    entry
+                                                .documentos['fichaTecnica']
+                                                ?.tieneDoc ==
+                                            true &&
+                                        onDeleteDoc != null
+                                    ? () => onDeleteDoc!('fichaTecnica')
+                                    : null,
                                 showCalendar: false,
                                 onDateChanged: (date) => onDateChangedDoc?.call(
                                   'fichaTecnica',
@@ -12581,8 +12679,8 @@ class _ProductoEntryCard extends StatelessWidget {
                         onDelete:
                             editable &&
                                 entry.documentos[key]?.tieneDoc == true &&
-                                onWebDeleteDoc != null
-                            ? () => onWebDeleteDoc!(key)
+                                onDeleteDoc != null
+                            ? () => onDeleteDoc!(key)
                             : null,
                         onWebUpload: editable && onWebUploadDoc != null
                             ? (bytes, name) => onWebUploadDoc!(key, bytes, name)
@@ -21475,6 +21573,10 @@ class _FichaCalidadCard extends StatelessWidget {
                 ],
               ),
             ],
+            if (tiempoCalidadDocumento(doc) != null) ...[
+              const SizedBox(height: 2),
+              TiempoCalidadBadge(tiempo: tiempoCalidadDocumento(doc)),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -22298,28 +22400,44 @@ class _RecepcionCalidadCard extends StatelessWidget {
       productoIdx: productoIdx,
     );
     final subidoPor = doc?.subidoPor?.trim() ?? '';
-    if (subidoPor.isEmpty) return inner;
+    final tiempo = tiempoCalidadDocumento(doc);
+    if (subidoPor.isEmpty && tiempo == null) return inner;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         inner,
         Padding(
           padding: const EdgeInsets.only(left: 10, top: 2),
-          child: Row(
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Icon(Icons.person_outline, size: 12, color: Colors.black45),
-              const SizedBox(width: 4),
-              Flexible(
-                child: UserNameText(
-                  subidoPor,
-                  prefix: 'Subió: ',
-                  style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 10,
-                    color: Colors.black54,
-                  ),
+              if (subidoPor.isNotEmpty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.person_outline,
+                      size: 12,
+                      color: Colors.black45,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: UserNameText(
+                        subidoPor,
+                        prefix: 'Subió: ',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 10,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+              // Calidad ve cuánto lleva cada documento en su bandeja.
+              TiempoCalidadBadge(tiempo: tiempo, fontSize: 10),
             ],
           ),
         ),
@@ -23558,28 +23676,44 @@ class _ProveedorCalidadCard extends StatelessWidget {
       doc: doc,
     );
     final subidoPor = doc?.subidoPor?.trim() ?? '';
-    if (subidoPor.isEmpty) return inner;
+    final tiempo = tiempoCalidadDocumento(doc);
+    if (subidoPor.isEmpty && tiempo == null) return inner;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         inner,
         Padding(
           padding: const EdgeInsets.only(left: 10, top: 2),
-          child: Row(
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Icon(Icons.person_outline, size: 12, color: Colors.black45),
-              const SizedBox(width: 4),
-              Flexible(
-                child: UserNameText(
-                  subidoPor,
-                  prefix: 'Subió: ',
-                  style: const TextStyle(
-                    fontFamily: _kFont,
-                    fontSize: 10,
-                    color: Colors.black54,
-                  ),
+              if (subidoPor.isNotEmpty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.person_outline,
+                      size: 12,
+                      color: Colors.black45,
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: UserNameText(
+                        subidoPor,
+                        prefix: 'Subió: ',
+                        style: const TextStyle(
+                          fontFamily: _kFont,
+                          fontSize: 10,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+              // Calidad ve cuánto lleva cada documento en su bandeja.
+              TiempoCalidadBadge(tiempo: tiempo, fontSize: 10),
             ],
           ),
         ),

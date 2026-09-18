@@ -44,16 +44,16 @@ void main() {
   });
 
   group('Maestro de responsabilidades', () {
-    test('lo consultan administración, gerencia y calidad', () {
+    test('lo consultan administración, gerencia y dirección', () {
       expect(puedeConsultarMaestroSubsanaciones(admin), isTrue);
       expect(puedeConsultarMaestroSubsanaciones(gerente), isTrue);
-      // Calidad necesita saber quién responde por cada numeral (11 sep).
-      expect(puedeConsultarMaestroSubsanaciones(calidad), isTrue);
+      // 17 sep 2026: única y exclusivamente estos tres.
+      expect(puedeConsultarMaestroSubsanaciones(directivo), isTrue);
     });
 
-    test('ni Kary ni dirección', () {
+    test('ni Kary ni calidad', () {
       expect(puedeConsultarMaestroSubsanaciones(revisor), isFalse);
-      expect(puedeConsultarMaestroSubsanaciones(directivo), isFalse);
+      expect(puedeConsultarMaestroSubsanaciones(calidad), isFalse);
     });
 
     test('la regla solo la cambian administración y gerencia', () {

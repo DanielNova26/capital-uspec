@@ -83,6 +83,79 @@ void main() {
     });
   });
 
+  group('corrección por quien registró el acta', () {
+    InterventoriaVisita acta({
+      String faseActa = 'puntajes',
+      String creadoPor = 'registrador-1',
+      String devolucionMotivo = '',
+    }) => _visita(
+      id: 'acta-2',
+      centroId: 'ubate',
+      centroNombre: 'Ubaté',
+      fecha: DateTime(2026, 9, 15),
+      total: 85,
+      creadoPor: creadoPor,
+      faseActa: faseActa,
+      devolucionMotivo: devolucionMotivo,
+    );
+
+    test('la propia, sin revisar, se corrige directo', () {
+      expect(
+        puedeCorregirActaPropia(visita: acta(), userId: 'registrador-1'),
+        isTrue,
+      );
+      expect(
+        puedeSolicitarCorreccionActa(visita: acta(), userId: 'registrador-1'),
+        isFalse,
+      );
+    });
+
+    test('la de otra persona se solicita, aunque esté sin revisar', () {
+      expect(
+        puedeCorregirActaPropia(visita: acta(), userId: 'otro'),
+        isFalse,
+      );
+      expect(
+        puedeSolicitarCorreccionActa(visita: acta(), userId: 'otro'),
+        isTrue,
+      );
+    });
+
+    test('la ya revisada se solicita, incluso la propia', () {
+      final completa = acta(faseActa: 'completa');
+      expect(
+        puedeCorregirActaPropia(visita: completa, userId: 'registrador-1'),
+        isFalse,
+      );
+      expect(
+        puedeSolicitarCorreccionActa(
+          visita: completa,
+          userId: 'registrador-1',
+        ),
+        isTrue,
+      );
+    });
+
+    test('una ya devuelta no ofrece ninguno de los dos: ya tiene "Corregir"', () {
+      final devuelta = acta(
+        faseActa: kFaseActaDevuelta,
+        devolucionMotivo: 'La fecha de la visita está mal',
+      );
+      expect(
+        puedeCorregirActaPropia(visita: devuelta, userId: 'registrador-1'),
+        isFalse,
+      );
+      expect(
+        puedeSolicitarCorreccionActa(visita: devuelta, userId: 'registrador-1'),
+        isFalse,
+      );
+    });
+
+    test('sin usuario no se corrige nada', () {
+      expect(puedeCorregirActaPropia(visita: acta(), userId: ''), isFalse);
+    });
+  });
+
   test('solo el aprobador asignado puede resolver una subsanación', () {
     final hallazgo = InterventoriaHallazgo(
       empresaId: 'empresa',

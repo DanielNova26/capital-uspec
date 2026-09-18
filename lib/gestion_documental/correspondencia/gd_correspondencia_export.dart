@@ -35,6 +35,9 @@ Uint8List construirExcelCorrespondencia({
     'Contestada por',
     'Adjuntos recibidos',
     'Adjuntos de respuesta',
+    'Motivo de cierre',
+    'Justificación del cierre',
+    'Cerrado sin respuesta',
   ];
 
   final lastColumn = xl.CellIndex.indexByColumnRow(
@@ -114,6 +117,11 @@ Uint8List construirExcelCorrespondencia({
       xl.TextCellValue(_contestadaPor(row)),
       xl.IntCellValue(row.adjuntosEntrada.length),
       xl.IntCellValue(row.adjuntosRespuesta.length),
+      xl.TextCellValue(row.terminado ? row.motivoCierreEtiqueta : ''),
+      xl.TextCellValue(row.terminado ? row.cierreJustificacion : ''),
+      xl.TextCellValue(
+        row.terminado ? (row.cerradoSinRespuesta ? 'Sí' : 'No') : '',
+      ),
     ];
     final rowIndex = index + 4;
     for (var column = 0; column < values.length; column++) {
@@ -155,6 +163,9 @@ Uint8List construirExcelCorrespondencia({
     21,
     16,
     19,
+    24,
+    44,
+    14,
   ];
   for (var column = 0; column < widths.length; column++) {
     sheet.setColumnWidth(column, widths[column]);

@@ -22,9 +22,11 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../widgets/internal_module_layout.dart';
 import '../widgets/paged_list.dart';
 import '../widgets/user_avatar.dart';
+import 'visitas_firma.dart';
 import 'visitas_informe_pdf.dart';
 import 'visitas_models.dart';
 import 'visitas_service.dart';
+import 'visitas_ubicaciones_screen.dart';
 
 const Color kVisitasColor = Color(0xFF7C3AED);
 const String _kFont = 'Arial';
@@ -79,12 +81,17 @@ class VisitasDashboardScreen extends StatefulWidget {
   final String? rol;
   final String nombreUsuario;
 
+  /// Desarrollo ve además el maestro de ubicaciones. Lo resuelve quien
+  /// abre el módulo (Home / notificación) con `isDeveloperUser`.
+  final bool esDesarrollador;
+
   const VisitasDashboardScreen({
     super.key,
     required this.userId,
     required this.empresaId,
     required this.rol,
     this.nombreUsuario = '',
+    this.esDesarrollador = false,
   });
 
   @override
@@ -147,6 +154,18 @@ class _VisitasDashboardScreenState extends State<VisitasDashboardScreen>
           'Roles',
           Icons.manage_accounts_outlined,
           (_) => _RolesTab(svc: _svc, empresaId: widget.empresaId),
+        ),
+      if (visitasPuedeGestionarUbicaciones(
+        esDesarrollador: widget.esDesarrollador,
+      ))
+        _TabDef(
+          'Ubicaciones',
+          Icons.edit_location_alt_outlined,
+          (_) => VisitasUbicacionesTab(
+            svc: _svc,
+            empresaId: widget.empresaId,
+            userId: widget.userId,
+          ),
         ),
     ];
     _tab = TabController(length: _tabs.length, vsync: this);
@@ -341,6 +360,7 @@ class _CronogramaTabState extends State<_CronogramaTab> {
                           empresaId: widget.empresaId,
                           userId: widget.userId,
                           rol: widget.rol,
+                          nombreUsuario: widget.nombreUsuario,
                         ),
                       ),
                     ),
@@ -875,6 +895,7 @@ class _MisVisitasTabState extends State<_MisVisitasTab> {
                                 empresaId: widget.empresaId,
                                 userId: widget.userId,
                                 rol: widget.rol,
+                                nombreUsuario: widget.nombreUsuario,
                               ),
                       ),
                     );
@@ -924,6 +945,18 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   final _obsGeneral = TextEditingController();
   bool _obsGeneralCargada = false;
 
+  // Encabezado del formato: se captura antes de iniciar y se puede corregir
+  // durante la visita.
+  final _respNombre = TextEditingController();
+  final _respCargo = TextEditingController();
+  final _ciudad = TextEditingController();
+  final _cargoProf = TextEditingController();
+  bool _encabezadoCargado = false;
+
+  // Referencia del maestro de ubicaciones; null = no cargada.
+  VisitaUbicacion? _referencia;
+  bool _referenciaBuscada = false;
+
   @override
   void initState() {
     super.initState();
@@ -933,6 +966,10 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   @override
   void dispose() {
     _obsGeneral.dispose();
+    _respNombre.dispose();
+    _respCargo.dispose();
+    _ciudad.dispose();
+    _cargoProf.dispose();
     super.dispose();
   }
 
@@ -940,6 +977,59 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     if (_formato != null) return;
     final f = await widget.svc.getFormato(v.formatoId);
     if (mounted) setState(() => _formato = f);
+  }
+
+  Future<void> _asegurarReferencia(VisitaProfesional v) async {
+    if (_referenciaBuscada) return;
+    _referenciaBuscada = true;
+    final ref = await widget.svc.ubicacionPara(
+      empresaId: v.empresaId,
+      centroId: v.centroId,
+      subcentroId: v.subcentroId,
+    );
+    String? cargo;
+    if (v.cargoProfesional.isEmpty) {
+      cargo = await widget.svc.cargoDe(
+        empresaId: v.empresaId,
+        userId: widget.userId,
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      _referencia = ref;
+      if (_ciudad.text.isEmpty && (ref?.ciudad ?? '').isNotEmpty) {
+        _ciudad.text = ref!.ciudad;
+      }
+      if (_cargoProf.text.isEmpty && (cargo ?? '').isNotEmpty) {
+        _cargoProf.text = cargo!;
+      }
+    });
+  }
+
+  void _cargarEncabezado(VisitaProfesional v) {
+    if (_encabezadoCargado) return;
+    _encabezadoCargado = true;
+    _respNombre.text = v.responsableEstablecimiento.nombre;
+    _respCargo.text = v.responsableEstablecimiento.cargo;
+    if (v.ciudad.isNotEmpty) _ciudad.text = v.ciudad;
+    if (v.cargoProfesional.isNotEmpty) _cargoProf.text = v.cargoProfesional;
+  }
+
+  VisitaResponsable get _responsable => VisitaResponsable(
+    nombre: _respNombre.text.trim(),
+    cargo: _respCargo.text.trim(),
+  );
+
+  Future<void> _guardarEncabezado(VisitaProfesional v) async {
+    if (v.estado != kVisitaEnCurso) return;
+    try {
+      await widget.svc.guardarEncabezado(
+        v.id,
+        responsable: _responsable,
+        ciudad: _ciudad.text.trim(),
+        cargoProfesional: _cargoProf.text.trim(),
+      );
+    } catch (_) {}
   }
 
   Future<void> _iniciar(VisitaProfesional v) async {
@@ -951,11 +1041,119 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       );
       return;
     }
+    if (_respNombre.text.trim().isEmpty) {
+      _snack(
+        context,
+        'Escribe el nombre de quien te recibe en el establecimiento.',
+        error: true,
+      );
+      return;
+    }
     setState(() => _ocupado = true);
     try {
-      await widget.svc.iniciar(v.id);
+      await widget.svc.iniciar(
+        v,
+        responsable: _responsable,
+        ciudad: _ciudad.text.trim(),
+        cargoProfesional: _cargoProf.text.trim(),
+      );
+    } on VisitasException catch (e) {
+      if (mounted) await _avisoBloqueo(e.mensaje);
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo iniciar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _avisoBloqueo(String motivo) => showDialog<void>(
+    context: context,
+    builder: (_) => AlertDialog(
+      icon: const Icon(
+        Icons.location_off_outlined,
+        color: Color(0xFFDC2626),
+        size: 40,
+      ),
+      title: const Text('No se puede iniciar'),
+      content: Text(
+        motivo,
+        style: const TextStyle(fontFamily: _kFont, height: 1.4),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Entendido'),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _reprogramar(VisitaProfesional v) async {
+    final r = await pedirReprogramacion(
+      context,
+      fechaActual: v.fechaProgramada,
+    );
+    if (r == null) return;
+    setState(() => _ocupado = true);
+    try {
+      await widget.svc.reprogramar(
+        v,
+        nuevaFecha: r.fecha,
+        motivo: r.motivo,
+        actorId: widget.userId,
+        actorNombre: widget.nombreUsuario,
+      );
+      if (mounted) _snack(context, 'Visita reprogramada. El jefe fue avisado.');
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo reprogramar: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _firmar(VisitaProfesional v, String quien) async {
+    final esProfesional = quien == 'profesional';
+    Uint8List? guardada;
+    if (esProfesional) {
+      setState(() => _ocupado = true);
+      guardada = await widget.svc.firmaGuardadaDe(
+        empresaId: widget.empresaId,
+        userId: widget.userId,
+      );
+      if (mounted) setState(() => _ocupado = false);
+    }
+    if (!mounted) return;
+    final cap = await pedirFirma(
+      context,
+      titulo: esProfesional
+          ? 'Firma de quien realiza la inspección'
+          : 'Firma del responsable del establecimiento',
+      nombreInicial: esProfesional ? widget.nombreUsuario : _respNombre.text,
+      cargoInicial: esProfesional ? _cargoProf.text : _respCargo.text,
+      firmaGuardada: guardada,
+      nombreEditable: !esProfesional,
+    );
+    if (cap == null) return;
+    setState(() => _ocupado = true);
+    try {
+      if (esProfesional) {
+        _cargoProf.text = cap.cargo;
+      } else {
+        _respNombre.text = cap.nombre;
+        _respCargo.text = cap.cargo;
+      }
+      await _guardarEncabezado(v);
+      await widget.svc.firmar(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+        quien: quien,
+        png: cap.png,
+        nombre: cap.nombre,
+        cargo: cap.cargo,
+        modo: cap.modo,
+      );
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo guardar la firma: $e', error: true);
     } finally {
       if (mounted) setState(() => _ocupado = false);
     }
@@ -994,13 +1192,18 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       return;
     }
     final resumen = resumenDeVisita(f, v.respuestas);
+    final nHallazgos = hallazgosDeVisita(
+      f,
+      v.respuestas,
+      tablas: v.tablas,
+    ).length;
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Cerrar visita'),
         content: Text(
           'Cumplimiento: ${resumen.porcentaje ?? '—'}%\n'
-          '${resumen.noCumple} hallazgo(s) se convertirán en tareas.\n\n'
+          '$nHallazgos hallazgo(s) se convertirán en tareas.\n\n'
           'Después de cerrar no se puede editar.',
           style: const TextStyle(fontFamily: _kFont),
         ),
@@ -1033,6 +1236,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
       if (!mounted) return;
       _snack(context, 'Visita cerrada. ${tareas.length} tarea(s) creada(s).');
       Navigator.pop(context);
+    } on VisitasException catch (e) {
+      if (mounted) _snack(context, e.mensaje, error: true);
     } catch (e) {
       if (mounted) _snack(context, 'No se pudo cerrar: $e', error: true);
     } finally {
@@ -1056,6 +1261,8 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           );
         }
         _asegurarFormato(v);
+        _asegurarReferencia(v);
+        _cargarEncabezado(v);
         if (!_obsGeneralCargada) {
           _obsGeneral.text = v.observacionGeneral;
           _obsGeneralCargada = true;
@@ -1080,68 +1287,213 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
     );
   }
 
-  Widget _pantallaInicio(VisitaProfesional v, VisitaFormato f) => Center(
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 480),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.location_on_outlined,
-              size: 56,
-              color: kVisitasColor,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '${v.areaNombre} · ${f.nombre}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontFamily: _kFont,
-                fontWeight: FontWeight.w800,
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Programada para el ${_dd(v.fechaProgramada)} por ${v.asignadoPorNombre}.\n'
-              '${f.items.length} ítems.\n\n'
-              'Al iniciar, el sistema registra la hora y la ubicación del dispositivo. '
-              'Hazlo cuando estés en el establecimiento.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontFamily: _kFont,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: kVisitasColor,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 16,
-                ),
-              ),
-              onPressed: _ocupado ? null : () => _iniciar(v),
-              icon: const Icon(Icons.play_arrow_rounded),
-              label: Text(_ocupado ? 'Ubicando…' : 'Iniciar visita'),
-            ),
-          ],
+  Widget _campo(
+    TextEditingController c,
+    String label, {
+    bool obligatorio = false,
+    VoidCallback? onSalir,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Focus(
+      onFocusChange: (tiene) {
+        if (!tiene) onSalir?.call();
+      },
+      child: TextField(
+        controller: c,
+        textCapitalization: TextCapitalization.words,
+        decoration: InputDecoration(
+          labelText: obligatorio ? '$label *' : label,
+          isDense: true,
+          border: const OutlineInputBorder(),
         ),
       ),
     ),
   );
 
-  Widget _pantallaFormato(VisitaProfesional v, VisitaFormato f) {
-    final resumen = resumenDeVisita(f, v.respuestas);
-    final items = f.itemsOrdenados;
+  Widget _estadoReferencia() {
+    final ref = _referencia;
+    final ok = ref != null;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: ok ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            ok ? Icons.where_to_vote_outlined : Icons.location_off_outlined,
+            color: ok ? const Color(0xFF166534) : const Color(0xFF991B1B),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              !_referenciaBuscada
+                  ? 'Buscando la ubicación del establecimiento…'
+                  : ok
+                  ? 'Ubicación de referencia cargada · radio ${ref.radioMetros.round()} m. '
+                        'Debes estar dentro para iniciar.'
+                  : 'Este establecimiento no tiene ubicación en el maestro. '
+                        'No se puede iniciar hasta que Desarrollo la cargue.',
+              style: TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                color: ok ? const Color(0xFF166534) : const Color(0xFF991B1B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pantallaInicio(VisitaProfesional v, VisitaFormato f) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const Icon(
+            Icons.location_on_outlined,
+            size: 56,
+            color: kVisitasColor,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${v.areaNombre} · ${f.nombre}',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Programada para el ${_dd(v.fechaProgramada)} por ${v.asignadoPorNombre}.\n'
+            '${f.items.length} ítems'
+            '${f.tablas.isEmpty ? '' : ' y ${f.tablas.map((t) => t.nombre.toLowerCase()).join(', ')}'}.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontFamily: _kFont,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _estadoReferencia(),
+          const Text(
+            'Antes de iniciar',
+            style: TextStyle(
+              fontFamily: _kFont,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _campo(_respNombre, 'Responsable del establecimiento', obligatorio: true),
+          _campo(_respCargo, 'Cargo del responsable'),
+          _campo(_ciudad, 'Ciudad'),
+          _campo(_cargoProf, 'Tu cargo (responsable de inspección)'),
+          const SizedBox(height: 8),
+          const Text(
+            'Al iniciar, el sistema toma la hora y la ubicación del dispositivo y '
+            'comprueba que estés dentro del radio del establecimiento. Sin GPS o '
+            'fuera del radio, no se inicia.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: _kFont,
+              fontSize: 12,
+              height: 1.4,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: kVisitasColor,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 16,
+              ),
+            ),
+            onPressed: _ocupado || _referencia == null
+                ? null
+                : () => _iniciar(v),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: Text(_ocupado ? 'Ubicando…' : 'Iniciar visita'),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _ocupado ? null : () => _reprogramar(v),
+            icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+            label: const Text('No puedo hoy: reprogramar'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  /// Ítems y tablas de una parte del formato, agrupados por sección.
+  List<Widget> _bloqueParte(
+    VisitaProfesional v,
+    VisitaFormato f,
+    String parte,
+  ) {
     final secciones = <String, List<VisitaFormatoItem>>{};
-    for (final it in items) {
+    for (final it in f.itemsDeParte(parte)) {
       secciones.putIfAbsent(it.seccion, () => []).add(it);
     }
+    return [
+      for (final s in secciones.entries) ...[
+        if (s.key.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+            child: Text(
+              s.key.toUpperCase(),
+              style: const TextStyle(
+                fontFamily: _kFont,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: kVisitasColor,
+                letterSpacing: .6,
+              ),
+            ),
+          ),
+        for (final it in s.value)
+          _ItemCard(
+            key: ValueKey(it.id),
+            item: it,
+            respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
+            onCambio: (r) => widget.svc.guardarRespuesta(v.id, it.id, r),
+            onFoto: () => _tomarFoto(v, it),
+          ),
+      ],
+      for (final t in f.tablasDeParte(parte))
+        _TablaSection(
+          key: ValueKey('tabla_${t.id}'),
+          tabla: t,
+          filas: v.filasDe(t.id),
+          onGuardar: (filas) => widget.svc.guardarFilas(v.id, t.id, filas),
+          onFoto: (fila) => _tomarFotoFila(v, t, fila),
+        ),
+    ];
+  }
+
+  Widget _pantallaFormato(VisitaProfesional v, VisitaFormato f) {
+    final resumen = resumenDeVisita(f, v.respuestas);
+    final partes = f.partes.isEmpty
+        ? const [VisitaFormatoParte(codigo: '', nombre: '')]
+        : f.partes;
+    final ini = v.inicio;
+    final ubic = ini == null
+        ? ''
+        : ini.distanciaMetros != null
+        ? ' · a ${ini.distanciaMetros!.round()} m del punto'
+        : ini.tieneUbicacion
+        ? ' · con ubicación'
+        : ' · sin ubicación';
     return Column(
       children: [
         Container(
@@ -1151,8 +1503,7 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
             children: [
               Expanded(
                 child: Text(
-                  'Iniciada ${v.inicio == null ? '—' : _horaDe(v.inicio!)}'
-                  '${v.inicio?.tieneUbicacion == true ? ' · con ubicación' : ' · sin ubicación'}',
+                  'Iniciada ${ini == null ? '—' : _horaDe(ini)}$ubic',
                   style: const TextStyle(fontFamily: _kFont, fontSize: 12),
                 ),
               ),
@@ -1170,44 +1521,57 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
             children: [
-              for (final s in secciones.entries) ...[
-                if (s.key.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+              for (final p in partes) ...[
+                if (p.codigo.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: kVisitasColor,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                     child: Text(
-                      s.key.toUpperCase(),
+                      '${p.codigo} · ${p.nombre}',
                       style: const TextStyle(
                         fontFamily: _kFont,
-                        fontSize: 12,
+                        color: Colors.white,
                         fontWeight: FontWeight.w800,
-                        color: kVisitasColor,
-                        letterSpacing: .6,
+                        fontSize: 13,
                       ),
                     ),
                   ),
-                for (final it in s.value)
-                  _ItemCard(
-                    key: ValueKey(it.id),
-                    item: it,
-                    respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
-                    onResultado: (r) => widget.svc.guardarRespuesta(
-                      v.id,
-                      it.id,
-                      (v.respuestas[it.id] ?? const VisitaRespuesta()).copyWith(
-                        resultado: r,
-                      ),
-                    ),
-                    onObservacion: (texto) => widget.svc.guardarRespuesta(
-                      v.id,
-                      it.id,
-                      (v.respuestas[it.id] ?? const VisitaRespuesta()).copyWith(
-                        observacion: texto,
-                      ),
-                    ),
-                    onFoto: () => _tomarFoto(v, it),
-                  ),
+                ..._bloqueParte(v, f, p.codigo),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              const Text(
+                'Encabezado del acta',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              _campo(
+                _respNombre,
+                'Responsable del establecimiento',
+                obligatorio: true,
+                onSalir: () => _guardarEncabezado(v),
+              ),
+              _campo(
+                _respCargo,
+                'Cargo del responsable',
+                onSalir: () => _guardarEncabezado(v),
+              ),
+              _campo(_ciudad, 'Ciudad', onSalir: () => _guardarEncabezado(v)),
+              _campo(
+                _cargoProf,
+                'Tu cargo (responsable de inspección)',
+                onSalir: () => _guardarEncabezado(v),
+              ),
+              const SizedBox(height: 4),
               TextField(
                 controller: _obsGeneral,
                 maxLines: 3,
@@ -1215,6 +1579,37 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
                   labelText: 'Observación general de la visita',
                   border: OutlineInputBorder(),
                 ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Firmas',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Las dos son obligatorias para cerrar. Se firman en el sitio, '
+                'al terminar el recorrido.',
+                style: TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 8),
+              FirmaTile(
+                titulo: 'Responsable de inspección',
+                firma: v.firmaProfesional,
+                onFirmar: _ocupado ? null : () => _firmar(v, 'profesional'),
+              ),
+              FirmaTile(
+                titulo: 'Responsable del establecimiento',
+                firma: v.firmaEstablecimiento,
+                onFirmar: _ocupado
+                    ? null
+                    : () => _firmar(v, 'establecimiento'),
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
@@ -1233,6 +1628,41 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _tomarFotoFila(
+    VisitaProfesional v,
+    VisitaFormatoTabla t,
+    VisitaFilaTabla fila,
+  ) async {
+    final img = await ImagePicker().pickImage(
+      source: kIsWeb ? ImageSource.gallery : ImageSource.camera,
+      imageQuality: 80,
+      maxWidth: 1600,
+    );
+    if (img == null) return;
+    final Uint8List bytes = await img.readAsBytes();
+    setState(() => _ocupado = true);
+    try {
+      final ev = await widget.svc.subirEvidencia(
+        empresaId: widget.empresaId,
+        visitaId: v.id,
+        itemId: '${t.id}_${fila.id}',
+        bytes: bytes,
+        nombre: '${t.id}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      final filas = [
+        for (final f in v.filasDe(t.id))
+          f.id == fila.id
+              ? f.copyWith(evidencias: [...f.evidencias, ev])
+              : f,
+      ];
+      await widget.svc.guardarFilas(v.id, t.id, filas);
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo subir la foto: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
   }
 
   String _horaDe(VisitaMarca m) {
@@ -1273,18 +1703,28 @@ class _EjecutarVisitaScreenState extends State<_EjecutarVisitaScreen> {
   }
 }
 
+/// Etiquetas de respuesta según el tipo de ítem: el diagnóstico califica
+/// 1/0/NA como el Excel; botiquín y camilla van en sí/no.
+String _labelResultado(String tipo, String resultado) =>
+    switch ((tipo, resultado)) {
+      (kItemTipoCalificacion, kItemCumple) => 'Cumple (1)',
+      (kItemTipoCalificacion, kItemNoCumple) => 'No cumple (0)',
+      (kItemTipoCalificacion, kItemNoAplica) => 'NA',
+      (_, kItemCumple) => 'Sí',
+      (_, kItemNoCumple) => 'No',
+      _ => kItemResultadoLabel[resultado] ?? resultado,
+    };
+
 class _ItemCard extends StatefulWidget {
   final VisitaFormatoItem item;
   final VisitaRespuesta respuesta;
-  final ValueChanged<String> onResultado;
-  final ValueChanged<String> onObservacion;
+  final ValueChanged<VisitaRespuesta> onCambio;
   final VoidCallback onFoto;
   const _ItemCard({
     super.key,
     required this.item,
     required this.respuesta,
-    required this.onResultado,
-    required this.onObservacion,
+    required this.onCambio,
     required this.onFoto,
   });
 
@@ -1294,18 +1734,50 @@ class _ItemCard extends StatefulWidget {
 
 class _ItemCardState extends State<_ItemCard> {
   late final TextEditingController _obs;
+  late final TextEditingController _cantidad;
+  late final TextEditingController _vencimiento;
+  late final TextEditingController _accion;
   final _focus = FocusNode();
+  final _focusCantidad = FocusNode();
+  final _focusVenc = FocusNode();
+  final _focusAccion = FocusNode();
 
   @override
   void initState() {
     super.initState();
-    _obs = TextEditingController(text: widget.respuesta.observacion);
+    final r = widget.respuesta;
+    _obs = TextEditingController(text: r.observacion);
+    _cantidad = TextEditingController(text: r.cantidad);
+    _vencimiento = TextEditingController(text: r.vencimiento);
+    _accion = TextEditingController(text: r.accion);
     // Se guarda al salir del campo, no en cada tecla: cada tecla sería una
     // escritura a Firestore.
     _focus.addListener(() {
       if (!_focus.hasFocus &&
           _obs.text.trim() != widget.respuesta.observacion) {
-        widget.onObservacion(_obs.text.trim());
+        widget.onCambio(widget.respuesta.copyWith(observacion: _obs.text.trim()));
+      }
+    });
+    _focusCantidad.addListener(() {
+      if (!_focusCantidad.hasFocus &&
+          _cantidad.text.trim() != widget.respuesta.cantidad) {
+        widget.onCambio(
+          widget.respuesta.copyWith(cantidad: _cantidad.text.trim()),
+        );
+      }
+    });
+    _focusVenc.addListener(() {
+      if (!_focusVenc.hasFocus &&
+          _vencimiento.text.trim() != widget.respuesta.vencimiento) {
+        widget.onCambio(
+          widget.respuesta.copyWith(vencimiento: _vencimiento.text.trim()),
+        );
+      }
+    });
+    _focusAccion.addListener(() {
+      if (!_focusAccion.hasFocus &&
+          _accion.text.trim() != widget.respuesta.accion) {
+        widget.onCambio(widget.respuesta.copyWith(accion: _accion.text.trim()));
       }
     });
   }
@@ -1313,16 +1785,31 @@ class _ItemCardState extends State<_ItemCard> {
   @override
   void didUpdateWidget(_ItemCard old) {
     super.didUpdateWidget(old);
-    if (!_focus.hasFocus &&
-        old.respuesta.observacion != widget.respuesta.observacion) {
-      _obs.text = widget.respuesta.observacion;
+    final r = widget.respuesta;
+    if (!_focus.hasFocus && old.respuesta.observacion != r.observacion) {
+      _obs.text = r.observacion;
+    }
+    if (!_focusCantidad.hasFocus && old.respuesta.cantidad != r.cantidad) {
+      _cantidad.text = r.cantidad;
+    }
+    if (!_focusVenc.hasFocus && old.respuesta.vencimiento != r.vencimiento) {
+      _vencimiento.text = r.vencimiento;
+    }
+    if (!_focusAccion.hasFocus && old.respuesta.accion != r.accion) {
+      _accion.text = r.accion;
     }
   }
 
   @override
   void dispose() {
     _obs.dispose();
+    _cantidad.dispose();
+    _vencimiento.dispose();
+    _accion.dispose();
     _focus.dispose();
+    _focusCantidad.dispose();
+    _focusVenc.dispose();
+    _focusAccion.dispose();
     super.dispose();
   }
 
@@ -1333,12 +1820,13 @@ class _ItemCardState extends State<_ItemCard> {
     );
     if (texto == null) return;
     _obs.text = texto;
-    widget.onObservacion(texto.trim());
+    widget.onCambio(widget.respuesta.copyWith(observacion: texto.trim()));
   }
 
   @override
   Widget build(BuildContext context) {
     final r = widget.respuesta;
+    final it = widget.item;
     final noCumple = r.resultado == kItemNoCumple;
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1355,29 +1843,69 @@ class _ItemCardState extends State<_ItemCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '${widget.item.orden}. ${widget.item.texto}',
+              '${it.orden}. ${it.texto}',
               style: const TextStyle(
                 fontFamily: _kFont,
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (it.unidad.isNotEmpty)
+              Text(
+                'Esperado: ${it.unidad}',
+                style: const TextStyle(
+                  fontFamily: _kFont,
+                  fontSize: 12,
+                  color: Colors.black54,
+                ),
+              ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               children: [
-                for (final e in kItemResultadoLabel.entries)
+                for (final res in resultadosPermitidos(it.tipo))
                   ChoiceChip(
-                    label: Text(e.value),
-                    selected: r.resultado == e.key,
-                    selectedColor: switch (e.key) {
+                    label: Text(_labelResultado(it.tipo, res)),
+                    selected: r.resultado == res,
+                    selectedColor: switch (res) {
                       kItemCumple => const Color(0xFFDCFCE7),
                       kItemNoCumple => const Color(0xFFFEE2E2),
                       _ => const Color(0xFFE5E7EB),
                     },
-                    onSelected: (_) => widget.onResultado(e.key),
+                    onSelected: (_) =>
+                        widget.onCambio(r.copyWith(resultado: res)),
                   ),
               ],
             ),
+            if (r.respondida && it.esElemento) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _cantidad,
+                      focusNode: _focusCantidad,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: 'Cantidad',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _vencimiento,
+                      focusNode: _focusVenc,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: 'Vence (si aplica)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (r.respondida) ...[
               const SizedBox(height: 8),
               TextField(
@@ -1397,6 +1925,18 @@ class _ItemCardState extends State<_ItemCard> {
                   ),
                 ),
               ),
+              if (noCumple) ...[
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _accion,
+                  focusNode: _focusAccion,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: 'Plan de acción propuesto (opcional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
               const SizedBox(height: 6),
               Row(
                 children: [
@@ -1431,6 +1971,447 @@ class _ItemCardState extends State<_ItemCard> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Tabla de filas dinámicas dentro del formato (extintores). Cada fila es
+/// una tarjeta con sus campos y un resumen de estados; se agrega y edita
+/// con un diálogo porque son 6 textos y 13 estados por fila: en la tablet
+/// no caben en línea.
+class _TablaSection extends StatelessWidget {
+  final VisitaFormatoTabla tabla;
+  final List<VisitaFilaTabla> filas;
+  final ValueChanged<List<VisitaFilaTabla>> onGuardar;
+  final ValueChanged<VisitaFilaTabla> onFoto;
+  const _TablaSection({
+    super.key,
+    required this.tabla,
+    required this.filas,
+    required this.onGuardar,
+    required this.onFoto,
+  });
+
+  Future<void> _editar(BuildContext context, VisitaFilaTabla? fila) async {
+    final r = await showDialog<VisitaFilaTabla>(
+      context: context,
+      builder: (_) => _FilaDialog(tabla: tabla, fila: fila),
+    );
+    if (r == null) return;
+    final nuevas = fila == null
+        ? [...filas, r]
+        : [for (final f in filas) f.id == r.id ? r : f];
+    onGuardar(nuevas);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${tabla.nombre.toUpperCase()} (${filas.length})',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: kVisitasColor,
+                    letterSpacing: .6,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => _editar(context, null),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(tabla.etiquetaFila),
+              ),
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 0, 4, 6),
+          child: Text(
+            'B: Bueno · M: Malo · R: Regular · NC: No cuenta con el elemento',
+            style: TextStyle(
+              fontFamily: _kFont,
+              fontSize: 11,
+              color: Colors.black54,
+            ),
+          ),
+        ),
+        if (filas.isEmpty)
+          Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              leading: const Icon(Icons.fire_extinguisher, color: Colors.black38),
+              title: Text(
+                'Sin ${tabla.etiquetaFila.toLowerCase()}es registrados',
+                style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+              ),
+              subtitle: const Text(
+                'Agrega uno por cada equipo. Si el establecimiento no tiene, '
+                'registra una fila con "No cuenta".',
+                style: TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
+            ),
+          ),
+        for (var i = 0; i < filas.length; i++)
+          _FilaCard(
+            tabla: tabla,
+            indice: i + 1,
+            fila: filas[i],
+            onEditar: () => _editar(context, filas[i]),
+            onEliminar: () =>
+                onGuardar([for (final f in filas) if (f.id != filas[i].id) f]),
+            onFoto: () => onFoto(filas[i]),
+          ),
+      ],
+    );
+  }
+}
+
+class _FilaCard extends StatelessWidget {
+  final VisitaFormatoTabla tabla;
+  final int indice;
+  final VisitaFilaTabla fila;
+  final VoidCallback onEditar;
+  final VoidCallback onEliminar;
+  final VoidCallback onFoto;
+  const _FilaCard({
+    required this.tabla,
+    required this.indice,
+    required this.fila,
+    required this.onEditar,
+    required this.onEliminar,
+    required this.onFoto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hallazgo = fila.tieneHallazgo;
+    final faltan = tabla.camposEstado
+        .where((c) => !kFilaEstadoLabel.containsKey(fila.estados[c.id] ?? ''))
+        .length;
+    final textos = [
+      for (final c in tabla.camposTexto)
+        if ((fila.campos[c.id] ?? '').trim().isNotEmpty)
+          '${c.label}: ${fila.campos[c.id]!.trim()}',
+    ];
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: hallazgo ? const Color(0xFFDC2626) : Colors.transparent,
+          width: hallazgo ? 1.2 : 0,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${tabla.etiquetaFila} $indice · ${fila.titulo(tabla)}',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Editar',
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  onPressed: onEditar,
+                ),
+                IconButton(
+                  tooltip: 'Eliminar',
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  onPressed: onEliminar,
+                ),
+              ],
+            ),
+            if (textos.isNotEmpty)
+              Text(
+                textos.join(' · '),
+                style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+              ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (final c in tabla.camposEstado)
+                  _Chip(
+                    '${c.label}: ${fila.estados[c.id] ?? '?'}',
+                    switch (fila.estados[c.id]) {
+                      kFilaBueno => const Color(0xFF16A34A),
+                      kFilaRegular => const Color(0xFFF59E0B),
+                      kFilaMalo || kFilaNoCuenta => const Color(0xFFDC2626),
+                      _ => const Color(0xFF9CA3AF),
+                    },
+                  ),
+              ],
+            ),
+            if (faltan > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Faltan $faltan estado(s) por marcar',
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Color(0xFFB45309),
+                  ),
+                ),
+              ),
+            if (fila.observacion.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  fila.observacion,
+                  style: const TextStyle(
+                    fontFamily: _kFont,
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: onFoto,
+                  icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                  label: Text(
+                    fila.evidencias.isEmpty
+                        ? 'Foto'
+                        : 'Foto (${fila.evidencias.length})',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                for (final ev in fila.evidencias.take(4))
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.network(
+                        ev.url,
+                        width: 40,
+                        height: 40,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FilaDialog extends StatefulWidget {
+  final VisitaFormatoTabla tabla;
+  final VisitaFilaTabla? fila;
+  const _FilaDialog({required this.tabla, required this.fila});
+  @override
+  State<_FilaDialog> createState() => _FilaDialogState();
+}
+
+class _FilaDialogState extends State<_FilaDialog> {
+  late final Map<String, TextEditingController> _textos;
+  late final Map<String, String> _estados;
+  late final TextEditingController _obs;
+
+  @override
+  void initState() {
+    super.initState();
+    final f = widget.fila;
+    _textos = {
+      for (final c in widget.tabla.camposTexto)
+        c.id: TextEditingController(text: f?.campos[c.id] ?? ''),
+    };
+    _estados = {...?f?.estados};
+    _obs = TextEditingController(text: f?.observacion ?? '');
+  }
+
+  @override
+  void dispose() {
+    for (final c in _textos.values) {
+      c.dispose();
+    }
+    _obs.dispose();
+    super.dispose();
+  }
+
+  void _todoBueno() => setState(() {
+    for (final c in widget.tabla.camposEstado) {
+      _estados[c.id] = kFilaBueno;
+    }
+  });
+
+  void _guardar() {
+    final faltan = widget.tabla.camposEstado
+        .where((c) => !kFilaEstadoLabel.containsKey(_estados[c.id] ?? ''))
+        .toList();
+    if (faltan.isNotEmpty) {
+      _snack(
+        context,
+        'Falta marcar: ${faltan.map((c) => c.label).join(', ')}.',
+        error: true,
+      );
+      return;
+    }
+    final hallazgo = _estados.values.any(filaEstadoEsHallazgo);
+    if (hallazgo && _obs.text.trim().isEmpty) {
+      _snack(
+        context,
+        'Hay un estado Malo o No cuenta: escribe la novedad encontrada.',
+        error: true,
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      VisitaFilaTabla(
+        id: widget.fila?.id ??
+            'f_${DateTime.now().millisecondsSinceEpoch}',
+        campos: {for (final e in _textos.entries) e.key: e.value.text.trim()},
+        estados: Map.of(_estados),
+        observacion: _obs.text.trim(),
+        evidencias: widget.fila?.evidencias ?? const [],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ancho = MediaQuery.of(context).size.width;
+    return AlertDialog(
+      title: Text(
+        widget.fila == null
+            ? 'Nuevo ${widget.tabla.etiquetaFila.toLowerCase()}'
+            : 'Editar ${widget.tabla.etiquetaFila.toLowerCase()}',
+        style: const TextStyle(fontFamily: _kFont),
+      ),
+      content: SizedBox(
+        width: ancho < 640 ? ancho : 560,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final c in widget.tabla.camposTexto)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    controller: _textos[c.id],
+                    decoration: InputDecoration(
+                      labelText: c.label,
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Estado del equipo',
+                      style: TextStyle(
+                        fontFamily: _kFont,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _todoBueno,
+                    child: const Text('Todo Bueno'),
+                  ),
+                ],
+              ),
+              for (final c in widget.tabla.camposEstado)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          c.label,
+                          style: const TextStyle(
+                            fontFamily: _kFont,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      SegmentedButton<String>(
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        showSelectedIcon: false,
+                        emptySelectionAllowed: true,
+                        segments: [
+                          for (final e in kFilaEstadoLabel.keys)
+                            ButtonSegment(
+                              value: e,
+                              label: Text(
+                                e,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                        ],
+                        selected: {
+                          if (kFilaEstadoLabel.containsKey(_estados[c.id]))
+                            _estados[c.id]!,
+                        },
+                        onSelectionChanged: (sel) => setState(() {
+                          if (sel.isEmpty) {
+                            _estados.remove(c.id);
+                          } else {
+                            _estados[c.id] = sel.first;
+                          }
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _obs,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Novedad encontrada / observaciones',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
+          onPressed: _guardar,
+          child: const Text('Guardar'),
+        ),
+      ],
     );
   }
 }
@@ -1562,12 +2543,14 @@ class _VisitaDetalleScreen extends StatefulWidget {
   final String empresaId;
   final String userId;
   final String? rol;
+  final String nombreUsuario;
   const _VisitaDetalleScreen({
     required this.svc,
     required this.visitaId,
     required this.empresaId,
     required this.userId,
     required this.rol,
+    this.nombreUsuario = '',
   });
 
   @override
@@ -1609,6 +2592,29 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
     } catch (e) {
       if (mounted)
         _snack(context, 'No se pudo generar el informe: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _ocupado = false);
+    }
+  }
+
+  Future<void> _reprogramar(VisitaProfesional v) async {
+    final r = await pedirReprogramacion(
+      context,
+      fechaActual: v.fechaProgramada,
+    );
+    if (r == null) return;
+    setState(() => _ocupado = true);
+    try {
+      await widget.svc.reprogramar(
+        v,
+        nuevaFecha: r.fecha,
+        motivo: r.motivo,
+        actorId: widget.userId,
+        actorNombre: widget.nombreUsuario,
+      );
+      if (mounted) _snack(context, 'Visita reprogramada y notificada.');
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo reprogramar: $e', error: true);
     } finally {
       if (mounted) setState(() => _ocupado = false);
     }
@@ -1663,6 +2669,11 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
         final resumen = f == null ? null : resumenDeVisita(f, v.respuestas);
         final puedeCancelar =
             visitasPuedeProgramar(widget.rol) && v.estado == kVisitaProgramada;
+        final puedeReprogramar = visitasPuedeReprogramar(
+          rol: widget.rol,
+          visita: v,
+          userId: widget.userId,
+        );
         return Scaffold(
           appBar: AppBar(
             backgroundColor: kVisitasColor,
@@ -1677,6 +2688,12 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                   tooltip: 'Informe PDF',
                   onPressed: _ocupado || f == null ? null : () => _pdf(v),
                   icon: const Icon(Icons.picture_as_pdf_outlined),
+                ),
+              if (puedeReprogramar)
+                IconButton(
+                  tooltip: 'Reprogramar',
+                  onPressed: _ocupado ? null : () => _reprogramar(v),
+                  icon: const Icon(Icons.edit_calendar_outlined),
                 ),
               if (puedeCancelar)
                 IconButton(
@@ -1737,10 +2754,38 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
               ),
               _dato('Programada por', v.asignadoPorNombre),
               _dato('Fecha', _dd(v.fechaProgramada)),
+              if (v.reprogramaciones.isNotEmpty)
+                _dato(
+                  'Reprogramada',
+                  v.reprogramaciones
+                      .map(
+                        (r) =>
+                            '${_dd(r.de)} → ${_dd(r.a)} · ${r.porNombre}: ${r.motivo}',
+                      )
+                      .join('\n'),
+                ),
+              if (v.responsableEstablecimiento.completo)
+                _dato(
+                  'Responsable sitio',
+                  '${v.responsableEstablecimiento.nombre}'
+                      '${v.responsableEstablecimiento.cargo.isEmpty ? '' : ' · ${v.responsableEstablecimiento.cargo}'}',
+                ),
+              if (v.ciudad.isNotEmpty) _dato('Ciudad', v.ciudad),
               _dato('Inicio', _marcaTexto(v.inicio)),
               _dato('Cierre', _marcaTexto(v.fin)),
               if (v.tareasCreadas.isNotEmpty)
                 _dato('Tareas creadas', '${v.tareasCreadas.length}'),
+              if (v.firmaProfesional != null || v.firmaEstablecimiento != null) ...[
+                const Divider(height: 24),
+                FirmaTile(
+                  titulo: 'Responsable de inspección',
+                  firma: v.firmaProfesional,
+                ),
+                FirmaTile(
+                  titulo: 'Responsable del establecimiento',
+                  firma: v.firmaEstablecimiento,
+                ),
+              ],
               const Divider(height: 24),
               if (f == null)
                 const Center(child: CircularProgressIndicator())
@@ -1758,6 +2803,23 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
                     item: it,
                     respuesta: v.respuestas[it.id] ?? const VisitaRespuesta(),
                   ),
+                for (final t in f.tablas) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '${t.nombre} (${v.filasDe(t.id).length})',
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  for (var i = 0; i < v.filasDe(t.id).length; i++)
+                    _FilaLectura(
+                      tabla: t,
+                      indice: i + 1,
+                      fila: v.filasDe(t.id)[i],
+                    ),
+                ],
               ],
               if (v.observacionGeneral.trim().isNotEmpty) ...[
                 const Divider(height: 24),
@@ -1785,7 +2847,10 @@ class _VisitaDetalleScreenState extends State<_VisitaDetalleScreen> {
     final t = m.at.toDate().toLocal();
     final hora =
         '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-    return '${_dd(t)} $hora${m.tieneUbicacion ? ' · ${m.lat!.toStringAsFixed(5)}, ${m.lng!.toStringAsFixed(5)}' : ' · sin ubicación'}';
+    final dist = m.distanciaMetros == null
+        ? ''
+        : ' · a ${m.distanciaMetros!.round()} m${m.dentroDelRadio == false ? ' (fuera del radio)' : ''}';
+    return '${_dd(t)} $hora${m.tieneUbicacion ? ' · ${m.lat!.toStringAsFixed(5)}, ${m.lng!.toStringAsFixed(5)}' : ' · sin ubicación'}$dist';
   }
 
   Widget _dato(String k, String v) => Padding(
@@ -1842,9 +2907,31 @@ class _ItemLectura extends StatelessWidget {
                   '${item.orden}. ${item.texto}',
                   style: const TextStyle(fontFamily: _kFont, fontSize: 13),
                 ),
+                if (item.esElemento &&
+                    (respuesta.cantidad.isNotEmpty ||
+                        respuesta.vencimiento.isNotEmpty))
+                  Text(
+                    [
+                      if (item.unidad.isNotEmpty) 'Esperado ${item.unidad}',
+                      if (respuesta.cantidad.isNotEmpty)
+                        'Cantidad ${respuesta.cantidad}',
+                      if (respuesta.vencimiento.isNotEmpty)
+                        'Vence ${respuesta.vencimiento}',
+                    ].join(' · '),
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
                 if (respuesta.observacion.isNotEmpty)
                   Text(
                     respuesta.observacion,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                if (respuesta.accion.isNotEmpty)
+                  Text(
+                    'Acción: ${respuesta.accion}',
                     style: const TextStyle(
                       fontFamily: _kFont,
                       fontSize: 12,
@@ -1858,6 +2945,102 @@ class _ItemLectura extends StatelessWidget {
                       spacing: 4,
                       children: [
                         for (final ev in respuesta.evidencias)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.network(
+                              ev.url,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FilaLectura extends StatelessWidget {
+  final VisitaFormatoTabla tabla;
+  final int indice;
+  final VisitaFilaTabla fila;
+  const _FilaLectura({
+    required this.tabla,
+    required this.indice,
+    required this.fila,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textos = [
+      for (final c in tabla.camposTexto)
+        if ((fila.campos[c.id] ?? '').trim().isNotEmpty)
+          '${c.label}: ${fila.campos[c.id]!.trim()}',
+    ];
+    final malos = [
+      for (final c in tabla.camposEstado)
+        if (filaEstadoEsHallazgo(fila.estados[c.id] ?? ''))
+          '${c.label}: ${kFilaEstadoLabel[fila.estados[c.id]]}',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: _Chip(
+              fila.tieneHallazgo ? 'Hallazgo' : 'Conforme',
+              fila.tieneHallazgo
+                  ? const Color(0xFFDC2626)
+                  : const Color(0xFF16A34A),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${tabla.etiquetaFila} $indice · ${fila.titulo(tabla)}',
+                  style: const TextStyle(fontFamily: _kFont, fontSize: 13),
+                ),
+                if (textos.isNotEmpty)
+                  Text(
+                    textos.join(' · '),
+                    style: const TextStyle(fontFamily: _kFont, fontSize: 12),
+                  ),
+                if (malos.isNotEmpty)
+                  Text(
+                    malos.join(' · '),
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Color(0xFFDC2626),
+                    ),
+                  ),
+                if (fila.observacion.isNotEmpty)
+                  Text(
+                    fila.observacion,
+                    style: const TextStyle(
+                      fontFamily: _kFont,
+                      fontSize: 12,
+                      color: Colors.black54,
+                    ),
+                  ),
+                if (fila.evidencias.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Wrap(
+                      spacing: 4,
+                      children: [
+                        for (final ev in fila.evidencias)
                           ClipRRect(
                             borderRadius: BorderRadius.circular(6),
                             child: Image.network(
@@ -1911,13 +3094,57 @@ class _FormatosTabState extends State<_FormatosTab> {
       widget.empresaId,
       actorId: widget.userId,
     );
-    if (mounted)
+    if (mounted) {
       _snack(
         context,
         n == 0
             ? 'Ya había formatos; no se tocó nada.'
-            : '$n borradores sembrados.',
+            : '$n formatos sembrados (SST oficial + borradores).',
       );
+    }
+  }
+
+  Future<void> _cargarSst() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Cargar formato SST oficial'),
+        content: const Text(
+          'Crea o actualiza el formato "Inspección SST, extintores y '
+          'botiquín" (F-UT-SST-02 / 03 / 01) tal como viene del Excel del '
+          'contrato. Las visitas ya hechas conservan sus respuestas.',
+          style: TextStyle(fontFamily: _kFont),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: kVisitasColor),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cargar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final existia = await widget.svc.cargarFormatoSst(
+        widget.empresaId,
+        actorId: widget.userId,
+      );
+      if (mounted) {
+        _snack(
+          context,
+          existia
+              ? 'Formato SST actualizado.'
+              : 'Formato SST cargado y vigente.',
+        );
+      }
+    } catch (e) {
+      if (mounted) _snack(context, 'No se pudo cargar: $e', error: true);
+    }
   }
 
   void _editar(VisitaFormato f) => Navigator.push(
@@ -1966,12 +3193,22 @@ class _FormatosTabState extends State<_FormatosTab> {
                 ),
                 child: const Text(
                   'Los formatos definitivos los entregan los directores de cada área. '
-                  'Mientras llegan, puedes sembrar borradores de ejemplo para recorrer el módulo.',
+                  'El de SST (F-UT-SST-01/02/03) ya llegó y se carga con el botón de abajo; '
+                  'para las demás áreas puedes sembrar borradores de ejemplo.',
                   style: TextStyle(
                     fontFamily: _kFont,
                     fontSize: 12,
                     color: Color(0xFF92400E),
                   ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _cargarSst,
+                  icon: const Icon(Icons.health_and_safety_outlined),
+                  label: const Text('Cargar formato SST oficial'),
                 ),
               ),
               if (formatos.isEmpty)
@@ -2005,7 +3242,10 @@ class _FormatosTabState extends State<_FormatosTab> {
                       ),
                     ),
                     subtitle: Text(
-                      '${f.areaNombre} · ${f.items.length} ítems · v${f.version}',
+                      '${f.areaNombre} · ${f.items.length} ítems'
+                      '${f.tablas.isEmpty ? '' : ' · ${f.tablas.length} tabla(s)'}'
+                      '${f.partes.isEmpty ? '' : ' · ${f.partes.map((p) => p.codigo).join(', ')}'}'
+                      ' · v${f.version}',
                       style: const TextStyle(fontFamily: _kFont, fontSize: 12),
                     ),
                     trailing: _Chip(
@@ -2100,8 +3340,14 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
             seccion: _items[i].seccion.text.trim(),
             texto: _items[i].texto.text.trim(),
             requiereEvidencia: _items[i].requiereEvidencia,
+            tipo: _items[i].tipo,
+            parte: _items[i].parte,
+            unidad: _items[i].unidad.text.trim(),
           ),
       ],
+      // Partes y tablas no se editan aquí: vienen del formato generado.
+      partes: widget.formato.partes,
+      tablas: widget.formato.tablas,
     );
     final errores = validarFormato(f);
     if (errores.isNotEmpty) {
@@ -2235,6 +3481,67 @@ class _FormatoEditorScreenState extends State<_FormatoEditorScreen> {
                                   labelText: 'Qué se revisa',
                                 ),
                               ),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: DropdownButtonFormField<String>(
+                                      initialValue: _items[i].tipo,
+                                      isDense: true,
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        labelText: 'Tipo de respuesta',
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: kItemTipoCalificacion,
+                                          child: Text('1 / 0 / NA'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: kItemTipoSiNo,
+                                          child: Text('Sí / No'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: kItemTipoElemento,
+                                          child: Text(
+                                            'Elemento (cantidad y vencimiento)',
+                                          ),
+                                        ),
+                                      ],
+                                      onChanged: (v) => setState(
+                                        () => _items[i].tipo =
+                                            v ?? kItemTipoCalificacion,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_items[i].tipo == kItemTipoElemento) ...[
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _items[i].unidad,
+                                        decoration: const InputDecoration(
+                                          isDense: true,
+                                          labelText: 'Cantidad esperada',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              if (_items[i].parte.isNotEmpty)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'Parte ${_items[i].parte}',
+                                      style: const TextStyle(
+                                        fontFamily: _kFont,
+                                        fontSize: 11,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               SwitchListTile(
                                 dense: true,
                                 contentPadding: EdgeInsets.zero,
@@ -2300,20 +3607,30 @@ class _ItemEdit {
   final String id;
   final TextEditingController seccion;
   final TextEditingController texto;
+  final TextEditingController unidad;
   bool requiereEvidencia;
+  String tipo;
+  final String parte;
   _ItemEdit({
     required this.id,
     required String seccion,
     required String texto,
     required this.requiereEvidencia,
+    this.tipo = kItemTipoCalificacion,
+    this.parte = '',
+    String unidad = '',
   }) : seccion = TextEditingController(text: seccion),
-       texto = TextEditingController(text: texto);
+       texto = TextEditingController(text: texto),
+       unidad = TextEditingController(text: unidad);
 
   factory _ItemEdit.de(VisitaFormatoItem it) => _ItemEdit(
     id: it.id,
     seccion: it.seccion,
     texto: it.texto,
     requiereEvidencia: it.requiereEvidencia,
+    tipo: it.tipo,
+    parte: it.parte,
+    unidad: it.unidad,
   );
 
   factory _ItemEdit.nuevo(int n) => _ItemEdit(
@@ -2326,6 +3643,7 @@ class _ItemEdit {
   void dispose() {
     seccion.dispose();
     texto.dispose();
+    unidad.dispose();
   }
 }
 

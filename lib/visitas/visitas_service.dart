@@ -12,9 +12,20 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../core/subcentros_costo.dart';
+import '../gestion_documental/gd_service.dart';
 import '../services/task_service.dart';
 import '../utils/user_company.dart';
+import 'visitas_formato_sst.dart';
 import 'visitas_models.dart';
+
+/// Error de negocio del módulo con mensaje para la persona. Se distingue
+/// de un fallo de red para que la pantalla no diga "Exception:".
+class VisitasException implements Exception {
+  final String mensaje;
+  const VisitasException(this.mensaje);
+  @override
+  String toString() => mensaje;
+}
 
 /// Establecimiento visitable. Es la misma colección que usa Interventoría
 /// (`TBL_CENTROS_COSTOS`); se lee aquí con lo mínimo para no depender de
@@ -87,6 +98,8 @@ class VisitasService {
       _db.collection(kVisitasFormatosCol);
   CollectionReference<Map<String, dynamic>> get _roles =>
       _db.collection(kVisitasRolesCol);
+  CollectionReference<Map<String, dynamic>> get _ubicaciones =>
+      _db.collection(kVisitasUbicacionesCol);
 
   // ── Roles ─────────────────────────────────────────────────────────────
 
@@ -175,6 +188,64 @@ class VisitasService {
     return out;
   }
 
+  /// Cargo del usuario en la empresa, para el encabezado del acta
+  /// ("RESPONSABLE INSPECCIÓN / CARGO"). Vacío si no lo tiene.
+  Future<String> cargoDe({
+    required String empresaId,
+    required String userId,
+  }) async {
+    try {
+      final d = await _db.collection('TBL_USUARIOS').doc(userId).get();
+      final data = d.data();
+      if (data == null) return '';
+      final scoped = getUserCompanyDetail(data, empresaId) ?? const {};
+      return (scoped['cargo'] ?? data['cargo'] ?? '').toString().trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  // ── Maestro de ubicaciones ────────────────────────────────────────────
+
+  Stream<List<VisitaUbicacion>> streamUbicaciones(String empresaId) =>
+      _ubicaciones
+          .where('empresaId', isEqualTo: empresaId)
+          .snapshots()
+          .map(
+            (s) => s.docs
+                .map((d) => VisitaUbicacion.fromMap(d.id, d.data()))
+                .toList(),
+          );
+
+  Future<void> guardarUbicacion(VisitaUbicacion u) => _ubicaciones
+      .doc(VisitaUbicacion.docId(u.empresaId, u.centroId, u.subcentroId))
+      .set({
+        ...u.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+  Future<void> eliminarUbicacion(String id) => _ubicaciones.doc(id).delete();
+
+  /// La referencia que aplica a una visita: la del subcentro si tiene la
+  /// suya, si no la del centro. Null si no hay ninguna.
+  Future<VisitaUbicacion?> ubicacionPara({
+    required String empresaId,
+    required String centroId,
+    String subcentroId = '',
+  }) async {
+    if (subcentroId.isNotEmpty) {
+      final sub = await _ubicaciones
+          .doc(VisitaUbicacion.docId(empresaId, centroId, subcentroId))
+          .get();
+      if (sub.exists) return VisitaUbicacion.fromMap(sub.id, sub.data()!);
+    }
+    final c = await _ubicaciones
+        .doc(VisitaUbicacion.docId(empresaId, centroId, ''))
+        .get();
+    if (!c.exists) return null;
+    return VisitaUbicacion.fromMap(c.id, c.data()!);
+  }
+
   // ── Formatos ──────────────────────────────────────────────────────────
 
   Stream<List<VisitaFormato>> streamFormatos(String empresaId) => _formatos
@@ -208,8 +279,8 @@ class VisitasService {
     return ref.id;
   }
 
-  /// Siembra los borradores de ejemplo. Solo si la empresa no tiene ningún
-  /// formato: nunca pisa uno real.
+  /// Siembra los borradores de ejemplo más el formato SST oficial. Solo si
+  /// la empresa no tiene ningún formato: nunca pisa uno real.
   Future<int> sembrarFormatosSiVacio(
     String empresaId, {
     required String actorId,
@@ -229,8 +300,34 @@ class VisitasService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
     }
+    final sst = formatoSstOficial(empresaId);
+    batch.set(_formatos.doc(sst.id), {
+      ...sst.toMap(),
+      'actualizadoPor': actorId,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
     await batch.commit();
-    return semilla.length;
+    return semilla.length + 1;
+  }
+
+  /// Carga (o actualiza) el formato SST oficial del Excel. Mismo docId
+  /// siempre: cargarlo dos veces actualiza, no duplica. Devuelve `true` si
+  /// ya existía.
+  Future<bool> cargarFormatoSst(
+    String empresaId, {
+    required String actorId,
+  }) async {
+    final f = formatoSstOficial(empresaId);
+    final ref = _formatos.doc(f.id);
+    final existia = (await ref.get()).exists;
+    await ref.set({
+      ...f.toMap(),
+      'actualizadoPor': actorId,
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (!existia) 'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    return existia;
   }
 
   // ── Visitas ───────────────────────────────────────────────────────────
@@ -289,10 +386,55 @@ class VisitasService {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-  /// Posición del dispositivo. Null si no hay permiso o no hay GPS: la
-  /// visita se inicia igual y queda registrado que no hubo ubicación. Que
-  /// no se pueda iniciar por falta de GPS sería peor que una visita sin
-  /// coordenadas.
+  /// Mueve la fecha de una visita programada y deja el rastro. Avisa al
+  /// otro: si mueve el jefe, al profesional; si mueve el profesional, al
+  /// jefe que la programó.
+  Future<void> reprogramar(
+    VisitaProfesional v, {
+    required DateTime nuevaFecha,
+    required String motivo,
+    required String actorId,
+    required String actorNombre,
+  }) async {
+    if (v.estado != kVisitaProgramada) {
+      throw const VisitasException('Solo se reprograma una visita programada.');
+    }
+    final fecha = DateTime(nuevaFecha.year, nuevaFecha.month, nuevaFecha.day);
+    final cambio = VisitaReprogramacion(
+      de: v.fechaProgramada,
+      a: fecha,
+      motivo: motivo,
+      porId: actorId,
+      porNombre: actorNombre,
+    );
+    await _visitas.doc(v.id).update({
+      'fechaProgramada': Timestamp.fromDate(fecha),
+      'reprogramaciones': FieldValue.arrayUnion([cambio.toMap()]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    final destinatario = actorId == v.profesionalId
+        ? v.asignadoPorId
+        : v.profesionalId;
+    if (destinatario.isEmpty) return;
+    await _tasks.pushNotification(
+      toUserId: destinatario,
+      title: 'Visita reprogramada',
+      description:
+          '${v.areaNombre} · ${v.establecimiento}: ahora el '
+          '${fecha.day.toString().padLeft(2, '0')}/'
+          '${fecha.month.toString().padLeft(2, '0')}'
+          '${motivo.trim().isEmpty ? '' : ' · $motivo'}',
+      type: 'visita_reprogramada',
+      taskId: 'visita:${v.id}',
+      fromId: actorId,
+      fromName: actorNombre,
+      empresaId: v.empresaId,
+    );
+  }
+
+  /// Posición del dispositivo. Null si no hay permiso o no hay GPS. Desde
+  /// el 17 sep 2026 sin posición NO se inicia la visita (lo decide
+  /// `verificarUbicacionInicio`); aquí solo se intenta obtenerla.
   Future<Position?> posicionActual() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return null;
@@ -315,20 +457,152 @@ class VisitasService {
     }
   }
 
-  VisitaMarca _marca(Position? p) => VisitaMarca(
-    at: Timestamp.now(),
-    lat: p?.latitude,
-    lng: p?.longitude,
-    precisionMetros: p?.accuracy,
-  );
+  VisitaMarca _marca(Position? p, {VisitaUbicacion? ref}) {
+    double? dist;
+    bool? dentro;
+    if (p != null && ref != null) {
+      dist = distanciaMetros(p.latitude, p.longitude, ref.lat, ref.lng);
+      dentro = dist <= ref.radioMetros;
+    }
+    return VisitaMarca(
+      at: Timestamp.now(),
+      lat: p?.latitude,
+      lng: p?.longitude,
+      precisionMetros: p?.accuracy,
+      distanciaMetros: dist,
+      dentroDelRadio: dentro,
+    );
+  }
 
-  Future<void> iniciar(String id) async {
+  /// Inicia la visita en el sitio. Exige GPS, referencia en el maestro y
+  /// estar dentro del radio; si algo falla lanza [VisitasException] con el
+  /// motivo y no escribe nada. Guarda también el encabezado del formato
+  /// (responsable, ciudad, cargo) que se captura en la misma pantalla.
+  Future<void> iniciar(
+    VisitaProfesional v, {
+    required VisitaResponsable responsable,
+    required String ciudad,
+    required String cargoProfesional,
+  }) async {
+    final ref = await ubicacionPara(
+      empresaId: v.empresaId,
+      centroId: v.centroId,
+      subcentroId: v.subcentroId,
+    );
     final pos = await posicionActual();
-    await _visitas.doc(id).update({
+    final check = verificarUbicacionInicio(
+      referencia: ref,
+      lat: pos?.latitude,
+      lng: pos?.longitude,
+      precisionMetros: pos?.accuracy,
+    );
+    if (!check.permitido) throw VisitasException(check.motivo);
+    await _visitas.doc(v.id).update({
       'estado': kVisitaEnCurso,
-      'inicio': _marca(pos).toMap(),
+      'inicio': _marca(pos, ref: ref).toMap(),
+      'responsableEstablecimiento': responsable.toMap(),
+      'ciudad': ciudad,
+      'cargoProfesional': cargoProfesional,
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  Future<void> guardarEncabezado(
+    String visitaId, {
+    required VisitaResponsable responsable,
+    required String ciudad,
+    required String cargoProfesional,
+  }) => _visitas.doc(visitaId).update({
+    'responsableEstablecimiento': responsable.toMap(),
+    'ciudad': ciudad,
+    'cargoProfesional': cargoProfesional,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  /// Reemplaza las filas de una tabla. Son pocas (los extintores de un
+  /// establecimiento) y así una edición no depende del índice de la fila.
+  Future<void> guardarFilas(
+    String visitaId,
+    String tablaId,
+    List<VisitaFilaTabla> filas,
+  ) => _visitas.doc(visitaId).update({
+    'tablas.$tablaId': filas.map((f) => f.toMap()).toList(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  // ── Firmas ────────────────────────────────────────────────────────────
+
+  /// La firma guardada del profesional en su perfil (la misma de Gestión
+  /// Documental y Planillas). Null si no tiene.
+  Future<Uint8List?> firmaGuardadaDe({
+    required String empresaId,
+    required String userId,
+  }) async {
+    try {
+      final gd = GdService();
+      final perfil = await gd.getFirmaUsuario(
+        empresaId: empresaId,
+        userId: userId,
+      );
+      if (perfil == null || !perfil.tieneFirma) return null;
+      return await gd.getFirmaBytes(perfil);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Sube el PNG de una firma y la estampa en la visita. `quien` es
+  /// `profesional` o `establecimiento`. El PNG también va como Blob en el
+  /// documento para que el PDF lo lea en web sin CORS.
+  Future<VisitaFirma> firmar({
+    required String empresaId,
+    required String visitaId,
+    required String quien,
+    required Uint8List png,
+    required String nombre,
+    required String cargo,
+    required String modo,
+  }) async {
+    final path = 'visitas/$empresaId/$visitaId/firmas/$quien.png';
+    final ref = _storage.ref(path);
+    final metadata = SettableMetadata(contentType: 'image/png');
+    String url = '';
+    try {
+      try {
+        await ref.putData(Uint8List.fromList(png), metadata);
+      } catch (e) {
+        final msg = e.toString();
+        if (!msg.contains('TypedArray') &&
+            !msg.contains('ArrayBuffer') &&
+            !msg.contains('Construct')) {
+          rethrow;
+        }
+        await ref.putString(
+          base64Encode(png),
+          format: PutStringFormat.base64,
+          metadata: metadata,
+        );
+      }
+      url = await ref.getDownloadURL();
+    } catch (_) {
+      // Si Storage falla, el Blob en Firestore basta para el informe; la
+      // firma no se pierde por un permiso de Storage.
+    }
+    final firma = VisitaFirma(
+      nombre: nombre,
+      cargo: cargo,
+      modo: modo,
+      url: url,
+      path: url.isEmpty ? '' : path,
+      blob: png,
+      at: Timestamp.now(),
+    );
+    await _visitas.doc(visitaId).update({
+      quien == 'profesional' ? 'firmaProfesional' : 'firmaEstablecimiento':
+          firma.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    return firma;
   }
 
   Future<void> guardarRespuesta(
@@ -397,12 +671,21 @@ class VisitasService {
     required String actorNombre,
   }) async {
     final errores = validarCierreVisita(formato, visita);
-    if (errores.isNotEmpty) throw StateError(errores.join('\n'));
+    if (errores.isNotEmpty) throw VisitasException(errores.join('\n'));
 
+    final ref = await ubicacionPara(
+      empresaId: visita.empresaId,
+      centroId: visita.centroId,
+      subcentroId: visita.subcentroId,
+    );
     final pos = await posicionActual();
     final ahora = DateTime.now();
     final resumen = resumenDeVisita(formato, visita.respuestas);
-    final hallazgos = hallazgosDeVisita(formato, visita.respuestas);
+    final hallazgos = hallazgosDeVisita(
+      formato,
+      visita.respuestas,
+      tablas: visita.tablas,
+    );
 
     final tareas = <String>[];
     for (final h in hallazgos) {
@@ -422,8 +705,8 @@ class VisitasService {
           extra: {
             'origen': 'visita',
             'visitaId': visita.id,
-            'visitaItemId': h.item.id,
-            'evidencias': h.respuesta.evidencias.map((e) => e.url).toList(),
+            'visitaItemId': h.clave,
+            'evidencias': h.evidencias.map((e) => e.url).toList(),
           },
         );
         tareas.add(id);
@@ -435,7 +718,7 @@ class VisitasService {
 
     await _visitas.doc(visita.id).update({
       'estado': kVisitaTerminada,
-      'fin': _marca(pos).toMap(),
+      'fin': _marca(pos, ref: ref).toMap(),
       'cumplimiento': resumen.porcentaje,
       'tareasCreadas': tareas,
       'cerradaPor': actorId,

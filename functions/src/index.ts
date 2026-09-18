@@ -82,6 +82,7 @@ export { comprasLimpiarRechazadosVencidos } from "./compras_quality_cleanup";
 export { comprasConsolidarRequerimiento } from "./compras_requirements";
 export {
   comprasNotificarNuevoProveedorWhatsApp,
+  comprasNotificarRecepcionCalidad,
 } from "./compras_notifications";
 export {
   comprasNotificarVigenciasDocumentales,
@@ -156,28 +157,6 @@ function getBossId(d: admin.firestore.DocumentData | undefined | null): string |
   return (d as any).jefe_uid || (d as any).jefeId || (d as any).jefe || null;
 }
 
-function getCreatorId(d: admin.firestore.DocumentData | undefined | null): string | null {
-  if (!d) return null;
-  return (
-    (d as any).creador_id ||
-    (d as any).creatorId ||
-    (d as any).creador_uid ||
-    (d as any).creadorUid ||
-    null
-  );
-}
-
-function getApproverId(d: admin.firestore.DocumentData | undefined | null): string | null {
-  if (!d) return null;
-  return (
-    (d as any).aprobador_uid ||
-    (d as any).approverId ||
-    getBossId(d) ||
-    getCreatorId(d) ||
-    null
-  );
-}
-
 function getTaskTitle(d: admin.firestore.DocumentData | undefined | null): string {
   if (!d) return "Nueva tarea";
   return ((d as any).title || (d as any).titulo || "Nueva tarea").toString();
@@ -195,6 +174,26 @@ async function resolveBossIdFor(assignedId: string, fromTask?: admin.firestore.D
   const u = await db.collection("TBL_USUARIOS").doc(assignedId).get();
   const jid = u.exists ? (u.get("jefeId") || u.get("jefe_uid") || u.get("jefe")) : null;
   return jid ? String(jid) : null;
+}
+
+function taskNotificationDescription(
+  data: admin.firestore.DocumentData | undefined | null,
+  detail: string
+): string {
+  const date = new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota", day: "2-digit", month: "2-digit",
+    year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date());
+  const responsible = ((data as any)?.asignado_nombre ||
+    (data as any)?.assignedToName || getAssignedId(data) || "Sin asignar").toString();
+  const eventType = ((data as any)?.lastEventType || "").toString();
+  const emitter = (eventType === "solicitud_finalizacion"
+    ? ((data as any)?.solicitud_finalizacion_by_nombre || responsible)
+    : eventType === "finalizado"
+      ? responsible
+      : ((data as any)?.lastEventByName || (data as any)?.creador_nombre ||
+        (data as any)?.creatorName || "Sistema")).toString();
+  return `${getTaskTitle(data)} · ${detail} · Fecha: ${date} · Emisor: ${emitter} · Responsable: ${responsible}`;
 }
 
 function isTrue(v: unknown): boolean {
@@ -680,6 +679,7 @@ export const onNotificationCreated = functions
     const type = data.type ? String(data.type) : "";
     const empresaId = data.empresaId ? String(data.empresaId) : "";
     const module = data.module ? String(data.module) : "";
+    const sourceEntityId = data.sourceEntityId ? String(data.sourceEntityId) : "";
     const notifId = ctx.params.notifId as string;
 
     const queueRef = await enqueuePushDelivery(
@@ -688,7 +688,7 @@ export const onNotificationCreated = functions
       notifId,
       title,
       body || title,
-      {taskId, type, empresaId, module, notifId}
+      {taskId, type, empresaId, module, sourceEntityId, notifId}
     );
     await processPushQueueItem(queueRef);
   });
@@ -720,7 +720,9 @@ export const onTaskCreated = functions
     if (!assignedId) return;
 
     const title = getTaskTitle(data);
-    const description = getTaskDescription(data);
+    const description = taskNotificationDescription(
+      data, getTaskDescription(data) || "Nueva tarea asignada"
+    );
     const notificationContext = taskNotificationContext(data);
     const isFacturacionRequirement =
       ((data as any).origen ?? "").toString() === "facturacion_observacion";
@@ -740,22 +742,17 @@ export const onTaskCreated = functions
       console.error("[onTaskCreated] saveInAppNotification error:", e);
     }
 
-    // Aviso al jefe y al aprobador. El Set evita duplicar cuando son la misma
-    // persona o cuando el creador también cumple el rol de aprobador.
+    // Solo el responsable y su jefe inmediato reciben la asignación.
     const bossId = await resolveBossIdFor(assignedId, data);
-    const approverId = getApproverId(data);
-    const supervisors = new Set(
-      [bossId, approverId].filter((uid): uid is string => !!uid && uid !== assignedId)
-    );
-    for (const supervisorId of supervisors) {
+    if (bossId && bossId !== assignedId) {
       try {
-        await saveInAppNotification(supervisorId, {
+        await saveInAppNotification(bossId, {
           title: "Nueva tarea asignada",
-          description: `${title} (para ${(data as any).asignado_nombre || assignedId})`,
+          description,
           taskId,
           type: "task_assigned_report",
           ...notificationContext,
-        }, `${ctx.eventId}:${supervisorId}:assigned_report`);
+        }, `${ctx.eventId}:${bossId}:assigned_report`);
       } catch (e) {
         console.error("[onTaskCreated] supervisor save notif error:", e);
       }
@@ -781,7 +778,9 @@ export const onTaskUpdated = functions
 
     const taskId = ctx.params.taskId as string;
     const title = getTaskTitle(after || null);
-    const description = getTaskDescription(after || null);
+    const description = taskNotificationDescription(
+      after || null, getTaskDescription(after || null) || "Tarea asignada"
+    );
     const statusBefore = resolveTaskStatus(before || null);
     const statusAfter = resolveTaskStatus(after || null);
     const statusChanged = statusBefore !== statusAfter;
@@ -814,7 +813,7 @@ export const onTaskUpdated = functions
         try {
           await saveInAppNotification(bossId2, {
             title: prevAssigned ? "Tarea reasignada" : "Nueva tarea asignada",
-            description: `${title} (ahora para ${(after as any)?.asignado_nombre || newAssigned})`,
+            description,
             taskId,
             type: "task_reassigned_report",
             ...notificationContext,
@@ -822,25 +821,6 @@ export const onTaskUpdated = functions
           notifiedIds.add(bossId2);
         } catch (e) {
           console.error("[onTaskUpdated] boss save notif error:", e);
-        }
-      }
-
-      // Aviso al creador cuando es una reasignación (no primera asignación)
-      if (prevAssigned) {
-        const creatorId2 = getCreatorId(after || null);
-        if (creatorId2 && !notifiedIds.has(creatorId2)) {
-          try {
-            await saveInAppNotification(creatorId2, {
-              title: "Tarea reasignada",
-              description: `${title} · Nuevo responsable: ${(after as any)?.asignado_nombre || newAssigned}`,
-              taskId,
-              type: "task_reassigned_info",
-              ...notificationContext,
-            }, `${ctx.eventId}:${creatorId2}:reassigned_info`);
-            notifiedIds.add(creatorId2);
-          } catch (e) {
-            console.error("[onTaskUpdated] creator reassign notif error:", e);
-          }
         }
       }
     }
@@ -851,11 +831,13 @@ export const onTaskUpdated = functions
       const notifTitle = isPorAprobar
         ? "Solicitud de finalización"
         : `Estado de tarea: ${label}`;
-      const notifBody = `${title} · ${isPorAprobar ? "pendiente de aprobación" : label}`;
+      const notifBody = taskNotificationDescription(
+        after || null, isPorAprobar ? "pendiente de aprobación" : label
+      );
       const notifType = isPorAprobar ? "solicitud_finalizacion" : `task_status_${statusAfter}`;
-      const creatorId = getCreatorId(after || null);
-      const bossId = getBossId(after || null);
-      const approverId = getApproverId(after || null);
+      const bossId = newAssigned
+        ? await resolveBossIdFor(newAssigned, after || null)
+        : null;
 
       // Solo notificar a quienes NO recibieron ya la notificación de cambio de asignado
       // Para solicitud_finalizacion: no notificar al propio solicitante (asignado)
@@ -864,11 +846,7 @@ export const onTaskUpdated = functions
         : "";
       const recipients = new Set<string>();
       if (!isPorAprobar && newAssigned && !notifiedIds.has(newAssigned)) recipients.add(newAssigned);
-      if (creatorId && !notifiedIds.has(creatorId) && creatorId !== solicitanteUid) recipients.add(creatorId);
       if (bossId && !notifiedIds.has(bossId) && bossId !== solicitanteUid) recipients.add(bossId);
-      if (approverId && !notifiedIds.has(approverId) && approverId !== solicitanteUid) {
-        recipients.add(approverId);
-      }
 
       if (recipients.size === 0) return;
 
@@ -1073,39 +1051,63 @@ export const sendTestPushHttp = functions
 
 export const notifyTaskCompleted = functions
   .region("us-central1")
-  .https.onCall(async (data: any, _context: functions.https.CallableContext) => {
-    const creatorId = (data?.creatorId || "").toString().trim();
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const taskId = (data?.taskId || "").toString().trim();
-    const title = (data?.title || "Tarea completada").toString();
-    const body = (data?.body || "").toString();
-    const type = (data?.type || "task_completed").toString();
-
-    if (!creatorId || !taskId) {
-      throw new functions.https.HttpsError("invalid-argument", "creatorId y taskId requeridos");
+    if (!context.auth || context.auth.token.authVersion !== 2 ||
+        !context.auth.token.userDocId) {
+      throw new functions.https.HttpsError("unauthenticated", "Inicia sesión para notificar la tarea.");
     }
-
-    await saveInAppNotification(creatorId, { title, description: body, taskId, type });
-
-    return { ok: true };
+    if (!taskId) {
+      throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
+    }
+    const snap = await db.collection("TBL_TAREAS").doc(taskId).get();
+    if (!snap.exists) throw new functions.https.HttpsError("not-found", "Tarea no encontrada");
+    const task = snap.data() || {};
+    const assignedId = getAssignedId(task);
+    const bossId = assignedId ? await resolveBossIdFor(assignedId, task) : null;
+    const callerId = String(context.auth.token.userDocId);
+    if (callerId !== assignedId && callerId !== bossId) {
+      throw new functions.https.HttpsError("permission-denied", "No puedes notificar esta tarea.");
+    }
+    const recipients = [...new Set([assignedId, bossId].filter((id): id is string => !!id))];
+    await Promise.all(recipients.map((uid) => saveInAppNotification(uid, {
+      title: "Tarea completada",
+      description: taskNotificationDescription(task, "finalizada"),
+      taskId,
+      type: "task_completed",
+      ...taskNotificationContext(task),
+    })));
+    return {ok: true, count: recipients.length};
   });
 
 export const notifyTaskNews = functions
   .region("us-central1")
-  .https.onCall(async (data: any, _context: functions.https.CallableContext) => {
+  .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     const taskId = (data?.taskId || "").toString().trim();
-    const creator = (data?.creatorId || "").toString().trim();
-    const boss = (data?.bossId || "").toString().trim();
-    const title = (data?.title || "Novedad en tarea").toString();
-    const body = (data?.body || "").toString();
-    const type = (data?.type || "task_news").toString();
-
+    if (!context.auth || context.auth.token.authVersion !== 2 ||
+        !context.auth.token.userDocId) {
+      throw new functions.https.HttpsError("unauthenticated", "Inicia sesión para notificar la tarea.");
+    }
     if (!taskId) throw new functions.https.HttpsError("invalid-argument", "taskId requerido");
-
-    const recipients = [creator, boss].filter((x) => !!x && x.length > 0);
-
+    const snap = await db.collection("TBL_TAREAS").doc(taskId).get();
+    if (!snap.exists) throw new functions.https.HttpsError("not-found", "Tarea no encontrada");
+    const task = snap.data() || {};
+    const assignedId = getAssignedId(task);
+    const bossId = assignedId ? await resolveBossIdFor(assignedId, task) : null;
+    const callerId = String(context.auth.token.userDocId);
+    if (callerId !== assignedId && callerId !== bossId) {
+      throw new functions.https.HttpsError("permission-denied", "No puedes notificar esta tarea.");
+    }
+    const recipients = [...new Set([assignedId, bossId].filter((id): id is string => !!id))];
     await Promise.all(
       recipients.map(async (uid) => {
-        await saveInAppNotification(uid, { title, description: body, taskId, type });
+        await saveInAppNotification(uid, {
+          title: "Novedad en tarea",
+          description: taskNotificationDescription(task, (data?.body || "Novedad registrada").toString()),
+          taskId,
+          type: "task_news",
+          ...taskNotificationContext(task),
+        });
       })
     );
 

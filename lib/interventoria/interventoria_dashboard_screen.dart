@@ -22,6 +22,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../core/guarded_module_page.dart';
+import '../core/user_directory.dart';
 import '../utils/mobile_ocr.dart';
 import '../utils/pdf_extractor.dart';
 import '../utils/user_company.dart';
@@ -34,6 +35,7 @@ import 'interventoria_maestro_subsanaciones.dart';
 import 'interventoria_subsanaciones_export.dart';
 import '../utils/excel_download.dart';
 import '../widgets/paged_list.dart';
+import '../widgets/user_avatar.dart';
 import '../core/subcentros_costo.dart';
 import 'interventoria_actas_catalogo.dart';
 import 'interventoria_models.dart';
@@ -118,12 +120,16 @@ class InterventoriaDashboardScreen extends StatefulWidget {
   final String userId;
   final String empresaId;
   final String? rolInterventoria;
+  final bool openDeleteRequests;
+  final String? focusedDeleteRequestId;
 
   const InterventoriaDashboardScreen({
     super.key,
     required this.userId,
     required this.empresaId,
     this.rolInterventoria,
+    this.openDeleteRequests = false,
+    this.focusedDeleteRequestId,
   });
 
   @override
@@ -135,6 +141,7 @@ class _InterventoriaDashboardScreenState
     extends State<InterventoriaDashboardScreen> {
   final InterventoriaService _svc = InterventoriaService();
   int _tab = 0;
+  bool _initialTabApplied = false;
   String _centroFiltro = '';
   String _estadoFiltro = ''; // '' | 'activo' | 'subsanado'
   String _dptoFiltro = '';
@@ -258,8 +265,10 @@ class _InterventoriaDashboardScreenState
           icon: Icons.local_library_outlined,
         ),
       if (canApproveDeletion)
+        // Antes "Permisos de borrado". Desde el 17 sep 2026 aquí también
+        // llegan las solicitudes de corrección de acta, que no borran nada.
         const InternalModuleTabItem(
-          label: 'Permisos de borrado',
+          label: 'Solicitudes',
           icon: Icons.approval_outlined,
         ),
       if (canDirectivo)
@@ -268,6 +277,14 @@ class _InterventoriaDashboardScreenState
           icon: Icons.stacked_line_chart_rounded,
         ),
     ];
+    if (widget.openDeleteRequests && !_initialTabApplied &&
+        canApproveDeletion) {
+      final index = tabs.indexWhere((tab) => tab.label == 'Solicitudes');
+      if (index >= 0) {
+        _tab = index;
+        _initialTabApplied = true;
+      }
+    }
     if (_tab >= tabs.length) _tab = 0;
 
     return InternalModuleLayout(
@@ -460,13 +477,14 @@ class _InterventoriaDashboardScreenState
                   },
                 ),
                 // Tab: Maestro — biblioteca de los 141 numerales y su regla
-                // de asignación. Solo la consulta el administrador del módulo.
+                // de asignación. Dirección, gerencia y administración del
+                // módulo (17 sep 2026).
                 if (canMaestro)
                   InterventoriaMaestroSubsanaciones(
                     service: _svc,
                     empresaId: widget.empresaId,
                     userId: widget.userId,
-                    // Calidad entra a mirar; la regla la cambian
+                    // Directivo entra a mirar; la regla la cambian
                     // administración y gerencia.
                     canEdit:
                         _esAdminDesarrollo ||
@@ -477,6 +495,7 @@ class _InterventoriaDashboardScreenState
                     empresaId: widget.empresaId,
                     userId: widget.userId,
                     service: _svc,
+                    focusRequestId: widget.focusedDeleteRequestId,
                   ),
                 // Último tab: Análisis (solo directivos) — índice coincide con tabs list
                 if (canDirectivo)
@@ -675,22 +694,30 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
   final String empresaId;
   final String userId;
   final InterventoriaService service;
+  final String? focusRequestId;
+
+  /// Las solicitudes viejas no traen `accion`: son eliminaciones.
+  static bool _esSolicitudCorreccion(Map<String, dynamic> data) =>
+      (data['accion'] ?? '').toString() == 'correccion';
 
   const _SolicitudesEliminacionTab({
     required this.empresaId,
     required this.userId,
     required this.service,
+    this.focusRequestId,
   });
 
   Future<String?> _commentDialog(
     BuildContext context, {
     required bool approve,
+    required bool esCorreccion,
   }) async {
     final controller = TextEditingController();
+    final que = esCorreccion ? 'corrección' : 'eliminación';
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(approve ? 'Aprobar eliminación' : 'Rechazar eliminación'),
+        title: Text(approve ? 'Aprobar $que' : 'Rechazar $que'),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -708,10 +735,20 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: approve ? _kDanger : const Color(0xFF475569),
+              backgroundColor: !approve
+                  ? const Color(0xFF475569)
+                  : esCorreccion
+                  ? _kAccent
+                  : _kDanger,
             ),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(approve ? 'Aprobar y eliminar' : 'Rechazar'),
+            child: Text(
+              !approve
+                  ? 'Rechazar'
+                  : esCorreccion
+                  ? 'Aprobar: devolver para corregir'
+                  : 'Aprobar y eliminar',
+            ),
           ),
         ],
       ),
@@ -735,7 +772,12 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
     QueryDocumentSnapshot<Map<String, dynamic>> request, {
     required bool approve,
   }) async {
-    final comment = await _commentDialog(context, approve: approve);
+    final esCorreccion = _esSolicitudCorreccion(request.data());
+    final comment = await _commentDialog(
+      context,
+      approve: approve,
+      esCorreccion: esCorreccion,
+    );
     if (comment == null) return;
     try {
       await service.resolverSolicitudEliminacion(
@@ -748,9 +790,12 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              approve
-                  ? 'Eliminación aprobada y ejecutada.'
-                  : 'Solicitud rechazada.',
+              !approve
+                  ? 'Solicitud rechazada.'
+                  : esCorreccion
+                  ? 'Corrección aprobada: el acta quedó en "Devuelta" a '
+                        'nombre de quien la pidió.'
+                  : 'Eliminación aprobada y ejecutada.',
             ),
           ),
         );
@@ -778,7 +823,13 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final requests = snapshot.data!;
+        final allRequests = snapshot.data!;
+        final focused = (focusRequestId ?? '').trim();
+        final matching = allRequests.where((r) => r.id == focused).toList();
+        final requests = matching.isEmpty ? allRequests : [
+          ...matching,
+          ...allRequests.where((r) => r.id != focused),
+        ];
         if (requests.isEmpty) {
           return const Center(
             child: Column(
@@ -786,7 +837,7 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
               children: [
                 Icon(Icons.verified_outlined, size: 46, color: _kOk),
                 SizedBox(height: 10),
-                Text('No hay solicitudes de eliminación pendientes.'),
+                Text('No hay solicitudes pendientes.'),
               ],
             ),
           );
@@ -801,6 +852,7 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
             final requesterId = (data['solicitadoPorId'] ?? '').toString();
             final ownRequest = requesterId == userId;
             final createdAt = data['createdAt'] as Timestamp?;
+            final esCorreccion = _esSolicitudCorreccion(data);
             return Card(
               child: Padding(
                 padding: const EdgeInsets.all(14),
@@ -809,15 +861,17 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        const Icon(
-                          Icons.delete_sweep_outlined,
-                          color: _kDanger,
+                        Icon(
+                          esCorreccion
+                              ? Icons.edit_note_rounded
+                              : Icons.delete_sweep_outlined,
+                          color: esCorreccion ? _kAccent : _kDanger,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            (data['entidadNombre'] ?? data['tipo'] ?? '')
-                                .toString(),
+                            '${esCorreccion ? 'Corrección' : 'Eliminación'}: '
+                            '${data['entidadNombre'] ?? data['tipo'] ?? ''}',
                             style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
@@ -834,8 +888,10 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      'Solicita: ${data['solicitadoPorNombre'] ?? requesterId}',
+                    UserNameText(
+                      requesterId,
+                      fallbackName: data['solicitadoPorNombre']?.toString(),
+                      prefix: 'Solicita: ',
                     ),
                     const SizedBox(height: 4),
                     Text('Motivo: ${data['motivo'] ?? ''}'),
@@ -847,9 +903,23 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
                       const Padding(
                         padding: EdgeInsets.only(bottom: 8),
                         child: Text(
-                          'Es tu propia solicitud. Como puedes eliminar '
-                          'directamente, la resuelves tú mismo.',
+                          'Es tu propia solicitud. Como puedes resolverla '
+                          'directamente, la cierras tú mismo.',
                           style: TextStyle(color: Color(0xFFB45309)),
+                        ),
+                      ),
+                    if (esCorreccion)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Al aprobar, el acta queda en "Devuelta" a nombre '
+                          'de quien la pidió para que la corrija; no se '
+                          'borra nada. Si está repetida, recházala y '
+                          'elimínala desde el histórico.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                          ),
                         ),
                       ),
                     Wrap(
@@ -863,12 +933,20 @@ class _SolicitudesEliminacionTab extends StatelessWidget {
                         ),
                         FilledButton.icon(
                           style: FilledButton.styleFrom(
-                            backgroundColor: _kDanger,
+                            backgroundColor: esCorreccion ? _kAccent : _kDanger,
                           ),
                           onPressed: () =>
                               _resolve(context, request, approve: true),
-                          icon: const Icon(Icons.delete_forever),
-                          label: const Text('Aprobar eliminación'),
+                          icon: Icon(
+                            esCorreccion
+                                ? Icons.edit_note_rounded
+                                : Icons.delete_forever,
+                          ),
+                          label: Text(
+                            esCorreccion
+                                ? 'Aprobar corrección'
+                                : 'Aprobar eliminación',
+                          ),
                         ),
                       ],
                     ),
@@ -4562,7 +4640,23 @@ class _VisitaCardState extends State<_VisitaCard> {
               v.establecimiento,
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            subtitle: Text(_buildSubtitle(v)),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_buildSubtitle(v)),
+                // Cuándo se subió el acta al sistema, aparte de la fecha de
+                // la visita. `fechaRegistro` se fija en el primer guardado y
+                // se conserva en correcciones y revisiones, así que es la
+                // hora real de la subida y no la del último toque.
+                Text(
+                  'Subida el ${DateFormat('dd/MM/yyyy HH:mm').format(v.fechaRegistro.toDate())}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
+            ),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -4620,14 +4714,35 @@ class _VisitaCardState extends State<_VisitaCard> {
                     ),
                     onPressed: () => _eliminarDirecto(context, v),
                   )
-                else if (widget.canWrite)
+                // El registrador ya no pide eliminar: se equivocaba en un
+                // dato, pedía borrar el acta y le tocaba subir todo otra vez
+                // (17 sep 2026). Ahora corrige en sitio.
+                //
+                // - Acta propia sin revisar: la corrige directo, nadie más
+                //   la ha tocado.
+                // - Acta ya revisada (o de otra persona): la pide, y quien
+                //   aprueba la deja en "Devuelta" a su nombre, sin borrarla.
+                // Si de verdad está repetida, lo dice en el motivo y quien
+                // aprueba la elimina con su propio botón.
+                else if (widget.canWrite &&
+                    puedeCorregirActaPropia(visita: v, userId: widget.userId))
                   IconButton(
-                    tooltip: 'Solicitar eliminación',
-                    icon: Icon(
-                      Icons.delete_outline,
-                      color: Colors.red.shade400,
+                    tooltip: 'Corregir acta',
+                    icon: Icon(Icons.edit_note_rounded, color: _kAccent),
+                    onPressed: () => _corregirActaPropia(context, v),
+                  )
+                else if (widget.canWrite &&
+                    puedeSolicitarCorreccionActa(
+                      visita: v,
+                      userId: widget.userId,
+                    ))
+                  IconButton(
+                    tooltip: 'Solicitar corrección',
+                    icon: const Icon(
+                      Icons.rate_review_outlined,
+                      color: Color(0xFFB45309),
                     ),
-                    onPressed: () => _confirmarEliminar(context),
+                    onPressed: () => _solicitarCorreccion(context, v),
                   ),
                 IconButton(
                   icon: Icon(
@@ -4757,40 +4872,175 @@ class _VisitaCardState extends State<_VisitaCard> {
     );
   }
 
-  Future<void> _confirmarEliminar(BuildContext context) async {
-    final reason = await _pedirMotivoEliminacion(
-      context,
-      entidad:
-          'El acta de ${widget.visita.centroCostoNombre} '
-          '(${DateFormat('dd/MM/yyyy').format(widget.visita.fechaVisita.toDate())})',
+  /// Motivo de una corrección, propia o solicitada. Mismo mínimo que una
+  /// devolución de calidad: queda en el historial del acta.
+  Future<String?> _pedirMotivoCorreccion(
+    BuildContext context, {
+    required String titulo,
+    required String explicacion,
+    required String boton,
+  }) async {
+    final ctrl = TextEditingController();
+    String? error;
+    final v = widget.visita;
+    final motivo = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx, setLocal) => AlertDialog(
+          title: Text(titulo),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${v.establecimiento} · '
+                '${DateFormat('dd/MM/yyyy').format(v.fechaVisita.toDate())}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                explicacion,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  labelText: '¿Qué hay que corregir?',
+                  border: const OutlineInputBorder(),
+                  errorText: error,
+                ),
+                onChanged: (_) {
+                  if (error != null) setLocal(() => error = null);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                final problema = validarDevolucionActa(ctrl.text);
+                if (problema != null) {
+                  setLocal(() => error = problema);
+                  return;
+                }
+                Navigator.pop(dialogCtx, ctrl.text.trim());
+              },
+              icon: const Icon(Icons.edit_note_rounded),
+              label: Text(boton),
+            ),
+          ],
+        ),
+      ),
     );
-    if (reason == null) return;
+    ctrl.dispose();
+    return motivo;
+  }
+
+  /// Acta propia en Fase 1: se abre para corrección y se entra a editarla
+  /// de una vez. Si cierra el formulario sin guardar, el acta queda en
+  /// "Devuelta" con el botón "Corregir" para retomarla.
+  Future<void> _corregirActaPropia(
+    BuildContext context,
+    InterventoriaVisita visita,
+  ) async {
+    final motivo = await _pedirMotivoCorreccion(
+      context,
+      titulo: 'Corregir acta',
+      explicacion:
+          'Nadie ha revisado esta acta todavía, así que la corriges tú '
+          'mismo. Se conservan el PDF, los puntajes y el historial; al '
+          'guardar vuelve a "Por revisar".',
+      boton: 'Corregir ahora',
+    );
+    if (motivo == null || !context.mounted) return;
     try {
-      await widget.service.solicitarEliminacion(
-        empresaId: widget.visita.empresaId,
-        tipo: 'visita',
-        entidadId: widget.visita.id,
-        motivo: reason,
+      final yo = await UserDirectory.instance.resolve(widget.userId);
+      await widget.service.abrirCorreccionPropia(
+        visita: visita,
+        motivo: motivo,
+        userId: widget.userId,
+        userNombre: yo.displayName,
+      );
+      // Se relee: el formulario debe ver el acta ya en "Devuelta", con el
+      // motivo, y no la copia vieja de la tarjeta.
+      final actual = await widget.service.getVisita(visita.id) ?? visita;
+      if (!context.mounted) return;
+      await _editarActaDevuelta(context, actual);
+    } catch (error) {
+      if (!context.mounted) return;
+      final mensaje = error is ArgumentError
+          ? '${error.message}'
+          : error is StateError
+          ? error.message
+          : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade400,
+          content: Text('No se pudo abrir la corrección: $mensaje'),
+        ),
+      );
+    }
+  }
+
+  /// Acta ya revisada: la corrección se pide y la aprueba quien revisa.
+  Future<void> _solicitarCorreccion(
+    BuildContext context,
+    InterventoriaVisita visita,
+  ) async {
+    final motivo = await _pedirMotivoCorreccion(
+      context,
+      titulo: 'Solicitar corrección',
+      explicacion:
+          'Esta acta ya fue revisada. Una persona autorizada aprobará la '
+          'corrección y el acta quedará a tu nombre para editarla, sin '
+          'borrar nada. Si el acta está repetida, dilo aquí: quien revisa '
+          'puede eliminarla.',
+      boton: 'Enviar solicitud',
+    );
+    if (motivo == null || !context.mounted) return;
+    try {
+      await widget.service.solicitarCorreccionActa(
+        empresaId: visita.empresaId,
+        visitaId: visita.id,
+        motivo: motivo,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Solicitud enviada para aprobación.')),
+          const SnackBar(
+            content: Text(
+              'Solicitud enviada. Te avisamos cuando puedas corregir el acta.',
+            ),
+          ),
         );
       }
     } on FirebaseFunctionsException catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message ?? 'No se pudo enviar.')),
+          SnackBar(
+            content: Text(error.message ?? 'No se pudo enviar la solicitud.'),
+          ),
         );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('No se pudo enviar: $error')));
       }
     }
   }
 
-  /// Borra el acta sin pasar por la solicitud.
-  ///
-  /// La confirmación dice **qué más se lleva por delante**: un acta no está
-  /// sola, arrastra sus hallazgos y los archivos del acta en Storage. Un
-  /// "¿seguro?" a secas no deja decidir nada.
   Future<void> _recuperarNotas(
     BuildContext context,
     InterventoriaVisita v,
@@ -4820,6 +5070,11 @@ class _VisitaCardState extends State<_VisitaCard> {
     }
   }
 
+  /// Borra el acta sin pasar por la solicitud.
+  ///
+  /// La confirmación dice **qué más se lleva por delante**: un acta no está
+  /// sola, arrastra sus hallazgos y los archivos del acta en Storage. Un
+  /// "¿seguro?" a secas no deja decidir nada.
   Future<void> _eliminarDirecto(
     BuildContext context,
     InterventoriaVisita v,
@@ -6031,7 +6286,9 @@ class _AnalisisDirectivoState extends State<_AnalisisDirectivo> {
                             ),
                           ),
                           Text(
-                            '${visita.centroCostoNombre} · ${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}',
+                            '${visita.centroCostoNombre} · '
+                            '${DateFormat('dd/MM/yyyy').format(visita.fechaVisita.toDate())}'
+                            ' · ${etiquetaTipoActa(visita.tipoActa)}',
                             style: const TextStyle(
                               fontSize: 12,
                               color: Color(0xFF64748B),
@@ -6247,9 +6504,12 @@ class _ComparativoUltimaActaCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
+            // Con el tipo de acta: un 70% en un acta de seguimiento no se
+            // lee igual que en una regular, y la barra no lo dice.
             Text(
               'Última acta: '
-              '${DateFormat('dd/MM/yyyy').format(punto.fecha)}',
+              '${DateFormat('dd/MM/yyyy').format(punto.fecha)}'
+              ' · ${etiquetaTipoActa(punto.tipoActa)}',
               style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
             ),
             // El desglose por sección: "el detalle de los indicadores" que se
@@ -7187,21 +7447,33 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
             );
           },
         ),
+        // El subcentro es opcional (18 sep 2026). Antes se exigía cuando el
+        // establecimiento estaba dividido, y eso frenaba el registro: el
+        // establecimiento tiene su propia acta, independiente de la de cada
+        // subcentro. Se elige solo cuando el acta es de una división.
         if ((_centro?.subcentrosActivos ?? const []).isNotEmpty) ...[
           const SizedBox(height: 10),
-          DropdownButtonFormField<SubcentroCosto>(
+          DropdownButtonFormField<SubcentroCosto?>(
             key: ValueKey('sub_${_centro!.centroId}'),
             initialValue: _subcentro,
             isExpanded: true,
             decoration: const InputDecoration(
-              labelText: 'Subcentro',
-              helperText: 'Este establecimiento está dividido',
+              labelText: 'Subcentro (opcional)',
+              helperText:
+                  'Solo si el acta es de una división del establecimiento',
               border: OutlineInputBorder(),
               isDense: true,
             ),
             items: [
+              const DropdownMenuItem<SubcentroCosto?>(
+                value: null,
+                child: Text(
+                  'Acta del establecimiento (sin subcentro)',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               for (final sub in _centro!.subcentrosActivos)
-                DropdownMenuItem(
+                DropdownMenuItem<SubcentroCosto?>(
                   value: sub,
                   child: Text(sub.nombre, overflow: TextOverflow.ellipsis),
                 ),
@@ -8311,20 +8583,8 @@ class _RegistrarActaSheetState extends State<_RegistrarActaSheet> {
 
   Future<void> _save() async {
     if (_centro == null) return;
-    // Si el establecimiento está dividido, "Cómbita" a secas no identifica
-    // nada: el acta es de Alta o de Media, y después no hay forma de saber
-    // cuál era.
-    if (_centro!.subcentrosActivos.isNotEmpty && _subcentro == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: const Color(0xFFB91C1C),
-          content: Text(
-            '${_centro!.nombre} está dividido: elige el subcentro.',
-          ),
-        ),
-      );
-      return;
-    }
+    // Ya no se exige subcentro en establecimientos divididos: el acta sin
+    // subcentro es la del establecimiento como tal (18 sep 2026).
     if (_extracting) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

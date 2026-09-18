@@ -51,6 +51,11 @@ void main() {
     inicio: iniciada ? VisitaMarca(at: Timestamp.now()) : null,
     respuestas: respuestas,
     cumplimiento: cumplimiento,
+    // Desde el 17 sep 2026 el cierre exige responsable del sitio y las dos
+    // firmas; estos tests son de ítems, así que vienen puestas.
+    responsableEstablecimiento: const VisitaResponsable(nombre: 'Ana'),
+    firmaProfesional: const VisitaFirma(nombre: 'Miguel', modo: 'dibujada'),
+    firmaEstablecimiento: const VisitaFirma(nombre: 'Ana', modo: 'dibujada'),
   );
 
   const cumple = VisitaRespuesta(resultado: kItemCumple);
@@ -164,7 +169,7 @@ void main() {
         'a': noCumpleConObs,
         'b': cumple,
       });
-      expect(h.map((x) => x.item.id), ['a', 'c']);
+      expect(h.map((x) => x.clave), ['a', 'c']);
     });
 
     test('el título dice área, establecimiento y qué falló', () {
@@ -172,7 +177,7 @@ void main() {
       final h = hallazgosDeVisita(formato, {'a': noCumpleConObs}).single;
       expect(
         tituloTareaHallazgo(v, h),
-        'Visita Calidad · Cómbita Alta: Personal con carné',
+        'Visita Calidad · Cómbita Alta: Ítem 1: Personal con carné',
       );
       expect(descripcionTareaHallazgo(v, h), contains('yogures vencidos'));
     });

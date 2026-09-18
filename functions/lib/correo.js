@@ -47,6 +47,7 @@ const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const storage_1 = require("firebase-admin/storage");
 const correo_alert_policy_1 = require("./correo_alert_policy");
+const gd_cierre_policy_1 = require("./gd_cierre_policy");
 const crypto_1 = require("crypto");
 const whatsapp_1 = require("./whatsapp");
 const notification_branding_1 = require("./notification_branding");
@@ -3114,7 +3115,7 @@ exports.gdTerminarExpediente = functions
     .https.onCall(async (data, context) => {
     const caller = await requireCorreoAccess(data, context, ["operador"]);
     const expedienteId = text(data?.expedienteId);
-    if (!expedienteId) {
+    if (!expedienteId || expedienteId.includes("/")) {
         throw new functions.https.HttpsError("invalid-argument", "El expediente es obligatorio.");
     }
     const expedienteRef = db().collection("TBL_GD_EXPEDIENTES").doc(expedienteId);
@@ -3132,13 +3133,37 @@ exports.gdTerminarExpediente = functions
         throw new functions.https.HttpsError("permission-denied", "Solo el responsable asignado o un administrador del módulo puede " +
             "terminar este proceso.");
     }
+    // El cierre lleva motivo y justificación: cerrar sin responder (un correo
+    // que no nos compete, una circular informativa) tiene que quedar explicado
+    // con palabras en el expediente y en la bitácora, no deducirse después.
+    const validado = (0, gd_cierre_policy_1.validateGdCierre)({
+        motivo: data?.motivoCierre,
+        justificacion: data?.justificacion,
+        tieneRespuesta: (0, correo_alert_policy_1.correspondenceHasResponse)(expediente.data() ?? {}),
+    });
+    if ("error" in validado) {
+        throw new functions.https.HttpsError("invalid-argument", validado.error);
+    }
+    const { cierre } = validado;
+    const soporte = await gdCierreSoporte({
+        empresaId: caller.empresaId,
+        expedienteId,
+        userId: caller.userId,
+        storagePath: text(data?.soporteStoragePath),
+    });
     const tareaId = text(expediente.get("tareaId"));
     const cerradorNombre = await userName(caller.userId);
+    const cerradoPorTercero = esAdministrador && responsableId !== caller.userId;
+    const detalleCierre = (0, gd_cierre_policy_1.gdCierreEventDetail)({ cerradoPorTercero, cierre });
     const batch = db().batch();
     batch.set(expedienteRef, {
         estado: "terminado",
         terminadoPor: caller.userId,
         terminadoAt: admin.firestore.FieldValue.serverTimestamp(),
+        cierreMotivo: cierre.motivo,
+        cierreJustificacion: cierre.justificacion,
+        cierreSinRespuesta: cierre.sinRespuesta,
+        ...(soporte ? { cierreSoportes: admin.firestore.FieldValue.arrayUnion([soporte]) } : {}),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     if (tareaId) {
@@ -3146,6 +3171,8 @@ exports.gdTerminarExpediente = functions
         // finalizar: no se toca `estado` a "finalizado" aquí, solo se abre la
         // solicitud. Quien aparezca en `aprobador_uid` la confirma desde
         // "Tareas por aprobar", como con cualquier otra tarea de la app.
+        // El aprobador ve el motivo en el último evento de la tarea, para que
+        // no tenga que abrir el expediente a averiguar por qué se cerró.
         batch.set(db().collection("TBL_TAREAS").doc(tareaId), {
             estado: "por_aprobar",
             status: "por_aprobar",
@@ -3153,27 +3180,63 @@ exports.gdTerminarExpediente = functions
             solicitud_finalizacion_at: admin.firestore.FieldValue.serverTimestamp(),
             solicitud_finalizacion_by_uid: caller.userId,
             solicitud_finalizacion_by_nombre: cerradorNombre,
+            solicitud_finalizacion_motivo: cierre.motivo,
+            solicitud_finalizacion_justificacion: cierre.justificacion,
             lastEventType: "solicitud_finalizacion",
             lastEventAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastEventText: `Solicitud de finalización enviada por ${cerradorNombre}`,
+            lastEventText: `Solicitud de finalización enviada por ${cerradorNombre}. ${detalleCierre}`,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
     }
-    const cerradoPorTercero = esAdministrador && responsableId !== caller.userId;
     batch.create(db().collection("TBL_GD_EXPEDIENTES_EVENTOS").doc(), correspondenceEvent({
         empresaId: caller.empresaId,
         expedienteId,
-        type: "proceso_terminado",
+        type: cierre.sinRespuesta ? "proceso_terminado_sin_respuesta" : "proceso_terminado",
         userId: caller.userId,
-        // Que lo cierre un administrador en lugar del responsable tiene que
-        // quedar dicho en la bitácora, no deducirse comparando cédulas.
-        detail: cerradoPorTercero
-            ? "Un administrador del módulo marcó el proceso como terminado."
-            : "El responsable marcó el proceso como terminado.",
+        // Que lo cierre un administrador en lugar del responsable, y por qué,
+        // tiene que quedar dicho en la bitácora, no deducirse comparando
+        // cédulas ni mirando si `enviadoAt` está vacío.
+        detail: soporte ? `${detalleCierre} Soporte: ${soporte.nombre}.` : detalleCierre,
     }));
     await batch.commit();
     return { ok: true };
 });
+/**
+ * Soporte opcional del cierre (pantallazo o PDF que explica por qué se cierra:
+ * el correo donde otra entidad asumió el caso, por ejemplo). El cliente lo
+ * sube a `.../soportes-cierre/{userId}/` y aquí se verifica que exista y sea
+ * del expediente y de quien cierra, igual que el soporte de "Ya contesté".
+ * @param {object} input Empresa, expediente, quien cierra y ruta en Storage.
+ * @return {Promise<Record<string, unknown> | null>} Metadatos del soporte, o null si no se adjuntó.
+ */
+async function gdCierreSoporte(input) {
+    const path = input.storagePath;
+    if (!path)
+        return null;
+    const prefix = `gestion_documental/correspondencia/${input.empresaId}/${input.expedienteId}/soportes-cierre/${input.userId}/`;
+    if (!path.startsWith(prefix) || path.slice(prefix.length).includes("/") || path.includes("..")) {
+        throw new functions.https.HttpsError("invalid-argument", "Adjunta un soporte de este expediente.");
+    }
+    const file = admin.storage().bucket().file(path);
+    let metadata;
+    try {
+        [metadata] = await file.getMetadata();
+    }
+    catch (_) {
+        throw new functions.https.HttpsError("failed-precondition", "El soporte no está disponible. Adjunta de nuevo.");
+    }
+    const mime = text(metadata.contentType);
+    const size = Number(metadata.size);
+    if (!["image/png", "image/jpeg", "application/pdf"].includes(mime) || !size || size > 10 * 1024 * 1024) {
+        throw new functions.https.HttpsError("invalid-argument", "El soporte debe ser PNG, JPG o PDF de hasta 10 MB.");
+    }
+    return {
+        nombre: path.slice(prefix.length).replace(/^\d+_/, ""),
+        storagePath: path, mimeType: mime, size,
+        downloadUrl: await (0, storage_1.getDownloadURL)(file),
+        origen: "cierre",
+    };
+}
 /** Reintenta la descarga del cuerpo y adjuntos del correo original. */
 exports.correoPrepararExpediente = functions
     .region(REGION)

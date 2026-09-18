@@ -112,13 +112,16 @@ bool puedeReasignarResponsable(String rol) =>
 /// El maestro contiene la matriz completa de responsabilidades: quién responde
 /// por cada uno de los 141 numerales. Cambiarlo mueve el trabajo de todo el
 /// mundo, así que se reserva a la administración del módulo y a gerencia.
+///
+/// Instrucción del 17 sep 2026: el maestro sale ÚNICA y exclusivamente para
+/// dirección, gerencia y la administración del módulo. Calidad lo consultaba
+/// desde el 11 sep y queda fuera; Directivo entra en solo lectura (editar la
+/// regla sigue siendo de administración y gerencia: ver
+/// `puedeEditarMaestroSubsanaciones`).
 const Set<String> kInterventoriaRolesMaestro = {
   kRolInterventoriaAdmin,
   kRolInterventoriaGerente,
-  // Calidad lo CONSULTA (11 sep 2026): necesita saber quién responde por
-  // cada numeral para hacer el seguimiento. Editar la regla sigue siendo
-  // de administración y gerencia: ver `puedeEditarMaestroSubsanaciones`.
-  kRolInterventoriaCalidad,
+  kRolInterventoriaDirectivo,
 };
 
 bool puedeConsultarMaestroSubsanaciones(String rol) =>
@@ -654,6 +657,99 @@ Map<String, dynamic>? reglaGuardada(
     if (legado is Map) return Map<String, dynamic>.from(legado);
   }
   return null;
+}
+
+/// Reglas guardadas que pertenecen a una familia de acta.
+///
+/// Con [familia] nula se devuelven todas. Las claves sin `::` son reglas
+/// anteriores a que existieran varias actas y solo valen para la regular, igual
+/// que en [reglaGuardada]: copiarlas a otra familia les inventaría responsables.
+Map<String, dynamic> reglasDeFamilia(
+  Map<String, dynamic> reglas,
+  String? familia,
+) {
+  if (familia == null) return Map<String, dynamic>.from(reglas);
+  final out = <String, dynamic>{};
+  for (final entry in reglas.entries) {
+    if (entry.value is! Map) continue;
+    final clave = entry.key;
+    final sep = clave.indexOf('::');
+    final familiaClave = sep == -1 ? kActaRegular : clave.substring(0, sep);
+    if (familiaClave == familia) out[clave] = entry.value;
+  }
+  return out;
+}
+
+/// Cargos que nombran las [reglas] y que no existen entre [cargosDestino].
+///
+/// Las reglas guardan el cargo por NOMBRE y cada empresa tiene su propio
+/// TBL_CARGOS: una regla copiada tal cual a una empresa donde ese cargo no
+/// existe queda sin resolver a nadie, y el hallazgo se queda huérfano sin que
+/// nada lo avise. Por eso se advierte antes de copiar. Se compara con
+/// [normalizarCargo], que es como se resuelve el responsable real.
+List<String> cargosSinEquivalenteEnDestino(
+  Map<String, dynamic> reglas,
+  Iterable<String> cargosDestino,
+) {
+  final existentes = cargosDestino.map(normalizarCargo).toSet();
+  final faltantes = <String, String>{};
+  for (final raw in reglas.values) {
+    if (raw is! Map) continue;
+    final cargos = [
+      ...cargosDeRegla(raw['responsables'], raw['responsable']),
+      ...cargosDeRegla(raw['aprobadores'], raw['aprobador']),
+    ];
+    for (final cargo in cargos) {
+      final clave = normalizarCargo(cargo);
+      if (!existentes.contains(clave)) {
+        faltantes.putIfAbsent(clave, () => cargo);
+      }
+    }
+  }
+  final out = faltantes.values.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return out;
+}
+
+/// Empresa a la que se le pueden copiar las reglas del maestro.
+class InterventoriaEmpresaCopiaReglas {
+  final String id;
+  final String nombre;
+
+  /// El usuario administra Interventoría allí (`admin_interventoria` o
+  /// desarrollador). Las reglas de Firestore solo dejan escribir
+  /// `TBL_INTERVENTORIA_CONFIG` a ese rol: ofrecer la empresa sin este permiso
+  /// sería prometer una copia que va a fallar.
+  final bool administra;
+
+  /// Reglas que ya tiene guardadas, por clave. Sirve para avisar cuántas se
+  /// van a pisar y para calcular los cargos faltantes.
+  final Map<String, dynamic> reglasActuales;
+
+  /// Nombres de TBL_CARGOS de esa empresa.
+  final List<String> cargos;
+
+  const InterventoriaEmpresaCopiaReglas({
+    required this.id,
+    required this.nombre,
+    required this.administra,
+    this.reglasActuales = const {},
+    this.cargos = const [],
+  });
+}
+
+/// Qué pasó al copiar las reglas a una empresa.
+class InterventoriaResultadoCopiaReglas {
+  final int copiadas;
+
+  /// Reglas que ya existían en el destino y se conservaron porque no se pidió
+  /// reemplazar.
+  final int conservadas;
+
+  const InterventoriaResultadoCopiaReglas({
+    required this.copiadas,
+    required this.conservadas,
+  });
 }
 
 /// Lee los cargos de un rol dentro de una regla guardada.
@@ -1415,6 +1511,10 @@ class InterventoriaComparativoActa {
   /// detalle otra.
   final List<InterventoriaDetalleSeccion> detalle;
 
+  /// Tipo del acta que produjo la barra (regular, seguimiento…). Va en el
+  /// punto por la misma razón que [detalle]: el detalle describe ESA acta.
+  final String? tipoActa;
+
   const InterventoriaComparativoActa({
     required this.visitaId,
     required this.centroCostoId,
@@ -1423,6 +1523,7 @@ class InterventoriaComparativoActa {
     required this.fecha,
     required this.valor,
     this.detalle = const [],
+    this.tipoActa,
   });
 }
 
@@ -1448,13 +1549,6 @@ String claveComparativo(InterventoriaVisita visita) {
   // centro que venga.
   return _claveNombre(nombreComparativo(visita));
 }
-
-/// ¿El acta tiene subcentro?
-bool _tieneSubcentro(InterventoriaVisita v) => claveSubcentro(
-  v.centroCostoNombre,
-  v.subcentroId,
-  v.subcentroNombre,
-).isNotEmpty;
 
 String _claveNombre(String value) {
   const origen = 'áéíóúÁÉÍÓÚäëïöüÄËÏÖÜñÑ';
@@ -1499,20 +1593,13 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
     }
   }
 
-  // Un establecimiento dividido se muestra por sus partes y nada más. Su
-  // acta SIN subcentro es de antes de la división y no se puede atribuir a
-  // Alta ni a Media: no va al comparativo (sigue en el histórico y en la
-  // línea de tiempo del establecimiento). Pintarla como "Cómbita" a secas
-  // parecía una tercera parte; Oscar pidió dos barras, no tres.
-  final divididos = <String>{
-    for (final v in ultimas.values)
-      if (_tieneSubcentro(v)) _claveNombre(v.centroCostoNombre),
-  };
-  ultimas.removeWhere(
-    (_, v) =>
-        !_tieneSubcentro(v) &&
-        divididos.contains(_claveNombre(v.centroCostoNombre)),
-  );
+  // El acta SIN subcentro de un establecimiento dividido es una barra
+  // propia ("Cómbita"), junto a las de sus subcentros ("Cómbita Alta",
+  // "Cómbita Media"). Hasta el 18 sep 2026 se ocultaba —Oscar había pedido
+  // dos barras, no tres— porque se entendía como el acta de antes de la
+  // división. Ya no: el establecimiento tiene su propia acta, independiente
+  // de la de cada subcentro, y el subcentro dejó de ser obligatorio al
+  // registrar. Esconderla era esconder un acta legítima.
 
   final puntos = ultimas.values.map((visita) {
     final valor = valorCategoriaAnalisis(visita, categoriaKey);
@@ -1524,6 +1611,7 @@ List<InterventoriaComparativoActa> compararUltimaActaPorEstablecimiento(
       fecha: visita.fechaVisita.toDate(),
       valor: valor,
       detalle: detalleSeccionesDeVisita(visita),
+      tipoActa: visita.tipoActa,
     );
   }).toList();
 
@@ -2012,6 +2100,39 @@ bool puedeEditarActaDevuelta({
   return esAdminDesarrollo ||
       visita.creadoPor.trim() == uid ||
       visita.correccionResponsableId.trim() == uid;
+}
+
+/// Quien registró el acta la corrige él mismo mientras nadie la haya
+/// revisado.
+///
+/// En Fase 1 ("Por revisar") el acta es solo suya: no hay observaciones de
+/// calidad ni hallazgos asignados que una corrección pueda pisar. Pedir la
+/// eliminación para volver a subir todo —que era lo que hacían los
+/// administradores al equivocarse— borraba el PDF, los puntajes y el
+/// historial por un dato mal puesto. Corregir en sitio conserva todo eso y
+/// deja el acta en "Devuelta" hasta que la guarde, igual que una devolución
+/// de calidad, así que mientras tanto no aparece en la bandeja del revisor.
+bool puedeCorregirActaPropia({
+  required InterventoriaVisita visita,
+  required String userId,
+}) {
+  final uid = userId.trim();
+  if (uid.isEmpty) return false;
+  // Ya está abierta para corrección: el botón es "Corregir", no este.
+  if (esActaDevueltaParaCorreccion(visita)) return false;
+  if (visita.faseActa != 'puntajes') return false;
+  return visita.creadoPor.trim() == uid;
+}
+
+/// Un acta ya revisada (o registrada por otra persona) no se corrige por
+/// cuenta propia: se solicita, y quien aprueba la deja en "Devuelta" a nombre
+/// del solicitante en vez de eliminarla.
+bool puedeSolicitarCorreccionActa({
+  required InterventoriaVisita visita,
+  required String userId,
+}) {
+  if (esActaDevueltaParaCorreccion(visita)) return false;
+  return !puedeCorregirActaPropia(visita: visita, userId: userId);
 }
 
 /// El motivo de la devolución es obligatorio.

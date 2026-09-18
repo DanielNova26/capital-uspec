@@ -9,6 +9,57 @@ import { loadCompanyNotificationBranding } from "./notification_branding";
 
 const REGION = "us-central1";
 
+/** Avisa una sola vez a Calidad cuando Bodega registra una recepción. */
+export const comprasNotificarRecepcionCalidad = functions
+  .region(REGION)
+  .firestore.document("TBL_COMPRAS_RECEPCIONES/{recepcionId}")
+  .onCreate(async (snapshot, context) => {
+    const data = snapshot.data() || {};
+    const empresaId = text(data.empresaId);
+    if (!empresaId) return null;
+    const roles = await admin.firestore().collection("TBL_COMPRAS_ROLES")
+      .where("empresaId", "==", empresaId).get();
+    const recipients = new Set<string>();
+    for (const role of roles.docs) {
+      if (normalize(role.get("rol")) !== "calidad") continue;
+      const userId = comprasRoleRecipient(role);
+      if (userId) recipients.add(userId);
+    }
+    if (!recipients.size) {
+      console.warn("COMPRAS_RECEPCION_SIN_CALIDAD", {
+        empresaId, recepcionId: context.params.recepcionId,
+      });
+      return null;
+    }
+    const branding = await loadCompanyNotificationBranding(empresaId);
+    const supplier = text(data.razonSocial) || "Proveedor sin nombre";
+    const warehouse = text(data.bodega);
+    const order = text(data.ordenCompra);
+    const recepcionId = context.params.recepcionId;
+    const notificationId = `compras_recepcion_calidad_${recepcionId}`;
+    await Promise.all([...recipients].map(async (userId) => {
+      const ref = admin.firestore().collection("TBL_NOTIFICACIONES")
+        .doc(userId).collection("notifications").doc(notificationId);
+      await admin.firestore().runTransaction(async (transaction) => {
+        const existing = await transaction.get(ref);
+        if (existing.exists) return;
+        transaction.create(ref, {
+          id: notificationId,
+          title: `${branding.emoji} Recepción pendiente de revisión`,
+          description: `${supplier}${warehouse ? ` · ${warehouse}` : ""}` +
+            `${order ? ` · Orden ${order}` : ""}. Revisa antes del despacho.`,
+          type: "recepcion_cargada_calidad",
+          taskId: `recepcion:${recepcionId}`,
+          module: "compras_bodega",
+          empresaId,
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+    }));
+    return null;
+  });
+
 function text(value: unknown): string {
   return (value ?? "").toString().trim();
 }

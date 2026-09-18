@@ -6,6 +6,154 @@ con nombre y foto (nunca cédula cruda ni letra suelta).
 
 ---
 
+## Visitas: formato SST oficial, ubicación obligatoria, firmas y calendario — 17 sep 2026 (Claude)
+
+Origen: el Excel "FORMATO INSPECCIÓN SST, EXTINTOR Y BOTIQUÍN" (F-UT-SST-02,
+-03 y -01) que el contrato exige diligenciar en una visita mensual por
+establecimiento. Pedido del usuario: sincronizarlo con el cronograma, que
+jefes y profesionales puedan mover el calendario, ubicación en tiempo real
+obligatoria con cercanía al sitio, firma del profesional y del responsable
+del establecimiento (dibujada o guardada, como en Planillas), y PDF por
+visita y de fin de mes. Todo va sobre el módulo Visitas existente; no hay
+módulo nuevo.
+
+**Decisiones acordadas en la sesión**
+- Una sola visita HSE cubre las tres hojas; un solo PDF con las tres partes.
+- Maestro de ubicaciones propio (`TBL_VISITAS_UBICACIONES`), lo carga solo
+  Desarrollo, radio corto (150 m por defecto, editable por establecimiento).
+  Sin GPS, sin referencia en el maestro o fuera del radio → no se inicia.
+
+**Modelo (`visitas_models.dart`)**
+- `VisitaFormatoItem` gana `tipo` (`calificacion` 1/0/NA, `si_no`,
+  `elemento` con cantidad y vencimiento), `parte` (código de hoja) y
+  `unidad`. `VisitaFormato` gana `partes` y `tablas` (filas dinámicas con
+  campos de texto y de estado B/M/R/NC).
+- `VisitaRespuesta` gana `cantidad`, `vencimiento` y `accion` (plan de
+  acción). Nuevos: `VisitaFilaTabla`, `VisitaFirma` (PNG como Blob en el
+  documento + URL en Storage, igual que la firma interna de GD),
+  `VisitaResponsable`, `VisitaReprogramacion`, `VisitaUbicacion`.
+- `VisitaMarca` guarda `distanciaMetros` y `dentroDelRadio` calculados al
+  momento, para que el informe no dependa de que la referencia siga igual.
+- Lógica pura: `distanciaMetros` (haversine), `verificarUbicacionInicio`
+  (descuenta la precisión del GPS hasta 100 m), `validarCierreVisita` exige
+  tablas completas, responsable del sitio y las dos firmas;
+  `hallazgosDeVisita` incluye filas en M/NC; `resumenDeVisita` por parte.
+  Corregido de paso: `total` del resumen ahora respeta el filtro por parte.
+- `visitasPuedeReprogramar` (jefe cualquiera programada; profesional la
+  suya) y `visitasPuedeGestionarUbicaciones` (solo desarrollador).
+
+**Formato oficial (`visitas_formato_sst.dart`, nuevo)**
+- Generado desde el Excel con script: 77 ítems de diagnóstico en 14
+  secciones, tabla de extintores (6 textos + 13 estados), botiquín con 4
+  chequeos sí/no, 25 elementos con unidad y 3 de camilla. Ids estables
+  (`sst02_01`, `sst01_e01`, …). El borrador HSE de la semilla se retiró; el
+  oficial se siembra vigente y hay botón "Cargar formato SST oficial" en
+  Formatos (mismo docId: actualiza, no duplica). El "84" de la calificación
+  máxima del Excel era un número viejo: el formato real tiene 77 ítems y el
+  PDF lo calcula (`N − NA`).
+
+**Servicio (`visitas_service.dart`)**
+- `iniciar()` ahora exige responsable/ciudad/cargo, resuelve la referencia
+  (subcentro → centro), verifica y lanza `VisitasException` con el motivo.
+- `reprogramar()` con historial y notificación cruzada (jefe ↔ profesional).
+- Maestro: `streamUbicaciones`, `guardarUbicacion`, `ubicacionPara`.
+- Firmas: `firmaGuardadaDe` (lee el perfil vía `GdService`) y `firmar()`.
+- `guardarFilas`, `guardarEncabezado`, `cargoDe`, `cargarFormatoSst`.
+
+**Pantallas**
+- `visitas_ubicaciones_screen.dart` (nuevo): pestaña "Ubicaciones" solo para
+  el desarrollador; lista centros y subcentros, marca en rojo los que no
+  tienen coordenadas, diálogo con lat/lng/radio/ciudad, "Usar mi ubicación"
+  (web y móvil) y "Buscar dirección" (solo móvil: el plugin no corre en web).
+- `visitas_firma.dart` (nuevo): diálogo de firma (trazo con `signature`, o
+  "mi firma guardada" para el profesional), `FirmaTile`, diálogo de
+  reprogramar.
+- Dashboard: pantalla de inicio con estado de la referencia y encabezado
+  del acta; formato por partes con tarjetas por tipo, tabla de extintores
+  (diálogo por fila con "Todo Bueno"), encabezado editable, firmas y cierre;
+  detalle con reprogramar, firmas, filas y distancia; editor de formatos
+  conserva tipo/parte/unidad y tablas al guardar.
+- Home: las visitas salen en el calendario (`_calType: 'visita'`): las
+  asignadas al usuario y, si es jefe o desarrollador, las que programó.
+  Tocar abre el módulo. Solo se suscribe si tiene el módulo en sus accesos.
+
+**PDF (`visitas_informe_pdf.dart`)**
+- Con partes: una hoja por parte replicando el Excel (encabezado con
+  código/versión/página/elaboración, DATOS, criterios, ítems con subtotal
+  por sección, calificación máxima/real y % total; extintores apaisado con
+  "Mejora y seguimiento" alimentado por los hallazgos; botiquín con unidad,
+  cantidad y vencimiento) y firmas al pie de cada hoja con nombre, cargo y
+  fecha/hora. Sin partes, el informe sencillo de antes más firmas.
+- Consolidado mensual: columnas hallazgos, distancia al sitio y si está
+  firmada.
+
+**Reglas Firestore (`firestore.rules`) — EDITADAS, NO DESPLEGADAS**
+- `TBL_VISITAS` update: reprogramar (jefe y profesional dueño, solo
+  `fechaProgramada`+`reprogramaciones`); iniciar lleva encabezado; en curso
+  admite `tablas`, encabezado y las dos firmas; el cierre NO puede tocar
+  firmas. Se reordenó para evaluar lo barato antes de los `get()` de rol.
+- `TBL_VISITAS_UBICACIONES`: lee quien participa en Visitas, escribe solo
+  Desarrollo. Excluida del comodín final.
+- Tests: `functions/test/visitas_profesionales.rules.js` (8 casos, verdes
+  en el emulador). Observación: en los rechazos el emulador avisa "maximum
+  of 1000 expressions" al caer al comodín `/{collection}`; ya pasaba con
+  las reglas anteriores y los permitidos no lo tocan.
+
+**Pruebas**: `test/visitas/visitas_sst_test.dart` (19 casos) +
+`visitas_models_test.dart` ajustado (el cierre ahora exige firmas).
+
+**Pendiente / para decidir**
+- Desplegar `firestore.rules` (sin eso, reprogramar, tablas y firmas dan
+  permission-denied a jefes y profesionales; el desarrollador tampoco
+  pasa el update).
+- Cargar el maestro de ubicaciones de todos los establecimientos.
+- Índice compuesto para el calendario del Home: `TBL_VISITAS`
+  (`empresaId`, `asignadoPorId`) — Firestore lo pedirá la primera vez.
+- El plan de acción del PDF toma "Responsable" = responsable del
+  establecimiento y "Fecha" = 5 días; si HSE quiere otro plazo, se
+  parametriza en el formato.
+
+---
+
+## Compras: Bodega puede quitar el archivo rechazado y cronómetro de Calidad — 17 sep 2026 (Claude)
+
+Origen: pedido directo. Bodega, al corregir una recepción rechazada, no podía
+eliminar el archivo ni entendía cómo volverlo a subir; y nadie sabía cuánto
+tarda Calidad en decidir sobre lo que cargan Compras y Bodega.
+
+**Corrección de recepción (`compras_dashboard_screen.dart`)**
+- `_DocAttachButton` pinta el botón "Eliminar documento" también en móvil
+  (antes solo web). En web, sobre un documento rechazado, "Agregar" pasa a
+  "Reemplazar" en rojo: es la acción real.
+- `_ProductoEntryCard.onWebDeleteDoc` → `onDeleteDoc`; la ficha técnica
+  dentro de la tarjeta también lo recibe.
+- `_NuevaRecepcionScreen` habilita eliminar en modo corrección
+  (`_eliminarDocProducto`). Sobre un rechazado deja el estado y el motivo
+  sin archivo, así la zona de carga sigue mostrando por qué se rechazó; si
+  intentan reenviar sin subir nada, `validarCorreccionesRecepcion` lo
+  detiene. El archivo en Storage no se borra (política del módulo).
+
+**Cronómetro de Calidad (`compras_tiempos_calidad.dart`, nuevo)**
+- `tiempoCalidadDocumento(doc)`: desde `fechaSubida` hasta `fechaRevision`
+  (aprobado, rechazado o consultado). Pendiente → sigue corriendo. Si hubo
+  reversión de Admin, la espera reinicia desde `fechaReversion`. Sin
+  gestión de calidad o sin fechas → nada. No hay campos nuevos en Firestore.
+- `tiempoCalidadRecepcion(r)`: primer documento cargado → última decisión;
+  basta uno pendiente para que siga en curso.
+- `TiempoCalidadBadge`: "En Calidad hace 2 d 4 h" (ámbar; rojo a partir de
+  `kEsperaCalidadAlerta` = 3 días) o "Calidad respondió en 1 d 3 h" (verde).
+  Se refresca solo cada minuto mientras corre.
+- Dónde sale: en cada documento del formulario (móvil y web), junto a
+  "Subió:" en las tarjetas de la bandeja de Calidad (recepción, proveedor y
+  ficha) y a nivel de recepción en el listado de Recepciones.
+- Pruebas: `test/compras/compras_tiempos_calidad_test.dart` (12 casos).
+
+Pendiente si lo piden: medir también lo que tarda Bodega en corregir (del
+rechazo a la nueva carga); hoy la fecha del rechazo se pierde al reemplazar
+el archivo y habría que conservarla en el `DocAdjunto`.
+
+---
+
 ## Biblioteca Documental: carpetas, alias, normograma y check de Calidad — 14 sep 2026 (Codex, cerrado por Claude)
 
 Origen: reunión del 12 sep 2026 (notas de Gemini). Oscar pidió tres cosas
@@ -5732,3 +5880,209 @@ pero el nombre no llegaba por dos causas:
 Las observaciones antiguas que guardaron la cédula en `autorNombre` se
 resuelven al abrir la hoja (`_idDe`: `autorId` o, si venía vacío, la cédula
 de `autorNombre`). Prueba nueva: `test/core/user_directory_nombre_test.dart`.
+
+## Interventoría en Gerencia + hora de subida del acta (17 sep 2026)
+
+**Histórico de actas (Interventoría).** Debajo de la fecha de la visita,
+cada tarjeta muestra en letra pequeña "Subida el dd/MM/yyyy HH:mm": es
+`fechaRegistro`, que se fija en el primer guardado y no cambia con
+correcciones ni revisiones, así que es la hora real en que el registrador
+subió el acta.
+
+**Pestaña "Interventoría" en Gerencia** (`lib/gerencia/gerencia_interventoria_tab.dart`).
+Consulta gerencial de `TBL_INTERVENTORIA_HALLAZGOS`, solo lectura:
+
+- Buscador por palabra clave (establecimiento, numeral, descripción, área,
+  responsable, observaciones, plan de mejora, seguimientos); ignora tildes,
+  espacios y mayúsculas.
+- Filtro de fecha a fecha sobre la fecha del hallazgo, con accesos rápidos
+  de 30/60 días o todo el histórico; filtro por estado (tarjetas KPI) y por
+  área (catálogo vía `AreaCatalogo`, nunca ids crudos).
+- Gráfica de barras agrupada por establecimiento, área, numeral o acta,
+  cada barra partida por estado (activo / por aprobar / subsanado). Clic en
+  una barra abre el detalle con la lista de esos hallazgos, paginada de a
+  20; clic en un hallazgo abre el mismo panel del módulo
+  (`mostrarPanelHallazgo`) con `canWrite: false`.
+- Respeta la empresa elegida en Gerencia; con "Todas las empresas" consulta
+  hasta 10 con `whereIn` (`InterventoriaService.streamHallazgosEmpresas`).
+- La pestaña se pinta aunque la empresa no tenga tareas: va antes del
+  "Aún no hay tareas para analizar".
+
+Pendiente de definición: las actas no tienen número consecutivo, así que la
+agrupación "Acta" las identifica por establecimiento + fecha de visita.
+
+## Maestro de subsanaciones: quién lo ve y copia entre empresas (17 sep 2026)
+
+**Acceso.** La pestaña "Maestro" de Interventoría sale única y exclusivamente
+para Directivo, Gerente y Administrador del módulo (`kInterventoriaRolesMaestro`),
+además del usuario desarrollador. Calidad, que lo consultaba desde el 11 sep,
+queda fuera. Editar la regla sigue siendo solo de administración y gerencia;
+Directivo entra en solo lectura.
+
+**Copiar a otras empresas.** Botón en la cabecera del maestro (solo para quien
+puede editar y cuando la empresa tiene reglas propias). Abre un diálogo con:
+
+- Qué copiar: solo el acta que se está viendo o todas las actas. Las reglas
+  viejas (clave sin familia) solo viajan con la regular, igual que al leerlas.
+- Reemplazar o completar: con "reemplazar" apagado se conservan los numerales
+  que el destino ya tenía.
+- Empresas destino: todas las del usuario, pero solo se pueden marcar aquellas
+  donde es `admin_interventoria` (o desarrollador), que es lo único que
+  `firestore.rules` deja escribir en `TBL_INTERVENTORIA_CONFIG`. Cada empresa
+  muestra cuántas reglas tiene, cuántas se pisan y **qué cargos de las reglas
+  no existen en su TBL_CARGOS**: las reglas van por nombre de cargo y una regla
+  con un cargo inexistente deja el hallazgo sin responsable.
+
+Cada destino se escribe en su propia transacción; las reglas copiadas quedan
+con `copiadoDe: <empresa origen>`, `actualizadoPor` y `actualizadoEn`.
+
+Pendiente conocido (no tocado): `puedeEditarMaestroSubsanaciones` deja editar a
+Gerente, pero `firestore.rules` solo permite escribir la config al rol
+`admin_interventoria`; un gerente que edite o copie recibe permiso denegado.
+
+## Interventoría: el registrador corrige el acta en vez de pedir que la borren (17 sep 2026)
+
+Los administradores de establecimiento (registradores) se equivocaban en un
+dato, pedían la eliminación del acta y luego tenían que subir todo otra vez.
+El mecanismo de corrección en sitio ya existía (calidad "devuelve" el acta,
+queda en `faseActa: 'devuelta'`, botón "Corregir", al guardar vuelve a
+"Por revisar" conservando PDF, puntajes e historial), pero solo lo podía
+disparar calidad/gerencia. Ahora:
+
+- **Acta propia sin revisar (Fase 1, `puntajes`)** → botón "Corregir acta"
+  en el histórico. Pide el motivo (mismo mínimo que una devolución), deja el
+  acta en `devuelta` a nombre del propio registrador —sin tarea— y abre el
+  formulario de una vez. `puedeCorregirActaPropia` /
+  `InterventoriaService.abrirCorreccionPropia` (transacción: si calidad la
+  revisó entre el clic y el guardado, se rechaza). En `devoluciones` queda
+  con `autocorreccion: true` para no contarla como devolución de calidad.
+- **Acta ya revisada (o de otra persona)** → botón "Solicitar corrección"
+  (reemplaza a "Solicitar eliminación" para quien no puede borrar). Va por
+  la misma función y colección que la eliminación con `accion: 'correccion'`
+  (`solicitarCorreccionActa`). Al aprobarla, el backend
+  (`returnVisitaForCorrection` en `interventoria_deletion.ts`) deja el acta
+  en `devuelta` con `correccionResponsableId` = solicitante y le notifica
+  (`interventoria_acta_devuelta`, abre el histórico); no borra nada.
+- La pestaña "Permisos de borrado" pasa a llamarse **"Solicitudes"** y
+  distingue las dos: icono, texto y botón "Aprobar corrección" /
+  "Aprobar eliminación". Las solicitudes viejas sin `accion` siguen siendo
+  eliminaciones.
+- Los roles aprobadores conservan "Eliminar acta" directo para duplicados;
+  el diálogo del registrador le dice que si el acta está repetida lo indique
+  en el motivo.
+
+Pruebas: `test/interventoria/interventoria_models_test.dart` (grupo
+"corrección por quien registró el acta") y
+`functions/test/interventoria_deletion.test.js` (`requestAction`).
+
+**Requiere desplegar functions** (`interventoriaSolicitarEliminacion` y
+`interventoriaResolverEliminacion`). Hasta entonces "Solicitar corrección"
+crea la solicitud sin `accion` y se trataría como eliminación: el botón
+"Corregir acta" de Fase 1 sí funciona sin deploy porque es solo cliente.
+
+## Correspondencia: cerrar con motivo, justificación y soporte (17 sep 2026)
+
+Pedido de la operación: a veces al abogado le llega algo que **no se va a
+responder** (un correo de otra EPS que no nos corresponde, una circular
+informativa, un duplicado) y no había manera de terminar la asignación
+dejando dicho por qué. "Terminar proceso" cerraba en silencio, y después
+nadie sabía si se atendió o se descartó.
+
+**Dónde vive.** En el mismo botón **Terminar proceso** del detalle del
+expediente (no en la mesa de colaboración: esa sigue siendo para discutir
+entre varios; el cierre es una decisión de quien lo tiene asignado o del
+administrador del módulo, con los mismos permisos de antes).
+
+**Qué pide el diálogo.**
+- **Motivo** del catálogo `GdMotivoCierre` (mismo catálogo en
+  `functions/src/gd_cierre_policy.ts`): gestión completa · no corresponde a
+  la entidad · no requiere respuesta · duplicado · otro.
+- **Justificación**: obligatoria (mínimo 10 caracteres) siempre que el motivo
+  no sea "gestión completa" **y** siempre que el expediente se cierre sin
+  respuesta registrada, aunque el motivo sea "gestión completa". El backend
+  lo vuelve a exigir (`validateGdCierre`), así que no depende del cliente.
+- **Soporte** opcional: PNG/JPG/PDF hasta 10 MB (el correo donde otra entidad
+  asumió el caso, por ejemplo). Sube a
+  `gestion_documental/correspondencia/{empresaId}/{expedienteId}/soportes-cierre/{userId}/`,
+  hermano de `soportes-contestado/` que ya funciona; `storage.rules` no está
+  en el repo, conviene confirmar la regla en la primera carga.
+- Si no hay respuesta registrada, el diálogo lo avisa y preselecciona "No
+  corresponde a la entidad" (se puede cambiar).
+
+**Qué queda guardado** en `TBL_GD_EXPEDIENTES`: `cierreMotivo`,
+`cierreJustificacion`, `cierreSinRespuesta` (lo fija el backend mirando si
+había respuesta al cerrar), `cierreSoportes[]`, además de `terminadoPor` y
+`terminadoAt` que ya existían. En `TBL_GD_EXPEDIENTES_EVENTOS` el evento es
+`proceso_terminado` o `proceso_terminado_sin_respuesta`, con el motivo, la
+justificación y el nombre del soporte en el detalle. La tarea vinculada
+sigue pasando a `por_aprobar` (mismo contrato de siempre) pero `lastEventText`
+y `solicitud_finalizacion_motivo/_justificacion` llevan el motivo, así que el
+aprobador lo ve en "Tareas por aprobar" sin abrir el expediente.
+
+**Dónde se ve.**
+- Detalle → "Cierre del proceso": motivo, "cerrado sin respuesta" cuando
+  aplica, quién (con `UserAvatar`/`UserNameText`), cuándo, la justificación y
+  el soporte descargable.
+- Lista maestra y tabla de control: los cierres sin respuesta van en ámbar
+  con la etiqueta "Cerrado sin respuesta" (los terminados con respuesta
+  siguen en verde) y una línea "Cierre: {motivo}".
+- Excel: tres columnas nuevas al final (Motivo de cierre, Justificación del
+  cierre, Cerrado sin respuesta).
+
+Los cierres anteriores a esta versión no tienen motivo: se muestran como
+antes y, si no tenían respuesta, se leen como "cerrado sin respuesta"
+(`cerradoSinRespuesta` mira la marca del backend **o** la ausencia de
+respuesta).
+
+Pruebas: `functions/test/gd_cierre_policy.test.js` y
+`test/gestion_documental/gd_cierre_expediente_test.dart`. Falta desplegar
+`gdTerminarExpediente` (`npm run deploy` en `functions/`); mientras no se
+despliegue, el cliente manda los campos nuevos y la función vieja los ignora
+(cierra sin motivo, como antes).
+
+## Gerencia → Interventoría: responsable con jefe inmediato; Análisis muestra el tipo de acta (18 sep 2026)
+
+**Informe de Gerencia** (`gerencia_interventoria_tab.dart`):
+- Filtro **Responsable** (quienes tienen hallazgos en el conjunto cargado,
+  por nombre) y agrupaciones nuevas de la gráfica: **por responsable**,
+  **por administrador de establecimiento** y **por director de área**.
+- En el detalle de cada hallazgo, además de "Responsable: X", salen
+  "Administrador del establecimiento: Y" y "Director del área: Z", que es a
+  quien Gerencia escala. Se decidió NO usar el "jefe directo" de Talento
+  Humano (`jefeId` de la ficha): es un dato de la persona, no de quién
+  responde por el hallazgo.
+  - Administrador: `resolverPrimerCargoQueResuelva(['Administrador'],
+    centroCostoId, personal)`, solo si es del centro — mismo criterio que la
+    devolución de actas.
+  - Director: `resolverDirectorDeArea` (extraído de `getDirectorDeArea`): la
+    persona de mayor cargo dentro del área, comparando el área por
+    `AreaCatalogo.contiene` y no por id. Prueba nueva:
+    `test/interventoria/interventoria_director_area_test.dart`.
+  - El personal por empresa se carga una vez por conjunto de empresas con
+    `listarUsuariosAsignables` (área puenteada por cargo); los resolvedores
+    se cachean por centro y por área.
+- La palabra clave también encuentra por nombre del responsable, del
+  administrador y del director.
+
+**Análisis (Interventoría)**: el punto del comparativo
+(`InterventoriaComparativoActa.tipoActa`) lleva el tipo del acta, y los dos
+diálogos de detalle —clic en la barra y clic en una celda de la tabla— lo
+muestran junto a la fecha ("Última acta: 12/09/2026 · Seguimiento").
+
+## Interventoría: el subcentro ya no es obligatorio al registrar el acta (18 sep 2026)
+
+En un establecimiento dividido el formulario exigía elegir subcentro y no
+dejaba guardar sin él. Los establecimientos tienen su propia acta,
+independiente de la de cada subcentro, así que ahora el desplegable es
+opcional: "Acta del establecimiento (sin subcentro)" es la primera opción y
+solo se elige un subcentro cuando el acta es de esa división. Se quitó la
+validación de `_save` y se actualizó el texto de ayuda del maestro de
+subcentros en Admin.
+
+**Comparativo de Análisis**: el acta sin subcentro de un establecimiento
+dividido ya es una barra propia ("Cómbita" junto a "Cómbita Alta" y
+"Cómbita Media"). Antes se ocultaba —decisión "dos barras, no tres" de la
+reunión con Oscar, cuando esa acta se entendía como anterior a la
+división—; confirmado el 18 sep 2026 que el establecimiento tiene su propia
+acta, se quitó ese filtro en `compararUltimaActaPorEstablecimiento` y se
+actualizó la prueba en `interventoria_visita_items_test.dart`.

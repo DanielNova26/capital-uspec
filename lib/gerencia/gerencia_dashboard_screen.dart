@@ -13,12 +13,18 @@ import '../widgets/internal_module_layout.dart';
 import '../widgets/user_avatar.dart';
 import '../core/area_directory.dart';
 import '../widgets/paged_list.dart';
+import 'gerencia_interventoria_tab.dart';
 
 const String kTodasEmpresasValue = '__todas_empresas__';
 const List<InternalModuleTabItem> _kGerenciaModuleTabs = [
   InternalModuleTabItem(label: 'Dashboard', icon: Icons.dashboard_outlined),
   InternalModuleTabItem(label: 'Puntos', icon: Icons.leaderboard_outlined),
+  InternalModuleTabItem(
+    label: 'Interventoría',
+    icon: Icons.fact_check_outlined,
+  ),
 ];
+const int _kTabInterventoria = 2;
 
 DateTime? _toDate(dynamic v) {
   if (v is Timestamp) return v.toDate();
@@ -358,7 +364,22 @@ class _GerenciaDashboardScreenState extends State<GerenciaDashboardScreen> {
                       compact: !isDesktop,
                     ),
                     Expanded(
-                      child: isDesktop
+                      // Interventoría no depende de TBL_TAREAS: va antes del
+                      // "aún no hay tareas" para que una empresa sin tareas
+                      // igual vea sus hallazgos.
+                      child: _selectedTab == _kTabInterventoria
+                          ? GerenciaInterventoriaTab(
+                              userId: widget.userId,
+                              empresaIds: empresasFiltro.take(10).toList(),
+                              areas: AreaCatalogo.desde(
+                                bootstrap.areas.entries.map(
+                                  (e) => (id: e.key, nombre: e.value),
+                                ),
+                              ),
+                              usuarios: bootstrap.users,
+                              isDesktop: isDesktop,
+                            )
+                          : isDesktop
                           ? _buildDesktopLayout(
                               context: context,
                               bootstrap: bootstrap,

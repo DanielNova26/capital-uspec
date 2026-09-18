@@ -56,6 +56,61 @@ extension GdEstadoExpedienteX on GdEstadoExpediente {
   };
 }
 
+/// Motivo con el que se cerró (o se va a cerrar) un expediente.
+///
+/// Cerrar no es lo mismo que contestar: un correo de otra entidad que no nos
+/// compete se cierra sin respuesta, y eso tiene que quedar dicho con palabras.
+/// Mismo catálogo que `functions/src/gd_cierre_policy.ts`; el backend rechaza
+/// un valor que no esté aquí.
+enum GdMotivoCierre {
+  gestionCompleta('gestion_completa', 'Gestión completa'),
+  noCorresponde('no_corresponde', 'No corresponde a la entidad'),
+  noRequiereRespuesta('no_requiere_respuesta', 'No requiere respuesta'),
+  duplicado('duplicado', 'Duplicado de otro expediente'),
+  otro('otro', 'Otro motivo');
+
+  const GdMotivoCierre(this.valor, this.etiqueta);
+  final String valor;
+  final String etiqueta;
+
+  /// Ayuda corta bajo cada opción del diálogo de cierre.
+  String get descripcion => switch (this) {
+    GdMotivoCierre.gestionCompleta =>
+      'Se atendió lo solicitado y no queda nada pendiente.',
+    GdMotivoCierre.noCorresponde =>
+      'Llegó por error o es competencia de otra entidad; no se responde.',
+    GdMotivoCierre.noRequiereRespuesta =>
+      'Es informativo (una circular, un acuse) y no pide contestación.',
+    GdMotivoCierre.duplicado =>
+      'Ya existe otro expediente con el mismo asunto; se gestiona por aquel.',
+    GdMotivoCierre.otro => 'Explica el caso en la justificación.',
+  };
+
+  static GdMotivoCierre? desde(String? valor) {
+    final clean = (valor ?? '').trim().toLowerCase();
+    for (final m in values) {
+      if (m.valor == clean) return m;
+    }
+    return null;
+  }
+
+  /// Etiqueta legible para un valor guardado, aunque venga de una versión que
+  /// no conozca este catálogo.
+  static String etiquetaDe(String? valor) =>
+      desde(valor)?.etiqueta ?? (valor ?? '').trim();
+}
+
+/// Mínimo de caracteres de la justificación cuando es obligatoria (mismo
+/// umbral que el backend).
+const int kGdCierreJustificacionMin = 10;
+
+/// La justificación es obligatoria cuando el motivo no es "gestión completa"
+/// o cuando el expediente se cierra sin respuesta registrada.
+bool gdCierreExigeJustificacion({
+  required GdMotivoCierre motivo,
+  required bool tieneRespuesta,
+}) => motivo != GdMotivoCierre.gestionCompleta || !tieneRespuesta;
+
 class GdCorrespondenciaAdjunto {
   final String nombre;
   final String mimeType;
@@ -184,6 +239,16 @@ class GdExpediente {
   /// No se descargan: el archivo vive en el correo enviado.
   final List<String> respuestaAdjuntosNombres;
 
+  /// Cómo se cerró el proceso: quién, cuándo, con qué motivo del catálogo
+  /// [GdMotivoCierre], qué dijo y con qué soporte. `cierreSinRespuesta` lo fija
+  /// el backend mirando si había respuesta registrada al momento de cerrar.
+  final String terminadoPor;
+  final DateTime? terminadoAt;
+  final String cierreMotivo;
+  final String cierreJustificacion;
+  final bool cierreSinRespuesta;
+  final List<GdCorrespondenciaAdjunto> cierreSoportes;
+
   const GdExpediente({
     required this.id,
     required this.empresaId,
@@ -243,6 +308,12 @@ class GdExpediente {
     this.respuestaExternaRegistradaPor = '',
     this.respuestaRemitente = '',
     this.respuestaAdjuntosNombres = const [],
+    this.terminadoPor = '',
+    this.terminadoAt,
+    this.cierreMotivo = '',
+    this.cierreJustificacion = '',
+    this.cierreSinRespuesta = false,
+    this.cierreSoportes = const [],
   });
 
   factory GdExpediente.fromFirestore(
@@ -334,6 +405,14 @@ class GdExpediente {
                 .where((e) => e.trim().isNotEmpty)
                 .toList()
           : const [],
+      terminadoPor: (data['terminadoPor'] ?? '').toString(),
+      terminadoAt: _gdDate(data['terminadoAt']),
+      cierreMotivo: (data['cierreMotivo'] ?? '').toString(),
+      cierreJustificacion: (data['cierreJustificacion'] ?? '').toString(),
+      cierreSinRespuesta: data['cierreSinRespuesta'] == true,
+      cierreSoportes: _gdMapList(
+        data['cierreSoportes'],
+      ).map(GdCorrespondenciaAdjunto.fromMap).toList(),
     );
   }
 
@@ -442,6 +521,28 @@ class GdExpediente {
   /// Fecha en que se contestó, venga de donde venga la respuesta.
   DateTime? get fechaRespuesta =>
       enviadoAt ?? respuestaExternaRegistradaAt ?? ultimoCorreoSalienteAt;
+
+  /// Motivo del cierre, si se registró con el catálogo. Nulo en cierres
+  /// anteriores a esta versión y en expedientes abiertos.
+  GdMotivoCierre? get motivoCierre => GdMotivoCierre.desde(cierreMotivo);
+
+  /// Etiqueta del motivo, o vacío si no hay motivo registrado.
+  String get motivoCierreEtiqueta => GdMotivoCierre.etiquetaDe(cierreMotivo);
+
+  /// Se cerró sin contestar. Vale tanto para cierres con motivo registrado
+  /// como para los históricos: si está terminado y no hay respuesta, fue sin
+  /// respuesta aunque nadie lo haya dicho en su momento.
+  bool get cerradoSinRespuesta => terminado && (cierreSinRespuesta || !respondido);
+
+  /// Resumen del cierre para listas y exportes: "Terminado · No corresponde a
+  /// la entidad · sin respuesta". Vacío mientras el proceso está abierto.
+  String get resumenCierre {
+    if (!terminado) return '';
+    final partes = <String>['Terminado'];
+    if (motivoCierreEtiqueta.isNotEmpty) partes.add(motivoCierreEtiqueta);
+    if (cerradoSinRespuesta) partes.add('sin respuesta');
+    return partes.join(' · ');
+  }
 }
 
 class GdExpedienteEvento {

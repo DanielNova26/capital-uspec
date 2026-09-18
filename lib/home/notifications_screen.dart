@@ -17,6 +17,7 @@ import '../compras/compras_dashboard_screen.dart';
 import '../nutricion/nutricion_dashboard_screen.dart';
 import '../rutas/rutas_dashboard_screen.dart';
 import '../rutas/rutas_models.dart';
+import '../visitas/visitas_navigation.dart';
 import '../talento_humano/hoja_de_vida_screen.dart';
 import 'assigned_tasks_screen.dart';
 import 'created_tasks_screen.dart';
@@ -28,13 +29,22 @@ const Color kMarronOscuro = Color(0xFF145DA0);
 bool _isRutasEvidenceRejected(String type) =>
     type.trim().toLowerCase() == 'rutas_evidencia_rechazada';
 
-bool _isInterventoriaActaEliminada(String type) =>
-    type.trim().toLowerCase() == 'interventoria_acta_eliminada';
+/// Acta eliminada ("carga la nueva versión") o devuelta para corregir
+/// ("ya puedes editarla"): las dos abren el histórico de Interventoría.
+bool _isInterventoriaActaEliminada(String type) {
+  final t = type.trim().toLowerCase();
+  return t == 'interventoria_acta_eliminada' ||
+      t == 'interventoria_acta_devuelta';
+}
+
+bool _isInterventoriaDeleteRequest(String type) =>
+    type.trim().toLowerCase() == 'interventoria_delete_request';
 
 Future<bool> _openInterventoriaFromNotification(
   BuildContext context, {
   required String userId,
   String? empresaId,
+  String? deleteRequestId,
 }) async {
   final eid = (empresaId ?? '').trim();
   if (eid.isEmpty) {
@@ -49,7 +59,12 @@ Future<bool> _openInterventoriaFromNotification(
     context,
     MaterialPageRoute(
       builder: (_) =>
-          InterventoriaDashboardScreen(userId: userId, empresaId: eid),
+          InterventoriaDashboardScreen(
+            userId: userId,
+            empresaId: eid,
+            openDeleteRequests: deleteRequestId != null,
+            focusedDeleteRequestId: deleteRequestId,
+          ),
     ),
   );
   return true;
@@ -104,6 +119,25 @@ Future<bool> _openNotificationTask(
     return _openRutasModuleFromNotification(
       context,
       cedula: cedula,
+      empresaId: empresaId,
+    );
+  }
+
+  if (_isInterventoriaDeleteRequest(type)) {
+    return _openInterventoriaFromNotification(
+      context,
+      userId: cedula,
+      empresaId: empresaId,
+      deleteRequestId: taskId,
+    );
+  }
+
+  if (type == 'visita_programada' ||
+      type == 'visita_terminada' ||
+      taskId.startsWith('visita:')) {
+    return abrirVisitasDesdeNotificacion(
+      context,
+      userId: cedula,
       empresaId: empresaId,
     );
   }
@@ -164,7 +198,9 @@ Future<bool> _openNotificationTask(
     }
     return context.mounted;
   }
-  if ((type == 'recepcion_doc_rechazado' || type == 'documento_por_vencer') &&
+  if ((type == 'recepcion_cargada_calidad' ||
+          type == 'recepcion_doc_rechazado' ||
+          type == 'documento_por_vencer') &&
       taskId.startsWith('recepcion:')) {
     if (context.mounted) {
       await abrirDetalleRecepcionCompras(
@@ -494,7 +530,8 @@ class _NotificationList extends StatelessWidget {
     if (t.contains('assigned')) return 'Asignación';
     if (t.contains('avance') || t.contains('progress')) return 'Avance';
     if (t.contains('novedad') || t.contains('news')) return 'Novedad';
-    if (t.contains('recepcion_doc_rechazado')) return 'Compras/Bodega';
+    if (t.contains('recepcion_cargada_calidad') ||
+        t.contains('recepcion_doc_rechazado')) return 'Compras/Bodega';
     if (t.contains('finaliz') ||
         t.contains('aprobad') ||
         t.contains('complet')) {
@@ -903,6 +940,26 @@ class _NotificationList extends StatelessWidget {
                                           await doc.reference.update({
                                             'read': true,
                                           });
+                                        } catch (_) {}
+                                      }
+                                      return;
+                                    }
+
+                                    if (_isInterventoriaDeleteRequest(type)) {
+                                      final opened =
+                                          await _openInterventoriaFromNotification(
+                                            context,
+                                            userId: userId,
+                                            empresaId: notifEmpresaId.isNotEmpty
+                                                ? notifEmpresaId
+                                                : empresaId,
+                                            deleteRequestId:
+                                                (data['sourceEntityId'] ?? '')
+                                                    .toString(),
+                                          );
+                                      if (opened && !isRead) {
+                                        try {
+                                          await doc.reference.update({'read': true});
                                         } catch (_) {}
                                       }
                                       return;

@@ -92,6 +92,17 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _abastecimientoSub;
   String? _lastAbastecimientoKey;
   String? _abastecimientoRol;
+
+  // ── Visitas de profesionales en el calendario (17 sep 2026) ─────────────
+  // Dos consultas porque las reglas solo dejan leer las propias (profesional)
+  // o todas las de la empresa (jefe): las que me asignaron y, si soy jefe o
+  // desarrollador, las que programé. Cada una a su mapa; se unen en
+  // _getEventsForDay().
+  Map<String, List<Map<String, dynamic>>> _visitasMiasEvents = {};
+  Map<String, List<Map<String, dynamic>>> _visitasJefeEvents = {};
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _visitasMiasSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _visitasJefeSub;
+  String? _lastVisitasKey;
   String? _lastSyncedActiveCedula;
 
   // Con el módulo de Tareas apagado no se consulta TBL_TAREAS. Son campos y no
@@ -409,7 +420,96 @@ class _HomeScreenState extends State<HomeScreen> {
     final tasks = _events[key] ?? [];
     final citas = _citasEvents[key] ?? [];
     final abastecimiento = _abastecimientoEvents[key] ?? [];
-    return [...tasks, ...citas, ...abastecimiento];
+    final visitas = [
+      ...?_visitasMiasEvents[key],
+      // Una visita que me programé a mí mismo ya está en el primer mapa.
+      ...?_visitasJefeEvents[key]?.where(
+        (v) => (_visitasMiasEvents[key] ?? const []).every(
+          (m) => m['id'] != v['id'],
+        ),
+      ),
+    ];
+    return [...tasks, ...citas, ...abastecimiento, ...visitas];
+  }
+
+  Map<String, List<Map<String, dynamic>>> _visitasAEventos(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) {
+    final events = <String, List<Map<String, dynamic>>>{};
+    for (final d in snap.docs) {
+      final v = VisitaProfesional.fromMap(d.id, d.data());
+      if (v.estado == kVisitaCancelada) continue;
+      final k = DateFormat('yyyy-MM-dd').format(v.fechaProgramada);
+      events.putIfAbsent(k, () => []).add({
+        'id': v.id,
+        'empresaId': v.empresaId,
+        '_calType': 'visita',
+        'titulo': 'Visita ${v.areaNombre} · ${v.establecimiento}',
+        'description': [
+          v.profesionalNombre,
+          kVisitaEstadosLabel[v.estado] ?? v.estado,
+          if (v.cumplimiento != null) '${v.cumplimiento}%',
+          if (v.reprogramaciones.isNotEmpty) 'reprogramada',
+        ].join(' · '),
+        'estado': v.estado,
+        'profesionalId': v.profesionalId,
+      });
+    }
+    return events;
+  }
+
+  /// Suscribe las visitas del calendario. Solo re-suscribe si cambia
+  /// cédula/empresa. La consulta de jefe se abre solo si el usuario tiene
+  /// ese rol (o es desarrollador): las reglas la rechazarían para un
+  /// profesional y el error quedaría en la consola sin necesidad.
+  Future<void> _restartVisitasSubscription(
+    String cedula,
+    String empresaId,
+    Map<String, dynamic> userData,
+  ) async {
+    final key = '$cedula:$empresaId';
+    if (_lastVisitasKey == key) return;
+    _lastVisitasKey = key;
+    _visitasMiasSub?.cancel();
+    _visitasJefeSub?.cancel();
+    _visitasMiasEvents = {};
+    _visitasJefeEvents = {};
+
+    final col = FirebaseFirestore.instance.collection(kVisitasCol);
+    _visitasMiasSub = col
+        .where('empresaId', isEqualTo: empresaId)
+        .where('profesionalId', isEqualTo: cedula)
+        .snapshots()
+        .listen(
+          (snap) {
+            if (mounted && _lastVisitasKey == key) {
+              setState(() => _visitasMiasEvents = _visitasAEventos(snap));
+            }
+          },
+          onError: (_) {},
+        );
+
+    String? rol;
+    try {
+      rol = await VisitasService().getRolUsuario(empresaId, cedula);
+    } catch (_) {}
+    if (!mounted || _lastVisitasKey != key) return;
+    final esJefe =
+        rol == kVisitasRolJefe ||
+        isDeveloperUser(userData, empresaId: empresaId);
+    if (!esJefe) return;
+    _visitasJefeSub = col
+        .where('empresaId', isEqualTo: empresaId)
+        .where('asignadoPorId', isEqualTo: cedula)
+        .snapshots()
+        .listen(
+          (snap) {
+            if (mounted && _lastVisitasKey == key) {
+              setState(() => _visitasJefeEvents = _visitasAEventos(snap));
+            }
+          },
+          onError: (_) {},
+        );
   }
 
   /// Suscribe (o re-suscribe) a TBL_CITAS_NUTRICION para el cedula+empresa activa.
@@ -612,6 +712,7 @@ class _HomeScreenState extends State<HomeScreen> {
               empresaId: empresaId,
               rol: rol,
               nombreUsuario: nombre.isEmpty ? userId : nombre,
+              esDesarrollador: isDeveloperUser(userData, empresaId: empresaId),
             ),
           ),
         );
@@ -774,6 +875,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _notifSub?.cancel();
     _citasSub?.cancel();
     _abastecimientoSub?.cancel();
+    _visitasMiasSub?.cancel();
+    _visitasJefeSub?.cancel();
     super.dispose();
   }
 
@@ -811,6 +914,14 @@ class _HomeScreenState extends State<HomeScreen> {
         final isDev = isDeveloperUser(userData, empresaId: scopeEmpresa);
         final nombreUsuario =
             userData['primerNombre'] ?? userData['nombres'] ?? cedula;
+        // Visitas en el calendario: solo si el módulo está en sus accesos
+        // (o es desarrollador); de lo contrario las reglas rechazarían la
+        // consulta. Re-suscribe solo cuando cambia cédula/empresa.
+        if (isDev || apps.contains(kVisitasAppId)) {
+          unawaited(
+            _restartVisitasSubscription(cedula, scopeEmpresa, userData),
+          );
+        }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
@@ -1743,6 +1854,65 @@ class _HomeScreenState extends State<HomeScreen> {
       children: tasks.map((t) {
         final esCita = t['_calType'] == 'cita_nutricion';
         final esAbastecimiento = t['_calType'] == 'abastecimiento';
+        final esVisita = t['_calType'] == 'visita';
+
+        if (esVisita) {
+          // ── Visita de profesional ─────────────────────────────────────────
+          final description = (t['description'] ?? '').toString();
+          final terminada = t['estado'] == kVisitaTerminada;
+          const color = kVisitasColor;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: color.withValues(alpha: 0.28)),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 5,
+              ),
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  terminada
+                      ? Icons.fact_check_rounded
+                      : Icons.fact_check_outlined,
+                  color: color,
+                  size: 20,
+                ),
+              ),
+              title: Text(
+                _titleOf(t),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontFamily: kArial,
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: description.isEmpty
+                  ? null
+                  : Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+              trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+              onTap: () => _abrirVisitas(
+                context,
+                cedula,
+                (t['empresaId'] as String?) ?? scopeEmpresa,
+                userData,
+              ),
+            ),
+          );
+        }
 
         if (esCita) {
           // ── Evento de Nutrición ───────────────────────────────────────────

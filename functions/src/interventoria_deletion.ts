@@ -16,6 +16,21 @@ const APPROVER_ROLES = new Set([
 
 type EntityType = "visita" | "hallazgo";
 
+/**
+ * Qué se pide sobre la entidad. Las solicitudes anteriores al 17 sep 2026
+ * no traen el campo: son eliminaciones.
+ *
+ * "correccion" solo aplica a actas: al aprobarse, el acta queda en "Devuelta"
+ * a nombre de quien la pidió —el mismo estado que deja calidad al devolverla—
+ * y no se borra nada. Es la salida para el administrador que se equivocó en
+ * un dato y antes tenía que pedir la eliminación y subir todo de nuevo.
+ */
+type RequestAction = "eliminacion" | "correccion";
+
+export function requestAction(value: unknown): RequestAction {
+  return clean(value, 20) === "correccion" ? "correccion" : "eliminacion";
+}
+
 function clean(value: unknown, max = 500): string {
   return (value ?? "").toString().trim().slice(0, max);
 }
@@ -243,6 +258,53 @@ async function deleteVisita(
   await batch.commit();
 }
 
+/**
+ * Deja el acta en "Devuelta" a nombre de quien pidió corregirla.
+ *
+ * Es el mismo estado —y los mismos campos— que escribe el cliente cuando
+ * calidad devuelve un acta (`InterventoriaService.devolverActaParaCorreccion`),
+ * así que el botón "Corregir" del histórico y `corregirActaDevuelta` la
+ * aceptan sin un camino aparte. No crea tarea: quien la pidió ya sabe que
+ * tiene que corregirla y recibe la notificación.
+ * @param {FirebaseFirestore.DocumentReference} ref Documento del acta.
+ * @param {object} info Solicitud, motivo, solicitante y quien aprueba.
+ */
+async function returnVisitaForCorrection(
+  ref: FirebaseFirestore.DocumentReference,
+  info: {
+    requestId: string;
+    reason: string;
+    comment: string;
+    requesterId: string;
+    requesterName: string;
+    actorId: string;
+    actorName: string;
+  }
+): Promise<void> {
+  const motivo = [
+    `Corrección solicitada por ${info.requesterName || info.requesterId}: ${info.reason}`,
+    info.comment,
+  ].filter(Boolean).join(" · ");
+  await ref.update({
+    faseActa: "devuelta",
+    devolucionMotivo: motivo,
+    devolucionPorId: info.actorId,
+    devolucionPorNombre: info.actorName,
+    devolucionEn: admin.firestore.FieldValue.serverTimestamp(),
+    devoluciones: admin.firestore.FieldValue.arrayUnion({
+      motivo,
+      porId: info.actorId,
+      porNombre: info.actorName,
+      fecha: admin.firestore.Timestamp.now(),
+      solicitadaPorId: info.requesterId,
+      solicitudId: info.requestId,
+    }),
+    correccionResponsableId: info.requesterId,
+    correccionResponsableNombre: info.requesterName,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
 export const interventoriaSolicitarEliminacion = functions
   .region(REGION)
   .runWith({memory: "256MB", timeoutSeconds: 120})
@@ -250,6 +312,7 @@ export const interventoriaSolicitarEliminacion = functions
     const input = (raw ?? {}) as Record<string, unknown>;
     const actor = await requireActor(input, context);
     const type = clean(input.tipo, 30) as EntityType;
+    const action = requestAction(input.accion);
     const entityId = clean(input.entidadId, 512);
     const reason = clean(input.motivo, 1200);
     if (!(["visita", "hallazgo"] as string[]).includes(type) || !entityId ||
@@ -259,11 +322,23 @@ export const interventoriaSolicitarEliminacion = functions
         "Indica la entidad y un motivo de al menos 8 caracteres."
       );
     }
+    if (action === "correccion" && type !== "visita") {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Solo las actas se corrigen; los hallazgos se eliminan."
+      );
+    }
     const entity = await admin.firestore().collection(collectionFor(type))
       .doc(entityId).get();
     const entityData = entity.data() || {};
     if (!entity.exists || clean(entityData.empresaId) !== actor.empresaId) {
       throw new functions.https.HttpsError("not-found", "El registro ya no existe.");
+    }
+    if (action === "correccion" && clean(entityData.faseActa) === "devuelta") {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "El acta ya está abierta para corrección: búscala en el histórico."
+      );
     }
     const existing = await admin.firestore().collection(REQUESTS)
       .where("empresaId", "==", actor.empresaId)
@@ -282,6 +357,7 @@ export const interventoriaSolicitarEliminacion = functions
     await request.set({
       empresaId: actor.empresaId,
       tipo: type,
+      accion: action,
       entidadId: entityId,
       entidadNombre: label,
       motivo: reason,
@@ -301,8 +377,12 @@ export const interventoriaSolicitarEliminacion = functions
     await Promise.all(recipients.map((id) => notifyUser(
       id,
       actor.empresaId,
-      "Solicitud de eliminación en Interventoría",
-      `${actor.name} solicita eliminar ${label}. Motivo: ${reason}`,
+      action === "correccion" ?
+        "Solicitud de corrección de acta" :
+        "Solicitud de eliminación en Interventoría",
+      action === "correccion" ?
+        `${actor.name} pide corregir el acta de ${label}. Motivo: ${reason}` :
+        `${actor.name} solicita eliminar ${label}. Motivo: ${reason}`,
       request.id
     )));
     return {ok: true, solicitudId: request.id, notified: recipients.length};
@@ -340,9 +420,17 @@ export const interventoriaResolverEliminacion = functions
     // cambio: Gerencia veía su solicitud del 05/09 y nadie más la resolvía.
     // Quien puede borrar directo puede cerrar lo que él mismo pidió.
     const type = clean(requestData.tipo) as EntityType;
+    const action = requestAction(requestData.accion);
     const entityId = clean(requestData.entidadId, 512);
     const entityRef = admin.firestore().collection(collectionFor(type)).doc(entityId);
     const entity = await entityRef.get();
+    const requesterId = clean(requestData.solicitadoPorId, 512);
+    if (approve && !entity.exists && action === "correccion") {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "El acta ya no existe: no hay nada que corregir."
+      );
+    }
     if (approve && entity.exists) {
       if (clean(entity.data()?.empresaId) !== actor.empresaId) {
         throw new functions.https.HttpsError(
@@ -350,13 +438,51 @@ export const interventoriaResolverEliminacion = functions
           "El registro no pertenece a la empresa activa."
         );
       }
-      if (type === "visita") {
+      if (action === "correccion") {
+        await returnVisitaForCorrection(entityRef, {
+          requestId,
+          reason: clean(requestData.motivo, 1200),
+          comment,
+          requesterId,
+          requesterName: clean(requestData.solicitadoPorNombre, 200),
+          actorId: actor.id,
+          actorName: actor.name,
+        });
+      } else if (type === "visita") {
         await deleteVisita(entityRef, entity.data() || {});
       } else {
         await deleteHallazgo(entityRef, entity.data() || {});
       }
     }
-    const requesterId = clean(requestData.solicitadoPorId, 512);
+    if (action === "correccion") {
+      if (requesterId) {
+        await notifyUser(
+          requesterId,
+          actor.empresaId,
+          approve ?
+            "Corrección aprobada: ya puedes editar el acta" :
+            "Corrección rechazada",
+          approve ?
+            `${actor.name} aprobó corregir ${clean(requestData.entidadNombre)}. ` +
+              `Ábrela en el histórico de Interventoría con "Corregir"; al guardar ` +
+              `vuelve a "Por revisar".${comment ? ` ${comment}` : ""}` :
+            `${actor.name} rechazó la corrección de ${clean(requestData.entidadNombre)}${comment ? `. ${comment}` : ""}`,
+          entityId,
+          approve ? "interventoria_acta_devuelta" : "interventoria_delete_resolved",
+          requestId
+        );
+      }
+      await requestRef.update({
+        estado: approve ? "aprobada" : "rechazada",
+        resueltoPorId: actor.id,
+        resueltoPorNombre: actor.name,
+        resueltoPorRol: actor.role,
+        comentario: comment,
+        resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return {ok: true, estado: approve ? "aprobada" : "rechazada"};
+    }
     const replacementResponsibleId = clean(
       requestData.responsableReposicionId ||
         (entity.exists ? deletedActaResponsibleId(entity.data() || {}) : ""),
@@ -383,7 +509,8 @@ export const interventoriaResolverEliminacion = functions
           actor.empresaId,
           approve ? "Eliminación aprobada" : "Eliminación rechazada",
           `${actor.name} ${approve ? "aprobó" : "rechazó"} la solicitud para ${clean(requestData.entidadNombre)}${comment ? `. ${comment}` : ""}`,
-          requestId
+          requestId,
+          "interventoria_delete_resolved"
         );
       }
     }

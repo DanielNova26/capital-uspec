@@ -405,10 +405,16 @@ class _CorrespondenceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Un cierre sin respuesta se distingue del terminado normal desde la
+    // lista: no es lo mismo "se atendió" que "se cerró porque no nos
+    // corresponde", y quien revisa el histórico no debería abrir cada uno.
     final color = switch (expediente.estadoOperativo) {
       GdEstadoExpediente.recibido => Colors.deepPurple,
       GdEstadoExpediente.asignado => _accent,
-      GdEstadoExpediente.terminado => Colors.green.shade700,
+      GdEstadoExpediente.terminado =>
+        expediente.cerradoSinRespuesta
+            ? const Color(0xFF9A3412)
+            : Colors.green.shade700,
     };
     return Material(
       color: selected ? _accent.withValues(alpha: .08) : Colors.transparent,
@@ -421,6 +427,8 @@ class _CorrespondenceTile extends StatelessWidget {
           child: Icon(
             expediente.respondido
                 ? Icons.mark_email_read_outlined
+                : expediente.cerradoSinRespuesta
+                ? Icons.do_not_disturb_on_outlined
                 : expediente.terminado
                 ? Icons.task_alt_outlined
                 : Icons.mail_outline,
@@ -437,8 +445,9 @@ class _CorrespondenceTile extends StatelessWidget {
           '${expediente.tieneAlias ? '${expediente.asunto}\n' : ''}'
           '${expediente.responsableNombre.isEmpty ? 'Sin responsable' : expediente.responsableNombre}'
           '${expediente.correoCuenta.isEmpty ? '' : '\n${_providerLabel(expediente.proveedor)} · ${expediente.correoCuenta}'}'
-          '${expediente.respondido ? '\n${_deliveryLabel(expediente)}' : ''}',
-          maxLines: 5,
+          '${expediente.respondido ? '\n${_deliveryLabel(expediente)}' : ''}'
+          '${expediente.terminado && expediente.motivoCierreEtiqueta.isNotEmpty ? '\nCierre: ${expediente.motivoCierreEtiqueta}' : ''}',
+          maxLines: 6,
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Column(
@@ -1030,17 +1039,7 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                     ? Icons.task_alt_outlined
                     : Icons.flag_outlined,
                 child: expediente.terminado
-                    ? const Row(
-                        children: [
-                          Icon(Icons.verified, color: Colors.green),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Este proceso fue terminado por su responsable. La trazabilidad permanece disponible.',
-                            ),
-                          ),
-                        ],
-                      )
+                    ? _CierreResumen(expediente: expediente)
                     : expediente.recibido
                     ? const Text(
                         'Primero asigna un responsable. El proceso permanecerá en Recibido hasta completar esa asignación.',
@@ -1054,7 +1053,10 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
                             expediente.responsableId == widget.userId
                                 ? 'Enviar una respuesta no termina el proceso. '
                                       'Cuando toda la gestión esté completa, usa '
-                                      'este botón para cerrarlo.'
+                                      'este botón para cerrarlo. Si no se va a '
+                                      'responder (no nos corresponde, es '
+                                      'informativo, está duplicado), ciérralo '
+                                      'igual: el motivo queda en la trazabilidad.'
                                 // El administrador está cerrando un proceso
                                 // ajeno: se dice explícito de quién es, para que
                                 // no sea un clic accidental.
@@ -1569,38 +1571,28 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
   }
 
   Future<void> _finish(GdExpediente expediente) async {
-    final confirmed = await showDialog<bool>(
+    final cierre = await showDialog<_CierreDecision>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Terminar proceso'),
-        content: const Text(
-          'El expediente pasará a Terminado. La tarea asociada queda en '
-          'solicitud de finalización hasta que el aprobador la confirme desde '
-          'Tareas, igual que el resto de tareas de la app. La trazabilidad y '
-          'los archivos se conservarán.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            icon: const Icon(Icons.task_alt_outlined),
-            label: const Text('Sí, terminar'),
-          ),
-        ],
-      ),
+      builder: (dialogContext) => _CierreDialog(expediente: expediente),
     );
-    if (confirmed != true) return;
+    if (cierre == null || !mounted) return;
     final success = await _run(
       () => _service.terminar(
         empresaId: widget.empresaId,
         userId: widget.userId,
         expedienteId: expediente.id,
+        motivo: cierre.motivo,
+        justificacion: cierre.justificacion,
+        soporte: cierre.soporte,
       ),
     );
-    if (success) _message('Proceso terminado correctamente.');
+    if (success) {
+      _message(
+        cierre.motivo == GdMotivoCierre.gestionCompleta
+            ? 'Proceso terminado correctamente.'
+            : 'Proceso cerrado: ${cierre.motivo.etiqueta}. El motivo quedó en la trazabilidad.',
+      );
+    }
   }
 
   /// Alias libre para reconocer el expediente después ("Tutela Pedro Pérez
@@ -1699,6 +1691,370 @@ class _GdCorrespondenciaDetailState extends State<GdCorrespondenciaDetail> {
 ///
 /// Se usa donde antes iba el botón, para que el espacio explique qué falta en
 /// vez de quedar vacío y parecer una pantalla incompleta.
+/// Lo que el usuario decidió en el diálogo de cierre.
+class _CierreDecision {
+  final GdMotivoCierre motivo;
+  final String justificacion;
+  final PlatformFile? soporte;
+  const _CierreDecision({
+    required this.motivo,
+    required this.justificacion,
+    this.soporte,
+  });
+}
+
+/// Diálogo de "Terminar proceso": motivo del catálogo, justificación y un
+/// soporte opcional.
+///
+/// La justificación se exige aquí con la misma regla del backend
+/// (`gdCierreExigeJustificacion`): siempre que el motivo no sea "gestión
+/// completa", y siempre que el expediente se cierre sin respuesta registrada.
+/// Así un correo que no nos corresponde se puede cerrar sin contestar, pero
+/// nunca sin decir por qué.
+class _CierreDialog extends StatefulWidget {
+  final GdExpediente expediente;
+  const _CierreDialog({required this.expediente});
+
+  @override
+  State<_CierreDialog> createState() => _CierreDialogState();
+}
+
+class _CierreDialogState extends State<_CierreDialog> {
+  late GdMotivoCierre _motivo;
+  final _justificacion = TextEditingController();
+  PlatformFile? _soporte;
+  String? _error;
+
+  bool get _tieneRespuesta => widget.expediente.respondido;
+
+  bool get _exigeJustificacion => gdCierreExigeJustificacion(
+    motivo: _motivo,
+    tieneRespuesta: _tieneRespuesta,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    // Sin respuesta registrada, lo más probable es que el cierre sea porque
+    // no se va a responder; se preselecciona ese motivo para que el usuario
+    // no tenga que buscarlo, pero puede cambiarlo.
+    _motivo = _tieneRespuesta
+        ? GdMotivoCierre.gestionCompleta
+        : GdMotivoCierre.noCorresponde;
+  }
+
+  @override
+  void dispose() {
+    _justificacion.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickSoporte() async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['png', 'jpg', 'jpeg', 'pdf'],
+      withData: true,
+    );
+    if (!mounted || picked == null || picked.files.isEmpty) return;
+    final file = picked.files.single;
+    if ((file.bytes?.length ?? 0) > 10 * 1024 * 1024) {
+      setState(() => _error = 'El soporte debe pesar máximo 10 MB.');
+      return;
+    }
+    setState(() {
+      _soporte = file;
+      _error = null;
+    });
+  }
+
+  void _confirm() {
+    final texto = _justificacion.text.trim();
+    if (_exigeJustificacion && texto.length < kGdCierreJustificacionMin) {
+      setState(
+        () => _error = _tieneRespuesta
+            ? 'Explica el motivo del cierre (mínimo $kGdCierreJustificacionMin caracteres).'
+            : 'Este expediente no tiene respuesta registrada: explica por qué se '
+                  'cierra sin responder (mínimo $kGdCierreJustificacionMin caracteres).',
+      );
+      return;
+    }
+    Navigator.pop(
+      context,
+      _CierreDecision(
+        motivo: _motivo,
+        justificacion: texto,
+        soporte: _soporte,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Terminar proceso'),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!_tieneRespuesta)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDBA74)),
+                  ),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 18,
+                        color: Color(0xFF9A3412),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Este expediente no tiene respuesta registrada. Se '
+                          'puede cerrar igual, pero hay que dejar escrito por '
+                          'qué no se responde.',
+                          style: TextStyle(
+                            color: Color(0xFF9A3412),
+                            fontSize: 12.5,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const Text(
+                'Motivo del cierre',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              RadioGroup<GdMotivoCierre>(
+                groupValue: _motivo,
+                onChanged: (v) => setState(() {
+                  _motivo = v ?? _motivo;
+                  _error = null;
+                }),
+                child: Column(
+                  children: [
+                    for (final m in GdMotivoCierre.values)
+                      RadioListTile<GdMotivoCierre>(
+                        value: m,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(m.etiqueta),
+                        subtitle: Text(
+                          m.descripcion,
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _justificacion,
+                minLines: 3,
+                maxLines: 6,
+                maxLength: 2000,
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
+                decoration: InputDecoration(
+                  labelText: _exigeJustificacion
+                      ? 'Justificación (obligatoria)'
+                      : 'Justificación (opcional)',
+                  hintText:
+                      'Ej.: el correo es de otra EPS y no corresponde a esta '
+                      'entidad; se informó al remitente por teléfono.',
+                  alignLabelWithHint: true,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _pickSoporte,
+                    icon: const Icon(Icons.attach_file, size: 18),
+                    label: Text(
+                      _soporte == null ? 'Adjuntar soporte' : 'Cambiar soporte',
+                    ),
+                  ),
+                  if (_soporte != null)
+                    Chip(
+                      label: Text(
+                        _soporte!.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onDeleted: () => setState(() => _soporte = null),
+                    ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Opcional: pantallazo o PDF (hasta 10 MB) que respalde el '
+                  'cierre, por ejemplo el correo donde otra entidad asumió el '
+                  'caso.',
+                  style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _error!,
+                  style: const TextStyle(
+                    color: Color(0xFFB91C1C),
+                    fontSize: 12.5,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'El expediente pasará a Terminado. La tarea asociada queda en '
+                'solicitud de finalización hasta que el aprobador la confirme '
+                'desde Tareas; el aprobador verá el motivo. La trazabilidad y '
+                'los archivos se conservan.',
+                style: TextStyle(fontSize: 12, height: 1.35),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton.icon(
+          onPressed: _confirm,
+          icon: const Icon(Icons.task_alt_outlined),
+          label: const Text('Sí, terminar'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Cómo se cerró: motivo, si fue sin respuesta, quién, cuándo, qué dijo y el
+/// soporte. Los cierres anteriores a esta versión no traen motivo; se muestra
+/// lo que haya.
+class _CierreResumen extends StatelessWidget {
+  final GdExpediente expediente;
+  const _CierreResumen({required this.expediente});
+
+  @override
+  Widget build(BuildContext context) {
+    final sinRespuesta = expediente.cerradoSinRespuesta;
+    final color = sinRespuesta ? const Color(0xFF9A3412) : Colors.green;
+    final sinDetalle =
+        expediente.motivoCierreEtiqueta.isEmpty &&
+        expediente.cierreJustificacion.trim().isEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              sinRespuesta ? Icons.do_not_disturb_on_outlined : Icons.verified,
+              color: color,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    sinRespuesta
+                        ? 'Proceso cerrado sin respuesta'
+                        : 'Proceso terminado',
+                    style: TextStyle(fontWeight: FontWeight.w800, color: color),
+                  ),
+                  if (expediente.motivoCierreEtiqueta.isNotEmpty)
+                    Text('Motivo: ${expediente.motivoCierreEtiqueta}'),
+                  if (expediente.terminadoAt != null ||
+                      expediente.terminadoPor.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 6,
+                        children: [
+                          if (expediente.terminadoPor.isNotEmpty) ...[
+                            const Text(
+                              'Cerrado por',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                            UserAvatar(
+                              userId: expediente.terminadoPor,
+                              radius: 10,
+                            ),
+                            UserNameText(
+                              expediente.terminadoPor,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ],
+                          if (expediente.terminadoAt != null)
+                            Text(
+                              'el ${_longDate(expediente.terminadoAt)}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (expediente.cierreJustificacion.trim().isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: _canvas,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        expediente.cierreJustificacion,
+                        style: const TextStyle(height: 1.4),
+                      ),
+                    ),
+                  if (sinDetalle)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Este proceso fue terminado por su responsable. La trazabilidad permanece disponible.',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (expediente.cierreSoportes.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          const Text(
+            'Soporte del cierre',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+          ),
+          ...expediente.cierreSoportes.map(
+            (a) => _AttachmentTile(attachment: a),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _SinPermisoAviso extends StatelessWidget {
   final String texto;
   const _SinPermisoAviso({required this.texto});
@@ -2055,6 +2411,7 @@ class _EmptyCorrespondence extends StatelessWidget {
 }
 
 String _stateLabel(GdExpediente value) {
+  if (value.cerradoSinRespuesta) return 'CERRADO SIN RESPUESTA';
   return value.estadoOperativo.etiqueta.toUpperCase();
 }
 
